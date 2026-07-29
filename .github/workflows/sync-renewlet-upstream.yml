@@ -96,9 +96,23 @@ jobs:
             return match;
           }
 
+          function findQueueProducer(config, binding) {
+            return Array.isArray(config.queues?.producers)
+              ? config.queues.producers.find((item) => item && typeof item === "object" && item.binding === binding)
+              : undefined;
+          }
+
+          function findQueueConsumer(config, queueName) {
+            return Array.isArray(config.queues?.consumers)
+              ? config.queues.consumers.find((item) => item && typeof item === "object" && item.queue === queueName)
+              : undefined;
+          }
+
           const config = JSON.parse(stripJsoncComments(readFileSync("wrangler.jsonc", "utf8")));
           const d1 = findBinding(config, "d1_databases", "DB");
           const r2 = findBinding(config, "r2_buckets", "ASSETS_BUCKET");
+          const queue = findQueueProducer(config, "MEDIA_ICON_INDEX_REFRESH_QUEUE");
+          const queueConsumer = queue?.queue ? findQueueConsumer(config, queue.queue) : undefined;
           writeFileSync(
             process.env.PRESERVE_PATH,
             JSON.stringify({
@@ -106,6 +120,8 @@ jobs:
               database_name: d1.database_name,
               database_id: d1.database_id,
               bucket_name: r2.bucket_name,
+              media_icon_index_refresh_queue_name: queue?.queue,
+              media_icon_index_refresh_dead_letter_queue_name: queueConsumer?.dead_letter_queue,
               vars: config.vars && typeof config.vars === "object" && !Array.isArray(config.vars) ? config.vars : {},
             }),
           );
@@ -176,14 +192,40 @@ jobs:
             return match;
           }
 
+          function findQueueProducer(config, binding) {
+            return Array.isArray(config.queues?.producers)
+              ? config.queues.producers.find((item) => item && typeof item === "object" && item.binding === binding)
+              : undefined;
+          }
+
+          function findQueueConsumer(config, queueName) {
+            return Array.isArray(config.queues?.consumers)
+              ? config.queues.consumers.find((item) => item && typeof item === "object" && item.queue === queueName)
+              : undefined;
+          }
+
           const preserved = JSON.parse(readFileSync(process.env.PRESERVE_PATH, "utf8"));
           const config = JSON.parse(stripJsoncComments(readFileSync("wrangler.jsonc", "utf8")));
           const d1 = findBinding(config, "d1_databases", "DB");
           const r2 = findBinding(config, "r2_buckets", "ASSETS_BUCKET");
+          const queue = findQueueProducer(config, "MEDIA_ICON_INDEX_REFRESH_QUEUE");
           config.name = preserved.name;
           d1.database_name = preserved.database_name;
           d1.database_id = preserved.database_id;
           r2.bucket_name = preserved.bucket_name;
+          if (queue && preserved.media_icon_index_refresh_queue_name) {
+            const templateQueueName = queue.queue;
+            queue.queue = preserved.media_icon_index_refresh_queue_name;
+            const consumer =
+              findQueueConsumer(config, templateQueueName) ??
+              findQueueConsumer(config, preserved.media_icon_index_refresh_queue_name);
+            if (consumer) {
+              consumer.queue = preserved.media_icon_index_refresh_queue_name;
+              if (preserved.media_icon_index_refresh_dead_letter_queue_name) {
+                consumer.dead_letter_queue = preserved.media_icon_index_refresh_dead_letter_queue_name;
+              }
+            }
+          }
           config.vars = {
             ...(config.vars && typeof config.vars === "object" && !Array.isArray(config.vars) ? config.vars : {}),
             ...preserved.vars,

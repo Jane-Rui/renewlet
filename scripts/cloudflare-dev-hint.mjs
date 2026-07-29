@@ -18,6 +18,8 @@ const proxyHintLines = hasProxyEnvironment()
       "  Proxy: HTTP_PROXY/HTTPS_PROXY detected; curl, Node fetch, and local workerd fetch may use different egress paths.",
       "  For Discord/PushPlus Worker tests, verify with `pnpm probe:workerd-upstream` or a deployed Cloudflare Worker.",
     ]
+  : process.platform === "darwin"
+    ? ["  Proxy: Wrangler local dev will check macOS system HTTP/HTTPS proxy before starting."]
   : [];
 
 // Wrangler 的默认 /cdn-cgi scheduled 提示会误导 Workers Static Assets 项目；Renewlet 本地固定走 --test-scheduled 注入的 /__scheduled。

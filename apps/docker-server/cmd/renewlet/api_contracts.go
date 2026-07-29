@@ -441,6 +441,7 @@ type builtInIconIndexProviderStatusResponse struct {
 	LastError       *string                             `json:"lastError"`
 	Refreshing      bool                                `json:"refreshing"`
 	UpdateAvailable bool                                `json:"updateAvailable"`
+	Job             *builtInIconRefreshJobResponse      `json:"job,omitempty"`
 }
 
 type builtInIconIndexStatusResponse struct {
@@ -460,10 +461,22 @@ type builtInIconIndexProviderCheckResponse struct {
 	ErrorDetails *upstreamErrorDetails                  `json:"errorDetails,omitempty"`
 }
 
+type builtInIconRefreshJobResponse struct {
+	ID           string  `json:"id"`
+	Provider     string  `json:"provider"`
+	Status       string  `json:"status"`
+	QueuedAt     string  `json:"queuedAt"`
+	StartedAt    *string `json:"startedAt"`
+	FinishedAt   *string `json:"finishedAt"`
+	Attempts     int     `json:"attempts"`
+	Error        *string `json:"error"`
+	IndexHash    *string `json:"indexHash"`
+}
+
 type builtInIconIndexProviderRefreshResponse struct {
-	Status       builtInIconIndexStatusResponse         `json:"status"`
-	Provider     builtInIconIndexProviderStatusResponse `json:"provider"`
-	ErrorDetails *upstreamErrorDetails                  `json:"errorDetails,omitempty"`
+	Status   builtInIconIndexStatusResponse         `json:"status"`
+	Provider builtInIconIndexProviderStatusResponse `json:"provider"`
+	Job      builtInIconRefreshJobResponse          `json:"job"`
 }
 
 // mediaCandidateResolveRequest 是 Logo/Icon 候选解析的统一入口。

@@ -13,7 +13,7 @@
 https://<worker-name>.<workers-dev-subdomain>.workers.dev/setup
 ```
 
-保持生成的部署命令为 `pnpm deploy`。Renewlet 的 deploy 脚本会先应用 D1 migrations，再发布 Worker，确保新表先创建好，更新后的 API 再开始对外服务。
+保持生成的部署命令为 `pnpm deploy`。Renewlet 会自动准备部署所需资源并发布 Worker，不需要把命令改成手写 Wrangler 步骤。
 
 ### 无法获取存储库内容
 
@@ -34,7 +34,7 @@ https://<worker-name>.<workers-dev-subdomain>.workers.dev/setup
 3. 点击 `Run workflow`。
 4. 等待 workflow 完成。
 
-这个 workflow 只在你手动点击时运行，不会定时自动更新。运行后，它会把生成仓库更新到 Renewlet 最新文件，同时保留 `wrangler.jsonc` 里的 Worker 名称、D1 database ID / name、R2 bucket 和 vars。workflow 提交完成后，Cloudflare Builds 会按这个提交自动重新部署。
+这个 workflow 只在你手动点击时运行，不会定时自动更新。运行后，它会把生成仓库更新到 Renewlet 最新文件，同时保留 `wrangler.jsonc` 里的已有 Cloudflare 资源配置和 vars。workflow 提交完成后，Cloudflare Builds 会按这个提交自动重新部署。
 
 如果 GitHub 提示 Actions 被禁用，先在生成仓库打开 `Settings` -> `Actions` -> `General`，启用 Actions，并在 `Workflow permissions` 里允许 `Read and write permissions`。
 
@@ -56,14 +56,14 @@ https://<worker-name>.<workers-dev-subdomain>.workers.dev/setup
 
 ## 手动部署（GitHub Actions）
 
-手动部署适合想自己管理 Cloudflare 资源和 GitHub Actions 的用户。准备好下面 5 个值后，在你的 fork 仓库里运行 `Cloudflare Worker`，由它应用 D1 migrations 并部署 Worker。
+手动部署适合想自己管理 Cloudflare 资源和 GitHub Actions 的用户。准备好下面 5 个值后，在你的 fork 仓库里运行 `Cloudflare Worker`，由它完成检查和部署。
 
 流程：
 
 - 检查 Cloudflare Worker 和前端类型
 - 构建 Cloudflare 前端
 - 如果 5 个 GitHub Secrets 都已配置，根据 Secrets 生成 `wrangler.generated.jsonc`
-- 如果 5 个 GitHub Secrets 都已配置，应用远端 D1 migrations 并部署 Worker
+- 如果 5 个 GitHub Secrets 都已配置，准备 Cloudflare 资源并部署 Worker
 
 如果缺少任意必需 secret，workflow 仍会运行 Cloudflare 检查和构建，然后通过 GitHub Actions notice 明确跳过远端 D1 migration 和 Worker 部署。
 
@@ -116,6 +116,8 @@ Renewlet 的 Worker binding 名固定如下：
 | `ASSETS` | Workers Static Assets | React 应用和内置图标 seed 索引 |
 | `ASSETS_BUCKET` | R2 | 私有上传 Logo/Icon |
 
+后台刷新内置图标索引会用到 Cloudflare Queues。`pnpm deploy`、GitHub Actions workflow 和下面的可选 Wrangler CLI 流程会自动创建所需 Queues，通常不需要在控制台手动管理。
+
 ### 3. 获取 CLOUDFLARE_ACCOUNT_ID
 
 直达入口：<a href="https://dash.cloudflare.com/?to=/:account/home" target="_blank" rel="noopener noreferrer">https://dash.cloudflare.com/?to=/:account/home</a>
@@ -139,7 +141,7 @@ Renewlet 的 Worker binding 名固定如下：
 
 直达入口：<a href="https://dash.cloudflare.com/?to=/:account/api-tokens" target="_blank" rel="noopener noreferrer">https://dash.cloudflare.com/?to=/:account/api-tokens</a>
 
-权限：`Edit Cloudflare Workers` + `Account` -> `D1` -> `Edit`。资源范围选部署 Renewlet 的账号；绑定自定义域名时，zone 选对应域名。
+权限：`Edit Cloudflare Workers` + `Account` -> `D1` -> `Edit` + `Queues Edit`。资源范围选部署 Renewlet 的账号；绑定自定义域名时，zone 选对应域名。
 
 1. 打开 Cloudflare Dashboard。
 2. 进入 `帐户 API 令牌` 页面。
@@ -152,7 +154,7 @@ Renewlet 的 Worker binding 名固定如下：
 
    <img src="./screenshots/cloudflare/zh/cloudflare-api-token-template.jpg" alt="Edit Cloudflare Workers" width="720">
 
-6. 在权限列表里新增一行：`Account` -> `D1` -> `Edit`。
+6. 在权限列表里新增 `Account` -> `D1` -> `Edit` 和 `Queues Edit`。
 
    <img src="./screenshots/cloudflare/zh/cloudflare-api-token-permissions-add-d1.jpg" alt="Add d1 edit" width="720">
 
@@ -233,8 +235,6 @@ https://<WORKER_NAME>.<workers-dev-subdomain>.workers.dev/setup
 
 手动部署用户：在你的 fork 里点击 `Sync fork` / `Update branch`，把 fork 更新到 Renewlet 最新版本。如果没有自动部署，进入 `Actions` 手动运行 `Cloudflare Worker`。
 
-每次 Cloudflare 升级都必须先跑 D1 migrations，再发布 Worker。`pnpm deploy` 和 GitHub Actions 都会按这个顺序执行。
-
 ## 可选：Wrangler CLI
 
 普通部署不需要使用 Wrangler CLI。只有你想在本机直接管理 Cloudflare 资源时，再使用下面的命令。
@@ -256,11 +256,13 @@ export CLOUDFLARE_ACCOUNT_ID="..."
 export WORKER_NAME="renewlet"
 export D1_DATABASE_ID="..."
 export R2_BUCKET_NAME="renewlet-assets"
+export CI_WRANGLER_CONFIG="wrangler.generated.jsonc"
 
 pnpm cloudflare:config:ci
 pnpm check:cloudflare
 pnpm build:cloudflare
 pnpm exec wrangler d1 migrations apply DB --remote --config wrangler.generated.jsonc
+pnpm cloudflare:queues:ensure
 pnpm exec wrangler deploy --config wrangler.generated.jsonc
 ```
 

@@ -8,12 +8,13 @@ import type { CustomCycleUnit } from "@renewlet/shared/runtime";
  *
  * `SETUP_ENABLED` 在 wrangler.jsonc 中有默认值，但测试和生成配置可能显式省略，运行时仍按关闭外的字符串判断。
  */
-export type Env = Omit<Cloudflare.Env, "SETUP_ENABLED"> & {
+export type Env = Omit<Cloudflare.Env, "SETUP_ENABLED" | "MEDIA_ICON_INDEX_REFRESH_QUEUE"> & {
   SETUP_ENABLED?: string;
   SESSION_TTL_DAYS?: string;
   RENEWLET_VERSION?: string;
   RENEWLET_COMMIT?: string;
   RENEWLET_BUILD_TIME?: string;
+  MEDIA_ICON_INDEX_REFRESH_QUEUE?: Queue<unknown>;
 };
 
 /** D1 users 行模型；只在 Worker 内部使用，公开用户响应必须经过 shared/admin schema。 */
@@ -302,6 +303,22 @@ export interface MediaIconIndexRow {
   checked_at: string | null;
   index_updated_at: string | null;
   locked_until: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 内置图标刷新 job；HTTP 只入队，Queue consumer 才允许写 R2 并切换 active 索引。 */
+export interface MediaIconIndexRefreshJobRow {
+  id: string;
+  provider: "thesvg" | "selfhst" | "dashboardIcons";
+  status: "queued" | "running" | "succeeded" | "failed";
+  attempts: number;
+  error: string | null;
+  index_hash?: string | null;
+  artifact_hash?: string | null;
+  queued_at: string;
+  started_at: string | null;
+  finished_at: string | null;
   created_at: string;
   updated_at: string;
 }

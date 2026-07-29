@@ -51,6 +51,26 @@
       "bucket_name": "renewlet-assets"
     }
   ],
+  "queues": {
+    "producers": [
+      {
+        // HTTP refresh 只投递后台任务；真正的官方 registry 拉取、校验和 R2/D1 切换由 consumer 执行。
+        "binding": "MEDIA_ICON_INDEX_REFRESH_QUEUE",
+        "queue": "renewlet-media-icon-index-refresh"
+      }
+    ],
+    "consumers": [
+      {
+        // 图标索引是全局 active 指针，批量和并发都固定为 1，避免两个 provider job 交错切 D1/R2。
+        "queue": "renewlet-media-icon-index-refresh",
+        "max_batch_size": 1,
+        "max_batch_timeout": 5,
+        "max_retries": 5,
+        "dead_letter_queue": "renewlet-media-icon-index-refresh-dlq",
+        "max_concurrency": 1
+      }
+    ]
+  },
   "vars": {
     // Deploy Button 会把模板 vars 暴露给用户填写；构建元信息只允许 CI 写入生成配置。
     "SETUP_ENABLED": "true"

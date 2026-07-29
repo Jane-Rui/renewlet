@@ -162,15 +162,6 @@ func handleBuiltInIconIndexProviderCheck(app core.App, e *core.RequestEvent) err
 	if err := requireEmptyRequestBody(e.Request); err != nil {
 		return e.BadRequestError(validationErrorMessage(locale, "common.invalidRequestBody", err), err)
 	}
-	if !acquireBuiltInIconIndexOperation(provider) {
-		return apiErrorJSON(e, http.StatusConflict, "MEDIA_ICON_INDEX_REFRESHING", "Built-in icon index refresh is already running", nil)
-	}
-	operationActive := true
-	defer func() {
-		if operationActive {
-			releaseBuiltInIconIndexOperation()
-		}
-	}()
 
 	ctx, cancel := context.WithTimeout(e.Request.Context(), 30*time.Second)
 	defer cancel()
@@ -178,8 +169,6 @@ func handleBuiltInIconIndexProviderCheck(app core.App, e *core.RequestEvent) err
 	version, etag, err := checkLatestBuiltInIconProviderVersion(ctx, app, provider)
 	if err != nil {
 		saveMediaIconProviderFailure(app, provider, checkedAt, err)
-		releaseBuiltInIconIndexOperation()
-		operationActive = false
 		status := builtInIconIndexStatus(app)
 		// check 只更新 provider 可见状态；GitHub 限流/断网时仍返回同形状 body，让前端展示失败 badge 而不是把弹层流程打断。
 		return apiSuccessJSON(e, http.StatusOK, builtInIconIndexProviderCheckResponse{Status: status, Provider: providerStatusFromResponse(status, provider), ErrorDetails: upstreamErrorDetailsFromError(err)})
@@ -187,8 +176,6 @@ func handleBuiltInIconIndexProviderCheck(app core.App, e *core.RequestEvent) err
 	if err := saveMediaIconProviderLatest(app, provider, checkedAt, version, etag); err != nil {
 		return e.InternalServerError(serverText(locale, "common.internalError"), err)
 	}
-	releaseBuiltInIconIndexOperation()
-	operationActive = false
 	status := builtInIconIndexStatus(app)
 	return apiSuccessJSON(e, http.StatusOK, builtInIconIndexProviderCheckResponse{Status: status, Provider: providerStatusFromResponse(status, provider)})
 }
@@ -261,7 +248,8 @@ func handleBuiltInIconIndexProviderRefresh(app core.App, e *core.RequestEvent) e
 	releaseBuiltInIconIndexOperation()
 	operationActive = false
 	status := builtInIconIndexStatus(app)
-	return apiSuccessJSON(e, http.StatusOK, builtInIconIndexProviderRefreshResponse{Status: status, Provider: providerStatusFromResponse(status, provider)})
+	job := dockerBuiltInIconRefreshJob(provider, checkedAt, encoded.hash)
+	return apiSuccessJSON(e, http.StatusOK, builtInIconIndexProviderRefreshResponse{Status: status, Provider: providerStatusFromResponse(status, provider), Job: job})
 }
 
 func builtInIconIndexStatus(app core.App) builtInIconIndexStatusResponse {
@@ -605,12 +593,18 @@ func providerStatusFromResponse(status builtInIconIndexStatusResponse, provider 
 	return builtInIconIndexProviderStatusResponse{Provider: provider}
 }
 
-func markProviderRefreshing(status *builtInIconIndexStatusResponse, provider string) {
-	status.Refreshing = true
-	for index := range status.Providers {
-		if status.Providers[index].Provider == provider {
-			status.Providers[index].Refreshing = true
-		}
+func dockerBuiltInIconRefreshJob(provider string, checkedAt string, indexHash string) builtInIconRefreshJobResponse {
+	// Docker 后端仍同步构建索引；返回同一 job shape 只作为跨运行面契约，不引入后台队列状态。
+	return builtInIconRefreshJobResponse{
+		ID:         "docker-" + provider + "-" + strings.NewReplacer(":", "", ".", "", "-", "", "T", "", "Z", "").Replace(checkedAt),
+		Provider:   provider,
+		Status:     "succeeded",
+		QueuedAt:   checkedAt,
+		StartedAt:  stringPtrOrNil(checkedAt),
+		FinishedAt: stringPtrOrNil(checkedAt),
+		Attempts:   1,
+		Error:      nil,
+		IndexHash:  stringPtrOrNil(indexHash),
 	}
 }
 
@@ -724,10 +718,6 @@ func providerCountsMap(icons []builtInIcon) map[string]int {
 		counts[icon.Provider] += 1
 	}
 	return counts
-}
-
-func providerCountsResponse(icons []builtInIcon) builtInIconProviderCountsResponse {
-	return providerCountsResponseFromMap(providerCountsMap(icons))
 }
 
 func providerCountsResponseFromMap(counts map[string]int) builtInIconProviderCountsResponse {

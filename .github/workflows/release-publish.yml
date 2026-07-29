@@ -343,6 +343,9 @@ jobs:
       - name: Apply D1 migrations
         run: pnpm exec wrangler d1 migrations apply DB --remote --config "$CI_WRANGLER_CONFIG"
 
+      - name: Ensure Cloudflare Queues
+        run: pnpm cloudflare:queues:ensure
+
       - name: Deploy Worker
         run: pnpm exec wrangler deploy --config "$CI_WRANGLER_CONFIG"
 

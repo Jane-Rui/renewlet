@@ -345,6 +345,49 @@ export function createBuiltInIconSearchIndex(icons: readonly BuiltInIcon[]): Bui
   };
 }
 
+export function mergeBuiltInIconSearchIndexes(
+  providerIndexes: Partial<Record<BuiltInIconProvider, BuiltInIconSearchIndex>>,
+  fallbackIndex: BuiltInIconSearchIndex,
+): BuiltInIconSearchIndex {
+  const entries: BuiltInIconSearchIndex["entries"] = [];
+  const canonicalExact: Record<string, number[]> = {};
+  const tokenExact: Record<string, number[]> = {};
+
+  for (const provider of BUILT_IN_ICON_PROVIDERS) {
+    const source = providerIndexes[provider] ?? fallbackIndex;
+    const indexMap = new Map<number, number>();
+    source.entries.forEach((entry, sourceIndex) => {
+      if (entry.p !== provider) return;
+      indexMap.set(sourceIndex, entries.length);
+      entries.push(entry);
+    });
+    appendRebasedIndexValues(canonicalExact, source.canonicalExact, indexMap);
+    appendRebasedIndexValues(tokenExact, source.tokenExact, indexMap);
+  }
+
+  return {
+    version: 1,
+    entries,
+    canonicalExact,
+    tokenExact,
+  };
+}
+
+function appendRebasedIndexValues(
+  output: Record<string, number[]>,
+  source: Record<string, number[]>,
+  indexMap: ReadonlyMap<number, number>,
+): void {
+  for (const [key, indexes] of Object.entries(source)) {
+    for (const index of indexes) {
+      const next = indexMap.get(index);
+      if (next === undefined) continue;
+      output[key] ??= [];
+      output[key].push(next);
+    }
+  }
+}
+
 export function canonicalBuiltInIconSearchIndexJson(index: BuiltInIconSearchIndex): string {
   return `${JSON.stringify(index)}\n`;
 }

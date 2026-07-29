@@ -272,6 +272,8 @@ vi.mock("@/i18n/I18nProvider", () => {
     "settings.telegramBotCommandsDeleteFailedDescription": "无法删除 Telegram Bot 查询命令，请稍后重试。",
     "settings.builtInIconIndexRefreshSuccess": "图标索引已更新",
     "settings.builtInIconIndexRefreshSuccessDescription": ({ source, count }) => `${source} 已更新，${count} 个图标可用于 Logo 和图标搜索。`,
+    "settings.builtInIconIndexRefreshQueued": "图标索引更新已排队",
+    "settings.builtInIconIndexRefreshQueuedDescription": ({ source }) => `${source} 会在后台更新；完成或失败后状态会自动停止轮询。`,
     "settings.builtInIconIndexRefreshFailed": "图标索引更新失败",
     "settings.builtInIconIndexRefreshFailedDescription": ({ source }) => `无法更新 ${source}，请稍后重试。`,
     "settings.builtInIconSourceShort.thesvg": "TheSVG",
@@ -468,6 +470,17 @@ export function setupSettingsFormControllerTestEnvironment() {
         providers: providerStatusFixtures({ thesvg: 120, selfhst: 100, dashboardIcons: 101 }),
       },
       provider: providerStatusFixtures({ thesvg: 120, selfhst: 100, dashboardIcons: 101 })[0],
+      job: {
+        id: "docker-thesvg-20260611000000",
+        provider: "thesvg",
+        status: "succeeded",
+        queuedAt: "2026-06-11T00:00:00Z",
+        startedAt: "2026-06-11T00:00:00Z",
+        finishedAt: "2026-06-11T00:00:00Z",
+        attempts: 1,
+        error: null,
+        indexHash: "a".repeat(64),
+      },
     });
     mocks.writeClipboard.mockResolvedValue(undefined);
     mocks.fetch.mockResolvedValue(new Response("BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n", {

@@ -16,7 +16,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { BUILT_IN_ICON_PROVIDERS, type BuiltInIconProvider } from '@renewlet/shared/built-in-icons';
 import type { AppSettings } from '@/types/subscription';
-import type { BuiltInIconIndexProviderStatus, BuiltInIconIndexStatus, BuiltInIconProviderVersion } from '@/lib/api/schemas/media';
+import type { BuiltInIconIndexProviderStatus, BuiltInIconIndexStatus, BuiltInIconProviderVersion, BuiltInIconRefreshJob } from '@/lib/api/schemas/media';
 import type { RawErrorResponseDetails } from '@/lib/raw-error-response';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -260,11 +260,15 @@ function BuiltInIconProviderStatusPopover({ provider, status, iconIndex, t }: Bu
   const { formatDateTime, formatNumber } = useI18n();
   const [open, setOpen] = useState(false);
   const checking = iconIndex.checkingProviders.includes(provider);
-  const refreshing = iconIndex.refreshingProvider === provider || Boolean(status?.refreshing);
+  const jobStatus = status?.job?.status;
+  const jobRefreshing = jobStatus === "queued" || jobStatus === "running";
+  const refreshing = iconIndex.refreshingProvider === provider || jobRefreshing || Boolean(status?.refreshing);
   const busy = iconIndex.isLoading || checking || refreshing;
   const providerName = t(`settings.builtInIconSource.${provider}`);
   const statusView = getBuiltInIconProviderStatusView({ checking, iconIndex, refreshing, status, t });
-  const canRefresh = Boolean(status && (status.updateAvailable || status.lastError) && !busy);
+  const visibleJob = status?.job && (status.job.status === "queued" || status.job.status === "running") ? status.job : null;
+  const checkFailureMessage = statusView.kind === "error" ? status?.lastError ?? null : null;
+  const canRefresh = Boolean(status && (status.updateAvailable || checkFailureMessage) && !busy);
 
   return (
     <Popover
@@ -346,6 +350,10 @@ function BuiltInIconProviderStatusPopover({ provider, status, iconIndex, t }: Bu
                   label: t("settings.builtInIconIndexRefreshedAt"),
                   value: formatProviderTimestamp(status.refreshedAt, t("settings.builtInIconIndexTimestampUnrefreshed"), formatDateTime),
                 },
+                ...(visibleJob ? [{
+                  label: t("settings.builtInIconIndexJobStatusLabel"),
+                  value: formatRefreshJob(visibleJob, t, formatDateTime),
+                }] : []),
               ]}
             />
           ) : (
@@ -354,16 +362,16 @@ function BuiltInIconProviderStatusPopover({ provider, status, iconIndex, t }: Bu
             </p>
           )}
 
-          {status?.lastError ? (
+          {checkFailureMessage ? (
             <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs leading-5 text-destructive" role="alert">
-              {t("settings.builtInIconIndexLastError", { message: status.lastError })}
+              {t("settings.builtInIconIndexLastCheckError", { message: checkFailureMessage })}
             </div>
           ) : null}
 
           <Button
             type="button"
             className="w-full gap-2"
-            variant={status?.lastError ? "outline" : "default"}
+            variant={checkFailureMessage ? "outline" : "default"}
             disabled={!canRefresh}
             onClick={() => {
               void iconIndex.refreshProvider(provider);
@@ -412,13 +420,6 @@ function getBuiltInIconProviderStatusView({
       className: "border-border bg-secondary/60 text-muted-foreground hover:bg-secondary hover:text-foreground",
     };
   }
-  if (status?.lastError) {
-    return {
-      kind: "error",
-      label: t("settings.builtInIconIndexBadge.failed"),
-      className: "border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/15",
-    };
-  }
   if (status?.updateAvailable) {
     return {
       kind: "update",
@@ -427,6 +428,13 @@ function getBuiltInIconProviderStatusView({
     };
   }
   if (!status || !status.latest) {
+    if (status?.lastError) {
+      return {
+        kind: "error",
+        label: t("settings.builtInIconIndexBadge.failed"),
+        className: "border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/15",
+      };
+    }
     return {
       kind: "unchecked",
       label: t("settings.builtInIconIndexBadge.unchecked"),
@@ -488,4 +496,31 @@ function formatProviderTimestamp(
   formatDateTime: (value: string | Date, options?: Intl.DateTimeFormatOptions) => string,
 ): string {
   return value ? formatDateTime(value, { dateStyle: "medium", timeStyle: "short" }) : fallback;
+}
+
+function formatRefreshJob(
+  job: BuiltInIconRefreshJob,
+  t: (key: MessageKey, params?: MessageParams) => string,
+  formatDateTime: (value: string | Date, options?: Intl.DateTimeFormatOptions) => string,
+): string {
+  const status = refreshJobStatusLabel(job, t);
+  const time = job.finishedAt ?? job.startedAt ?? job.queuedAt;
+  return t("settings.builtInIconIndexJobStatusValue", {
+    status,
+    attempts: job.attempts,
+    time: formatDateTime(time, { dateStyle: "medium", timeStyle: "short" }),
+  });
+}
+
+function refreshJobStatusLabel(job: BuiltInIconRefreshJob, t: (key: MessageKey, params?: MessageParams) => string): string {
+  switch (job.status) {
+    case "queued":
+      return t("settings.builtInIconIndexJobStatus.queued");
+    case "running":
+      return t("settings.builtInIconIndexJobStatus.running");
+    case "succeeded":
+      return t("settings.builtInIconIndexJobStatus.succeeded");
+    case "failed":
+      return t("settings.builtInIconIndexJobStatus.failed");
+  }
 }

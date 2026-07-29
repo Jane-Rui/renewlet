@@ -22,7 +22,7 @@ const textEncoder = new TextEncoder();
 
 // 上游错误需要沿 cause/errors 嵌套向外冒泡；details 只能随当前失败响应返回，不进入 cron history 或缓存状态。
 export class UpstreamOperationError extends Error {
-  constructor(message: string, readonly details?: UpstreamErrorDetails) {
+  constructor(message: string, readonly details?: UpstreamErrorDetails, readonly status?: number) {
     super(message);
     this.name = "UpstreamOperationError";
   }
@@ -91,10 +91,14 @@ export function createUpstreamHTTPError(input: {
   const message = providerMessage
     ? `${input.provider} HTTP ${input.response.status}: ${providerMessage}`
     : `${input.provider} HTTP ${input.response.status}`;
-  return new UpstreamOperationError(message, createUpstreamErrorDetails({
-    responseText: providerMessage,
-    providerResponse: input.providerResponse,
-  }));
+  return new UpstreamOperationError(
+    message,
+    createUpstreamErrorDetails({
+      responseText: providerMessage,
+      providerResponse: input.providerResponse,
+    }),
+    input.response.status,
+  );
 }
 
 export function upstreamErrorDetailsFromError(error: unknown): UpstreamErrorDetails | undefined {

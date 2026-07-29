@@ -292,10 +292,11 @@ function checkCloudflareDeployMigrationScript() {
   const buildCloudflareScript = packageJson.scripts?.["build:cloudflare"];
   const devScript = packageJson.scripts?.["dev:cloudflare"];
   const migrationScript = packageJson.scripts?.["cloudflare:migrations:apply"];
+  const queuesEnsureScript = packageJson.scripts?.["cloudflare:queues:ensure"];
 
-  // Deploy Button 和自管 Wrangler 部署都依赖这个顺序：先确认生产 headers，再迁移 D1，最后更新 Worker。
-  if (deployScript !== "node scripts/prepare-cloudflare-local-headers.mjs --check-production && pnpm cloudflare:migrations:apply && wrangler deploy") {
-    throw new Error("package.json deploy script must check production Cloudflare headers before remote migration and wrangler deploy.");
+  // Deploy Button 和自管 Wrangler 部署都依赖这个顺序：先确认生产 headers，再迁移 D1/确保队列，最后更新 Worker。
+  if (deployScript !== "node scripts/prepare-cloudflare-local-headers.mjs --check-production && pnpm cloudflare:migrations:apply && pnpm cloudflare:queues:ensure && wrangler deploy") {
+    throw new Error("package.json deploy script must check production Cloudflare headers before remote migration, Queue setup, and wrangler deploy.");
   }
   if (deployCloudflareScript !== "pnpm build:cloudflare && pnpm deploy") {
     throw new Error("package.json deploy:cloudflare must rebuild production Cloudflare assets before deploy.");
@@ -306,8 +307,11 @@ function checkCloudflareDeployMigrationScript() {
   if (migrationScript !== "wrangler d1 migrations apply DB --remote") {
     throw new Error("package.json cloudflare:migrations:apply must target the DB binding with remote D1 migrations.");
   }
-  if (devScript !== "pnpm build:cloudflare && node scripts/prepare-cloudflare-local-headers.mjs && pnpm cloudflare:migrations:apply:local && node scripts/cloudflare-dev-hint.mjs && wrangler dev --test-scheduled") {
-    throw new Error("package.json dev:cloudflare must prepare local HTTP headers, print the local Cron hint, and enable Wrangler scheduled middleware.");
+  if (queuesEnsureScript !== "node scripts/ensure-cloudflare-queues.mjs") {
+    throw new Error("package.json cloudflare:queues:ensure must keep the idempotent Queue creation helper.");
+  }
+  if (devScript !== "pnpm build:cloudflare && node scripts/prepare-cloudflare-local-headers.mjs && pnpm cloudflare:migrations:apply:local && node scripts/cloudflare-dev-hint.mjs && node scripts/cloudflare-dev-wrangler.mjs --test-scheduled") {
+    throw new Error("package.json dev:cloudflare must prepare local HTTP headers, print the local Cron hint, inject local proxy settings for Wrangler, and enable Wrangler scheduled middleware.");
   }
 }
 
@@ -352,6 +356,29 @@ function checkCloudflareScheduledLocalRoute() {
   // Wrangler 的 /cdn-cgi scheduled 测试入口在 Workers Static Assets 下会先打到 asset proxy；Renewlet 本地 Cron 固定走 /__scheduled。
   if (!runWorkerFirst.includes('"/__scheduled"')) {
     throw new Error('wrangler.jsonc assets.run_worker_first must include "/__scheduled" for local Cron testing.');
+  }
+}
+
+function checkCloudflareQueueConfig() {
+  const wranglerConfig = readFileSync(join(repoRoot, "wrangler.jsonc"), "utf8");
+  const packageJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
+  const packageBindings = packageJson.cloudflare?.bindings ?? {};
+
+  // 图标索引 refresh 不能再走 HTTP 重活；Queue/DLQ 名和 consumer 串行度是 Cloudflare 稳定性的部署契约。
+  for (const snippet of [
+    '"binding": "MEDIA_ICON_INDEX_REFRESH_QUEUE"',
+    '"queue": "renewlet-media-icon-index-refresh"',
+    '"max_batch_size": 1',
+    '"max_retries": 5',
+    '"dead_letter_queue": "renewlet-media-icon-index-refresh-dlq"',
+    '"max_concurrency": 1',
+  ]) {
+    if (!wranglerConfig.includes(snippet)) {
+      throw new Error(`wrangler.jsonc must keep media icon Queue config snippet: ${snippet}`);
+    }
+  }
+  if (!Object.hasOwn(packageBindings, "MEDIA_ICON_INDEX_REFRESH_QUEUE")) {
+    throw new Error("package.json cloudflare.bindings must document MEDIA_ICON_INDEX_REFRESH_QUEUE.");
   }
 }
 
@@ -446,6 +473,8 @@ function checkCloudflareWorkflowBuildMetadata() {
     "SHORT_SHA=\"${GITHUB_SHA::7}\"",
     "RENEWLET_VERSION=${PACKAGE_VERSION}-dev+${SHORT_SHA}",
     "RENEWLET_BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+    "Ensure Cloudflare Queues",
+    "pnpm cloudflare:queues:ensure",
   ]) {
     if (!selfHostedWorkflow.includes(snippet)) {
       throw new Error(`cloudflare-worker.yml must keep build metadata snippet: ${snippet}`);
@@ -456,6 +485,8 @@ function checkCloudflareWorkflowBuildMetadata() {
     "RENEWLET_VERSION: ${{ needs.metadata.outputs.version }}",
     "RENEWLET_COMMIT: ${{ github.sha }}",
     "RENEWLET_BUILD_TIME: ${{ steps.build-time.outputs.value }}",
+    "Ensure Cloudflare Queues",
+    "pnpm cloudflare:queues:ensure",
   ]) {
     if (!releaseWorkflow.includes(snippet)) {
       throw new Error(`release-publish.yml must keep production Cloudflare metadata snippet: ${snippet}`);
@@ -555,6 +586,7 @@ checkDockerProxyEnv();
 checkCloudflareDeployMigrationScript();
 checkCloudflareStaticAssetHeadersContract();
 checkCloudflareScheduledLocalRoute();
+checkCloudflareQueueConfig();
 checkCloudflareLocalDevNetworkAccess();
 checkCloudflareFreshD1Migrations();
 checkCloudflareDeployButtonVars();

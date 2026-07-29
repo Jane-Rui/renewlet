@@ -227,6 +227,9 @@ func TestMediaIconIndexRefreshSuccessAndFailureKeepsPreviousRuntimeIndex(t *test
 	if success.Status.Source != "runtime" || success.Status.Refreshing || success.Provider.Refreshing || success.Status.ProviderCounts.TheSVG != 1 || success.Status.Hash == nil || success.Provider.Current == nil || success.Provider.Current.CommitSHA == nil {
 		t.Fatalf("unexpected success status: %#v", success.Status)
 	}
+	if success.Job.Status != "succeeded" || success.Job.Provider != "thesvg" || success.Job.Attempts != 1 || success.Job.IndexHash == nil || *success.Job.IndexHash != *success.Status.Hash {
+		t.Fatalf("expected Docker refresh to return succeeded job with active hash, got %#v", success.Job)
+	}
 	assertSeedProviderVersions(t, success.Status, map[string]bool{"thesvg": true})
 	activeHash := *success.Status.Hash
 
@@ -259,6 +262,33 @@ func TestMediaIconIndexRefreshSuccessAndFailureKeepsPreviousRuntimeIndex(t *test
 	}
 	if failureProvider.Current == nil || failureProvider.Current.CommitSHA == nil || *failureProvider.Current.CommitSHA != *success.Provider.Current.CommitSHA {
 		t.Fatalf("expected failed refresh to keep previous current version, got %#v", failureProvider.Current)
+	}
+}
+
+func TestMediaIconIndexCheckIgnoresRefreshOperationLock(t *testing.T) {
+	app := newSchemaTestApp(t)
+	if err := ensureSchema(app); err != nil {
+		t.Fatal(err)
+	}
+	_, adminToken := createRouteTestUser(t, app, "admin")
+	server := newMediaIconRegistryServer(t, http.StatusOK)
+	withBuiltInIconGitHubBase(t, server.URL)
+
+	if !acquireBuiltInIconIndexOperation("thesvg") {
+		t.Fatal("expected to acquire refresh operation lock")
+	}
+	defer releaseBuiltInIconIndexOperation()
+
+	res := serveTestRequest(t, app, http.MethodPost, "/api/app/admin/media/icon-index/providers/selfhst/check", "", adminToken)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected check to ignore refresh lock and return 200, got %d: %s", res.Code, res.Body.String())
+	}
+	response := decodeAPISuccessDataForTest[builtInIconIndexProviderCheckResponse](t, res.Body.Bytes())
+	if response.Provider.Provider != "selfhst" || response.Provider.Latest == nil || response.Provider.Latest.CommitSHA == nil {
+		t.Fatalf("expected check to update provider latest while refresh lock is held, got %#v", response.Provider)
+	}
+	if !response.Status.Refreshing {
+		t.Fatalf("expected status to still report the active refresh operation, got %#v", response.Status)
 	}
 }
 

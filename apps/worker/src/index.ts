@@ -54,7 +54,12 @@ import {
 } from "./cloud-backup";
 import { recognizeSubscriptions, recognizeSubscriptionsStream, testAIRecognitionConnection } from "./ai-recognition";
 import { listAIModels } from "./ai-models";
-import { builtInIconIndexStatus, checkBuiltInIconIndexProvider, refreshBuiltInIconIndexProvider } from "./media-icon-index";
+import {
+  builtInIconIndexStatus,
+  checkBuiltInIconIndexProvider,
+  refreshBuiltInIconIndexProvider,
+} from "./media-icon-index";
+import { consumeBuiltInIconIndexRefreshQueue } from "./media-icon-index-refresh-queue";
 import { mediaCandidates } from "./search";
 import { notificationHistory, notificationRun, notificationTest, runScheduledNotifications } from "./notifications";
 import { renewAutoSubscriptionsForAllUsers } from "./subscription-renewal";
@@ -385,6 +390,11 @@ const worker: ExportedHandler<Env> = {
 
   async scheduled(_controller, env) {
     await runScheduledTasks(env);
+  },
+
+  async queue(batch, env) {
+    // Queue consumer 只处理后台图标索引切换；HTTP refresh 已在 D1 job 中暴露 queued/running/failed 状态。
+    await consumeBuiltInIconIndexRefreshQueue(batch, env);
   },
 };
 
