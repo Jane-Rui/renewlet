@@ -23,6 +23,11 @@ type mediaRateBucket struct {
 	ResetAt time.Time
 }
 
+type faviconCandidateDomain struct {
+	Domain string
+	Direct bool
+}
+
 var (
 	mediaRateLimitMu   sync.Mutex
 	mediaRateLimitData = map[string]mediaRateBucket{}
@@ -42,7 +47,12 @@ func generateFaviconCandidates(kind string, name string, website string, limit i
 	}
 	candidates := make([]mediaCandidate, 0, minInt(limit, len(domains)*len(mediaResolverCfg.Favicon.Providers)))
 	for _, domain := range domains {
-		for _, candidate := range faviconCandidatesForDomain(kind, domain, len(candidates)) {
+		providers := mediaResolverCfg.Favicon.Providers
+		if domain.Direct {
+			// 用户显式提供的域名可多试几个标准静态路径；推断域名保持低预算，避免弱候选挤占搜索结果。
+			providers = mediaResolverCfg.Favicon.ExplicitProviders
+		}
+		for _, candidate := range faviconCandidatesForDomain(kind, domain.Domain, providers, len(candidates)) {
 			candidates = append(candidates, candidate)
 			if len(candidates) >= limit {
 				return candidates
@@ -52,9 +62,9 @@ func generateFaviconCandidates(kind string, name string, website string, limit i
 	return candidates
 }
 
-func faviconCandidatesForDomain(kind string, domain string, rankOffset int) []mediaCandidate {
-	out := make([]mediaCandidate, 0, len(mediaResolverCfg.Favicon.Providers))
-	for index, item := range mediaResolverCfg.Favicon.Providers {
+func faviconCandidatesForDomain(kind string, domain string, providers []faviconProviderConfig, rankOffset int) []mediaCandidate {
+	out := make([]mediaCandidate, 0, len(providers))
+	for index, item := range providers {
 		rank := rankOffset + index
 		out = append(out, mediaCandidate{
 			ID:             fmt.Sprintf("favicon:%s:%s:%d", item.Provider, domain, rank),
@@ -74,13 +84,13 @@ func faviconCandidatesForDomain(kind string, domain string, rankOffset int) []me
 }
 
 // buildFaviconCandidateDomains 从网站字段和搜索词推导可能的品牌域名。
-func buildFaviconCandidateDomains(query string, website string, fallbackTlds []string) []string {
-	domains := []string{}
-	if domain := extractDomainFromQuery(website); domain != "" {
-		domains = append(domains, domain)
-	}
+func buildFaviconCandidateDomains(query string, website string, fallbackTlds []string) []faviconCandidateDomain {
+	domains := []faviconCandidateDomain{}
 	if domain := extractDomainFromQuery(query); domain != "" {
-		domains = append(domains, domain)
+		domains = append(domains, faviconCandidateDomain{Domain: domain, Direct: true})
+	}
+	if domain := extractDomainFromQuery(website); domain != "" {
+		domains = append(domains, faviconCandidateDomain{Domain: domain, Direct: true})
 	}
 	queries := faviconMediaQueries(query)
 	for _, reduced := range queries {
@@ -89,7 +99,7 @@ func buildFaviconCandidateDomains(query string, website string, fallbackTlds []s
 			continue
 		}
 		if known, ok := mediaResolverCfg.Favicon.KnownDomains[keyword]; ok {
-			domains = append(domains, known)
+			domains = append(domains, faviconCandidateDomain{Domain: known})
 		}
 	}
 	for _, reduced := range queries {
@@ -99,7 +109,7 @@ func buildFaviconCandidateDomains(query string, website string, fallbackTlds []s
 		}
 		for _, tld := range fallbackTlds {
 			if tld = strings.TrimSpace(tld); tld != "" {
-				domains = append(domains, keyword+"."+tld)
+				domains = append(domains, faviconCandidateDomain{Domain: keyword + "." + tld})
 			}
 		}
 	}
@@ -131,25 +141,28 @@ func usableFaviconKeyword(keyword string) bool {
 	return len([]rune(keyword)) >= mediaResolverCfg.Search.MinReducedQueryLength
 }
 
-func normalizeCandidateDomains(domains []string) []string {
-	out := []string{}
+func normalizeCandidateDomains(domains []faviconCandidateDomain) []faviconCandidateDomain {
+	out := []faviconCandidateDomain{}
 	seen := map[string]struct{}{}
-	for _, domain := range domains {
+	pushDomain := func(domain string, direct bool) {
 		domain = strings.ToLower(strings.TrimSpace(domain))
 		if domain == "" {
-			continue
+			return
 		}
 		if _, ok := seen[domain]; !ok {
 			seen[domain] = struct{}{}
-			out = append(out, domain)
+			out = append(out, faviconCandidateDomain{Domain: domain, Direct: direct})
 		}
+	}
+	for _, item := range domains {
+		domain := strings.ToLower(strings.TrimSpace(item.Domain))
+		if domain == "" {
+			continue
+		}
+		pushDomain(domain, item.Direct)
 		parts := strings.Split(domain, ".")
 		if len(parts) == 2 && !strings.HasPrefix(domain, "www.") {
-			www := "www." + domain
-			if _, ok := seen[www]; !ok {
-				seen[www] = struct{}{}
-				out = append(out, www)
-			}
+			pushDomain("www."+domain, item.Direct)
 		}
 	}
 	return out

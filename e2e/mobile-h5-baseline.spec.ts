@@ -364,14 +364,14 @@ test("mobile sheets keep Logo and currency search stable while typing", async ({
   await expect(emptyLogoSheet).toHaveClass(/h5-mobile-sheet-large/);
   await waitForSheetAnimation(emptyLogoSheet);
   await expectLocatorInsideViewport(page, emptyLogoSheet, "mobile empty logo search sheet");
-  await expect(emptyLogoSheet.getByText("输入服务名称后点击搜索")).toBeVisible();
+  await expect(emptyLogoSheet.getByText("输入服务名称、品牌或网址后点击搜索")).toBeVisible();
   const logoSheetBeforeSearch = await captureLogoSheetViewportMetrics(emptyLogoSheet, "logo-search-results");
 
-  const emptyLogoSearchInput = emptyLogoSheet.getByPlaceholder("输入服务名称或品牌...");
+  const emptyLogoSearchInput = emptyLogoSheet.getByPlaceholder("输入服务名称、品牌或网址...");
   await emptyLogoSearchInput.focus();
   const focusState = await emptyLogoSheet.evaluate((element) => {
     const panel = element.querySelector<HTMLElement>(".media-candidate-search-panel");
-    const input = element.querySelector<HTMLInputElement>('input[placeholder="输入服务名称或品牌..."]');
+    const input = element.querySelector<HTMLInputElement>('input[placeholder="输入服务名称、品牌或网址..."]');
     if (!panel || !input) {
       throw new Error("Missing Logo search panel or input");
     }
@@ -427,7 +427,7 @@ test("mobile sheets keep Logo and currency search stable while typing", async ({
   await expectLocatorInsideViewport(page, logoSheet, "mobile logo search sheet");
   await expectNoHorizontalOverflow(page, "mobile logo search sheet");
 
-  const logoSearchInput = logoSheet.getByPlaceholder("输入服务名称或品牌...");
+  const logoSearchInput = logoSheet.getByPlaceholder("输入服务名称、品牌或网址...");
   await logoSearchInput.fill("Linear");
   await logoSearchInput.press("Enter");
   await expect(logoSearchInput).toHaveValue("Linear");

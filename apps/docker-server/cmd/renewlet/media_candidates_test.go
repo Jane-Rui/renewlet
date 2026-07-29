@@ -265,6 +265,55 @@ func TestMediaCandidatesSearchReservesFaviconFallbackBudget(t *testing.T) {
 	}
 }
 
+func TestMediaCandidatesSearchUsesExplicitDomainBeforeWebsiteAndExpandsDirectPaths(t *testing.T) {
+	resolver := buildBuiltInResolverIndex([]builtInIcon{})
+	item := resolveMediaCandidateItem(resolver, "logo", "search", mediaCandidateResolveItem{
+		ID:      "explicit-url",
+		Name:    "https://query.example/pricing",
+		Website: "https://stored.example",
+	}, 5, defaultBuiltInIconSourceSettings())
+
+	expectedURLs := []string{
+		"https://query.example/favicon.ico",
+		"https://query.example/favicon.svg",
+		"https://query.example/icon.svg",
+		"https://query.example/icon-32x32.png",
+		"https://query.example/apple-touch-icon.png",
+	}
+	if len(item.Candidates.Favicon) != len(expectedURLs) {
+		t.Fatalf("expected explicit favicon candidates, got %#v", item.Candidates.Favicon)
+	}
+	for index, expectedURL := range expectedURLs {
+		candidate := item.Candidates.Favicon[index]
+		if candidate.URL != expectedURL || candidate.AutoAssignable {
+			t.Fatalf("unexpected explicit favicon candidate at %d: %#v", index, candidate)
+		}
+	}
+}
+
+func TestMediaCandidatesSearchKeepsGuessedDomainsOnCompactFallbackProviders(t *testing.T) {
+	resolver := buildBuiltInResolverIndex([]builtInIcon{})
+	item := resolveMediaCandidateItem(resolver, "logo", "search", mediaCandidateResolveItem{
+		ID:   "guessed-domain",
+		Name: "Acme",
+	}, 4, defaultBuiltInIconSourceSettings())
+
+	expectedURLs := []string{
+		"https://acme.com/favicon.ico",
+		"https://acme.com/apple-touch-icon.png",
+		"https://www.google.com/s2/favicons?domain=acme.com&sz=128",
+		"https://icons.duckduckgo.com/ip3/acme.com.ico",
+	}
+	if len(item.Candidates.Favicon) != len(expectedURLs) {
+		t.Fatalf("expected compact favicon candidates, got %#v", item.Candidates.Favicon)
+	}
+	for index, expectedURL := range expectedURLs {
+		if item.Candidates.Favicon[index].URL != expectedURL {
+			t.Fatalf("unexpected compact favicon candidate at %d: %#v", index, item.Candidates.Favicon[index])
+		}
+	}
+}
+
 func TestMediaCandidatesSearchExpandsBuiltInVariants(t *testing.T) {
 	app := newSchemaTestApp(t)
 	if err := ensureSchema(app); err != nil {

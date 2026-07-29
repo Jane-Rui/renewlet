@@ -66,6 +66,8 @@ interface LogoPickerProps {
   onUploadStatusChange?: ((status: UploadStatus) => void) | undefined;
   /** 服务名提示：打开弹窗时可自动填入并触发搜索。 */
   serviceName?: string | undefined;
+  /** 订阅网站 URL；Logo 搜索会优先用它生成网站 favicon 备用候选。 */
+  website?: string | undefined;
 }
 
 /** LogoPicker 组件。 */
@@ -74,6 +76,7 @@ export function LogoPicker({
   onChange,
   onUploadStatusChange,
   serviceName = '',
+  website,
 }: LogoPickerProps) {
   const { t } = useI18n();
   const uploadedLogos = useUploadedLogoAssets();
@@ -82,6 +85,7 @@ export function LogoPicker({
   const search = useMediaCandidates({
     kind: "logo",
     autoQuery: serviceName,
+    website,
     limit: 32,
     closeResetDelayMs: SEARCH_POPOVER_CLOSE_RESET_DELAY_MS,
   });

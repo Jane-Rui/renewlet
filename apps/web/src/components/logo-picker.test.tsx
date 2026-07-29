@@ -89,13 +89,13 @@ vi.mock("@/components/image-crop-dialog", () => ({
   ImageCropDialog: () => null,
 }));
 
-function expectMediaCandidateRequest(name: string) {
+function expectMediaCandidateRequest(name: string, website?: string) {
   const call = mocks.apiFetch.mock.calls.find(([url]) => url === "/api/app/media/candidates");
   expect(call?.[0]).toBe("/api/app/media/candidates");
   expect(JSON.parse(String(call?.[2]?.body))).toMatchObject({
     kind: "logo",
     mode: "search",
-    items: [{ id: "search", name }],
+    items: [{ id: "search", name, ...(website ? { website } : {}) }],
   });
   expect(call?.[2]?.signal).toBeInstanceOf(AbortSignal);
 }
@@ -208,6 +208,18 @@ describe("LogoPicker", () => {
     );
   });
 
+  it("passes the subscription website into Logo search candidates", async () => {
+    const user = userEvent.setup();
+
+    render(<LogoPicker value={undefined} onChange={vi.fn()} serviceName="Svix" website="https://www.svix.com/" />);
+
+    await user.click(screen.getByRole("button", { name: "搜索" }));
+
+    await waitFor(() => {
+      expectMediaCandidateRequest("Svix", "https://www.svix.com/");
+    });
+  });
+
   it("keeps typed Logo search state inside the shared mobile sheet until selection", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
@@ -251,9 +263,9 @@ describe("LogoPicker", () => {
     expect(sheet).toHaveAttribute("aria-label", "搜索 Logo");
     const resultsViewport = screen.getByTestId("logo-search-results");
     expect(resultsViewport).toHaveClass("media-candidate-scroll-viewport", "h5-logo-sheet-results", "h5-logo-search-results");
-    expect(resultsViewport).toHaveTextContent("输入服务名称后点击搜索");
+    expect(resultsViewport).toHaveTextContent("输入服务名称、品牌或网址后点击搜索");
 
-    const searchInput = screen.getByPlaceholderText("输入服务名称或品牌...");
+    const searchInput = screen.getByPlaceholderText("输入服务名称、品牌或网址...");
     await user.type(searchInput, "Linear{enter}");
 
     await waitFor(() => {
@@ -422,7 +434,7 @@ describe("LogoPicker", () => {
     expect(sheet).toHaveClass("media-candidate-popover", "h5-logo-sheet", "h5-logo-link-sheet");
     const input = screen.getByPlaceholderText("https://example.com/logo.svg");
     await user.type(input, "http://example.com/logo.png");
-    await user.click(screen.getByRole("button", { name: "使用链接" }));
+    await user.keyboard("{Enter}");
 
     expect(onChange).toHaveBeenCalledWith("http://example.com/logo.png");
   });
@@ -438,9 +450,48 @@ describe("LogoPicker", () => {
     const apply = screen.getByRole("button", { name: "使用链接" });
     await user.type(input, "data:image/png;base64,aGVsbG8=");
 
+    expect(input).toHaveAttribute("aria-invalid", "false");
+    expect(screen.queryByText("Logo 链接只支持 http:// 或 https://")).not.toBeInTheDocument();
+    expect(apply).toBeEnabled();
+
+    await user.click(apply);
+
     expect(input).toHaveAttribute("aria-invalid", "true");
     expect(await screen.findByText("Logo 链接只支持 http:// 或 https://")).toBeInTheDocument();
-    expect(apply).toBeDisabled();
+    expect(onChange).not.toHaveBeenCalled();
+
+    await user.clear(input);
+    await user.type(input, "https://example.com/logo.svg");
+
+    expect(input).toHaveAttribute("aria-invalid", "false");
+    expect(screen.queryByText("Logo 链接只支持 http:// 或 https://")).not.toBeInTheDocument();
+    await user.click(apply);
+
+    expect(onChange).toHaveBeenCalledWith("https://example.com/logo.svg");
+  });
+
+  it("keeps the Logo link field neutral when focus leaves without submitting", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+
+    render(<LogoPicker value={undefined} onChange={onChange} />);
+    await user.click(screen.getByRole("button", { name: "链接" }));
+
+    const input = screen.getByPlaceholderText("https://example.com/logo.svg");
+    const apply = screen.getByRole("button", { name: "使用链接" });
+    await user.click(input);
+    expect(input).toHaveFocus();
+
+    await user.tab();
+
+    expect(input).toHaveAttribute("aria-invalid", "false");
+    expect(screen.queryByText("请输入 Logo 链接")).not.toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+
+    await user.click(apply);
+
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(await screen.findByText("请输入 Logo 链接")).toBeInTheDocument();
     expect(onChange).not.toHaveBeenCalled();
   });
 
@@ -614,7 +665,7 @@ describe("LogoPicker", () => {
     render(<LogoPicker value={undefined} onChange={vi.fn()} serviceName="youtube" />);
 
     await user.click(screen.getByRole("button", { name: "搜索" }));
-    const searchInput = screen.getByPlaceholderText("输入服务名称或品牌...");
+    const searchInput = screen.getByPlaceholderText("输入服务名称、品牌或网址...");
 
     await waitFor(() => {
       expect(searchInput).toHaveValue("youtube");

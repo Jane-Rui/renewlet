@@ -34,6 +34,8 @@ export interface DeferredLogoAsset {
 interface ImportLogoEditorProps {
   /** 导入行的服务名，同时作为首次搜索的 autoQuery。 */
   name: string;
+  /** 导入行的网站 URL；手动修正 Logo 时优先生成对应域名的 favicon 备用候选。 */
+  website?: string | null | undefined;
   /** 当前远端/私有资产 Logo URL；选择本地草稿资产时会临时为空。 */
   value?: string | null | undefined;
   /** 已 staged 本地资产的预览 URL，由导入控制器持有，避免弹层重开时丢失预览。 */
@@ -48,7 +50,7 @@ interface ImportLogoEditorProps {
  * 与普通 LogoPicker 不同，这里不能立即上传本地文件：导入批量确认前用户可能撤销整批数据，
  * 所以组件只 stage Blob 与预览，最终由导入流程统一落库。
  */
-export function ImportLogoEditor({ name, value, assetPreviewUrl, onChange }: ImportLogoEditorProps) {
+export function ImportLogoEditor({ name, website, value, assetPreviewUrl, onChange }: ImportLogoEditorProps) {
   const { t } = useI18n();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadedLogos = useUploadedLogoAssets();
@@ -60,6 +62,7 @@ export function ImportLogoEditor({ name, value, assetPreviewUrl, onChange }: Imp
   const search = useMediaCandidates({
     kind: "logo",
     autoQuery: name,
+    website: website ?? undefined,
     limit: 32,
     closeResetDelayMs: 160,
   });
