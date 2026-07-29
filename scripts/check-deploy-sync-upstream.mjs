@@ -53,6 +53,18 @@ function findJsonBinding(config, key, binding) {
   return match;
 }
 
+function findJsonQueueProducer(config, binding) {
+  return Array.isArray(config.queues?.producers)
+    ? config.queues.producers.find((item) => item && typeof item === "object" && item.binding === binding)
+    : undefined;
+}
+
+function findJsonQueueConsumer(config, queueName) {
+  return Array.isArray(config.queues?.consumers)
+    ? config.queues.consumers.find((item) => item && typeof item === "object" && item.queue === queueName)
+    : undefined;
+}
+
 function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
 }
@@ -61,11 +73,15 @@ function preserveCloudflareGeneratedConfig(repoPath) {
   const config = readJson(join(repoPath, "wrangler.jsonc"));
   const d1 = findJsonBinding(config, "d1_databases", "DB");
   const r2 = findJsonBinding(config, "r2_buckets", "ASSETS_BUCKET");
+  const queue = findJsonQueueProducer(config, "MEDIA_ICON_INDEX_REFRESH_QUEUE");
+  const queueConsumer = queue?.queue ? findJsonQueueConsumer(config, queue.queue) : undefined;
   return {
     name: config.name,
     databaseName: d1.database_name,
     databaseId: d1.database_id,
     bucketName: r2.bucket_name,
+    mediaIconIndexRefreshQueueName: queue?.queue,
+    mediaIconIndexRefreshDeadLetterQueueName: queueConsumer?.dead_letter_queue,
     vars: config.vars && typeof config.vars === "object" && !Array.isArray(config.vars) ? config.vars : {},
   };
 }
@@ -74,10 +90,22 @@ function applyCloudflareGeneratedConfig(repoPath, preserved) {
   const config = readJson(join(repoPath, "wrangler.jsonc"));
   const d1 = findJsonBinding(config, "d1_databases", "DB");
   const r2 = findJsonBinding(config, "r2_buckets", "ASSETS_BUCKET");
+  const queue = findJsonQueueProducer(config, "MEDIA_ICON_INDEX_REFRESH_QUEUE");
   config.name = preserved.name;
   d1.database_name = preserved.databaseName;
   d1.database_id = preserved.databaseId;
   r2.bucket_name = preserved.bucketName;
+  if (queue && preserved.mediaIconIndexRefreshQueueName) {
+    const templateQueueName = queue.queue;
+    queue.queue = preserved.mediaIconIndexRefreshQueueName;
+    const consumer = findJsonQueueConsumer(config, templateQueueName) ?? findJsonQueueConsumer(config, preserved.mediaIconIndexRefreshQueueName);
+    if (consumer) {
+      consumer.queue = preserved.mediaIconIndexRefreshQueueName;
+      if (preserved.mediaIconIndexRefreshDeadLetterQueueName) {
+        consumer.dead_letter_queue = preserved.mediaIconIndexRefreshDeadLetterQueueName;
+      }
+    }
+  }
   config.vars = {
     ...(config.vars && typeof config.vars === "object" && !Array.isArray(config.vars) ? config.vars : {}),
     ...preserved.vars,
@@ -145,6 +173,10 @@ function checkSyncRenewletUpstreamWorkflow(repoRoot) {
     "https://github.com/zhiyingzzhou/renewlet.git",
     "git restore --source",
     "git push origin \"HEAD:${target_branch}\"",
+    "MEDIA_ICON_INDEX_REFRESH_QUEUE",
+    "media_icon_index_refresh_queue_name",
+    "media_icon_index_refresh_dead_letter_queue_name",
+    "dead_letter_queue",
   ]) {
     if (!content.includes(snippet)) {
       throw new Error(`sync-renewlet-upstream.yml must keep snippet: ${snippet}`);
@@ -190,6 +222,24 @@ function checkSyncRenewletUpstreamBehavior() {
       "bucket_name": "renewlet-assets"
     }
   ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "MEDIA_ICON_INDEX_REFRESH_QUEUE",
+        "queue": "renewlet-media-icon-index-refresh"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "renewlet-media-icon-index-refresh",
+        "max_batch_size": 1,
+        "max_batch_timeout": 5,
+        "max_retries": 5,
+        "dead_letter_queue": "renewlet-media-icon-index-refresh-dlq",
+        "max_concurrency": 1
+      }
+    ]
+  },
   "vars": {
     "SETUP_ENABLED": "true",
     "NEW_DEFAULT": "from-upstream"
@@ -220,6 +270,24 @@ function checkSyncRenewletUpstreamBehavior() {
       "bucket_name": "renewlet-user-assets"
     }
   ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "MEDIA_ICON_INDEX_REFRESH_QUEUE",
+        "queue": "renewlet-user-icon-refresh"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "renewlet-user-icon-refresh",
+        "max_batch_size": 1,
+        "max_batch_timeout": 5,
+        "max_retries": 3,
+        "dead_letter_queue": "renewlet-user-icon-refresh-dlq",
+        "max_concurrency": 1
+      }
+    ]
+  },
   "vars": {
     "SETUP_ENABLED": "false",
     "CUSTOM_USER_VAR": "keep-me"
@@ -252,16 +320,21 @@ function checkSyncRenewletUpstreamBehavior() {
     const wranglerConfig = readJson(join(generatedRepo, "wrangler.jsonc"));
     const d1 = findJsonBinding(wranglerConfig, "d1_databases", "DB");
     const r2 = findJsonBinding(wranglerConfig, "r2_buckets", "ASSETS_BUCKET");
+    const queue = findJsonQueueProducer(wranglerConfig, "MEDIA_ICON_INDEX_REFRESH_QUEUE");
+    const queueConsumer = queue?.queue ? findJsonQueueConsumer(wranglerConfig, queue.queue) : undefined;
     if (
       wranglerConfig.name !== "renewlet-user-worker" ||
       d1.database_name !== "renewlet-user-db" ||
       d1.database_id !== "11111111-2222-3333-4444-555555555555" ||
       r2.bucket_name !== "renewlet-user-assets" ||
+      queue?.queue !== "renewlet-user-icon-refresh" ||
+      queueConsumer?.dead_letter_queue !== "renewlet-user-icon-refresh-dlq" ||
+      queueConsumer?.max_retries !== 5 ||
       wranglerConfig.vars.SETUP_ENABLED !== "false" ||
       wranglerConfig.vars.CUSTOM_USER_VAR !== "keep-me" ||
       wranglerConfig.vars.NEW_DEFAULT !== "from-upstream"
     ) {
-      throw new Error("Sync workflow must preserve generated Wrangler resources and vars.");
+      throw new Error("Sync workflow must preserve generated Wrangler resources, Queue names, and vars.");
     }
 
     const parents = runIn(generatedRepo, "git", ["rev-list", "--parents", "-n", "1", "HEAD"]).stdout.trim().split(/\s+/);

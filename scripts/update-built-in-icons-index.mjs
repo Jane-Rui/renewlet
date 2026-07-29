@@ -191,20 +191,24 @@ const icons = await buildBuiltInIconIndex(mediaResolverConfig, fetchJson);
 const detailIndexJson = canonicalBuiltInIconIndexJson(icons);
 const searchIndexJson = canonicalBuiltInIconSearchIndexJson(createBuiltInIconSearchIndex(icons));
 const hash = createHash("sha256").update(detailIndexJson).digest("hex");
+const providerVersions = await fetchProviderVersions(mediaResolverConfig);
+const providerCounts = countBuiltInIconProviders(icons);
+const detailIndexGzip = gzipSync(detailIndexJson);
+const searchIndexGzip = gzipSync(searchIndexJson);
 const metadataJson = canonicalBuiltInIconSeedMetadataJson(createBuiltInIconSeedMetadata(
   icons,
   hash,
-  await fetchProviderVersions(mediaResolverConfig),
+  providerVersions,
 ));
 
 for (const outputPath of searchIndexOutputPaths) {
   await mkdir(path.dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, gzipSync(searchIndexJson));
+  await writeFile(outputPath, searchIndexGzip);
 }
 
 for (const outputPath of detailIndexOutputPaths) {
   await mkdir(path.dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, gzipSync(detailIndexJson));
+  await writeFile(outputPath, detailIndexGzip);
 }
 
 for (const outputPath of metadataOutputPaths) {
@@ -213,5 +217,4 @@ for (const outputPath of metadataOutputPaths) {
   await writeFile(outputPath, metadataJson, "utf8");
 }
 
-const counts = countBuiltInIconProviders(icons);
-console.log(`Generated ${icons.length} built-in icons (${Object.entries(counts).map(([provider, count]) => `${provider}:${count}`).join(", ")}) with search index ${searchIndexOutputPaths.map((item) => path.relative(process.cwd(), item)).join(", ")}, detail index ${detailIndexOutputPaths.map((item) => path.relative(process.cwd(), item)).join(", ")}, metadata ${metadataOutputPaths.map((item) => path.relative(process.cwd(), item)).join(", ")}`);
+console.log(`Generated ${icons.length} built-in icons (${Object.entries(providerCounts).map(([provider, count]) => `${provider}:${count}`).join(", ")}) with search index ${searchIndexOutputPaths.map((item) => path.relative(process.cwd(), item)).join(", ")}, detail index ${detailIndexOutputPaths.map((item) => path.relative(process.cwd(), item)).join(", ")}, metadata ${metadataOutputPaths.map((item) => path.relative(process.cwd(), item)).join(", ")}`);

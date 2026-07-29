@@ -459,6 +459,7 @@ describe("useSettingsFormController integrations", () => {
         providers: providerStatusFixtures({ thesvg: 120, selfhst: 100, dashboardIcons: 101 }),
       },
       provider: providerStatusFixtures({ thesvg: 120, selfhst: 100, dashboardIcons: 101 })[0],
+      job: { id: "docker-thesvg-20260611000000", provider: "thesvg", status: "succeeded", queuedAt: "2026-06-11T00:00:00Z", startedAt: "2026-06-11T00:00:00Z", finishedAt: "2026-06-11T00:00:00Z", attempts: 1, error: null, indexHash: "a".repeat(64) },
     });
     mocks.writeClipboard.mockResolvedValue(undefined);
     mocks.fetch.mockResolvedValue(new Response("BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n", {

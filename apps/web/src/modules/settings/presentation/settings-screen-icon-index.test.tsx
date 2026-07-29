@@ -3,77 +3,101 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { BuiltInIconProvider } from "@renewlet/shared/built-in-icons";
+import type {
+  BuiltInIconIndexProviderStatus,
+  BuiltInIconIndexStatus,
+  BuiltInIconProviderVersion,
+  BuiltInIconRefreshJob,
+  BuiltInIconRefreshJobStatus,
+} from "@/lib/api/schemas/media";
 import {
   createControllerState,
   mocks,
   renderSettingsScreen,
 } from "./settings-screen.test-utils";
 
+function providerVersion(label: string): BuiltInIconProviderVersion {
+  const commitSha = `${label}1234567890abcdef1234567890abcdef`;
+  return {
+    sourceRef: commitSha,
+    displayVersion: label,
+    commitSha,
+    commitShortSha: label,
+    commitDate: "2026-06-11T00:00:00.000Z",
+    releaseTag: null,
+    releasePublishedAt: null,
+  };
+}
+
+function refreshJob(status: BuiltInIconRefreshJobStatus): BuiltInIconRefreshJob {
+  return {
+    id: `job_${status}`,
+    provider: "thesvg",
+    status,
+    queuedAt: "2026-06-11T00:00:00.000Z",
+    startedAt: status === "queued" ? null : "2026-06-11T00:00:01.000Z",
+    finishedAt: status === "queued" || status === "running" ? null : "2026-06-11T00:00:02.000Z",
+    attempts: status === "queued" ? 0 : 5,
+    error: status === "failed" ? "checksum mismatch" : null,
+    indexHash: status === "succeeded" ? "a".repeat(64) : null,
+  };
+}
+
+function providerStatus(
+  provider: BuiltInIconProvider,
+  overrides: Partial<BuiltInIconIndexProviderStatus> = {},
+): BuiltInIconIndexProviderStatus {
+  return {
+    provider,
+    current: null,
+    latest: null,
+    iconCount: provider === "thesvg" ? 120 : provider === "selfhst" ? 100 : 101,
+    checkedAt: null,
+    refreshedAt: null,
+    lastError: null,
+    refreshing: false,
+    updateAvailable: false,
+    ...overrides,
+  };
+}
+
+function statusWithTheSvg(provider: BuiltInIconIndexProviderStatus): BuiltInIconIndexStatus {
+  return {
+    source: "runtime",
+    hash: "runtime-hash",
+    iconCount: 321,
+    providerCounts: { thesvg: 120, selfhst: 100, dashboardIcons: 101 },
+    checkedAt: "2026-06-11T00:00:00.000Z",
+    updatedAt: "2026-06-11T00:00:00.000Z",
+    refreshing: false,
+    providers: [
+      provider,
+      providerStatus("selfhst"),
+      providerStatus("dashboardIcons"),
+    ],
+  };
+}
+
+function failedJobProviderStatus(overrides: Partial<BuiltInIconIndexProviderStatus> = {}) {
+  return providerStatus("thesvg", {
+    checkedAt: "2026-06-11T00:00:00.000Z",
+    job: refreshJob("failed"),
+    ...overrides,
+  });
+}
+
 describe("SettingsScreen built-in icon index controls", () => {
   it("lets admins inspect and refresh an icon provider from a compact status badge", async () => {
     const user = userEvent.setup();
     const controller = createControllerState({
       builtInIconIndex: {
-        status: {
-          source: "runtime",
-          hash: "runtime-hash",
-          iconCount: 321,
-          providerCounts: { thesvg: 120, selfhst: 100, dashboardIcons: 101 },
+        status: statusWithTheSvg(providerStatus("thesvg", {
+          current: providerVersion("oldsha1"),
+          latest: providerVersion("newsha1"),
           checkedAt: "2026-06-11T00:00:00.000Z",
-          updatedAt: "2026-06-11T00:00:00.000Z",
-          refreshing: false,
-          providers: [
-            {
-              provider: "thesvg",
-              current: {
-                sourceRef: "oldsha1234567890abcdef",
-                displayVersion: "oldsha1",
-                commitSha: "oldsha1234567890abcdef",
-                commitShortSha: "oldsha1",
-                commitDate: "2026-06-10T00:00:00.000Z",
-                releaseTag: null,
-                releasePublishedAt: null,
-              },
-              latest: {
-                sourceRef: "newsha1234567890abcdef",
-                displayVersion: "newsha1",
-                commitSha: "newsha1234567890abcdef",
-                commitShortSha: "newsha1",
-                commitDate: "2026-06-11T00:00:00.000Z",
-                releaseTag: null,
-                releasePublishedAt: null,
-              },
-              iconCount: 120,
-              checkedAt: "2026-06-11T00:00:00.000Z",
-              refreshedAt: "2026-06-10T00:00:00.000Z",
-              lastError: null,
-              refreshing: false,
-              updateAvailable: true,
-            },
-            {
-              provider: "selfhst",
-              current: null,
-              latest: null,
-              iconCount: 100,
-              checkedAt: null,
-              refreshedAt: null,
-              lastError: null,
-              refreshing: false,
-              updateAvailable: false,
-            },
-            {
-              provider: "dashboardIcons",
-              current: null,
-              latest: null,
-              iconCount: 101,
-              checkedAt: null,
-              refreshedAt: null,
-              lastError: null,
-              refreshing: false,
-              updateAvailable: false,
-            },
-          ],
-        },
+          refreshedAt: "2026-06-10T00:00:00.000Z",
+          updateAvailable: true,
+        })),
       },
     });
     const checkAllProviders = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
@@ -315,7 +339,10 @@ describe("SettingsScreen built-in icon index controls", () => {
     const user = userEvent.setup();
     mocks.useSettingsFormController.mockReturnValue(createControllerState({
       builtInIconIndex: {
-        refreshingProvider: "thesvg",
+        status: statusWithTheSvg(providerStatus("thesvg", {
+          refreshing: true,
+          job: refreshJob("queued"),
+        })),
       },
     }));
 
@@ -328,58 +355,36 @@ describe("SettingsScreen built-in icon index controls", () => {
 
     await user.click(statusBadge);
 
+    expect(await screen.findByText("后台任务")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "检查 TheSVG 最新版本" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "更新中..." })).toBeDisabled();
   });
 
-  it("shows provider index errors inside the compact status popover", async () => {
+  it.each([
+    {
+      name: "update available",
+      badge: "有更新",
+      provider: failedJobProviderStatus({
+        current: providerVersion("oldsha1"),
+        latest: providerVersion("newsha1"),
+        refreshedAt: "2026-06-10T00:00:00.000Z",
+        updateAvailable: true,
+      }),
+    },
+    {
+      name: "up to date",
+      badge: "已最新",
+      provider: failedJobProviderStatus({
+        current: providerVersion("samesha"),
+        latest: providerVersion("samesha"),
+        refreshedAt: "2026-06-11T00:00:00.000Z",
+      }),
+    },
+  ])("hides failed background refresh jobs when the compact badge is $name", async ({ badge, provider }) => {
     const user = userEvent.setup();
     mocks.useSettingsFormController.mockReturnValue(createControllerState({
       builtInIconIndex: {
-        status: {
-          source: "runtime",
-          hash: "runtime-hash",
-          iconCount: 321,
-          providerCounts: { thesvg: 120, selfhst: 100, dashboardIcons: 101 },
-          checkedAt: "2026-06-11T00:00:00.000Z",
-          updatedAt: "2026-06-11T00:00:00.000Z",
-          refreshing: false,
-          providers: [
-            {
-              provider: "thesvg",
-              current: null,
-              latest: null,
-              iconCount: 120,
-              checkedAt: "2026-06-11T00:00:00.000Z",
-              refreshedAt: null,
-              lastError: "Registry offline",
-              refreshing: false,
-              updateAvailable: false,
-            },
-            {
-              provider: "selfhst",
-              current: null,
-              latest: null,
-              iconCount: 100,
-              checkedAt: null,
-              refreshedAt: null,
-              lastError: null,
-              refreshing: false,
-              updateAvailable: false,
-            },
-            {
-              provider: "dashboardIcons",
-              current: null,
-              latest: null,
-              iconCount: 101,
-              checkedAt: null,
-              refreshedAt: null,
-              lastError: null,
-              refreshing: false,
-              updateAvailable: false,
-            },
-          ],
-        },
+        status: statusWithTheSvg(provider),
       },
     }));
 
@@ -387,12 +392,74 @@ describe("SettingsScreen built-in icon index controls", () => {
     await user.click(screen.getByRole("button", { name: "配置" }));
 
     const dialog = await screen.findByRole("dialog", { name: "配置内置图标来源" });
-    const statusBadge = within(dialog).getByRole("button", { name: "查看 TheSVG 图标索引状态：检查失败" });
-    expect(statusBadge).toHaveTextContent("检查失败");
+    const statusBadge = within(dialog).getByRole("button", { name: `查看 TheSVG 图标索引状态：${badge}` });
+    expect(statusBadge).toHaveTextContent(badge);
+    expect(within(dialog).queryByRole("button", { name: "查看 TheSVG 图标索引状态：更新失败" })).not.toBeInTheDocument();
 
     await user.click(statusBadge);
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("上次更新失败：Registry offline");
-    expect(screen.getByRole("button", { name: "更新" })).toBeEnabled();
+    expect(await screen.findByText("图标数量")).toBeInTheDocument();
+    expect(screen.queryByText("后台任务")).not.toBeInTheDocument();
+    expect(screen.queryByText(/上次更新失败/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      name: "without a latest version",
+      badge: "检查失败",
+      provider: providerStatus("thesvg", {
+        checkedAt: "2026-06-11T00:00:00.000Z",
+        lastError: "Registry offline",
+      }),
+    },
+    {
+      name: "with an available update",
+      badge: "有更新",
+      provider: providerStatus("thesvg", {
+        current: providerVersion("oldsha1"),
+        latest: providerVersion("newsha1"),
+        checkedAt: "2026-06-11T00:00:00.000Z",
+        refreshedAt: "2026-06-10T00:00:00.000Z",
+        lastError: "Registry offline",
+        updateAvailable: true,
+      }),
+    },
+    {
+      name: "with an up-to-date cached version",
+      badge: "已最新",
+      provider: providerStatus("thesvg", {
+        current: providerVersion("samesha"),
+        latest: providerVersion("samesha"),
+        checkedAt: "2026-06-11T00:00:00.000Z",
+        refreshedAt: "2026-06-11T00:00:00.000Z",
+        lastError: "Registry offline",
+      }),
+    },
+  ])("keeps transient provider check failures subordinate to the compact badge $name", async ({ badge, provider }) => {
+    const user = userEvent.setup();
+    mocks.useSettingsFormController.mockReturnValue(createControllerState({
+      builtInIconIndex: {
+        status: statusWithTheSvg(provider),
+      },
+    }));
+
+    renderSettingsScreen();
+    await user.click(screen.getByRole("button", { name: "配置" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "配置内置图标来源" });
+    const statusBadge = within(dialog).getByRole("button", { name: `查看 TheSVG 图标索引状态：${badge}` });
+    expect(statusBadge).toHaveTextContent(badge);
+
+    await user.click(statusBadge);
+
+    expect(await screen.findByText("图标数量")).toBeInTheDocument();
+    if (badge === "检查失败") {
+      expect(screen.getByRole("alert")).toHaveTextContent("最近检查失败：Registry offline");
+      expect(screen.getByRole("button", { name: "更新" })).toBeEnabled();
+    } else {
+      expect(screen.queryByText(/最近检查失败/)).not.toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    }
   });
 });

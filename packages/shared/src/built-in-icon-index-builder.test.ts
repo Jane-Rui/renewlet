@@ -6,7 +6,9 @@ import {
   canonicalBuiltInIconSeedMetadataJson,
   canonicalBuiltInIconIndexJson,
   countBuiltInIconProviders,
+  createBuiltInIconSearchIndex,
   createBuiltInIconSeedMetadata,
+  mergeBuiltInIconSearchIndexes,
   mergeBuiltInIconProviderIndexes,
   replaceBuiltInIconProviderIndex,
   type BuiltInIconRegistryFetcher,
@@ -184,6 +186,53 @@ describe("built-in icon index builder", () => {
 
     expect(urls[0]).toBe("https://testingcf.jsdelivr.net/gh/glincker/thesvg@abc1234/src/data/icons.json");
     expect(mergeBuiltInIconProviderIndexes({ selfhst, thesvg }).map((icon) => icon.provider)).toEqual(["thesvg", "selfhst"]);
+  });
+
+  it("merges refreshed provider search indexes with seed provider fallbacks", async () => {
+    const seed = await buildBuiltInIconIndex(mediaResolverConfig, registryFetcher({
+      "TheSVG registry": [
+        {
+          slug: "seed-thesvg",
+          title: "Seed TheSVG",
+          variants: { default: "/icons/seed-thesvg/default.svg" },
+        },
+      ],
+      "selfh.st index": [
+        {
+          Reference: "seed-selfhst",
+          Name: "Seed selfh.st",
+          SVG: "Yes",
+        },
+      ],
+      "Dashboard Icons metadata": {
+        "seed-dashboard": {},
+      },
+      "Dashboard Icons tree": {
+        svg: ["seed-dashboard.svg"],
+      },
+    }));
+    const dashboard = await buildBuiltInIconProviderIndex(mediaResolverConfig, "dashboardIcons", registryFetcher({
+      "Dashboard Icons metadata": {
+        "fresh-dashboard": {
+          aliases: ["Fresh Dash"],
+        },
+      },
+      "Dashboard Icons tree": {
+        svg: ["fresh-dashboard.svg"],
+      },
+    }));
+
+    const merged = mergeBuiltInIconSearchIndexes({
+      dashboardIcons: createBuiltInIconSearchIndex(dashboard),
+    }, createBuiltInIconSearchIndex(seed));
+
+    expect(merged.entries.map((entry) => `${entry.p}:${entry.s}`)).toEqual([
+      "thesvg:seed-thesvg",
+      "selfhst:seed-selfhst",
+      "dashboardIcons:fresh-dashboard",
+    ]);
+    expect(merged.canonicalExact["fresh dashboard"]).toEqual([2]);
+    expect(merged.tokenExact["fresh"]).toEqual([2]);
   });
 
   it("replaces only the requested provider index", async () => {

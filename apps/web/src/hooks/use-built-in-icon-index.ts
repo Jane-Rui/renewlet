@@ -1,8 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { builtInIconIndexService } from "@/services/built-in-icon-index-service";
 import type { BuiltInIconProvider } from "@renewlet/shared/built-in-icons";
+import type { BuiltInIconIndexStatus } from "@/lib/api/schemas/media";
 
 export const builtInIconIndexQueryKey = ["built-in-icon-index"] as const;
+const BUILT_IN_ICON_REFRESH_POLL_MS = 3000;
+
+function hasRunningBuiltInIconRefreshJob(status: BuiltInIconIndexStatus | undefined): boolean {
+  return Boolean(status?.providers.some((provider) => provider.job?.status === "queued" || provider.job?.status === "running"));
+}
 
 export function useBuiltInIconIndexStatus(enabled: boolean) {
   return useQuery({
@@ -11,6 +17,8 @@ export function useBuiltInIconIndexStatus(enabled: boolean) {
     enabled,
     retry: false,
     staleTime: 60 * 1000,
+    // Cloudflare refresh 只把任务入队；轮询跟随后端 job 终态停止，避免关闭弹层后本地 spinner 卡死。
+    refetchInterval: (query) => hasRunningBuiltInIconRefreshJob(query.state.data) ? BUILT_IN_ICON_REFRESH_POLL_MS : false,
     refetchOnWindowFocus: false,
   });
 }

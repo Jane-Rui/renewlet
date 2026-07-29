@@ -1,23 +1,15 @@
 import {
-  buildBuiltInIconProviderIndex,
-  canonicalBuiltInIconIndexJson,
-  canonicalBuiltInIconSearchIndexJson,
-  countBuiltInIconProviders,
-  createBuiltInIconSearchIndex,
-  replaceBuiltInIconProviderIndex,
-  type BuiltInIconRegistryFetcher,
+  mergeBuiltInIconSearchIndexes,
 } from "@renewlet/shared/built-in-icon-index-builder";
 import { BUILT_IN_ICON_PROVIDERS, type BuiltInIconProvider } from "@renewlet/shared/built-in-icons";
 import {
   createMediaResolverFromSearchIndex,
-  type BuiltInIcon,
   type BuiltInIconSearchIndex,
   type MediaResolver,
 } from "@renewlet/shared/media-resolver";
 import { mediaResolverConfig } from "@renewlet/shared/media-resolver-config";
 import {
   builtInIconIndexProviderCheckPayloadSchema,
-  builtInIconIndexProviderCountsSchema,
   builtInIconIndexProviderRefreshPayloadSchema,
   builtInIconSeedMetadataSchema,
   builtInIconIndexStatusSchema,
@@ -29,6 +21,16 @@ import {
 import { requireAdmin } from "./auth";
 import { nowIso } from "./db";
 import { errorResponse, HttpError, requireEmptyBody, requestLocale, successJson } from "./http";
+import {
+  createRefreshJob,
+  hasRefreshingJob,
+  isMediaIconIndexRefreshJobSchemaError,
+  markRefreshJobFailed,
+  readActiveRefreshJob,
+  readLatestRefreshJobs,
+  refreshJobFromRow,
+  type ProviderRefreshJobs,
+} from "./media-icon-index-refresh-jobs";
 import type { Env, MediaIconIndexRow } from "./types";
 import {
   createUpstreamHTTPError,
@@ -39,19 +41,19 @@ import {
 import { sendUpstreamRequest } from "./upstream-http";
 
 const MEDIA_ICON_INDEX_KEY = "active";
-const MEDIA_ICON_INDEX_R2_PREFIX = "system/media-icon-index";
-const REFRESH_LOCK_MS = 120_000;
 const REGISTRY_FETCH_TIMEOUT_MS = 15_000;
-const REGISTRY_JSON_LIMIT_BYTES = 16 * 1024 * 1024;
 const GITHUB_ATOM_FEED_LIMIT_BYTES = 512 * 1024;
 const GITHUB_WEB_BASE = "https://github.com";
 const SEED_METADATA_PATH = "/built-in-icons/metadata.json";
 const SEED_SEARCH_INDEX_PATH = "/built-in-icons/search-index.json.gz";
-const SEED_DETAIL_INDEX_PATH = "/built-in-icons/detail-index.json.gz";
+const PROVIDER_STATE_WRITE_ATTEMPTS = 3;
 
 type StoredProviderState = {
   current?: BuiltInIconProviderVersion | null;
   latest?: BuiltInIconProviderVersion | null;
+  searchR2Key?: string;
+  searchHash?: string;
+  iconCount?: number;
   checkedAt?: string;
   refreshedAt?: string;
   lastError?: string;
@@ -60,9 +62,11 @@ type StoredProviderState = {
 type StoredProviderStates = Partial<Record<BuiltInIconProvider, StoredProviderState>>;
 
 let seedMetadataCache: BuiltInIconSeedMetadata | null = null;
-let seedResolverPromise: Promise<MediaResolver> | null = null;
 let resolverCache: { hash: string; resolver: MediaResolver } | null = null;
-let refreshingProviderInCurrentIsolate: BuiltInIconProvider | null = null;
+
+export function clearBuiltInIconResolverCache(): void {
+  resolverCache = null;
+}
 
 /**
  * 读取当前 active resolver。
@@ -71,31 +75,16 @@ let refreshingProviderInCurrentIsolate: BuiltInIconProvider | null = null;
  * 否则同一 isolate 内不同用户的来源偏好会被串用。
  */
 export async function getActiveBuiltInMediaResolver(env: Env): Promise<MediaResolver> {
-  const row = await readMediaIconIndexRow(env);
-  if (!activeIndexRow(row)) return await getSeedBuiltInMediaResolver(env);
-  if (resolverCache?.hash === row.hash) return resolverCache.resolver;
+  const active = await readActiveBuiltInSearchState(env);
+  if (resolverCache?.hash === active.cacheKey) return resolverCache.resolver;
 
-  const object = await env.ASSETS_BUCKET.get(row.search_r2_key);
-  if (!object) return await getSeedBuiltInMediaResolver(env);
-  const searchIndex = JSON.parse(await gunzipToText(new Uint8Array(await object.arrayBuffer()))) as BuiltInIconSearchIndex;
-  const resolver = createMediaResolverFromSearchIndex(searchIndex, mediaResolverConfig, providerCdnBaseOverrides(parseProviderStates(row.provider_status_json)));
-  resolverCache = { hash: row.hash, resolver };
+  const resolver = createMediaResolverFromSearchIndex(
+    active.searchIndex,
+    mediaResolverConfig,
+    providerCdnBaseOverrides(active.states, active.activeProviders),
+  );
+  resolverCache = { hash: active.cacheKey, resolver };
   return resolver;
-}
-
-async function getSeedBuiltInMediaResolver(env: Env): Promise<MediaResolver> {
-  const metadata = await readSeedMetadata(env);
-  if (resolverCache?.hash === metadata.hash) return resolverCache.resolver;
-  seedResolverPromise ??= (async () => {
-    // Static Assets seed 只在无 runtime active 或 fallback 时读取；同一 isolate 并发首搜共享这次 gzip 解析。
-    const searchIndex = await readSeedSearchIndex(env);
-    const resolver = createMediaResolverFromSearchIndex(searchIndex, mediaResolverConfig);
-    resolverCache = { hash: metadata.hash, resolver };
-    return resolver;
-  })().finally(() => {
-    seedResolverPromise = null;
-  });
-  return await seedResolverPromise;
 }
 
 export async function builtInIconIndexStatus(request: Request, env: Env): Promise<Response> {
@@ -109,26 +98,18 @@ export async function checkBuiltInIconIndexProvider(request: Request, env: Env, 
   await requireEmptyBody(request, locale);
   const parsedProvider = parseBuiltInIconProvider(provider);
   if (!parsedProvider) throw new HttpError(400, "Invalid built-in icon provider", "INVALID_PROVIDER");
-  if (refreshingProviderInCurrentIsolate || !(await acquireRefreshLock(env))) {
-    return errorResponse(409, "Built-in icon index refresh is already running", "MEDIA_ICON_INDEX_REFRESHING");
-  }
 
-  refreshingProviderInCurrentIsolate = parsedProvider;
-  let operationActive = true;
   try {
     const checkedAt = nowIso();
+    // Cloudflare check 不抢刷新锁；它只更新 latest/lastError，避免一次 GitHub 超时挡住真正的 Queue refresh。
     const { version, etag } = await checkLatestProviderVersion(env, parsedProvider);
     await saveProviderLatest(env, parsedProvider, checkedAt, version, etag);
-    await finishRefreshOperation(env);
-    operationActive = false;
     const status = await readBuiltInIconIndexStatus(env);
     return successJson(builtInIconIndexProviderCheckPayloadSchema.parse({ status, provider: providerStatus(status, parsedProvider) }));
   } catch (error) {
     const message = providerFailureMessage(error);
     const errorDetails = upstreamErrorDetailsFromError(error);
     await saveProviderFailure(env, parsedProvider, nowIso(), message);
-    await finishRefreshOperation(env);
-    operationActive = false;
     const status = await readBuiltInIconIndexStatus(env);
     // check 只是更新 provider 可见状态；GitHub 限流/断网时仍返回同形状 body，让前端展示失败 badge 而不是把弹层流程打断。
     return successJson(builtInIconIndexProviderCheckPayloadSchema.parse({
@@ -136,8 +117,6 @@ export async function checkBuiltInIconIndexProvider(request: Request, env: Env, 
       provider: providerStatus(status, parsedProvider),
       ...(errorDetails ? { errorDetails } : {}),
     }));
-  } finally {
-    if (operationActive) await finishRefreshOperation(env);
   }
 }
 
@@ -147,70 +126,78 @@ export async function refreshBuiltInIconIndexProvider(request: Request, env: Env
   await requireEmptyBody(request, locale);
   const parsedProvider = parseBuiltInIconProvider(provider);
   if (!parsedProvider) throw new HttpError(400, "Invalid built-in icon provider", "INVALID_PROVIDER");
-  if (refreshingProviderInCurrentIsolate || !(await acquireRefreshLock(env))) {
-    return errorResponse(409, "Built-in icon index refresh is already running", "MEDIA_ICON_INDEX_REFRESHING");
+
+  if (!env.MEDIA_ICON_INDEX_REFRESH_QUEUE) {
+    return errorResponse(503, "Built-in icon index refresh queue is not configured", "MEDIA_ICON_INDEX_REFRESH_QUEUE_MISSING");
   }
 
-  refreshingProviderInCurrentIsolate = parsedProvider;
-  let operationActive = true;
+  let existing;
   try {
-    const checkedAt = nowIso();
-    const { version, etag } = await checkLatestProviderVersion(env, parsedProvider);
-    if (!version.commitSha) throw new Error("latest provider commit is unavailable");
-    const providerIcons = await buildBuiltInIconProviderIndex(mediaResolverConfig, parsedProvider, registryFetcher, {
-      provider: parsedProvider,
-      cdnBase: providerPinnedCdnBase(parsedProvider, version.commitSha),
-    });
-    const activeIcons = await readActiveIcons(env);
-    const icons = replaceBuiltInIconProviderIndex(activeIcons, parsedProvider, providerIcons);
-    const detailIndexJson = canonicalBuiltInIconIndexJson(icons);
-    const searchIndex = createBuiltInIconSearchIndex(icons);
-    const searchIndexJson = canonicalBuiltInIconSearchIndexJson(searchIndex);
-    const hash = await sha256Hex(detailIndexJson);
-    const searchR2Key = `${MEDIA_ICON_INDEX_R2_PREFIX}/${hash}.search.json.gz`;
-    const detailR2Key = `${MEDIA_ICON_INDEX_R2_PREFIX}/${hash}.detail.json.gz`;
-    await env.ASSETS_BUCKET.put(searchR2Key, await gzipText(searchIndexJson), {
-      httpMetadata: { contentType: "application/gzip" },
-    });
-    await env.ASSETS_BUCKET.put(detailR2Key, await gzipText(detailIndexJson), {
-      httpMetadata: { contentType: "application/gzip" },
-    });
-    await saveProviderRefreshSuccess(env, parsedProvider, {
-      hash,
-      searchR2Key,
-      detailR2Key,
-      icons,
-      checkedAt,
-      version,
-      etag,
-    });
-    resolverCache = {
-      hash,
-      resolver: createMediaResolverFromSearchIndex(searchIndex, mediaResolverConfig, providerCdnBaseOverrides((await readProviderStates(env)))),
-    };
-    await finishRefreshOperation(env);
-    operationActive = false;
+    existing = await readActiveRefreshJob(env, parsedProvider);
+  } catch (error) {
+    if (isMediaIconIndexRefreshJobSchemaError(error)) {
+      return errorResponse(503, "Built-in icon index refresh job schema is unavailable", "MEDIA_ICON_INDEX_REFRESH_SCHEMA_UNAVAILABLE");
+    }
+    throw error;
+  }
+  if (existing) {
     const status = await readBuiltInIconIndexStatus(env);
-    return successJson(builtInIconIndexProviderRefreshPayloadSchema.parse({ status, provider: providerStatus(status, parsedProvider) }));
+    return successJson(builtInIconIndexProviderRefreshPayloadSchema.parse({
+      status,
+      provider: providerStatus(status, parsedProvider),
+      job: refreshJobFromRow(existing),
+    }));
+  }
+
+  let refreshJobResult: Awaited<ReturnType<typeof createRefreshJob>>;
+  try {
+    refreshJobResult = await createRefreshJob(env, parsedProvider);
+  } catch (error) {
+    if (isMediaIconIndexRefreshJobSchemaError(error)) {
+      return errorResponse(503, "Built-in icon index refresh job schema is unavailable", "MEDIA_ICON_INDEX_REFRESH_SCHEMA_UNAVAILABLE");
+    }
+    throw new HttpError(409, "Built-in icon index refresh is already running", "MEDIA_ICON_INDEX_REFRESHING");
+  }
+  const { job, created } = refreshJobResult;
+  if (!created) {
+    const status = await readBuiltInIconIndexStatus(env);
+    return successJson(builtInIconIndexProviderRefreshPayloadSchema.parse({
+      status,
+      provider: providerStatus(status, parsedProvider),
+      job,
+    }));
+  }
+
+  try {
+    // HTTP 请求只落 D1 job 并投递 Queue；10k 图标的构建/gzip/merge 不再占用请求 CPU 和内存预算。
+    await env.MEDIA_ICON_INDEX_REFRESH_QUEUE.send({
+      jobId: job.id,
+      provider: parsedProvider,
+      requestedAt: job.queuedAt,
+    });
   } catch (error) {
     const message = providerFailureMessage(error);
-    const errorDetails = upstreamErrorDetailsFromError(error);
-    await saveProviderFailure(env, parsedProvider, nowIso(), message);
-    await finishRefreshOperation(env);
-    operationActive = false;
-    const status = await readBuiltInIconIndexStatus(env);
-    void status;
-    throw new HttpError(502, "Built-in icon index refresh failed", "MEDIA_ICON_INDEX_REFRESH_FAILED", errorDetails);
-  } finally {
-    if (operationActive) await finishRefreshOperation(env);
+    await recordRefreshJobFailure(env, job.id, parsedProvider, message, null);
+    throw new HttpError(502, "Built-in icon index refresh queue enqueue failed", "MEDIA_ICON_INDEX_REFRESH_ENQUEUE_FAILED");
   }
+
+  const status = await readBuiltInIconIndexStatus(env);
+  return successJson(builtInIconIndexProviderRefreshPayloadSchema.parse({
+    status,
+    provider: providerStatus(status, parsedProvider),
+    job,
+  }));
 }
 
 async function readBuiltInIconIndexStatus(env: Env): Promise<BuiltInIconIndexStatus> {
   const row = await readMediaIconIndexRow(env);
   const states = parseProviderStates(row?.provider_status_json);
   const seedMetadata = await readSeedMetadata(env);
-  if (!activeIndexRow(row)) {
+  const jobs = await readLatestRefreshJobs(env, BUILT_IN_ICON_PROVIDERS);
+  // Cloudflare 的 refreshing 只看 D1 job；旧 locked_until 只属于同步模型，不能再影响设置页状态。
+  const jobRefreshing = hasRefreshingJob(jobs);
+  const activeProviders = activeRuntimeProviders(states);
+  if (activeProviders.size === 0) {
     return {
       source: "embedded",
       hash: seedMetadata.hash,
@@ -218,20 +205,21 @@ async function readBuiltInIconIndexStatus(env: Env): Promise<BuiltInIconIndexSta
       providerCounts: seedMetadata.providerCounts,
       checkedAt: row?.checked_at ?? null,
       updatedAt: null,
-      refreshing: Boolean(refreshingProviderInCurrentIsolate || lockActive(row)),
-      providers: providerStatuses(seedMetadata.providerCounts, states, seedMetadata),
+      refreshing: jobRefreshing,
+      providers: providerStatuses(seedMetadata.providerCounts, states, seedMetadata, jobs),
     };
   }
-  const providerCounts = parseProviderCounts(row.provider_counts_json);
+  const providerCounts = providerCountsFromStates(states, seedMetadata);
+  const hash = row?.hash ?? await providerCompositeHash(seedMetadata, states, activeProviders);
   return {
     source: "runtime",
-    hash: row.hash,
-    iconCount: row.icon_count,
+    hash,
+    iconCount: sumProviderCounts(providerCounts),
     providerCounts,
-    checkedAt: row.checked_at,
-    updatedAt: row.index_updated_at,
-    refreshing: Boolean(refreshingProviderInCurrentIsolate || lockActive(row)),
-    providers: providerStatuses(providerCounts, states, seedMetadata),
+    checkedAt: row?.checked_at ?? null,
+    updatedAt: row?.index_updated_at ?? null,
+    refreshing: jobRefreshing,
+    providers: providerStatuses(providerCounts, states, seedMetadata, jobs),
   };
 }
 
@@ -239,16 +227,6 @@ async function readMediaIconIndexRow(env: Env): Promise<MediaIconIndexRow | null
   return await env.DB.prepare("SELECT * FROM media_icon_indexes WHERE key = ? LIMIT 1")
     .bind(MEDIA_ICON_INDEX_KEY)
     .first<MediaIconIndexRow>();
-}
-
-type ActiveMediaIconIndexRow = MediaIconIndexRow & {
-  hash: string;
-  search_r2_key: string;
-  detail_r2_key: string;
-};
-
-function activeIndexRow(row: MediaIconIndexRow | null): row is ActiveMediaIconIndexRow {
-  return Boolean(row?.hash && row.search_r2_key && row.detail_r2_key);
 }
 
 async function readSeedMetadata(env: Env): Promise<BuiltInIconSeedMetadata> {
@@ -263,8 +241,39 @@ async function readSeedSearchIndex(env: Env): Promise<BuiltInIconSearchIndex> {
   return JSON.parse(await gunzipToText(await staticAssetBytes(env, SEED_SEARCH_INDEX_PATH))) as BuiltInIconSearchIndex;
 }
 
-async function readSeedDetailIcons(env: Env): Promise<BuiltInIcon[]> {
-  return JSON.parse(await gunzipToText(await staticAssetBytes(env, SEED_DETAIL_INDEX_PATH))) as BuiltInIcon[];
+async function readActiveBuiltInSearchState(env: Env): Promise<{
+  cacheKey: string;
+  searchIndex: BuiltInIconSearchIndex;
+  states: StoredProviderStates;
+  activeProviders: ReadonlySet<BuiltInIconProvider>;
+}> {
+  const [row, seedMetadata, seedSearchIndex] = await Promise.all([
+    readMediaIconIndexRow(env),
+    readSeedMetadata(env),
+    readSeedSearchIndex(env),
+  ]);
+  const states = parseProviderStates(row?.provider_status_json);
+  const providerIndexes: Partial<Record<BuiltInIconProvider, BuiltInIconSearchIndex>> = {};
+  const activeProviders = new Set<BuiltInIconProvider>();
+  await Promise.all(BUILT_IN_ICON_PROVIDERS.map(async (provider) => {
+    const key = states[provider]?.searchR2Key;
+    if (!key) return;
+    const object = await env.ASSETS_BUCKET.get(key);
+    if (!object) return;
+    // 已刷新 provider 读 R2；未刷新或对象缺失的 provider 保持 seed，单个 provider 坏掉不拖垮全局搜索。
+    providerIndexes[provider] = JSON.parse(await gunzipToText(new Uint8Array(await object.arrayBuffer()))) as BuiltInIconSearchIndex;
+    activeProviders.add(provider);
+  }));
+  if (activeProviders.size === 0) {
+    return { cacheKey: seedMetadata.hash, searchIndex: seedSearchIndex, states, activeProviders };
+  }
+  const cacheKey = await providerCompositeHash(seedMetadata, states, activeProviders);
+  return {
+    cacheKey,
+    searchIndex: mergeBuiltInIconSearchIndexes(providerIndexes, seedSearchIndex),
+    states,
+    activeProviders,
+  };
 }
 
 async function staticAssetBytes(env: Env, path: string): Promise<Uint8Array> {
@@ -281,31 +290,20 @@ async function ensureMediaIconIndexRow(env: Env): Promise<void> {
   `).bind(MEDIA_ICON_INDEX_KEY, timestamp, timestamp).run();
 }
 
-async function acquireRefreshLock(env: Env): Promise<boolean> {
-  await ensureMediaIconIndexRow(env);
-  const now = nowIso();
-  const lockedUntil = new Date(Date.now() + REFRESH_LOCK_MS).toISOString();
-  const result = await env.DB.prepare(`
-    UPDATE media_icon_indexes
-    SET locked_until = ?, updated_at = ?
-    WHERE key = ? AND (locked_until IS NULL OR locked_until <= ?)
-  `).bind(lockedUntil, now, MEDIA_ICON_INDEX_KEY, now).run();
-  return typeof result.meta.changes === "number" && result.meta.changes > 0;
-}
-
-async function releaseRefreshLock(env: Env): Promise<void> {
-  await env.DB.prepare("UPDATE media_icon_indexes SET locked_until = NULL, updated_at = ? WHERE key = ?")
-    .bind(nowIso(), MEDIA_ICON_INDEX_KEY)
-    .run();
-}
-
-async function finishRefreshOperation(env: Env): Promise<void> {
-  refreshingProviderInCurrentIsolate = null;
-  await releaseRefreshLock(env).catch(() => undefined);
-}
-
 async function readProviderStates(env: Env): Promise<StoredProviderStates> {
   return parseProviderStates((await readMediaIconIndexRow(env))?.provider_status_json);
+}
+
+export async function recordRefreshJobFailure(
+  env: Env,
+  jobId: string,
+  provider: BuiltInIconProvider,
+  message: string,
+  indexHash: string | null,
+): Promise<void> {
+  const timestamp = nowIso();
+  await markRefreshJobFailed(env, jobId, provider, message, indexHash);
+  await saveProviderFailure(env, provider, timestamp, message);
 }
 
 async function saveProviderLatest(
@@ -316,85 +314,112 @@ async function saveProviderLatest(
   etag: string,
 ): Promise<void> {
   await ensureMediaIconIndexRow(env);
-  const states = await readProviderStates(env);
-  const current = states[provider] ?? {};
-  const next: StoredProviderState = { ...current, latest: version, checkedAt, lastError: "" };
-  const nextEtag = etag || current.etag;
-  if (nextEtag) next.etag = nextEtag;
-  states[provider] = next;
-  await env.DB.prepare(`
-    UPDATE media_icon_indexes
-    SET checked_at = ?, provider_status_json = ?, updated_at = ?
-    WHERE key = ?
-  `).bind(checkedAt, JSON.stringify(states), checkedAt, MEDIA_ICON_INDEX_KEY).run();
+  await writeProviderStates(env, (states) => {
+    const current = states[provider] ?? {};
+    const next: StoredProviderState = { ...current, latest: version, checkedAt, lastError: "" };
+    const nextEtag = etag || current.etag;
+    if (nextEtag) next.etag = nextEtag;
+    states[provider] = next;
+    return checkedAt;
+  });
 }
 
-async function saveProviderRefreshSuccess(
+export async function recordProviderSearchRefreshSuccess(
   env: Env,
-  provider: BuiltInIconProvider,
   input: {
-    hash: string;
-    searchR2Key: string;
-    detailR2Key: string;
-    icons: readonly BuiltInIcon[];
-    checkedAt: string;
+    jobId: string;
+    provider: BuiltInIconProvider;
     version: BuiltInIconProviderVersion;
     etag: string;
+    searchR2Key: string;
+    searchHash: string;
+    iconCount: number;
   },
 ): Promise<void> {
   await ensureMediaIconIndexRow(env);
+  const seedMetadata = await readSeedMetadata(env);
   const states = await readProviderStates(env);
-  const current = states[provider] ?? {};
+  const timestamp = nowIso();
+  const current = states[input.provider] ?? {};
   const next: StoredProviderState = {
     ...current,
     current: input.version,
     latest: input.version,
-    checkedAt: input.checkedAt,
-    refreshedAt: input.checkedAt,
+    searchR2Key: input.searchR2Key,
+    searchHash: input.searchHash,
+    iconCount: input.iconCount,
+    checkedAt: timestamp,
+    refreshedAt: timestamp,
     lastError: "",
   };
   const nextEtag = input.etag || current.etag;
   if (nextEtag) next.etag = nextEtag;
-  states[provider] = next;
-  await env.DB.prepare(`
+  states[input.provider] = next;
+  const activeProviders = activeRuntimeProviders(states);
+  const providerCounts = providerCountsFromStates(states, seedMetadata);
+  const hash = await providerCompositeHash(seedMetadata, states, activeProviders);
+  // R2 provider 索引已写入后才在 D1 batch 里同时切 active 指针和 job 终态；任一 D1 写失败都保持旧索引可用。
+  await env.DB.batch([
+    env.DB.prepare(`
     UPDATE media_icon_indexes
     SET hash = ?, search_r2_key = ?, detail_r2_key = ?, icon_count = ?, provider_counts_json = ?, provider_status_json = ?,
         checked_at = ?, index_updated_at = ?, updated_at = ?
     WHERE key = ?
   `).bind(
-    input.hash,
-    input.searchR2Key,
-    input.detailR2Key,
-    input.icons.length,
-    JSON.stringify(countBuiltInIconProviders(input.icons)),
-    JSON.stringify(states),
-    input.checkedAt,
-    input.checkedAt,
-    input.checkedAt,
-    MEDIA_ICON_INDEX_KEY,
-  ).run();
+      hash,
+      null,
+      null,
+      sumProviderCounts(providerCounts),
+      JSON.stringify(providerCounts),
+      JSON.stringify(states),
+      timestamp,
+      timestamp,
+      timestamp,
+      MEDIA_ICON_INDEX_KEY,
+    ),
+    env.DB.prepare(`
+    UPDATE media_icon_index_refresh_jobs
+    SET status = 'succeeded', error = NULL, index_hash = ?, finished_at = ?, updated_at = ?
+    WHERE id = ? AND provider = ?
+  `).bind(
+      input.searchHash,
+      timestamp,
+      timestamp,
+      input.jobId,
+      input.provider,
+    ),
+  ]);
 }
 
 async function saveProviderFailure(env: Env, provider: BuiltInIconProvider, checkedAt: string, message: string): Promise<void> {
   await ensureMediaIconIndexRow(env);
-  const states = await readProviderStates(env);
-  states[provider] = { ...(states[provider] ?? {}), checkedAt, lastError: message };
-  await env.DB.prepare(`
+  await writeProviderStates(env, (states) => {
+    states[provider] = { ...(states[provider] ?? {}), checkedAt, lastError: message };
+    return checkedAt;
+  });
+}
+
+async function writeProviderStates(
+  env: Env,
+  mutate: (states: StoredProviderStates) => string,
+): Promise<void> {
+  for (let attempt = 0; attempt < PROVIDER_STATE_WRITE_ATTEMPTS; attempt += 1) {
+    const row = await readMediaIconIndexRow(env);
+    const previousJson = row?.provider_status_json || "{}";
+    const states = parseProviderStates(previousJson);
+    const checkedAt = mutate(states);
+    const result = await env.DB.prepare(`
     UPDATE media_icon_indexes
     SET checked_at = ?, provider_status_json = ?, updated_at = ?
-    WHERE key = ?
-  `).bind(checkedAt, JSON.stringify(states), checkedAt, MEDIA_ICON_INDEX_KEY).run();
+    WHERE key = ? AND provider_status_json = ?
+  `).bind(checkedAt, JSON.stringify(states), checkedAt, MEDIA_ICON_INDEX_KEY, previousJson).run();
+    if (typeof result.meta.changes === "number" && result.meta.changes > 0) return;
+  }
+  // provider_status_json 用乐观写保护 check/refresh 并发；多次冲突说明状态被持续改写，应让调用方显式失败。
+  throw new Error("built-in icon provider state changed while updating");
 }
 
-async function readActiveIcons(env: Env): Promise<BuiltInIcon[]> {
-  const row = await readMediaIconIndexRow(env);
-  if (!activeIndexRow(row)) return await readSeedDetailIcons(env);
-  const object = await env.ASSETS_BUCKET.get(row.detail_r2_key);
-  if (!object) return await readSeedDetailIcons(env);
-  return JSON.parse(await gunzipToText(new Uint8Array(await object.arrayBuffer()))) as BuiltInIcon[];
-}
-
-async function checkLatestProviderVersion(
+export async function checkLatestProviderVersion(
   env: Env,
   provider: BuiltInIconProvider,
 ): Promise<{ version: BuiltInIconProviderVersion; etag: string }> {
@@ -534,26 +559,7 @@ function gitHubAtomFeedUrl(owner: string, repo: string, feedPath: string): strin
   return `${GITHUB_WEB_BASE}/${owner}/${repo}/${feedPath.replace(/^\/+|\/+$/g, "")}.atom`;
 }
 
-const registryFetcher: BuiltInIconRegistryFetcher = async (url, label) => {
-  const response = await sendUpstreamRequest(url, {
-    headers: { accept: "application/json" },
-  }, {
-    provider: label,
-    timeoutMs: REGISTRY_FETCH_TIMEOUT_MS,
-  });
-  if (!response.ok) {
-    const providerResponse = await upstreamProviderResponseFromFetchResponse(response);
-    throw createUpstreamHTTPError({
-      provider: label,
-      response,
-      providerResponse,
-      providerMessage: providerMessageFromResponse(providerResponse) || `${label} HTTP ${response.status}`,
-    });
-  }
-  return JSON.parse(await readResponseTextUpToLimit(response, label));
-};
-
-async function readResponseTextUpToLimit(response: Response, label: string, limitBytes = REGISTRY_JSON_LIMIT_BYTES): Promise<string> {
+async function readResponseTextUpToLimit(response: Response, label: string, limitBytes: number): Promise<string> {
   const declaredLength = Number.parseInt(response.headers.get("content-length") ?? "", 10);
   if (Number.isFinite(declaredLength) && declaredLength > limitBytes) {
     throw new Error(`${label} response too large`);
@@ -580,11 +586,13 @@ function providerStatuses(
   counts: BuiltInIconIndexStatus["providerCounts"],
   states: StoredProviderStates,
   seedMetadata: BuiltInIconSeedMetadata,
+  jobs: ProviderRefreshJobs,
 ): BuiltInIconIndexProviderStatus[] {
   return BUILT_IN_ICON_PROVIDERS.map((provider) => {
     const state = states[provider] ?? {};
     const current = state.current ?? embeddedProviderVersion(provider, seedMetadata);
     const latest = state.latest ?? null;
+    const job = jobs[provider] ?? null;
     return {
       provider,
       current,
@@ -593,8 +601,9 @@ function providerStatuses(
       checkedAt: nonEmpty(state.checkedAt),
       refreshedAt: nonEmpty(state.refreshedAt),
       lastError: nonEmpty(state.lastError),
-      refreshing: refreshingProviderInCurrentIsolate === provider,
+      refreshing: job?.status === "queued" || job?.status === "running",
       updateAvailable: providerUpdateAvailable(current, latest),
+      ...(job ? { job } : {}),
     };
   });
 }
@@ -615,14 +624,18 @@ function parseProviderStates(value: string | null | undefined): StoredProviderSt
   }
 }
 
-function providerCdnBaseOverrides(states: StoredProviderStates): Partial<Record<BuiltInIconProvider, string>> {
+function providerCdnBaseOverrides(
+  states: StoredProviderStates,
+  activeProviders?: ReadonlySet<BuiltInIconProvider>,
+): Partial<Record<BuiltInIconProvider, string>> {
   return Object.fromEntries(BUILT_IN_ICON_PROVIDERS.flatMap((provider) => {
+    if (activeProviders && !activeProviders.has(provider)) return [];
     const commitSha = states[provider]?.current?.commitSha;
     return commitSha ? [[provider, providerPinnedCdnBase(provider, commitSha)] as const] : [];
   }));
 }
 
-function providerPinnedCdnBase(provider: BuiltInIconProvider, ref: string): string {
+export function providerPinnedCdnBase(provider: BuiltInIconProvider, ref: string): string {
   const config = mediaResolverConfig.builtInProviders.find((item) => item.provider === provider);
   return config ? `https://testingcf.jsdelivr.net/gh/${config.github.owner}/${config.github.repo}@${ref}` : "";
 }
@@ -648,14 +661,14 @@ function providerStatus(status: BuiltInIconIndexStatus, provider: BuiltInIconPro
   };
 }
 
-async function gzipText(text: string): Promise<Uint8Array> {
-  const stream = new Blob([text]).stream().pipeThrough(new CompressionStream("gzip"));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
-}
-
-async function gunzipToText(bytes: Uint8Array): Promise<string> {
+export async function gunzipToText(bytes: Uint8Array): Promise<string> {
   const stream = new Blob([copyToArrayBuffer(bytes)]).stream().pipeThrough(new DecompressionStream("gzip"));
   return await new Response(stream).text();
+}
+
+export async function gzipText(text: string): Promise<Uint8Array> {
+  const stream = new Blob([text]).stream().pipeThrough(new CompressionStream("gzip"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
 function copyToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
@@ -664,26 +677,8 @@ function copyToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return buffer;
 }
 
-async function sha256Hex(text: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
-}
-
-function parseProviderCounts(value: string): BuiltInIconIndexStatus["providerCounts"] {
-  try {
-    const result = builtInIconIndexProviderCountsSchema.safeParse(JSON.parse(value || "{}"));
-    return result.success ? result.data : { thesvg: 0, selfhst: 0, dashboardIcons: 0 };
-  } catch {
-    return { thesvg: 0, selfhst: 0, dashboardIcons: 0 };
-  }
-}
-
 function parseBuiltInIconProvider(value: string): BuiltInIconProvider | null {
   return BUILT_IN_ICON_PROVIDERS.includes(value as BuiltInIconProvider) ? value as BuiltInIconProvider : null;
-}
-
-function lockActive(row: MediaIconIndexRow | null): boolean {
-  return Boolean(row?.locked_until && Date.parse(row.locked_until) > Date.now());
 }
 
 function nonEmpty(value: string | null | undefined): string | null {
@@ -695,12 +690,51 @@ function truncateText(value: string, maxLength: number): string {
   return [...value].slice(0, maxLength).join("");
 }
 
-function providerFailureMessage(error: unknown): string {
+export function providerFailureMessage(error: unknown): string {
   const details = upstreamErrorDetailsFromError(error);
   let message = error instanceof Error ? error.message : String(error);
   const raw = details?.rawResponseText?.trim();
   if (raw) {
-    message = message.split(raw).join("").trim().replace(/:\s*$/, "").trim();
+    const durableSummary = raw.split(";")[0]?.trim() || "upstream request failed";
+    message = message.split(raw).join("").trim().replace(/:\s*$/, "").trim() || durableSummary;
   }
   return truncateText(message, 2000);
+}
+
+function activeRuntimeProviders(states: StoredProviderStates): Set<BuiltInIconProvider> {
+  return new Set(BUILT_IN_ICON_PROVIDERS.filter((provider) => Boolean(states[provider]?.searchR2Key && states[provider]?.searchHash)));
+}
+
+function providerCountsFromStates(
+  states: StoredProviderStates,
+  seedMetadata: BuiltInIconSeedMetadata,
+): BuiltInIconIndexStatus["providerCounts"] {
+  return BUILT_IN_ICON_PROVIDERS.reduce<BuiltInIconIndexStatus["providerCounts"]>((counts, provider) => ({
+    ...counts,
+    [provider]: Math.max(0, Math.floor(states[provider]?.iconCount ?? seedMetadata.providerCounts[provider] ?? 0)),
+  }), { thesvg: 0, selfhst: 0, dashboardIcons: 0 });
+}
+
+function sumProviderCounts(counts: BuiltInIconIndexStatus["providerCounts"]): number {
+  return counts.thesvg + counts.selfhst + counts.dashboardIcons;
+}
+
+async function providerCompositeHash(
+  seedMetadata: BuiltInIconSeedMetadata,
+  states: StoredProviderStates,
+  activeProviders: ReadonlySet<BuiltInIconProvider>,
+): Promise<string> {
+  // composite hash 同时包含 seed 和 runtime provider，确保 resolver cache 随任一 provider 切换而失效。
+  const source = Object.fromEntries(BUILT_IN_ICON_PROVIDERS.map((provider) => {
+    const state = states[provider] ?? {};
+    return [provider, activeProviders.has(provider)
+      ? { hash: state.searchHash ?? "", version: state.current?.commitSha ?? "", count: state.iconCount ?? 0 }
+      : { hash: seedMetadata.providers[provider].commitSha ?? "", version: seedMetadata.providers[provider].commitSha ?? "", count: seedMetadata.providerCounts[provider] }];
+  }));
+  return await sha256HexText(JSON.stringify({ version: 1, providers: source }));
+}
+
+export async function sha256HexText(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
 }

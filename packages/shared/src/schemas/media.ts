@@ -125,6 +125,22 @@ export const builtInIconSeedMetadataSchema = z.object({
   }).strict(),
 }).strict();
 
+const sha256HexSchema = z.string().regex(/^[a-f0-9]{64}$/);
+
+export const builtInIconRefreshJobStatusSchema = z.enum(["queued", "running", "succeeded", "failed"]);
+
+export const builtInIconRefreshJobSchema = z.object({
+  id: z.string().min(1),
+  provider: z.enum(BUILT_IN_ICON_PROVIDERS),
+  status: builtInIconRefreshJobStatusSchema,
+  queuedAt: z.string().min(1),
+  startedAt: z.string().min(1).nullable(),
+  finishedAt: z.string().min(1).nullable(),
+  attempts: z.number().int().nonnegative(),
+  error: z.string().min(1).nullable(),
+  indexHash: sha256HexSchema.nullable(),
+}).strict();
+
 export const builtInIconIndexProviderStatusSchema = z.object({
   provider: z.enum(BUILT_IN_ICON_PROVIDERS),
   current: builtInIconProviderVersionSchema.nullable(),
@@ -135,6 +151,7 @@ export const builtInIconIndexProviderStatusSchema = z.object({
   lastError: z.string().min(1).nullable(),
   refreshing: z.boolean(),
   updateAvailable: z.boolean(),
+  job: builtInIconRefreshJobSchema.nullish(),
 }).strict();
 
 export const builtInIconIndexStatusSchema = z.object({
@@ -165,7 +182,7 @@ export const builtInIconIndexProviderCheckResponseSchema = apiSuccessResponseSch
 export const builtInIconIndexProviderRefreshPayloadSchema = z.object({
   status: builtInIconIndexStatusSchema,
   provider: builtInIconIndexProviderStatusSchema,
-  errorDetails: upstreamErrorDetailsSchema.optional(),
+  job: builtInIconRefreshJobSchema,
 }).strict();
 export const builtInIconIndexProviderRefreshResponseSchema = apiSuccessResponseSchema(builtInIconIndexProviderRefreshPayloadSchema);
 
@@ -188,6 +205,8 @@ export type BuiltInIconIndexSource = z.infer<typeof builtInIconIndexSourceSchema
 export type BuiltInIconIndexProviderCounts = z.infer<typeof builtInIconIndexProviderCountsSchema>;
 export type BuiltInIconProviderVersion = z.infer<typeof builtInIconProviderVersionSchema>;
 export type BuiltInIconSeedMetadata = z.infer<typeof builtInIconSeedMetadataSchema>;
+export type BuiltInIconRefreshJobStatus = z.infer<typeof builtInIconRefreshJobStatusSchema>;
+export type BuiltInIconRefreshJob = z.infer<typeof builtInIconRefreshJobSchema>;
 export type BuiltInIconIndexProviderStatus = z.infer<typeof builtInIconIndexProviderStatusSchema>;
 export type BuiltInIconIndexStatus = z.infer<typeof builtInIconIndexStatusSchema>;
 export type BuiltInIconIndexProviderCheckResponse = z.infer<typeof builtInIconIndexProviderCheckPayloadSchema>;
