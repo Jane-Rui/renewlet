@@ -361,6 +361,7 @@ function checkCloudflareScheduledLocalRoute() {
 
 function checkCloudflareQueueConfig() {
   const wranglerConfig = readFileSync(join(repoRoot, "wrangler.jsonc"), "utf8");
+  const queueEnsureScript = readFileSync(join(repoRoot, "scripts/ensure-cloudflare-queues.mjs"), "utf8");
   const packageJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
   const packageBindings = packageJson.cloudflare?.bindings ?? {};
 
@@ -379,6 +380,17 @@ function checkCloudflareQueueConfig() {
   }
   if (!Object.hasOwn(packageBindings, "MEDIA_ICON_INDEX_REFRESH_QUEUE")) {
     throw new Error("package.json cloudflare.bindings must document MEDIA_ICON_INDEX_REFRESH_QUEUE.");
+  }
+  // Queue create 不是幂等 API；already taken 只能在二次 info 确认存在后视为 ready。
+  for (const snippet of [
+    'runWranglerQueueCommand("info", name)',
+    'runWranglerQueueCommand("create", name)',
+    "\\b11009\\b|already taken",
+    "create conflicted but the queue could not be confirmed",
+  ]) {
+    if (!queueEnsureScript.includes(snippet)) {
+      throw new Error(`ensure-cloudflare-queues.mjs must keep idempotent Queue ensure snippet: ${snippet}`);
+    }
   }
 }
 

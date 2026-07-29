@@ -69,32 +69,76 @@ function readQueueNames() {
   return [...queues];
 }
 
-function queueAlreadyExists(output) {
-  return /already exists|exists/i.test(output);
+function commandOutput(result) {
+  return [result.stdout, result.stderr, result.error?.message].filter(Boolean).join("\n");
 }
 
-function ensureQueue(name) {
-  const result = spawnSync("pnpm", ["exec", "wrangler", "queues", "create", name, "--config", configPath], {
+function runWranglerQueueCommand(command, name) {
+  return spawnSync("pnpm", ["exec", "wrangler", "queues", command, name, "--config", configPath], {
     cwd: repoRoot,
     encoding: "utf8",
     env: process.env,
   });
-  const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
+}
+
+function queueMissing(output) {
+  return /does not exist|queues lookup missing queue/i.test(output);
+}
+
+function queueCreateConflict(output) {
+  return /\b11009\b|already taken/i.test(output);
+}
+
+function queueExists(name) {
+  const result = runWranglerQueueCommand("info", name);
+  const output = commandOutput(result);
+  if (result.status === 0) return true;
+  if (queueMissing(output)) return false;
+  throw new Error(`Failed to inspect Cloudflare Queue ${name}:\n${output.trim()}`);
+}
+
+function ensureQueue(name) {
+  if (queueExists(name)) {
+    console.log(`Cloudflare Queue ready: ${name}`);
+    return;
+  }
+
+  const result = runWranglerQueueCommand("create", name);
+  const output = commandOutput(result);
   if (result.status === 0) {
     console.log(`Cloudflare Queue ready: ${name}`);
     return;
   }
-  if (queueAlreadyExists(output)) {
-    console.log(`Cloudflare Queue already exists: ${name}`);
-    return;
+
+  if (queueCreateConflict(output)) {
+    // Cloudflare create 不是幂等 API；并发 workflow 可能先看到缺失、再撞 11009。只有读回确认存在后才吞掉冲突。
+    let confirmed = false;
+    try {
+      confirmed = queueExists(name);
+    } catch (error) {
+      throw new Error([
+        `Cloudflare Queue ${name} create conflicted but the queue could not be confirmed:`,
+        output.trim(),
+        error instanceof Error ? error.message : String(error),
+      ].filter(Boolean).join("\n"));
+    }
+    if (confirmed) {
+      console.log(`Cloudflare Queue ready: ${name}`);
+      return;
+    }
+    throw new Error(`Cloudflare Queue ${name} create conflicted but the queue could not be confirmed:\n${output.trim()}`);
   }
+
   throw new Error(`Failed to create Cloudflare Queue ${name}:\n${output.trim()}`);
 }
 
-const queues = readQueueNames();
-if (queues.length === 0) {
-  console.log("No Cloudflare Queues configured.");
-} else {
+function ensureQueues(queues) {
+  if (queues.length === 0) {
+    console.log("No Cloudflare Queues configured.");
+    return;
+  }
   // 队列名来自 wrangler 配置；创建脚本不硬编码资源名，避免 generated config 覆盖后漏建 DLQ。
   for (const queue of queues) ensureQueue(queue);
 }
+
+ensureQueues(readQueueNames());
