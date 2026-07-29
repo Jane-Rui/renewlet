@@ -1,6 +1,6 @@
 // 内置图标索引刷新是后台 Queue 状态；前端轮询只能跟随 queued/running job，终态必须停止。
 import type { ReactNode } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, type Query } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BuiltInIconIndexStatus, BuiltInIconRefreshJobStatus } from "@/lib/api/schemas/media";
@@ -84,9 +84,7 @@ describe("useBuiltInIconIndexStatus", () => {
 
     const queuedQuery = queuedClient.getQueryCache().find({ queryKey: builtInIconIndexQueryKey });
     if (!queuedQuery) throw new Error("expected queued status query");
-    const queuedInterval = (queuedQuery.options as { refetchInterval?: unknown }).refetchInterval;
-    expect(typeof queuedInterval).toBe("function");
-    expect(typeof queuedInterval === "function" ? queuedInterval(queuedQuery) : queuedInterval).toBe(3000);
+    expect(refetchIntervalFor(queuedQuery)).toBe(3000);
 
     const failedClient = createQueryClient();
     vi.mocked(builtInIconIndexService.status).mockResolvedValueOnce(statusFixture("failed"));
@@ -95,8 +93,7 @@ describe("useBuiltInIconIndexStatus", () => {
 
     const failedQuery = failedClient.getQueryCache().find({ queryKey: builtInIconIndexQueryKey });
     if (!failedQuery) throw new Error("expected failed status query");
-    const failedInterval = (failedQuery.options as { refetchInterval?: unknown }).refetchInterval;
-    expect(typeof failedInterval === "function" ? failedInterval(failedQuery) : failedInterval).toBe(false);
+    expect(refetchIntervalFor(failedQuery)).toBe(false);
   });
 
   it("stores queued refresh responses in the status cache", async () => {
@@ -119,3 +116,10 @@ describe("useBuiltInIconIndexStatus", () => {
     expect(queryClient.getQueryData<BuiltInIconIndexStatus>(builtInIconIndexQueryKey)?.providers[0]?.job?.status).toBe("queued");
   });
 });
+
+function refetchIntervalFor(query: Query): number | false | undefined {
+  const refetchInterval = (query.options as {
+    refetchInterval?: false | number | ((query: Query) => number | false | undefined);
+  }).refetchInterval;
+  return typeof refetchInterval === "function" ? refetchInterval(query) : refetchInterval;
+}
