@@ -50,6 +50,7 @@ export async function consumeBuiltInIconIndexRefreshQueue(batch: MessageBatch<un
       const body = parseRefreshQueueMessage(message.body);
       delivery = await processRefreshQueueMessage(env, body);
     } catch (error) {
+      // Queue 消息本身无效属于永久失败；只有网络、限流或平台写入这类临时错误才交给 Cloudflare 重试/DLQ。
       delivery = transientRefreshError(error) ? "retry" : "ack";
     }
     if (delivery === "retry") {
@@ -63,6 +64,7 @@ export async function consumeBuiltInIconIndexRefreshQueue(batch: MessageBatch<un
 async function processRefreshQueueMessage(env: Env, message: BuiltInIconIndexRefreshQueueMessage): Promise<"ack" | "retry"> {
   let runningJob;
   try {
+    // D1 job 是刷新任务的唯一状态源；陈旧或已被新 job 取代的消息直接 ack，不能复活旧任务覆盖新状态。
     runningJob = await markRefreshJobRunning(env, message.jobId, message.provider);
   } catch {
     return "retry";
@@ -73,6 +75,7 @@ async function processRefreshQueueMessage(env: Env, message: BuiltInIconIndexRef
     const providerIndex = await buildProviderSearchIndex(env, message.provider);
     const searchR2Key = `${MEDIA_ICON_INDEX_R2_PREFIX}/${message.provider}/${providerIndex.searchHash}.search.json.gz`;
     try {
+      // 先写 provider 级 R2 gzip，再切 D1 active 指针；D1 写失败时旧索引仍是 resolver 唯一可见版本。
       await env.ASSETS_BUCKET.put(searchR2Key, providerIndex.searchBytes, {
         httpMetadata: { contentType: "application/gzip" },
       });
@@ -97,6 +100,7 @@ async function processRefreshQueueMessage(env: Env, message: BuiltInIconIndexRef
     } catch {
       return "retry";
     }
+    // 官方 registry 的 404/schema/no-icons 是可见失败状态，ack 后停止打上游；429/5xx/timeout 才 retry。
     return transientRefreshError(error) ? "retry" : "ack";
   }
 }
@@ -110,6 +114,7 @@ async function buildProviderSearchIndex(env: Env, provider: BuiltInIconProvider)
 }> {
   const { version, etag } = await checkLatestProviderVersion(env, provider);
   if (!version.commitSha) throw new Error("latest provider commit is unavailable");
+  // Queue 仍复用官方来源构建流程：按 GitHub Atom 拿到的 commit pin 住 CDN，避免刷新途中默认分支移动。
   const providerIcons = await buildBuiltInIconProviderIndex(mediaResolverConfig, provider, registryFetcher(env), {
     provider,
     cdnBase: providerPinnedCdnBase(provider, version.commitSha),
@@ -165,6 +170,7 @@ function transientRefreshError(error: unknown, seen = new WeakSet<object>()): bo
   if (!error || typeof error !== "object") return false;
   if (seen.has(error)) return false;
   seen.add(error);
+  // 这里定义 Queue 的重试边界：临时上游/平台故障可重试，数据契约错误必须落 failed 后 ack。
   if (error instanceof RetryableBuiltInIconRefreshError) return true;
   if (error instanceof UpstreamRequestError) return error.timedOut;
   if (error instanceof UpstreamOperationError && error.status !== undefined) {

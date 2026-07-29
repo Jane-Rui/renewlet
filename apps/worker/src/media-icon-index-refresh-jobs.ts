@@ -69,6 +69,7 @@ export async function readLatestRefreshJobs(env: Env, providers: readonly BuiltI
     }));
     return Object.fromEntries(entries.filter((entry): entry is [BuiltInIconProvider, BuiltInIconRefreshJob] => Boolean(entry)));
   } catch (error) {
+    // 老本地库或未跑迁移的远端不能拖垮 status；刷新入口会单独暴露 schema unavailable。
     if (isMediaIconIndexRefreshJobSchemaError(error) || isRefreshJobSchemaUnavailable(error)) return {};
     throw error;
   }
@@ -87,6 +88,7 @@ export async function createRefreshJob(env: Env, provider: BuiltInIconProvider):
     `).bind(id, provider, timestamp, timestamp, timestamp).run();
   } catch (error) {
     if (isRefreshJobSchemaUnavailable(error)) throw new MediaIconIndexRefreshJobSchemaError(error);
+    // Cloudflare refresh 是异步 enqueue；并发点击同一 provider 时返回现有 active job，前端继续轮询同一任务。
     const existing = await readActiveRefreshJob(env, provider);
     if (existing) return { job: refreshJobFromRow(existing), created: false };
     throw error;
@@ -107,6 +109,7 @@ export async function createRefreshJob(env: Env, provider: BuiltInIconProvider):
 export async function markRefreshJobRunning(env: Env, jobId: string, provider: BuiltInIconProvider): Promise<MediaIconIndexRefreshJobRow | null> {
   const row = await readRefreshJobById(env, jobId);
   if (!row || row.provider !== provider || row.status === "succeeded") return null;
+  // retry 可能在用户重新点击后才送达；旧 failed job 不能重新变 running 覆盖更新的 queued job。
   if (row.status === "failed" && await readNewerRefreshJob(env, provider, row.queued_at, row.id)) {
     return null;
   }

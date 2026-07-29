@@ -101,6 +101,7 @@ export async function checkBuiltInIconIndexProvider(request: Request, env: Env, 
 
   try {
     const checkedAt = nowIso();
+    // Cloudflare check 不抢刷新锁；它只更新 latest/lastError，避免一次 GitHub 超时挡住真正的 Queue refresh。
     const { version, etag } = await checkLatestProviderVersion(env, parsedProvider);
     await saveProviderLatest(env, parsedProvider, checkedAt, version, etag);
     const status = await readBuiltInIconIndexStatus(env);
@@ -193,6 +194,7 @@ async function readBuiltInIconIndexStatus(env: Env): Promise<BuiltInIconIndexSta
   const states = parseProviderStates(row?.provider_status_json);
   const seedMetadata = await readSeedMetadata(env);
   const jobs = await readLatestRefreshJobs(env, BUILT_IN_ICON_PROVIDERS);
+  // Cloudflare 的 refreshing 只看 D1 job；旧 locked_until 只属于同步模型，不能再影响设置页状态。
   const jobRefreshing = hasRefreshingJob(jobs);
   const activeProviders = activeRuntimeProviders(states);
   if (activeProviders.size === 0) {
@@ -258,6 +260,7 @@ async function readActiveBuiltInSearchState(env: Env): Promise<{
     if (!key) return;
     const object = await env.ASSETS_BUCKET.get(key);
     if (!object) return;
+    // 已刷新 provider 读 R2；未刷新或对象缺失的 provider 保持 seed，单个 provider 坏掉不拖垮全局搜索。
     providerIndexes[provider] = JSON.parse(await gunzipToText(new Uint8Array(await object.arrayBuffer()))) as BuiltInIconSearchIndex;
     activeProviders.add(provider);
   }));
@@ -412,6 +415,7 @@ async function writeProviderStates(
   `).bind(checkedAt, JSON.stringify(states), checkedAt, MEDIA_ICON_INDEX_KEY, previousJson).run();
     if (typeof result.meta.changes === "number" && result.meta.changes > 0) return;
   }
+  // provider_status_json 用乐观写保护 check/refresh 并发；多次冲突说明状态被持续改写，应让调用方显式失败。
   throw new Error("built-in icon provider state changed while updating");
 }
 
@@ -720,6 +724,7 @@ async function providerCompositeHash(
   states: StoredProviderStates,
   activeProviders: ReadonlySet<BuiltInIconProvider>,
 ): Promise<string> {
+  // composite hash 同时包含 seed 和 runtime provider，确保 resolver cache 随任一 provider 切换而失效。
   const source = Object.fromEntries(BUILT_IN_ICON_PROVIDERS.map((provider) => {
     const state = states[provider] ?? {};
     return [provider, activeProviders.has(provider)

@@ -67,6 +67,7 @@ export function BuiltInIconSourcesSection({ id, className, sources, onChange, ic
   const handleDialogOpenChange = (open: boolean) => {
     setDialogOpen(open);
     if (open && iconIndex?.canManage) {
+      // 打开总弹层自动检查全部 provider；这是管理员状态面，不写 settings 草稿也不触发未保存提示。
       void iconIndex.checkAllProviders();
     }
   };
@@ -266,6 +267,7 @@ function BuiltInIconProviderStatusPopover({ provider, status, iconIndex, t }: Bu
   const busy = iconIndex.isLoading || checking || refreshing;
   const providerName = t(`settings.builtInIconSource.${provider}`);
   const statusView = getBuiltInIconProviderStatusView({ checking, iconIndex, refreshing, status, t });
+  // 详情只展示仍在进行的后台任务；历史 succeeded/failed job 不参与主状态，避免旧失败盖住“有更新/已最新”。
   const visibleJob = status?.job && (status.job.status === "queued" || status.job.status === "running") ? status.job : null;
   const checkFailureMessage = statusView.kind === "error" ? status?.lastError ?? null : null;
   const canRefresh = Boolean(status && (status.updateAvailable || checkFailureMessage) && !busy);
@@ -420,6 +422,7 @@ function getBuiltInIconProviderStatusView({
       className: "border-border bg-secondary/60 text-muted-foreground hover:bg-secondary hover:text-foreground",
     };
   }
+  // 主 badge 只表达当前可操作状态；已有 latest/current 时，非阻塞 lastError 只能进详情，不覆盖更新判断。
   if (status?.updateAvailable) {
     return {
       kind: "update",

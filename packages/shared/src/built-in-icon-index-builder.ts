@@ -145,6 +145,7 @@ function selfhstVariants(reference: string, item: JsonRecord): BuiltInIconVarian
 async function fetchJsonAny(context: BuildContext, urls: readonly string[], label: string): Promise<unknown> {
   const errors: string[] = [];
   const rawErrors: unknown[] = [];
+  // jsDelivr 是首选 pinned registry，raw.githubusercontent.com 只做同 commit fallback；两者都失败才暴露聚合错误。
   for (const url of urls) {
     try {
       return await context.fetchJson(url, label);
@@ -160,6 +161,7 @@ function githubRawBase(context: BuildContext, provider: BuiltInIconProvider): st
   const config = context.providers[provider];
   const atIndex = config.cdnBase.lastIndexOf("@");
   const ref = atIndex >= 0 ? config.cdnBase.slice(atIndex + 1) : config.github.branch;
+  // fallback 必须跟 cdnBase 使用同一个 ref，避免 CDN 失败时意外读到默认分支的新 registry。
   return `https://raw.githubusercontent.com/${config.github.owner}/${config.github.repo}/${ref}`;
 }
 
@@ -356,6 +358,7 @@ export function mergeBuiltInIconSearchIndexes(
   for (const provider of BUILT_IN_ICON_PROVIDERS) {
     const source = providerIndexes[provider] ?? fallbackIndex;
     const indexMap = new Map<number, number>();
+    // Cloudflare R2 只存 provider 级 search index；组合时必须重映射 entry 下标，不能复用单 provider 原始索引。
     source.entries.forEach((entry, sourceIndex) => {
       if (entry.p !== provider) return;
       indexMap.set(sourceIndex, entries.length);

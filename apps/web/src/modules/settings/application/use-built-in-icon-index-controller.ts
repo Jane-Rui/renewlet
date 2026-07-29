@@ -44,6 +44,7 @@ export function useSettingsBuiltInIconIndexController(canManage: boolean): Setti
       const provider = trackedRefreshJobsRef.current.get(job.id);
       if (provider !== providerStatus.provider) continue;
       // 只接管当前标签页主动触发的后台任务；历史终态 job 仍留在弹层详情里，不能打开页面就乱弹 toast。
+      // 先删除再 toast，防止 React StrictMode 或查询缓存重复通知把同一个 job 提示两次。
       trackedRefreshJobsRef.current.delete(job.id);
       const source = t(`settings.builtInIconSourceShort.${provider}`);
       if (job.status === "succeeded") {
@@ -116,6 +117,7 @@ export function useSettingsBuiltInIconIndexController(canManage: boolean): Setti
           }),
         });
       } else if (isRefreshJobActive(response.job)) {
+        // Cloudflare 返回 queued/running 时只说明已入队；真正成功/失败要等轮询看到同一个 job.id 的终态。
         trackedRefreshJobsRef.current.set(response.job.id, provider);
         toast({
           title: t("settings.builtInIconIndexRefreshQueued"),

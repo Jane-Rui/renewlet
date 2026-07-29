@@ -163,6 +163,7 @@ func handleBuiltInIconIndexProviderCheck(app core.App, e *core.RequestEvent) err
 		return e.BadRequestError(validationErrorMessage(locale, "common.invalidRequestBody", err), err)
 	}
 
+	// check 只探测 GitHub Atom HEAD，不参与索引构建；不能抢同步刷新锁，否则一次上游超时会挡住用户更新。
 	ctx, cancel := context.WithTimeout(e.Request.Context(), 30*time.Second)
 	defer cancel()
 	checkedAt := time.Now().UTC().Format(time.RFC3339Nano)
@@ -189,6 +190,7 @@ func handleBuiltInIconIndexProviderRefresh(app core.App, e *core.RequestEvent) e
 	if err := requireEmptyRequestBody(e.Request); err != nil {
 		return e.BadRequestError(validationErrorMessage(locale, "common.invalidRequestBody", err), err)
 	}
+	// Docker 版仍在请求内构建完整索引，必须用进程内锁防止并发 gzip/落库互相覆盖。
 	if !acquireBuiltInIconIndexOperation(provider) {
 		return apiErrorJSON(e, http.StatusConflict, "MEDIA_ICON_INDEX_REFRESHING", "Built-in icon index refresh is already running", nil)
 	}
@@ -205,6 +207,7 @@ func handleBuiltInIconIndexProviderRefresh(app core.App, e *core.RequestEvent) e
 	version, etag, err := checkLatestBuiltInIconProviderVersion(ctx, app, provider)
 	if err != nil {
 		saveMediaIconProviderFailure(app, provider, checkedAt, err)
+		// 失败路径只释放当前同步操作并记录 provider 错误；旧 active 索引继续服务搜索。
 		releaseBuiltInIconIndexOperation()
 		operationActive = false
 		return apiErrorJSON(e, http.StatusBadGateway, "MEDIA_ICON_INDEX_REFRESH_FAILED", "Built-in icon index refresh failed", upstreamErrorDetailsFromError(err))
@@ -228,6 +231,7 @@ func handleBuiltInIconIndexProviderRefresh(app core.App, e *core.RequestEvent) e
 		return apiErrorJSON(e, http.StatusBadGateway, "MEDIA_ICON_INDEX_REFRESH_FAILED", "Built-in icon index refresh failed", upstreamErrorDetailsFromError(err))
 	}
 	activeIcons := activeBuiltInIconIndex(app)
+	// Docker 存的是合并后的全量索引；刷新单个 provider 时只替换该 provider，其它来源沿用当前 active。
 	icons, err := replaceBuiltInIconProviderIndex(activeIcons, provider, providerIcons)
 	if err != nil {
 		saveMediaIconProviderFailure(app, provider, checkedAt, err)
