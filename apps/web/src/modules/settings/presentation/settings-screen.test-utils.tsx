@@ -6,7 +6,11 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { DEFAULT_CUSTOM_CONFIG, type CustomConfig } from "@/types/config";
-import type { ExchangeRates } from "@/lib/api/schemas/exchange-rates";
+import type {
+  ExchangeRateCoverageWarning,
+  ExchangeRates,
+  ExchangeRateSource,
+} from "@/lib/api/schemas/exchange-rates";
 import type { BuiltInIconIndexStatus } from "@/lib/api/schemas/media";
 import { DEFAULT_SETTINGS, type AppSettings, type NotificationChannel } from "@/types/subscription";
 import type { ThemeMode } from "@/types/theme";
@@ -409,9 +413,11 @@ export function createControllerState(overrides: {
     }>;
     createdPlainToken?: string | null;
   };
-  telegramBotCommands?: Partial<SettingsTelegramBotCommandsController>;
-  rates?: ExchangeRates;
-  externalIntegrationsDisabled?: boolean;
+	  telegramBotCommands?: Partial<SettingsTelegramBotCommandsController>;
+	  rates?: ExchangeRates;
+	  activeRateProvider?: ExchangeRateSource;
+	  ratesWarning?: ExchangeRateCoverageWarning | null;
+	  externalIntegrationsDisabled?: boolean;
   sensitiveAccountActionsDisabled?: boolean;
   sensitiveAccountActionsDemoDisabled?: boolean;
   customConfig?: CustomConfig;
@@ -449,10 +455,12 @@ export function createControllerState(overrides: {
     subscriptionsQuery: { data: [] },
     categoryUsageCount: new Map(),
     rates: overrides.rates ?? {},
-    activeRateProvider: "floatrates",
+    activeRateProvider: overrides.activeRateProvider ?? "frankfurter",
     ratesLoading: false,
     lastUpdated: null,
     ratesError: null,
+    ratesErrorDetails: null,
+    ratesWarning: overrides.ratesWarning ?? null,
     getCurrencySymbol: (currency: string) => currencySymbols[currency] ?? currency,
     updateCategories: fn,
     updateStatuses: fn,

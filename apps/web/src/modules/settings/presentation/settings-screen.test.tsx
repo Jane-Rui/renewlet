@@ -180,14 +180,14 @@ describe("SettingsScreen SMTP email settings", () => {
     expect(screen.getByTestId("theme-selector-mode")).toHaveTextContent("dark");
   });
 
-  it("lets users choose FloatRates as the exchange-rate source", async () => {
+  it("lets users choose Frankfurter as the exchange-rate source", async () => {
     Element.prototype.hasPointerCapture = vi.fn(() => false);
     Element.prototype.setPointerCapture = vi.fn();
     Element.prototype.releasePointerCapture = vi.fn();
     const user = userEvent.setup();
     const controller = createControllerState({
       settings: {
-        exchangeRateProvider: "exchange-api",
+        exchangeRateProvider: "floatrates",
       },
     });
     mocks.useSettingsFormController.mockReturnValue(controller);
@@ -195,9 +195,9 @@ describe("SettingsScreen SMTP email settings", () => {
     renderSettingsScreen();
 
     await user.click(screen.getByRole("combobox", { name: "汇率来源" }));
-    await user.click(screen.getByRole("option", { name: "FloatRates JSON Feeds" }));
+    await user.click(screen.getByRole("option", { name: "Frankfurter" }));
 
-    expect(controller.handleExchangeRateProviderChange).toHaveBeenCalledWith("floatrates");
+    expect(controller.handleExchangeRateProviderChange).toHaveBeenCalledWith("frankfurter");
   });
 
   it("shows the selected draft exchange-rate source without forcing an immediate save", () => {
@@ -212,6 +212,24 @@ describe("SettingsScreen SMTP email settings", () => {
     const select = screen.getByRole("combobox", { name: "汇率来源" });
     expect(select).toHaveTextContent("FloatRates JSON Feeds");
     expect(select).toBeEnabled();
+  });
+
+  it("shows partial exchange-rate warnings without opening raw error details", () => {
+    mocks.useSettingsFormController.mockReturnValue(createControllerState({
+      activeRateProvider: "exchange-api",
+      ratesWarning: {
+        kind: "partial",
+        provider: "exchange-api",
+        missingCurrencies: ["SYP"],
+        fillSources: { SYP: "frankfurter" },
+      },
+    }));
+
+    renderSettingsScreen();
+
+    expect(screen.getByText("汇率已更新，SYP 暂用 Frankfurter 补齐。")).toBeInTheDocument();
+    expect(screen.getByText("补齐：Frankfurter")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "查看错误响应" })).not.toBeInTheDocument();
   });
 
   it("shows common currency quotes in the reporting currency direction", () => {

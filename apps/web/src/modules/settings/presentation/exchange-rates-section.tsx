@@ -14,7 +14,12 @@ import { SearchableSelect } from '@/components/ui/searchable-select';
 import type { SearchableSelectOption } from '@/components/ui/searchable-select';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useI18n } from '@/i18n/I18nProvider';
-import type { ExchangeRateProvider, ExchangeRates } from '@/lib/api/schemas/exchange-rates';
+import type {
+  ExchangeRateCoverageWarning,
+  ExchangeRateProvider,
+  ExchangeRates,
+  ExchangeRateSource,
+} from '@/lib/api/schemas/exchange-rates';
 import type { RawErrorResponseDetails } from "@/lib/raw-error-response";
 import { cn } from '@/lib/utils';
 import type { CustomConfig } from '@/types/config';
@@ -31,10 +36,11 @@ export interface ExchangeRatesSectionProps {
   settings: Pick<AppSettings, 'defaultCurrency' | 'exchangeRateProvider'>;
   customConfig: Pick<CustomConfig, 'currencies'>;
   rates: ExchangeRates;
-  activeRateProvider: ExchangeRateProvider | "builtin";
+  activeRateProvider: ExchangeRateSource;
   ratesLoading: boolean;
   ratesError: string | null;
   ratesErrorDetails: RawErrorResponseDetails | null;
+  ratesWarning: ExchangeRateCoverageWarning | null;
   lastUpdated: Date | null;
   defaultCurrencyOptions: SearchableSelectOption[];
   handleRefreshRates: () => void | Promise<void>;
@@ -53,6 +59,7 @@ export function ExchangeRatesSection({
   ratesLoading,
   ratesError,
   ratesErrorDetails,
+  ratesWarning,
   lastUpdated,
   defaultCurrencyOptions,
   handleRefreshRates,
@@ -63,16 +70,24 @@ export function ExchangeRatesSection({
   const { t, formatDateTime, formatNumber } = useI18n();
   const [detailsOpen, setDetailsOpen] = useState(false);
   const previewCurrencies = getExchangeRatePreviewCurrencies(customConfig.currencies, settings.defaultCurrency);
-  const providerLabel = activeRateProvider === "builtin"
-    ? t("settings.exchangeRateProvider.builtin")
+  const getProviderLabel = (provider: ExchangeRateSource) => {
+    if (provider === "builtin") return t("settings.exchangeRateProvider.builtin");
+    if (provider === "frankfurter") return t("settings.exchangeRateProvider.frankfurter");
+    if (provider === "floatrates") return t("settings.exchangeRateProvider.floatrates");
+    return t("settings.exchangeRateProvider.exchangeApi");
+  };
+  const providerLabel = getProviderLabel(activeRateProvider);
+  const providerUrl = activeRateProvider === "frankfurter"
+    ? "https://frankfurter.dev/"
     : activeRateProvider === "floatrates"
-      ? t("settings.exchangeRateProvider.floatrates")
-      : t("settings.exchangeRateProvider.exchangeApi");
-  const providerUrl = activeRateProvider === "floatrates"
-    ? "https://www.floatrates.com/json-feeds.html"
-    : activeRateProvider === "exchange-api"
-      ? "https://github.com/fawazahmed0/exchange-api#readme"
-      : null;
+      ? "https://www.floatrates.com/json-feeds.html"
+      : activeRateProvider === "exchange-api"
+        ? "https://github.com/fawazahmed0/exchange-api#readme"
+        : null;
+  const warningMissingCurrencies = ratesWarning?.missingCurrencies.join(", ") ?? "";
+  const warningFillSources = ratesWarning
+    ? Array.from(new Set(Object.values(ratesWarning.fillSources))).map(getProviderLabel).join(", ")
+    : "";
 
   return (
             <section id={id} className={getSettingsSectionClassName(className)}>
@@ -92,7 +107,8 @@ export function ExchangeRatesSection({
                     {ratesLoading ? t("settings.ratesUpdating") : t("settings.refreshRates")}
                   </Button>
                 </div>
-    
+
+                {/* partial warning 已有完整汇率可用，只提示缺币补齐来源；错误详情入口只属于全失败排障。 */}
                 {ratesError && (
                   <div className="mb-4 flex flex-col gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-600 sm:flex-row sm:items-center sm:justify-between">
                     <span>{t("settings.ratesError", { error: ratesError })}</span>
@@ -106,9 +122,18 @@ export function ExchangeRatesSection({
                       >
                         {t("rawErrorResponse.open")}
                       </Button>
-                    ) : null}
-                  </div>
-                )}
+	                    ) : null}
+	                  </div>
+	                )}
+
+	                {!ratesError && ratesWarning && (
+	                  <div className="mb-4 rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-300">
+	                    {t("settings.ratesWarning", {
+	                      currencies: warningMissingCurrencies,
+	                      sources: warningFillSources,
+	                    })}
+	                  </div>
+	                )}
     
                 <div className="grid gap-6">
                   {/* 统计货币选择 */}
@@ -152,10 +177,11 @@ export function ExchangeRatesSection({
                         >
                           <SelectValue />
                         </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="exchange-api">{t("settings.exchangeRateProvider.exchangeApi")}</SelectItem>
-                          <SelectItem value="floatrates">{t("settings.exchangeRateProvider.floatrates")}</SelectItem>
-                        </SelectContent>
+	                        <SelectContent>
+	                          <SelectItem value="frankfurter">{t("settings.exchangeRateProvider.frankfurter")}</SelectItem>
+	                          <SelectItem value="exchange-api">{t("settings.exchangeRateProvider.exchangeApi")}</SelectItem>
+	                          <SelectItem value="floatrates">{t("settings.exchangeRateProvider.floatrates")}</SelectItem>
+	                        </SelectContent>
                       </Select>
                     </div>
                   </div>
@@ -171,13 +197,18 @@ export function ExchangeRatesSection({
                           rel="noopener noreferrer"
                           className="flex items-center gap-1 text-primary hover:underline"
                         >
-                          {providerLabel}
-                          <ExternalLink className="h-3 w-3" />
-                        </a>
-                      ) : (
-                        <span className="font-medium text-foreground">{providerLabel}</span>
-                      )}
-                    </div>
+	                          {providerLabel}
+	                          <ExternalLink className="h-3 w-3" />
+	                        </a>
+	                      ) : (
+	                        <span className="font-medium text-foreground">{providerLabel}</span>
+	                      )}
+	                      {ratesWarning ? (
+	                        <span className="ml-2 text-xs text-muted-foreground">
+	                          {t("settings.exchangeRatePartialDataSource", { sources: warningFillSources })}
+	                        </span>
+	                      ) : null}
+	                    </div>
                     <div className="flex items-center justify-between text-sm p-3 rounded-lg bg-secondary/50">
                       <span className="text-muted-foreground">{t("settings.cachePolicy")}</span>
                       <span className="font-medium text-foreground">{t("settings.cachePolicyValue")}</span>

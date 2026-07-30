@@ -118,13 +118,13 @@ describe("normalizeSettings", () => {
     expect(settings.webhookPayload).toBe("");
   });
 
-  it("defaults historical settings to FloatRates as the exchange-rate provider", () => {
+  it("defaults historical settings to Frankfurter as the exchange-rate provider", () => {
     const settings = normalizeSettings({
       defaultCurrency: "USD",
     });
 
     expect(settings.defaultCurrency).toBe("USD");
-    expect(settings.exchangeRateProvider).toBe("floatrates");
+    expect(settings.exchangeRateProvider).toBe("frankfurter");
   });
 
   it("fills missing global notification reminder days from defaults", () => {
@@ -140,15 +140,15 @@ describe("normalizeSettings", () => {
       exchangeRateProvider: "unknown",
     });
 
-    expect(settings.exchangeRateProvider).toBe("floatrates");
+    expect(settings.exchangeRateProvider).toBe("frankfurter");
   });
 
-  it("maps the legacy Frankfurter provider to Exchange API", () => {
+  it("keeps Frankfurter as a supported exchange-rate provider", () => {
     const settings = normalizeSettings({
       exchangeRateProvider: "frankfurter",
     });
 
-    expect(settings.exchangeRateProvider).toBe("exchange-api");
+    expect(settings.exchangeRateProvider).toBe("frankfurter");
   });
 
   it("fills missing built-in icon source settings from defaults", () => {

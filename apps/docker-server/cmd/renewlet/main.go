@@ -241,7 +241,8 @@ func staticCacheControl(request *http.Request, staticFS fs.FS) string {
 
 func staticContentSecurityPolicy(request *http.Request) string {
 	scriptSources := []string{"'self'", "'wasm-unsafe-eval'"}
-	connectSources := []string{"'self'", "https://cdn.jsdelivr.net", "https://latest.currency-api.pages.dev", "https://www.floatrates.com"}
+	// 汇率仍由浏览器直连公开 provider；这里必须与 Cloudflare `_headers` 保持同源列表同步。
+	connectSources := []string{"'self'", "https://cdn.jsdelivr.net", "https://latest.currency-api.pages.dev", "https://api.frankfurter.dev", "https://www.floatrates.com"}
 	if script, ok := customHeadScriptFromEnv(); ok {
 		// 自定义 head 脚本是部署者显式打开的外部执行边界；注入和 CSP 必须从同一份校验结果派生。
 		scriptSources = appendUniqueString(scriptSources, script.ScriptOrigin)

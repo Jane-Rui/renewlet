@@ -2,7 +2,7 @@
   "name": "renewlet",
   "private": true,
   "license": "MIT",
-  "version": "0.2.93",
+  "version": "0.2.94",
   "packageManager": "pnpm@11.1.2",
   "engines": {
     "node": ">=22.13.0"
@@ -83,6 +83,6 @@
     "@playwright/test": "^1.60.0",
     "@types/node": "^25.8.0",
     "typescript": "^6.0.3",
-    "wrangler": "^4.114.0"
+    "wrangler": "^4.115.0"
   }
 }

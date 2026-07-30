@@ -143,7 +143,7 @@ func TestStaticContentSecurityPolicyAllowsCustomHeadScriptOrigin(t *testing.T) {
 	if !strings.Contains(policy, "script-src 'self' 'wasm-unsafe-eval' https://cdn.example.com") {
 		t.Fatalf("expected script-src to include custom script origin, got %q", policy)
 	}
-	if !strings.Contains(policy, "connect-src 'self' https://cdn.jsdelivr.net https://latest.currency-api.pages.dev https://www.floatrates.com https://cdn.example.com https://api.example.com") {
+	if !strings.Contains(policy, "connect-src 'self' https://cdn.jsdelivr.net https://latest.currency-api.pages.dev https://api.frankfurter.dev https://www.floatrates.com https://cdn.example.com https://api.example.com") {
 		t.Fatalf("expected connect-src to include custom connect origins, got %q", policy)
 	}
 }

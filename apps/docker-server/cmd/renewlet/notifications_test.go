@@ -547,7 +547,7 @@ func TestMergeSettingsSanitizesNotificationFields(t *testing.T) {
 	if len(settings.EnabledChannels) != 3 || settings.EnabledChannels[0] != "telegram" || settings.EnabledChannels[1] != "serverchan" || settings.EnabledChannels[2] != "email" {
 		t.Fatalf("unexpected channels %#v", settings.EnabledChannels)
 	}
-	if settings.ExchangeRateProvider != "floatrates" {
+	if settings.ExchangeRateProvider != "frankfurter" {
 		t.Fatalf("expected exchange-rate provider fallback, got %q", settings.ExchangeRateProvider)
 	}
 	if settings.WebhookMethod != "POST" || settings.DingTalkMessageType != dingtalkMessageTypeMarkdown || settings.WechatMessageType != "text" || settings.BarkServerURL != "https://api.day.app" {
@@ -560,6 +560,19 @@ func TestMergeSettingsSanitizesNotificationFields(t *testing.T) {
 
 func TestMergeSettingsPreservesSupportedExchangeRateProvider(t *testing.T) {
 	settings, err := mergeSettings(defaultAppSettings(), json.RawMessage(`{
+		"exchangeRateProvider": "frankfurter"
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if settings.ExchangeRateProvider != "frankfurter" {
+		t.Fatalf("expected exchange-rate provider to be preserved, got %q", settings.ExchangeRateProvider)
+	}
+}
+
+func TestMergeSettingsPreservesExchangeApiProvider(t *testing.T) {
+	settings, err := mergeSettings(defaultAppSettings(), json.RawMessage(`{
 		"exchangeRateProvider": "exchange-api"
 	}`))
 	if err != nil {
@@ -568,19 +581,6 @@ func TestMergeSettingsPreservesSupportedExchangeRateProvider(t *testing.T) {
 
 	if settings.ExchangeRateProvider != "exchange-api" {
 		t.Fatalf("expected exchange-rate provider to be preserved, got %q", settings.ExchangeRateProvider)
-	}
-}
-
-func TestMergeSettingsMapsLegacyFrankfurterProvider(t *testing.T) {
-	settings, err := mergeSettings(defaultAppSettings(), json.RawMessage(`{
-		"exchangeRateProvider": "frankfurter"
-	}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if settings.ExchangeRateProvider != "exchange-api" {
-		t.Fatalf("expected legacy provider to map to exchange-api, got %q", settings.ExchangeRateProvider)
 	}
 }
 

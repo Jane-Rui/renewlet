@@ -40,7 +40,11 @@ import {
   writeSettingsThemeModeToStorage,
   writeThemeVariantToStorage,
 } from "@/lib/theme-storage";
-import type { ExchangeRateProvider, ExchangeRates } from "@/lib/api/schemas/exchange-rates";
+import type {
+  ExchangeRateCoverageWarning,
+  ExchangeRateProvider,
+  ExchangeRates,
+} from "@/lib/api/schemas/exchange-rates";
 import type { CalendarFeedStatus } from "@/lib/api/schemas/calendar-feed";
 import { DEFAULT_SETTINGS, type AppSettings, type NotificationChannel, type Subscription } from "@/types/subscription";
 import { normalizePaymentMethods, type ConfigItem, type CustomConfig } from "@/types/config";
@@ -130,6 +134,7 @@ export interface SettingsFormController {
   lastUpdated: Date | null;
   ratesError: string | null;
   ratesErrorDetails: RawErrorResponseDetails | null;
+  ratesWarning: ExchangeRateCoverageWarning | null;
   getCurrencySymbol: (currency: string) => string;
   updateCategories: (items: ConfigItem[]) => void;
   updateStatuses: (items: ConfigItem[]) => void;
@@ -200,6 +205,7 @@ export function useSettingsFormController(): SettingsFormController {
     refresh: refreshRates,
     error: ratesError,
     errorDetails: ratesErrorDetails,
+    warning: ratesWarning,
     getCurrencySymbol,
   } = useExchangeRates(savedSettings.exchangeRateProvider);
   const { toast } = useToast();
@@ -459,6 +465,7 @@ export function useSettingsFormController(): SettingsFormController {
         void refetchTelegramBotCommands();
         if (providerChanged) {
           try {
+            // 汇率刷新必须使用服务端已接受的 provider；草稿值可能因后端旧版本或保存失败没有真正生效。
             await refreshRates(saved.exchangeRateProvider);
           } catch (e) {
             console.warn("Failed to refresh exchange rates after saving settings:", e);
@@ -706,6 +713,7 @@ export function useSettingsFormController(): SettingsFormController {
     lastUpdated,
     ratesError,
     ratesErrorDetails,
+    ratesWarning,
     getCurrencySymbol,
     updateCategories,
     updateStatuses,

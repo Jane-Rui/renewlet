@@ -459,7 +459,7 @@ func defaultAppSettings() appSettings {
 		Locale:               string(defaultAppLocale),
 		DefaultCurrency:      "CNY",
 		PublicStatusCurrency: "inherit",
-		ExchangeRateProvider: "floatrates",
+		ExchangeRateProvider: "frankfurter",
 		BuiltInIconSources:   defaultBuiltInIconSourceSettings(),
 		AIRecognition: aiRecognitionSettings{
 			ProviderType:           aiProviderTypeOpenAI,
