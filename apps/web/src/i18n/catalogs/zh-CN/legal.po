@@ -136,7 +136,7 @@ msgstr "本项目默认使用本地认证进行登录鉴权；数据存储在 SQ
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/legal.ts:16
 msgid "legal.privacy.thirdParty.rates"
-msgstr "汇率：可使用 Exchange API 或 FloatRates JSON Feeds 获取汇率数据（远端失败时会尝试另一个来源，最终回退到内置汇率，保证可用）。"
+msgstr "汇率：可使用 Frankfurter、Exchange API 或 FloatRates JSON Feeds 获取汇率数据（远端失败或少量缺币时会尝试其他来源补齐，最终回退到内置汇率，保证可用）。"
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/legal.ts:13

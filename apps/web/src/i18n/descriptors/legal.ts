@@ -13,7 +13,7 @@ export const messages = [
   msg({ id: "legal.privacy.usage.core", message: "用于提供核心功能：订阅管理、统计、日历展示、个性化设置。" }),
   msg({ id: "legal.privacy.usage.notifications", message: "用于通知功能（可选）：当你启用通知渠道后，系统会把通知内容发送到你配置的第三方渠道。" }),
   msg({ id: "legal.privacy.thirdParty.title", message: "3. 第三方请求" }),
-  msg({ id: "legal.privacy.thirdParty.rates", message: "汇率：可使用 Exchange API 或 FloatRates JSON Feeds 获取汇率数据（远端失败时会尝试另一个来源，最终回退到内置汇率，保证可用）。" }),
+  msg({ id: "legal.privacy.thirdParty.rates", message: "汇率：可使用 Frankfurter、Exchange API 或 FloatRates JSON Feeds 获取汇率数据（远端失败或少量缺币时会尝试其他来源补齐，最终回退到内置汇率，保证可用）。" }),
   msg({ id: "legal.privacy.thirdParty.icons", message: "图标搜索：可能会在浏览器中加载外部 favicon/logo 候选（作为备用能力，失败会自动降级）。" }),
   msg({ id: "legal.privacy.thirdParty.notifications", message: "通知：Telegram/企业微信/Webhook/SMTP 邮件/Bark/Server酱 等渠道会接收你配置的通知内容。" }),
   msg({ id: "legal.privacy.thirdParty.ai", message: "AI 识别：当你主动使用 AI 识别添加订阅时，粘贴的文字、上传的图片和已有标签名会发送到你在设置页配置的第三方 AI 平台。" }),

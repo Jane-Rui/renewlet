@@ -3,6 +3,15 @@ import { createDefaultAppSettings } from "../settings-defaults";
 import { appSettingsSchema, settingsUpdateBodySchema } from "./settings";
 
 describe("settings schema", () => {
+  it("uses Frankfurter as the default exchange-rate provider", () => {
+    const defaults = createDefaultAppSettings();
+    expect(defaults.exchangeRateProvider).toBe("frankfurter");
+    expect(settingsUpdateBodySchema.parse({ exchangeRateProvider: "frankfurter" }).exchangeRateProvider).toBe("frankfurter");
+    expect(settingsUpdateBodySchema.parse({ exchangeRateProvider: "floatrates" }).exchangeRateProvider).toBe("floatrates");
+    expect(settingsUpdateBodySchema.parse({ exchangeRateProvider: "exchange-api" }).exchangeRateProvider).toBe("exchange-api");
+    expect(settingsUpdateBodySchema.parse({ exchangeRateProvider: "unknown" }).exchangeRateProvider).toBe("frankfurter");
+  });
+
   it("supports only plain or html Telegram message formats", () => {
     expect(createDefaultAppSettings().telegramMessageFormat).toBe("plain");
     expect(appSettingsSchema.pick({ telegramMessageFormat: true }).parse({ telegramMessageFormat: "plain" }).telegramMessageFormat).toBe("plain");

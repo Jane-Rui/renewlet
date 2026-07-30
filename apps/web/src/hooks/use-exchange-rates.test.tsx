@@ -6,7 +6,7 @@ import { createUseExchangeRates } from "./use-exchange-rates";
 import { SUPPORTED_EXCHANGE_RATE_CURRENCIES } from "@/lib/currency-data";
 
 const EXCHANGE_RATE_LOG_PREFIX = "Failed to fetch exchange rates";
-const CACHE_KEY_PREFIX = "exchange_rates_cache_v4";
+const CACHE_KEY_PREFIX = "exchange_rates_cache_v5";
 
 const supportedRates = Object.fromEntries(
   SUPPORTED_EXCHANGE_RATE_CURRENCIES.map((code, index) => [
@@ -25,6 +25,33 @@ function makeExchangeApiUsdResponse(overrides: Record<string, unknown> = {}) {
       ...overrides,
     },
   };
+}
+
+function makeFrankfurterRatesResponse(overrides: Record<string, unknown> = {}) {
+  const rowsByCode = Object.fromEntries(
+    Object.entries(supportedRates)
+      .filter(([code]) => code !== "USD")
+      .map(([quote, rate]) => [
+        quote,
+        {
+          date: "2026-07-30",
+          base: "USD",
+          quote,
+          rate,
+        },
+      ]),
+  ) as Record<string, unknown>;
+
+  for (const [code, row] of Object.entries(overrides)) {
+    const normalizedCode = code.toUpperCase();
+    if (row === undefined) {
+      delete rowsByCode[normalizedCode];
+    } else {
+      rowsByCode[normalizedCode] = row;
+    }
+  }
+
+  return Object.values(rowsByCode);
 }
 
 function makeFloatRatesResponse(overrides: Record<string, unknown> = {}) {
@@ -177,40 +204,59 @@ describe("useExchangeRates", () => {
       requestedProvider: "floatrates",
       provider: "floatrates",
     }));
-    vi.mocked(fetch).mockResolvedValue(jsonResponse(makeFloatRatesResponse()));
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(makeFrankfurterRatesResponse()));
 
     const { result } = renderHook(() => useExchangeRates());
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(fetch).toHaveBeenCalledTimes(1);
-    expect(requestPath(0)).toBe("https://www.floatrates.com/daily/usd.json");
+    expect(requestPath(0)).toBe("https://api.frankfurter.dev/v2/rates");
     expect(result.current.rates["CNY"]).toBe(supportedRates["CNY"]);
   });
 
-  it("fetches FloatRates by default and does not call exchange-api when it succeeds", async () => {
-    vi.mocked(fetch).mockResolvedValue(jsonResponse(makeFloatRatesResponse()));
+  it("fetches Frankfurter by default and does not call other providers when it succeeds", async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(makeFrankfurterRatesResponse()));
 
     const { result } = renderHook(() => useExchangeRates());
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.error).toBeNull();
-    expect(result.current.activeProvider).toBe("floatrates");
+    expect(result.current.warning).toBeNull();
+    expect(result.current.activeProvider).toBe("frankfurter");
     expect(result.current.rates["CNY"]).toBe(supportedRates["CNY"]);
     expect(result.current.rates["USD"]).toBe(1);
     expect(fetch).toHaveBeenCalledTimes(1);
-    expect(requestPath(0)).toBe("https://www.floatrates.com/daily/usd.json");
+    expect(requestPath(0)).toBe("https://api.frankfurter.dev/v2/rates");
 
-    const cached = JSON.parse(localStorage.getItem(`${CACHE_KEY_PREFIX}:floatrates`) ?? "{}") as {
+    const cached = JSON.parse(localStorage.getItem(`${CACHE_KEY_PREFIX}:frankfurter`) ?? "{}") as {
       base?: string;
       provider?: string;
       requestedProvider?: string;
       rates?: Record<string, number>;
     };
     expect(cached["base"]).toBe("USD");
-    expect(cached["provider"]).toBe("floatrates");
-    expect(cached["requestedProvider"]).toBe("floatrates");
+    expect(cached["provider"]).toBe("frankfurter");
+    expect(cached["requestedProvider"]).toBe("frankfurter");
     expect(cached["rates"]?.["CNY"]).toBe(supportedRates["CNY"]);
     expect(cached["rates"]?.["USD"]).toBe(1);
+  });
+
+  it("accepts Frankfurter USD self quotes from the v2 feed", async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(makeFrankfurterRatesResponse({
+      USD: {
+        date: "2026-07-30",
+        base: "USD",
+        quote: "USD",
+        rate: 1,
+      },
+    })));
+
+    const { result } = renderHook(() => useExchangeRates());
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.error).toBeNull();
+    expect(result.current.activeProvider).toBe("frankfurter");
+    expect(result.current.rates["USD"]).toBe(1);
   });
 
   it("uses exchange-api first when selected", async () => {
@@ -242,20 +288,20 @@ describe("useExchangeRates", () => {
     exchangeRateLogs.expectWarning("exchange-api endpoint https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.min.json");
   });
 
-  it("falls back to FloatRates when exchange-api fails", async () => {
+  it("falls back to Frankfurter when exchange-api fails", async () => {
     vi.mocked(fetch)
       .mockRejectedValueOnce(new Error("jsdelivr down"))
       .mockResolvedValueOnce(jsonResponse({ error: "unavailable" }, { status: 503 }))
-      .mockResolvedValueOnce(jsonResponse(makeFloatRatesResponse()));
+      .mockResolvedValueOnce(jsonResponse(makeFrankfurterRatesResponse()));
 
     const { result } = renderHook(() => useExchangeRates("exchange-api"));
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.error).toBeNull();
-    expect(result.current.activeProvider).toBe("floatrates");
+    expect(result.current.activeProvider).toBe("frankfurter");
     expect(result.current.rates["CNY"]).toBe(supportedRates["CNY"]);
     expect(fetch).toHaveBeenCalledTimes(3);
-    expect(requestPath(2)).toBe("https://www.floatrates.com/daily/usd.json");
+    expect(requestPath(2)).toBe("https://api.frankfurter.dev/v2/rates");
     exchangeRateLogs.expectWarning("exchange-api endpoint https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.min.json");
     exchangeRateLogs.expectWarning("exchange-api endpoint https://latest.currency-api.pages.dev/v1/currencies/usd.min.json");
     exchangeRateLogs.expectWarning("exchange rates from exchange-api");
@@ -264,31 +310,96 @@ describe("useExchangeRates", () => {
       provider?: string;
       requestedProvider?: string;
     };
-    expect(cached["provider"]).toBe("floatrates");
+    expect(cached["provider"]).toBe("frankfurter");
     expect(cached["requestedProvider"]).toBe("exchange-api");
   });
 
-  it("falls back to exchange-api when FloatRates fails", async () => {
+  it("falls back to Frankfurter when FloatRates has an invalid contract", async () => {
     vi.mocked(fetch)
-      .mockResolvedValueOnce(jsonResponse(makeFloatRatesResponse({ cny: undefined })))
-      .mockResolvedValueOnce(jsonResponse(makeExchangeApiUsdResponse()));
+      .mockResolvedValueOnce(jsonResponse(makeFloatRatesResponse({
+        cny: { alphaCode: "EUR", rate: supportedRates["CNY"], date: "Fri, 15 May 2026 23:55:05 GMT" },
+      })))
+      .mockResolvedValueOnce(jsonResponse(makeFrankfurterRatesResponse()));
 
     const { result } = renderHook(() => useExchangeRates("floatrates"));
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.error).toBeNull();
-    expect(result.current.activeProvider).toBe("exchange-api");
+    expect(result.current.activeProvider).toBe("frankfurter");
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(requestPath(0)).toBe("https://www.floatrates.com/daily/usd.json");
-    expect(requestPath(1)).toBe("https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.min.json");
+    expect(requestPath(1)).toBe("https://api.frankfurter.dev/v2/rates");
+  });
+
+  it("accepts FloatRates numeric strings and stores numbers", async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(makeFloatRatesResponse({
+      cny: {
+        alphaCode: "CNY",
+        rate: String(supportedRates["CNY"]),
+        date: "Fri, 15 May 2026 23:55:05 GMT",
+      },
+    })));
+
+    const { result } = renderHook(() => useExchangeRates("floatrates"));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.error).toBeNull();
+    expect(result.current.warning).toBeNull();
+    expect(result.current.activeProvider).toBe("floatrates");
+    expect(result.current.rates["CNY"]).toBe(supportedRates["CNY"]);
+
+    const cached = JSON.parse(localStorage.getItem(`${CACHE_KEY_PREFIX}:floatrates`) ?? "{}") as {
+      rates?: Record<string, number>;
+    };
+    expect(typeof cached.rates?.["CNY"]).toBe("number");
+  });
+
+  it("updates with a partial exchange-api response and fills missing currencies from Frankfurter", async () => {
+    const exchangeApiResponse = makeExchangeApiUsdResponse();
+    delete exchangeApiResponse.usd["syp"];
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(exchangeApiResponse))
+      .mockResolvedValueOnce(jsonResponse(makeFrankfurterRatesResponse()));
+
+    const { result } = renderHook(() => useExchangeRates("exchange-api"));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.error).toBeNull();
+    expect(result.current.activeProvider).toBe("exchange-api");
+    expect(result.current.rates["SYP"]).toBe(supportedRates["SYP"]);
+    expect(result.current.warning).toMatchObject({
+      kind: "partial",
+      provider: "exchange-api",
+      missingCurrencies: ["SYP"],
+      fillSources: { SYP: "frankfurter" },
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(exchangeRateLogs.errors).toHaveLength(0);
+  });
+
+  it("uses built-in rates for a small provider gap when remote fillers fail", async () => {
+    const floatRatesResponse = makeFloatRatesResponse();
+    delete floatRatesResponse["syp"];
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(floatRatesResponse))
+      .mockRejectedValueOnce(new Error("frankfurter down"))
+      .mockRejectedValueOnce(new Error("exchange-api primary down"))
+      .mockRejectedValueOnce(new Error("exchange-api fallback down"));
+
+    const { result } = renderHook(() => useExchangeRates("floatrates"));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.error).toBeNull();
+    expect(result.current.activeProvider).toBe("floatrates");
+    expect(result.current.rates["SYP"]).toBeDefined();
+    expect(result.current.warning).toMatchObject({
+      provider: "floatrates",
+      missingCurrencies: ["SYP"],
+      fillSources: { SYP: "builtin" },
+    });
   });
 
   it.each([
-    ["missing currency", () => {
-      const response = makeFloatRatesResponse();
-      delete response["cny"];
-      return response;
-    }],
     ["alphaCode/key mismatch", () => makeFloatRatesResponse({
       cny: { alphaCode: "EUR", rate: supportedRates["CNY"], date: "Fri, 15 May 2026 23:55:05 GMT" },
     })],
@@ -301,6 +412,7 @@ describe("useExchangeRates", () => {
   ])("reports contract errors when FloatRates has %s and exchange-api also fails", async (_caseName, makePayload) => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(jsonResponse(makePayload()))
+      .mockRejectedValueOnce(new Error("frankfurter down"))
       .mockRejectedValueOnce(new Error("exchange-api primary down"))
       .mockRejectedValueOnce(new Error("exchange-api fallback down"));
 
@@ -312,18 +424,32 @@ describe("useExchangeRates", () => {
     expect(result.current.rates["USD"]).toBe(1);
   });
 
+  it("rejects providers that miss more than the partial coverage limit", async () => {
+    const response = makeFloatRatesResponse();
+    for (const currency of ["AED", "AFN", "ALL", "AMD", "AOA", "ARS"]) {
+      delete response[currency.toLowerCase()];
+    }
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(response))
+      .mockRejectedValueOnce(new Error("frankfurter down"))
+      .mockRejectedValueOnce(new Error("exchange-api primary down"))
+      .mockRejectedValueOnce(new Error("exchange-api fallback down"));
+
+    const { result } = renderHook(() => useExchangeRates("floatrates"));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.error).toBe("汇率响应格式异常");
+    expect(result.current.activeProvider).toBe("builtin");
+  });
+
   it.each([
-    ["missing currency", () => {
-      const response = makeExchangeApiUsdResponse();
-      delete response.usd["cny"];
-      return response;
-    }],
     ["string rate", () => makeExchangeApiUsdResponse({ cny: "oops" })],
     ["non-positive rate", () => makeExchangeApiUsdResponse({ cny: 0 })],
   ])("reports contract errors when exchange-api has %s and FloatRates also fails", async (_caseName, makePayload) => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(jsonResponse(makePayload()))
       .mockRejectedValueOnce(new Error("exchange-api fallback down"))
+      .mockRejectedValueOnce(new Error("frankfurter down"))
       .mockRejectedValueOnce(new Error("floatrates down"));
 
     const { result } = renderHook(() => useExchangeRates("exchange-api"));
@@ -334,23 +460,24 @@ describe("useExchangeRates", () => {
     expect(result.current.rates["USD"]).toBe(1);
   });
 
-  it("falls back to FloatRates for exchange-api HTTP failures", async () => {
+  it("falls back to Frankfurter for exchange-api HTTP failures", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(jsonResponse({ error: "unavailable" }, { status: 503 }))
       .mockResolvedValueOnce(jsonResponse({ error: "unavailable" }, { status: 503 }))
-      .mockResolvedValueOnce(jsonResponse(makeFloatRatesResponse()));
+      .mockResolvedValueOnce(jsonResponse(makeFrankfurterRatesResponse()));
 
     const { result } = renderHook(() => useExchangeRates("exchange-api"));
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.error).toBeNull();
-    expect(result.current.activeProvider).toBe("floatrates");
+    expect(result.current.activeProvider).toBe("frankfurter");
     expect(result.current.rates["USD"]).toBe(1);
   });
 
   it("keeps raw response text for exchange-rate HTTP failures", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(new Response("<html>rate limited</html>", { status: 429, statusText: "Too Many Requests" }))
+      .mockRejectedValueOnce(new Error("frankfurter down"))
       .mockRejectedValueOnce(new Error("exchange-api primary down"))
       .mockRejectedValueOnce(new Error("exchange-api fallback down"));
 
@@ -365,7 +492,7 @@ describe("useExchangeRates", () => {
     });
   });
 
-  it("falls back to FloatRates when both exchange-api endpoints time out", async () => {
+  it("falls back to Frankfurter when both exchange-api endpoints time out", async () => {
     vi.useFakeTimers();
     vi.mocked(fetch)
       .mockImplementationOnce((_input, init) => new Promise((_resolve, reject) => {
@@ -376,7 +503,7 @@ describe("useExchangeRates", () => {
         const signal = (init as RequestInit | undefined)?.signal;
         signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
       }))
-      .mockResolvedValueOnce(jsonResponse(makeFloatRatesResponse()));
+      .mockResolvedValueOnce(jsonResponse(makeFrankfurterRatesResponse()));
 
     const { result } = renderHook(() => useExchangeRates("exchange-api"));
 
@@ -392,7 +519,7 @@ describe("useExchangeRates", () => {
 
     expect(result.current.loading).toBe(false);
     expect(result.current.error).toBeNull();
-    expect(result.current.activeProvider).toBe("floatrates");
+    expect(result.current.activeProvider).toBe("frankfurter");
     expect(fetch).toHaveBeenCalledTimes(3);
   });
 
@@ -415,6 +542,9 @@ describe("useExchangeRates", () => {
       await vi.advanceTimersByTimeAsync(10_000);
     });
     await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    await act(async () => {
       await Promise.resolve();
     });
 
@@ -423,6 +553,7 @@ describe("useExchangeRates", () => {
     expect(result.current.activeProvider).toBe("builtin");
     expect(result.current.rates["USD"]).toBe(1);
     expect(result.current.errorDetails?.responseText).toBe("Exchange rate request timed out");
+    exchangeRateLogs.expectWarning("exchange rates from frankfurter");
     exchangeRateLogs.expectWarning("exchange rates from floatrates");
     exchangeRateLogs.expectWarning("exchange rates from exchange-api");
     exchangeRateLogs.expectErrorSource("exchange-rates.fetch");

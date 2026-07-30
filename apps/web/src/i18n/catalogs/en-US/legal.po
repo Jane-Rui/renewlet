@@ -136,7 +136,7 @@ msgstr "The project uses local authentication by default. Data is stored in SQLi
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/legal.ts:16
 msgid "legal.privacy.thirdParty.rates"
-msgstr "Exchange rates: Exchange API or FloatRates JSON Feeds can be used for rate data, with the other remote source tried before built-in fallback rates."
+msgstr "Exchange rates: Frankfurter, Exchange API, or FloatRates JSON Feeds can be used for rate data. If a remote source fails or has small currency gaps, other sources are tried before built-in fallback rates."
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/legal.ts:13

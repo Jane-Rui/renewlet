@@ -30,7 +30,7 @@ export type RepeatReminderInterval = (typeof REPEAT_REMINDER_INTERVALS)[number];
 export const REPEAT_REMINDER_WINDOWS = ["24h", "48h", "72h", "full"] as const;
 export type RepeatReminderWindow = (typeof REPEAT_REMINDER_WINDOWS)[number];
 
-export const EXCHANGE_RATE_PROVIDERS = ["exchange-api", "floatrates"] as const;
+export const EXCHANGE_RATE_PROVIDERS = ["frankfurter", "floatrates", "exchange-api"] as const;
 export type ExchangeRateProvider = (typeof EXCHANGE_RATE_PROVIDERS)[number];
 
 /** 跨 Go/PocketBase、D1 和前端的 date-only 品牌类型，避免续费日期被误当成带时区 instant。 */
@@ -70,10 +70,10 @@ export function isValidTimeZone(value: string): boolean {
 }
 
 export function normalizeExchangeRateProvider(value: unknown): ExchangeRateProvider {
-  // frankfurter 是旧 UI 文案/缓存里的历史值；彻底切到 exchange-api 前先在边界归一。
-  if (value === "exchange-api" || value === "frankfurter") return "exchange-api";
+  if (value === "frankfurter") return "frankfurter";
   if (value === "floatrates") return "floatrates";
-  return "floatrates";
+  if (value === "exchange-api") return "exchange-api";
+  return "frankfurter";
 }
 
 export function isValidReminderDays(value: number): boolean {

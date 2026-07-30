@@ -96,6 +96,7 @@ export function SettingsScreen() {
     lastUpdated,
     ratesError,
     ratesErrorDetails,
+    ratesWarning,
     getCurrencySymbol,
     updateCategories,
     updateStatuses,
@@ -447,6 +448,7 @@ export function SettingsScreen() {
                 ratesLoading={ratesLoading}
                 ratesError={ratesError}
                 ratesErrorDetails={ratesErrorDetails}
+                ratesWarning={ratesWarning}
                 lastUpdated={lastUpdated}
                 defaultCurrencyOptions={defaultCurrencyOptions}
                 handleRefreshRates={handleRefreshRates}

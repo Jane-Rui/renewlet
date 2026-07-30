@@ -22,7 +22,7 @@ export function createDefaultAppSettings(options: DefaultSettingsOptions = {}): 
     showExpired: true,
     defaultCurrency: "CNY",
     publicStatusCurrency: "inherit",
-    exchangeRateProvider: "floatrates",
+    exchangeRateProvider: "frankfurter",
     builtInIconSources: DEFAULT_BUILT_IN_ICON_SOURCES,
     monthlyBudget: 1500,
     timezone: options.timezone ?? "UTC",

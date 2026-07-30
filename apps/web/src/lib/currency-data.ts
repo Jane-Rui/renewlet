@@ -1,8 +1,8 @@
 /**
  * 汇率适配器、设置页和订阅表单共享的货币数据。
  *
- * 支持集合固定为 fawazahmed0/exchange-api 与 FloatRates JSON Feeds 的交集，
- * 已在 2026-05-17 核验。标签和符号运行时由 Intl 派生，让列表保持紧凑且支持 locale。
+ * 支持集合固定为 Frankfurter、fawazahmed0/exchange-api 与 FloatRates 可互补覆盖的法币集合。
+ * 三方少量漂移由汇率 store 补齐并提示；标签和符号运行时由 Intl 派生，让列表保持紧凑且支持 locale。
  */
 import { DEFAULT_LOCALE, type Locale } from "@/i18n/locales";
 

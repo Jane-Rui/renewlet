@@ -1,10 +1,13 @@
 import {
   cachedExchangeRateDataSchema,
   exchangeApiUsdResponseSchema,
+  frankfurterRatesResponseSchema,
   floatRatesResponseSchema,
   type CachedExchangeRateData,
+  type ExchangeRateCoverageWarning,
   type ExchangeRateData,
   type ExchangeRateProvider,
+  type ExchangeRateSource,
   type ExchangeRates,
 } from "@/lib/api/schemas/exchange-rates";
 import {
@@ -18,9 +21,11 @@ import {
   type RawErrorResponseDetails,
 } from "@/lib/raw-error-response";
 
-const CACHE_KEY_PREFIX = "exchange_rates_cache_v4";
+const CACHE_KEY_PREFIX = "exchange_rates_cache_v5";
 const CACHE_DURATION = 24 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 10_000;
+// 少量缺币常见于公开汇率源覆盖漂移；超过阈值说明 provider 响应整体不可信，应切到下一个来源。
+const MAX_PARTIAL_MISSING_CURRENCIES = 5;
 
 /** 回退汇率：当 API 失败时使用（以 USD 为 base，快照来自 exchange-api，2026-05-17）。 */
 export const FALLBACK_RATES: ExchangeRates = {
@@ -53,17 +58,20 @@ export const FALLBACK_RATES: ExchangeRates = {
 
 const EXCHANGE_API_PRIMARY_USD_FEED = "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.min.json";
 const EXCHANGE_API_FALLBACK_USD_FEED = "https://latest.currency-api.pages.dev/v1/currencies/usd.min.json";
+const FRANKFURTER_USD_FEED = "https://api.frankfurter.dev/v2/rates?base=USD";
 const FLOATRATES_USD_FEED = "https://www.floatrates.com/daily/usd.json";
+// 已保存 provider 是用户偏好，不能因默认源升级而迁移；失败或少量缺口再按全局顺序补位。
+const EXCHANGE_RATE_PROVIDER_FALLBACK_ORDER = ["frankfurter", "floatrates", "exchange-api"] as const satisfies readonly ExchangeRateProvider[];
 
-export const DEFAULT_EXCHANGE_RATE_PROVIDER: ExchangeRateProvider = "floatrates";
+export const DEFAULT_EXCHANGE_RATE_PROVIDER: ExchangeRateProvider = "frankfurter";
 
-export type ExchangeRateSource = ExchangeRateProvider | "builtin";
 export type ExchangeRateErrorKind = "timeout" | "contract" | "network";
 
 export type ExchangeRateSnapshot = {
   rates: ExchangeRates;
   baseRate: string;
   activeProvider: ExchangeRateSource;
+  warning: ExchangeRateCoverageWarning | null;
   lastUpdated: Date;
 };
 
@@ -77,6 +85,10 @@ type FetchLike = typeof fetch;
 type InFlightRatesRequest = {
   controller: AbortController;
   promise: Promise<CachedExchangeRateData>;
+};
+
+type NormalizedExchangeRateData = ExchangeRateData & {
+  missingCurrencies: string[];
 };
 
 export type ExchangeRateStoreOptions = {
@@ -136,11 +148,45 @@ function exchangeRateCacheKey(requestedProvider: ExchangeRateProvider): string {
   return `${CACHE_KEY_PREFIX}:${requestedProvider}`;
 }
 
-function hasAllSupportedRates(rates: ExchangeRates): boolean {
-  return SUPPORTED_EXCHANGE_RATE_CURRENCIES.every((currency) => rates[currency] !== undefined);
+function getMissingSupportedCurrencies(rates: ExchangeRates): string[] {
+  return SUPPORTED_EXCHANGE_RATE_CURRENCIES.filter((currency) => rates[currency] === undefined);
 }
 
-function normalizeExchangeApiUsdResponse(value: unknown): ExchangeRateData | null {
+function normalizeFrankfurterRatesResponse(value: unknown): NormalizedExchangeRateData | null {
+  const parsed = frankfurterRatesResponseSchema.safeParse(value);
+  if (!parsed.success) return null;
+
+  const rates: ExchangeRates = { USD: 1 };
+  let date: string | null = null;
+
+  for (const row of parsed.data) {
+    if (!isSupportedExchangeRateCurrency(row.quote)) continue;
+    if (row.quote === "USD") {
+      // Frankfurter v2 会返回 USD 自报价；只能接受 rate=1，避免把坏 base 行静默写入缓存。
+      if (row.rate !== 1) return null;
+      if (date === null || row.date > date) {
+        date = row.date;
+      }
+      continue;
+    }
+    if (rates[row.quote] !== undefined) return null;
+    rates[row.quote] = row.rate;
+    if (date === null || row.date > date) {
+      date = row.date;
+    }
+  }
+
+  if (!date) return null;
+
+  return {
+    base: "USD",
+    date,
+    rates,
+    missingCurrencies: getMissingSupportedCurrencies(rates),
+  };
+}
+
+function normalizeExchangeApiUsdResponse(value: unknown): NormalizedExchangeRateData | null {
   const parsed = exchangeApiUsdResponseSchema.safeParse(value);
   if (!parsed.success) return null;
 
@@ -148,21 +194,21 @@ function normalizeExchangeApiUsdResponse(value: unknown): ExchangeRateData | nul
   for (const [key, rate] of Object.entries(parsed.data.usd)) {
     const code = key.toUpperCase();
     if (!isSupportedExchangeRateCurrency(code)) continue;
+    // exchange-api 按小写 map 暴露汇率；少量缺币留给 partial 补齐，非法 rate 已在 schema 层失败。
     // 同一币种重复出现通常代表上游结构漂移；直接拒绝比静默覆盖更容易发现数据问题。
     if (rates[code] !== undefined && code !== "USD") return null;
     rates[code] = rate;
   }
 
-  if (!hasAllSupportedRates(rates)) return null;
-
   return {
     base: "USD",
     date: parsed.data.date,
     rates,
+    missingCurrencies: getMissingSupportedCurrencies(rates),
   };
 }
 
-function normalizeFloatRatesResponse(value: unknown): ExchangeRateData | null {
+function normalizeFloatRatesResponse(value: unknown): NormalizedExchangeRateData | null {
   const parsed = floatRatesResponseSchema.safeParse(value);
   if (!parsed.success) return null;
 
@@ -180,12 +226,13 @@ function normalizeFloatRatesResponse(value: unknown): ExchangeRateData | null {
     date ??= row.date;
   }
 
-  if (!date || !hasAllSupportedRates(rates)) return null;
+  if (!date) return null;
 
   return {
     base: "USD",
     date,
     rates,
+    missingCurrencies: getMissingSupportedCurrencies(rates),
   };
 }
 
@@ -196,9 +243,10 @@ function normalizeCachedExchangeRateData(value: unknown): CachedExchangeRateData
 }
 
 function getProviderOrder(preferredProvider: ExchangeRateProvider): ExchangeRateProvider[] {
-  return preferredProvider === "floatrates"
-    ? ["floatrates", "exchange-api"]
-    : ["exchange-api", "floatrates"];
+  return [
+    preferredProvider,
+    ...EXCHANGE_RATE_PROVIDER_FALLBACK_ORDER.filter((provider) => provider !== preferredProvider),
+  ];
 }
 
 function applyCachedRates(data: CachedExchangeRateData): ExchangeRateSnapshot {
@@ -206,6 +254,7 @@ function applyCachedRates(data: CachedExchangeRateData): ExchangeRateSnapshot {
     rates: { ...data.rates, USD: 1 },
     baseRate: data.base,
     activeProvider: data.provider,
+    warning: data.warning ?? null,
     lastUpdated: new Date(data.cachedAt),
   };
 }
@@ -291,12 +340,16 @@ export function createExchangeRateStore(options: ExchangeRateStoreOptions = {}):
     data: ExchangeRateData,
     provider: ExchangeRateProvider,
     requestedProvider: ExchangeRateProvider,
+    warning: ExchangeRateCoverageWarning | null = null,
   ): CachedExchangeRateData {
     const cached: CachedExchangeRateData = {
-      ...data,
+      base: data.base,
+      date: data.date,
+      rates: data.rates,
       cachedAt: now(),
       provider,
       requestedProvider,
+      warning,
     };
     memoryCache.set(requestedProvider, cached);
     try {
@@ -366,7 +419,41 @@ export function createExchangeRateStore(options: ExchangeRateStoreOptions = {}):
     }
   }
 
-  async function fetchExchangeApiRates(signal: AbortSignal): Promise<ExchangeRateData> {
+  function assertAcceptableProviderCoverage(
+    provider: ExchangeRateProvider,
+    data: NormalizedExchangeRateData,
+    responseText: string,
+  ): NormalizedExchangeRateData {
+    // 覆盖率阈值是 partial 成功与 contract 失败的分界；raw body 只在失败路径给排障弹窗使用。
+    if (data.missingCurrencies.length <= MAX_PARTIAL_MISSING_CURRENCIES) return data;
+
+    throw new ExchangeRateContractError(
+      `Exchange-rate provider ${provider} is missing too many currencies`,
+      createRawErrorResponseDetailsFromText({
+        code: "INCOMPLETE_RESPONSE",
+        message: `Exchange-rate provider ${provider} is missing too many currencies`,
+        responseText,
+      }),
+    );
+  }
+
+  async function fetchFrankfurterRates(signal: AbortSignal): Promise<NormalizedExchangeRateData> {
+    const { payload, responseText } = await fetchJsonWithTimeout(FRANKFURTER_USD_FEED, signal);
+    const data = normalizeFrankfurterRatesResponse(payload);
+    if (!data) {
+      throw new ExchangeRateContractError(
+        "Invalid Frankfurter response",
+        createRawErrorResponseDetailsFromText({
+          code: "INVALID_RESPONSE",
+          message: "Invalid Frankfurter response",
+          responseText,
+        }),
+      );
+    }
+    return assertAcceptableProviderCoverage("frankfurter", data, responseText);
+  }
+
+  async function fetchExchangeApiRates(signal: AbortSignal): Promise<NormalizedExchangeRateData> {
     const failures: unknown[] = [];
     for (const url of [EXCHANGE_API_PRIMARY_USD_FEED, EXCHANGE_API_FALLBACK_USD_FEED]) {
       try {
@@ -382,7 +469,7 @@ export function createExchangeRateStore(options: ExchangeRateStoreOptions = {}):
             }),
           );
         }
-        return data;
+        return assertAcceptableProviderCoverage("exchange-api", data, responseText);
       } catch (e) {
         if (signal.aborted && !(e instanceof ExchangeRateTimeoutError)) throw e;
         failures.push(e);
@@ -397,8 +484,11 @@ export function createExchangeRateStore(options: ExchangeRateStoreOptions = {}):
   async function fetchProviderRates(
     provider: ExchangeRateProvider,
     signal: AbortSignal,
-  ): Promise<ExchangeRateData> {
+  ): Promise<NormalizedExchangeRateData> {
     try {
+      if (provider === "frankfurter") {
+        return await fetchFrankfurterRates(signal);
+      }
       if (provider === "exchange-api") {
         return await fetchExchangeApiRates(signal);
       }
@@ -415,11 +505,89 @@ export function createExchangeRateStore(options: ExchangeRateStoreOptions = {}):
           }),
         );
       }
-      return data;
+      return assertAcceptableProviderCoverage(provider, data, responseText);
     } catch (e) {
       if (signal.aborted && !(e instanceof ExchangeRateTimeoutError)) throw e;
       throw new ExchangeRateProviderError(provider, errorKindFromProviderError(e), e);
     }
+  }
+
+  function toProviderError(provider: ExchangeRateProvider, error: unknown): ExchangeRateProviderError {
+    return error instanceof ExchangeRateProviderError
+      ? error
+      : new ExchangeRateProviderError(provider, errorKindFromProviderError(error), error);
+  }
+
+  function warnProviderFailure(provider: ExchangeRateProvider, error: ExchangeRateProviderError): void {
+    console.warn(`Failed to fetch exchange rates from ${provider}:`, exchangeRateErrorLogContext(error));
+  }
+
+  async function completePartialRates(
+    primaryData: NormalizedExchangeRateData,
+    primaryProvider: ExchangeRateProvider,
+    requestedProvider: ExchangeRateProvider,
+    remainingProviders: ExchangeRateProvider[],
+    signal: AbortSignal,
+    providerFailures: ExchangeRateProviderError[],
+  ): Promise<CachedExchangeRateData> {
+    const rates: ExchangeRates = { ...primaryData.rates, USD: 1 };
+    const initialMissingCurrencies = primaryData.missingCurrencies;
+    const fillSources: Record<string, ExchangeRateSource> = {};
+    let missingCurrencies = initialMissingCurrencies;
+
+    // partial 成功仍必须产出完整 USD base rates；后续远端只填主来源缺口，不覆盖已可信的主来源汇率。
+    for (const provider of remainingProviders) {
+      if (missingCurrencies.length === 0) break;
+
+      try {
+        const fillerData = await fetchProviderRates(provider, signal);
+        for (const currency of missingCurrencies) {
+          const rate = fillerData.rates[currency];
+          if (rate !== undefined) {
+            rates[currency] = rate;
+            fillSources[currency] = provider;
+          }
+        }
+        missingCurrencies = getMissingSupportedCurrencies(rates);
+      } catch (e) {
+        if (signal.aborted) throw e;
+        const providerError = toProviderError(provider, e);
+        providerFailures.push(providerError);
+        warnProviderFailure(provider, providerError);
+      }
+    }
+
+    // 远端补不齐时才落到内置快照；这让统计保持可用，同时通过 warning 暴露暂用来源。
+    for (const currency of missingCurrencies) {
+      const rate = FALLBACK_RATES[currency];
+      if (rate !== undefined) {
+        rates[currency] = rate;
+        fillSources[currency] = "builtin";
+      }
+    }
+
+    missingCurrencies = getMissingSupportedCurrencies(rates);
+    if (missingCurrencies.length > 0) {
+      throw new ExchangeRateProviderError(
+        primaryProvider,
+        "contract",
+        new ExchangeRateContractError(`Exchange-rate provider ${primaryProvider} could not be completed`),
+      );
+    }
+
+    const warning: ExchangeRateCoverageWarning = {
+      kind: "partial",
+      provider: primaryProvider,
+      missingCurrencies: initialMissingCurrencies,
+      fillSources,
+    };
+
+    return setCachedRates(
+      { ...primaryData, rates },
+      primaryProvider,
+      requestedProvider,
+      warning,
+    );
   }
 
   function loadRemoteRates(requestedProvider: ExchangeRateProvider): Promise<CachedExchangeRateData> {
@@ -431,18 +599,28 @@ export function createExchangeRateStore(options: ExchangeRateStoreOptions = {}):
     const controller = new AbortController();
     const promise = (async () => {
       const providerFailures: ExchangeRateProviderError[] = [];
-      for (const provider of getProviderOrder(requestedProvider)) {
+      const providerOrder = getProviderOrder(requestedProvider);
+      for (const [index, provider] of providerOrder.entries()) {
         try {
           const data = await fetchProviderRates(provider, controller.signal);
           const ratesWithBase = { ...data.rates, USD: 1 };
+          // 少量缺币是成功态：完成补齐后缓存 warning，避免设置页展示“查看错误响应”误导用户。
+          if (data.missingCurrencies.length > 0) {
+            return await completePartialRates(
+              { ...data, rates: ratesWithBase },
+              provider,
+              requestedProvider,
+              providerOrder.slice(index + 1),
+              controller.signal,
+              providerFailures,
+            );
+          }
           return setCachedRates({ ...data, rates: ratesWithBase }, provider, requestedProvider);
         } catch (e) {
           if (controller.signal.aborted) throw e;
-          const providerError = e instanceof ExchangeRateProviderError
-            ? e
-            : new ExchangeRateProviderError(provider, errorKindFromProviderError(e), e);
+          const providerError = toProviderError(provider, e);
           providerFailures.push(providerError);
-          console.warn(`Failed to fetch exchange rates from ${provider}:`, exchangeRateErrorLogContext(providerError));
+          warnProviderFailure(provider, providerError);
         }
       }
 

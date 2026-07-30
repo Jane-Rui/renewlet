@@ -103,16 +103,18 @@ vi.mock("@/hooks/use-setup-status", () => ({
 }));
 
 vi.mock("@/hooks/use-exchange-rates", () => ({
-  useExchangeRates: () => ({
-    rates: {},
-    activeProvider: "floatrates",
-    loading: false,
-    lastUpdated: null,
-    refresh: mocks.refreshRates,
-    error: null,
-    getCurrencySymbol: () => "¥",
-  }),
-}));
+	  useExchangeRates: () => ({
+	    rates: {},
+	    activeProvider: "frankfurter",
+	    loading: false,
+	    lastUpdated: null,
+	    refresh: mocks.refreshRates,
+	    error: null,
+	    errorDetails: null,
+	    warning: null,
+	    getCurrencySymbol: () => "¥",
+	  }),
+	}));
 
 vi.mock("@/hooks/use-subscriptions", () => ({
   useSubscriptions: () => ({

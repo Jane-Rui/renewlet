@@ -274,7 +274,7 @@ export interface AppSettings {
   defaultCurrency: string;
   /** 公开页金额汇总货币；inherit 表示跟随 defaultCurrency。 */
   publicStatusCurrency: PublicStatusCurrency;
-  /** 首选汇率来源；另一个远端来源仍作为兜底。 */
+  /** 首选汇率来源；其他远端来源和内置快照仍作为兜底。 */
   exchangeRateProvider: ExchangeRateProvider;
   /** 内置 Logo/Icon 来源配置；影响搜索候选和导入自动匹配。 */
   builtInIconSources: BuiltInIconSourceSettings;
