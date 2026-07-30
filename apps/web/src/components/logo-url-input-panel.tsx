@@ -57,17 +57,23 @@ export function LogoUrlInputPanel({
   const errorId = `${inputId}-error`;
   const previewId = `${inputId}-preview`;
   const [rawValue, setRawValue] = useState(() => initialLogoUrl(value));
-  const [touched, setTouched] = useState(false);
+  const [validationRequested, setValidationRequested] = useState(false);
   const [previewFailed, setPreviewFailed] = useState(false);
   const validation = useMemo(() => validateCustomLogoUrlInput(rawValue), [rawValue]);
   const displaySrc = validation.ok ? resolveDisplayLogoSrc(validation.value) : undefined;
   const upgradedForPreview = validation.ok && displaySrc !== undefined && displaySrc !== validation.value;
-  const showError = touched && !validation.ok;
+  // 弹层自动关闭会先触发输入框 blur；只有显式提交才展示错误，避免关闭动画里闪红。
+  const showError = validationRequested && !validation.ok;
   const isSmall = size === "sm";
 
   const errorMessage = showError && !validation.ok
     ? t(validationMessageKeys[validation.code], { max: LOGO_URL_INPUT_MAX_LENGTH })
     : undefined;
+
+  const applyLogoLink = () => {
+    setValidationRequested(true);
+    if (validation.ok) onApply(validation.value);
+  };
 
   return (
     <div className={cn("grid gap-3", className)}>
@@ -88,11 +94,14 @@ export function LogoUrlInputPanel({
             aria-invalid={field.invalid}
             aria-describedby={field.describedBy}
             className={cn(isSmall && "h-9 text-sm")}
-            onBlur={() => setTouched(true)}
             onChange={(event) => {
               setRawValue(event.target.value);
-              setTouched(true);
               setPreviewFailed(false);
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter") return;
+              event.preventDefault();
+              applyLogoLink();
             }}
           />
         )}
@@ -139,10 +148,7 @@ export function LogoUrlInputPanel({
         type="button"
         size="sm"
         className="w-full gap-2"
-        disabled={!validation.ok}
-        onClick={() => {
-          if (validation.ok) onApply(validation.value);
-        }}
+        onClick={applyLogoLink}
       >
         <Link className="h-4 w-4" />
         {t("media.useLogoLink")}

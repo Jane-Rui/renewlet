@@ -664,14 +664,14 @@ msgid "media.searchIconPrompt"
 msgstr "输入名称后点击搜索"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:78
-msgid "media.searchLogoPrompt"
-msgstr "输入服务名称后点击搜索"
-
-#. js-lingui-explicit-id
 #: src/i18n/descriptors/notification.ts:41
 msgid "media.searchLogoPlaceholder"
-msgstr "输入服务名称或品牌..."
+msgstr "输入服务名称、品牌或网址..."
+
+#. js-lingui-explicit-id
+#: src/i18n/descriptors/notification.ts:78
+msgid "media.searchLogoPrompt"
+msgstr "输入服务名称、品牌或网址后点击搜索"
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/notification.ts:18

@@ -181,4 +181,46 @@ describe("shared media resolver", () => {
     expect(item.candidates.favicon[0]?.label).toBe("acme.com");
     expect(item.candidates.best).toEqual(item.candidates.builtIn[0]);
   });
+
+  it("uses explicit URL domains before stored websites and expands direct favicon paths", () => {
+    const syntheticResolver = createMediaResolver([], mediaResolverConfig);
+    const item = resolveMediaCandidateItem(
+      syntheticResolver,
+      "logo",
+      "search",
+      {
+        id: "explicit-url",
+        name: "https://query.example/pricing",
+        website: "https://stored.example",
+      },
+      5,
+    );
+
+    expect(item.candidates.favicon.map((candidate) => candidate.url)).toEqual([
+      "https://query.example/favicon.ico",
+      "https://query.example/favicon.svg",
+      "https://query.example/icon.svg",
+      "https://query.example/icon-32x32.png",
+      "https://query.example/apple-touch-icon.png",
+    ]);
+    expect(item.candidates.favicon.every((candidate) => candidate.autoAssignable === false)).toBe(true);
+  });
+
+  it("keeps guessed favicon domains on the compact fallback provider budget", () => {
+    const syntheticResolver = createMediaResolver([], mediaResolverConfig);
+    const item = resolveMediaCandidateItem(
+      syntheticResolver,
+      "logo",
+      "search",
+      { id: "guessed-domain", name: "Acme" },
+      4,
+    );
+
+    expect(item.candidates.favicon.map((candidate) => candidate.url)).toEqual([
+      "https://acme.com/favicon.ico",
+      "https://acme.com/apple-touch-icon.png",
+      "https://www.google.com/s2/favicons?domain=acme.com&sz=128",
+      "https://icons.duckduckgo.com/ip3/acme.com.ico",
+    ]);
+  });
 });

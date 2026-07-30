@@ -1,6 +1,6 @@
 // 导入 Logo 编辑器测试保护“暂存资产先预览、apply 时再持久化”的导入边界。
 import type { ReactNode } from "react";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -172,6 +172,32 @@ describe("ImportLogoEditor", () => {
     expect(logoTile).not.toHaveClass("media-thumbnail-canvas");
   });
 
+  it("passes the imported website into manual Logo search candidates", async () => {
+    const user = userEvent.setup();
+    mockMatchMedia({ "(max-width: 767px)": true });
+
+    renderWithTooltipProvider(
+      <ImportLogoEditor
+        name="Svix"
+        website="https://www.svix.com/"
+        value={null}
+        onChange={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "修改 Logo" }));
+
+    await screen.findByTestId("import-logo-sheet");
+    await waitFor(() => {
+      expect(mocks.resolveMediaCandidates).toHaveBeenCalledWith({
+        kind: "logo",
+        mode: "search",
+        items: [{ id: "search", name: "Svix", website: "https://www.svix.com/" }],
+        limit: 32,
+      }, expect.any(AbortSignal));
+    });
+  });
+
   it("applies a custom Logo link without carrying a deferred asset", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
@@ -191,5 +217,33 @@ describe("ImportLogoEditor", () => {
     await user.click(screen.getByRole("button", { name: "使用链接" }));
 
     expect(onChange).toHaveBeenCalledWith("https://example.com/apple.svg");
+  });
+
+  it("shows custom Logo link validation only after submitting in the import editor", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    mockMatchMedia({ "(max-width: 767px)": true });
+
+    renderWithTooltipProvider(
+      <ImportLogoEditor
+        name="Apple"
+        value={null}
+        onChange={onChange}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "修改 Logo" }));
+    await user.click(screen.getByRole("tab", { name: "链接" }));
+    const input = screen.getByPlaceholderText("https://example.com/logo.svg");
+    await user.type(input, "ftp://example.com/apple.svg");
+
+    expect(input).toHaveAttribute("aria-invalid", "false");
+    expect(screen.queryByText("Logo 链接只支持 http:// 或 https://")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "使用链接" }));
+
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(await screen.findByText("Logo 链接只支持 http:// 或 https://")).toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
   });
 });

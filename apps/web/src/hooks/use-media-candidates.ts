@@ -7,6 +7,7 @@ import { mediaCandidateService } from "@/services/media-candidate-service";
 interface UseMediaCandidatesOptions {
   kind: MediaCandidateKind;
   autoQuery?: string | undefined;
+  website?: string | undefined;
   limit?: number | undefined;
   closeResetDelayMs?: number | undefined;
 }
@@ -45,7 +46,7 @@ function filterBlocked(group: MediaCandidateGroup, blocked: ReadonlySet<string>)
  * 把过期候选写回当前弹层。
  */
 export function useMediaCandidates(options: UseMediaCandidatesOptions): UseMediaCandidatesResult {
-  const { kind, autoQuery, limit = 32, closeResetDelayMs = 0 } = options;
+  const { kind, autoQuery, website, limit = 32, closeResetDelayMs = 0 } = options;
   const [open, setOpen] = useState(false);
   const [query, setQueryState] = useState("");
   const [isSearching, setIsSearching] = useState(false);
@@ -119,7 +120,7 @@ export function useMediaCandidates(options: UseMediaCandidatesOptions): UseMedia
         const response = await mediaCandidateService.resolve({
           kind,
           mode: "search",
-          items: [{ id: "search", name: q }],
+          items: [{ id: "search", name: q, ...(website?.trim() ? { website: website.trim() } : {}) }],
           limit,
         }, controller.signal);
         if (controller.signal.aborted) return;
@@ -140,7 +141,7 @@ export function useMediaCandidates(options: UseMediaCandidatesOptions): UseMedia
         }
       }
     })();
-  }, [kind, limit, resetVisibleSearchState]);
+  }, [kind, limit, resetVisibleSearchState, website]);
 
   useEffect(() => {
     if (!open) return;

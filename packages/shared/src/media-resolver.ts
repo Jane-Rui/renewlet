@@ -77,6 +77,13 @@ interface SearchOptions {
   sources: BuiltInIconSourceSettings;
 }
 
+type FaviconProviderConfig = MediaResolverConfig["favicon"]["providers"][number];
+
+interface FaviconCandidateDomain {
+  domain: string;
+  direct: boolean;
+}
+
 export interface MediaResolver {
   config: MediaResolverConfig;
   icons: ResolverIcon[];
@@ -314,8 +321,16 @@ export function generateFaviconCandidates(
   if (limit <= 0) return [];
   const tlds = resolver.config.favicon.fallbackTlds[kind];
   const domains = candidateDomains(resolver, name, website, tlds).slice(0, resolver.config.limits.maxCandidateDomains);
-  const candidates = domains.flatMap((domain, domainIndex) => faviconCandidatesForDomain(resolver, kind, domain, domainIndex * resolver.config.favicon.providers.length));
-  return candidates.slice(0, limit);
+  const candidates: MediaCandidate[] = [];
+  for (const item of domains) {
+    // 用户显式提供的域名可多试几个标准静态路径；推断域名保持低预算，避免弱候选挤占搜索结果。
+    const providers = item.direct ? resolver.config.favicon.explicitProviders : resolver.config.favicon.providers;
+    for (const candidate of faviconCandidatesForDomain(resolver, kind, item.domain, providers, candidates.length)) {
+      candidates.push(candidate);
+      if (candidates.length >= limit) return candidates;
+    }
+  }
+  return candidates;
 }
 
 /** 搜索 term 归一化要同时服务拉丁字符、中文和 provider slug，不绑定 UI locale。 */
@@ -452,9 +467,10 @@ function faviconCandidatesForDomain(
   resolver: MediaResolver,
   kind: MediaCandidateKind,
   domain: string,
+  providers: readonly FaviconProviderConfig[],
   rankOffset: number,
 ): MediaCandidate[] {
-  return resolver.config.favicon.providers.map((item, index): MediaCandidate => {
+  return providers.map((item, index): MediaCandidate => {
     const rank = rankOffset + index;
     return {
       id: `favicon:${item.provider}:${domain}:${rank}`,
@@ -472,29 +488,45 @@ function faviconCandidatesForDomain(
   });
 }
 
-function candidateDomains(resolver: MediaResolver, query: string, website: string, tlds: readonly string[]): string[] {
-  const domains: string[] = [];
-  const websiteDomain = extractDomain(website);
-  if (websiteDomain) domains.push(websiteDomain);
+function candidateDomains(resolver: MediaResolver, query: string, website: string, tlds: readonly string[]): FaviconCandidateDomain[] {
+  const domains: FaviconCandidateDomain[] = [];
   const explicit = extractDomain(query);
-  if (explicit) domains.push(explicit);
+  if (explicit) domains.push({ domain: explicit, direct: true });
+  const websiteDomain = extractDomain(website);
+  if (websiteDomain) domains.push({ domain: websiteDomain, direct: true });
   const queries = faviconMediaQueries(resolver, query);
   for (const reduced of queries) {
     const keyword = compactMediaTerm(reduced);
     if (!usableReducedKeyword(resolver, keyword)) continue;
     const known = resolver.config.favicon.knownDomains[keyword];
-    if (known) domains.push(known);
+    if (known) domains.push({ domain: known, direct: false });
   }
   for (const reduced of queries) {
     const keyword = compactMediaTerm(reduced);
     if (!usableReducedKeyword(resolver, keyword)) continue;
-    for (const tld of tlds) domains.push(`${keyword}.${tld}`);
+    for (const tld of tlds) domains.push({ domain: `${keyword}.${tld}`, direct: false });
   }
-  return unique(domains.flatMap((domain) => {
+  return normalizeCandidateDomains(domains);
+}
+
+function normalizeCandidateDomains(domains: readonly FaviconCandidateDomain[]): FaviconCandidateDomain[] {
+  const out: FaviconCandidateDomain[] = [];
+  const seen = new Set<string>();
+  const pushDomain = (domain: string, direct: boolean) => {
     const normalized = domain.toLowerCase().trim();
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    out.push({ domain: normalized, direct });
+  };
+
+  for (const item of domains) {
+    const normalized = item.domain.toLowerCase().trim();
+    if (!normalized) continue;
+    pushDomain(normalized, item.direct);
     const parts = normalized.split(".");
-    return parts.length === 2 && !normalized.startsWith("www.") ? [normalized, `www.${normalized}`] : [normalized];
-  }));
+    if (parts.length === 2 && !normalized.startsWith("www.")) pushDomain(`www.${normalized}`, item.direct);
+  }
+  return out;
 }
 
 function extractDomain(value: string): string | null {

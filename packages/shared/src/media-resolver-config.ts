@@ -62,6 +62,10 @@ const mediaResolverConfigSchema = z.object({
       provider: z.string().min(1),
       urlTemplate: z.string().includes("{domain}"),
     }).strict()).min(1),
+    explicitProviders: z.array(z.object({
+      provider: z.string().min(1),
+      urlTemplate: z.string().includes("{domain}"),
+    }).strict()).min(1),
     knownDomains: z.record(z.string().min(1), z.string().min(1)),
   }).strict(),
 }).strict().refine((config) => config.candidateGroups.searchFaviconReserve < config.limits.maxCandidates, "favicon 预留候选数必须小于最大候选数");

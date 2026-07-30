@@ -207,6 +207,7 @@ function PreviewRow({
           {subscription ? (
             <ImportLogoEditor
               name={subscription.name}
+              website={subscription.website}
               value={subscription.logo}
               assetPreviewUrl={prepared.assets.find((asset) => asset.subscriptionIndex === item.index)?.previewUrl}
               onChange={(value, asset) => onLogoChange(item.index, value, asset)}

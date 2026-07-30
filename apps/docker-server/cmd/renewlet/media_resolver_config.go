@@ -51,13 +51,16 @@ type mediaResolverConfig struct {
 		MediumThreshold float64 `json:"mediumThreshold"`
 	} `json:"scores"`
 	Favicon struct {
-		FallbackTLDs map[string][]string `json:"fallbackTlds"`
-		Providers    []struct {
-			Provider    string `json:"provider"`
-			URLTemplate string `json:"urlTemplate"`
-		} `json:"providers"`
-		KnownDomains map[string]string `json:"knownDomains"`
+		FallbackTLDs      map[string][]string     `json:"fallbackTlds"`
+		Providers         []faviconProviderConfig `json:"providers"`
+		ExplicitProviders []faviconProviderConfig `json:"explicitProviders"`
+		KnownDomains      map[string]string       `json:"knownDomains"`
 	} `json:"favicon"`
+}
+
+type faviconProviderConfig struct {
+	Provider    string `json:"provider"`
+	URLTemplate string `json:"urlTemplate"`
 }
 
 var mediaResolverCfg = loadMediaResolverConfig()
@@ -68,7 +71,7 @@ func loadMediaResolverConfig() mediaResolverConfig {
 		panic("invalid embedded media resolver config: " + err.Error())
 	}
 	// 配置是 Go/前端/shared 共用的候选排序事实源；启动时失败比悄悄降级到空候选更容易定位发布错误。
-	if len(config.BuiltInProviders) == 0 || config.Search.MinReducedQueryLength <= 0 || len(config.Search.ModifierSuffixWords) == 0 || config.CandidateGroups.SearchFaviconReserve <= 0 || config.CandidateGroups.SearchFaviconReserve >= config.Limits.MaxCandidates || config.Limits.DefaultCandidates <= 0 || config.Limits.MaxCandidates <= 0 || len(config.Favicon.Providers) == 0 {
+	if len(config.BuiltInProviders) == 0 || config.Search.MinReducedQueryLength <= 0 || len(config.Search.ModifierSuffixWords) == 0 || config.CandidateGroups.SearchFaviconReserve <= 0 || config.CandidateGroups.SearchFaviconReserve >= config.Limits.MaxCandidates || config.Limits.DefaultCandidates <= 0 || config.Limits.MaxCandidates <= 0 || len(config.Favicon.Providers) == 0 || len(config.Favicon.ExplicitProviders) == 0 {
 		panic("invalid embedded media resolver config")
 	}
 	return config

@@ -84,6 +84,25 @@ describe("useMediaCandidates", () => {
     });
   });
 
+  it("includes the current website when resolving manual logo search candidates", async () => {
+    const { result } = renderHook(() => useMediaCandidates({ kind: "logo", website: " https://www.svix.com/ " }));
+
+    act(() => {
+      result.current.onOpenChange(true);
+      result.current.setQuery("Svix");
+      result.current.search();
+    });
+
+    await waitFor(() => {
+      expect(mocks.resolve).toHaveBeenCalledWith({
+        kind: "logo",
+        mode: "search",
+        items: [{ id: "search", name: "Svix", website: "https://www.svix.com/" }],
+        limit: 32,
+      }, expect.any(AbortSignal));
+    });
+  });
+
   it("keeps an intentionally cleared autoQuery empty", async () => {
     const { result } = renderHook(() => useMediaCandidates({ kind: "logo", autoQuery: "Netflix" }));
 
