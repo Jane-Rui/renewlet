@@ -229,6 +229,61 @@ describe("Cloudflare settings initialization", () => {
     expect(JSON.parse(state.rows.get(USER_ID) ?? "{}")).toMatchObject({ telegramMessageFormat: "html" });
   });
 
+  it("merges online icon source settings without dropping defaults", async () => {
+    const { env, state } = createEnv(createDefaultAppSettings({ locale: "en-US" }));
+
+    const response = await updateSettings(settingsRequest("PUT", "en-US", {
+      onlineIconSources: {
+        appStore: { enabled: false },
+      },
+    }), env);
+
+    expect(response.status).toBe(200);
+    await expect(readSuccessData(response)).resolves.toMatchObject({
+      settings: {
+        onlineIconSources: {
+          appStore: { enabled: false, storefronts: ["us"] },
+        },
+      },
+    });
+    expect(JSON.parse(state.rows.get(USER_ID) ?? "{}")).toMatchObject({
+      onlineIconSources: {
+        appStore: { enabled: false, storefronts: ["us"] },
+      },
+    });
+    await expect(updateSettings(settingsRequest("PUT", "en-US", {
+      onlineIconSources: {
+        appStore: { storefronts: ["cn"] },
+      },
+    }), env)).resolves.toMatchObject({ status: 200 });
+    expect(JSON.parse(state.rows.get(USER_ID) ?? "{}")).toMatchObject({
+      onlineIconSources: {
+        appStore: { enabled: false, storefronts: ["cn"] },
+      },
+    });
+
+    await expect(updateSettings(settingsRequest("PUT", "en-US", {
+      onlineIconSources: {
+        googlePlay: { enabled: true },
+      },
+    }), env)).rejects.toMatchObject({ status: 400, code: "INVALID_PAYLOAD" });
+    await expect(updateSettings(settingsRequest("PUT", "en-US", {
+      onlineIconSources: {
+        appStore: { storefronts: [] },
+      },
+    }), env)).rejects.toMatchObject({ status: 400, code: "INVALID_PAYLOAD" });
+    await expect(updateSettings(settingsRequest("PUT", "en-US", {
+      onlineIconSources: {
+        appStore: { storefronts: ["us", "us"] },
+      },
+    }), env)).rejects.toMatchObject({ status: 400, code: "INVALID_PAYLOAD" });
+    await expect(updateSettings(settingsRequest("PUT", "en-US", {
+      onlineIconSources: {
+        appStore: { storefronts: ["jp"] },
+      },
+    }), env)).rejects.toMatchObject({ status: 400, code: "INVALID_PAYLOAD" });
+  });
+
   it("rejects overly long DingTalk templates on write", async () => {
     const { env } = createEnv(createDefaultAppSettings({ locale: "en-US" }));
 

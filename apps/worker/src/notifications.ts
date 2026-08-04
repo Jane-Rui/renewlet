@@ -14,6 +14,7 @@ import { effectiveReminderDays, isDisabledReminderDays } from "@renewlet/shared/
 import { appSettingsSchema, settingsUpdateBodySchema, type ApiAppSettings } from "@renewlet/shared/schemas/settings";
 import type { ApiSubscription } from "@renewlet/shared/schemas/subscriptions";
 import { cleanBuiltInIconSourceSettingsPatch, mergeBuiltInIconSourceSettings } from "@renewlet/shared/built-in-icons";
+import { cleanOnlineIconSourceSettingsPatch, mergeOnlineIconSourceSettings } from "@renewlet/shared/online-icon-sources";
 import {
   getSettings,
   listNotificationScheduleCandidateSubscriptions,
@@ -377,6 +378,7 @@ async function effectiveSettings(env: Env, userId: string, patch?: SettingsPatch
     ...current,
     ...stripped,
     builtInIconSources: mergeBuiltInIconSourceSettings(current.builtInIconSources, cleanBuiltInIconSourceSettingsPatch(stripped.builtInIconSources)),
+    onlineIconSources: mergeOnlineIconSourceSettings(current.onlineIconSources, cleanOnlineIconSourceSettingsPatch(stripped.onlineIconSources)),
   });
 }
 

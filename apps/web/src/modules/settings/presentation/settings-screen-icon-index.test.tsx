@@ -111,7 +111,7 @@ describe("SettingsScreen built-in icon index controls", () => {
     renderSettingsScreen();
     await user.click(screen.getByRole("button", { name: "配置" }));
 
-    const dialog = await screen.findByRole("dialog", { name: "配置内置图标来源" });
+    const dialog = await screen.findByRole("dialog", { name: "配置图标来源" });
     expect(dialog).toHaveClass("gap-0");
     expect(within(dialog).queryByText("120 个图标")).not.toBeInTheDocument();
     expect(within(dialog).queryByText(/当前：/)).not.toBeInTheDocument();
@@ -160,7 +160,7 @@ describe("SettingsScreen built-in icon index controls", () => {
     renderSettingsScreen();
     await user.click(screen.getByRole("button", { name: "配置" }));
 
-    const dialog = await screen.findByRole("dialog", { name: "配置内置图标来源" });
+    const dialog = await screen.findByRole("dialog", { name: "配置图标来源" });
     expect(checkAllProviders).toHaveBeenCalledTimes(1);
 
     await user.click(within(dialog).getByRole("button", { name: "查看 Dashboard Icons 图标索引状态：未检查" }));
@@ -183,7 +183,7 @@ describe("SettingsScreen built-in icon index controls", () => {
     renderSettingsScreen();
     await user.click(screen.getByRole("button", { name: "配置" }));
 
-    const dialog = await screen.findByRole("dialog", { name: "配置内置图标来源" });
+    const dialog = await screen.findByRole("dialog", { name: "配置图标来源" });
     expect(within(dialog).queryByRole("button", { name: /图标索引状态/ })).not.toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: "更新" })).not.toBeInTheDocument();
     expect(checkAllProviders).not.toHaveBeenCalled();
@@ -261,7 +261,7 @@ describe("SettingsScreen built-in icon index controls", () => {
     renderSettingsScreen();
     await user.click(screen.getByRole("button", { name: "配置" }));
 
-    const dialog = await screen.findByRole("dialog", { name: "配置内置图标来源" });
+    const dialog = await screen.findByRole("dialog", { name: "配置图标来源" });
     const statusBadge = within(dialog).getByRole("button", { name: "查看 TheSVG 图标索引状态：检查中" });
     expect(statusBadge).toHaveTextContent("检查中");
     expect(within(dialog).queryByRole("button", { name: "查看 TheSVG 图标索引状态：已最新" })).not.toBeInTheDocument();
@@ -349,7 +349,7 @@ describe("SettingsScreen built-in icon index controls", () => {
     renderSettingsScreen();
     await user.click(screen.getByRole("button", { name: "配置" }));
 
-    const dialog = await screen.findByRole("dialog", { name: "配置内置图标来源" });
+    const dialog = await screen.findByRole("dialog", { name: "配置图标来源" });
     const statusBadge = within(dialog).getByRole("button", { name: "查看 TheSVG 图标索引状态：更新中" });
     expect(statusBadge).toHaveTextContent("更新中");
 
@@ -391,7 +391,7 @@ describe("SettingsScreen built-in icon index controls", () => {
     renderSettingsScreen();
     await user.click(screen.getByRole("button", { name: "配置" }));
 
-    const dialog = await screen.findByRole("dialog", { name: "配置内置图标来源" });
+    const dialog = await screen.findByRole("dialog", { name: "配置图标来源" });
     const statusBadge = within(dialog).getByRole("button", { name: `查看 TheSVG 图标索引状态：${badge}` });
     expect(statusBadge).toHaveTextContent(badge);
     expect(within(dialog).queryByRole("button", { name: "查看 TheSVG 图标索引状态：更新失败" })).not.toBeInTheDocument();
@@ -447,7 +447,7 @@ describe("SettingsScreen built-in icon index controls", () => {
     renderSettingsScreen();
     await user.click(screen.getByRole("button", { name: "配置" }));
 
-    const dialog = await screen.findByRole("dialog", { name: "配置内置图标来源" });
+    const dialog = await screen.findByRole("dialog", { name: "配置图标来源" });
     const statusBadge = within(dialog).getByRole("button", { name: `查看 TheSVG 图标索引状态：${badge}` });
     expect(statusBadge).toHaveTextContent(badge);
 

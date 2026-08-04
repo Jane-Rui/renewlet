@@ -171,6 +171,7 @@ describe("LogoPicker", () => {
             candidates: {
               best: netflixCandidate,
               builtIn: [netflixCandidate],
+              appStore: [],
               favicon: [],
             },
           }],
@@ -244,6 +245,7 @@ describe("LogoPicker", () => {
             candidates: {
               best: linearCandidate,
               builtIn: [linearCandidate],
+              appStore: [],
               favicon: [],
             },
           }],
@@ -577,6 +579,7 @@ describe("LogoPicker", () => {
             candidates: {
               best: faviconCandidate,
               builtIn: [],
+              appStore: [],
               favicon: [faviconCandidate],
             },
           }],
@@ -622,6 +625,7 @@ describe("LogoPicker", () => {
             candidates: {
               best: defaultCandidate,
               builtIn: [defaultCandidate, wordmarkCandidate],
+              appStore: [],
               favicon: [],
             },
           }],

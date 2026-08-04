@@ -131,6 +131,10 @@ func mergeSettingsWithOptions(base appSettings, patch json.RawMessage, rejectUns
 	if err != nil {
 		return base, err
 	}
+	onlineSourcePatch, err := decodeOnlineIconSourcePatch(patch, base.Locale)
+	if err != nil {
+		return base, err
+	}
 	if err := decodeStrictJSONBytesInto(patch, &settings, normalizeAppLocale(base.Locale), false); err != nil {
 		return base, err
 	}
@@ -165,6 +169,7 @@ func mergeSettingsWithOptions(base appSettings, patch json.RawMessage, rejectUns
 		}
 	}
 	settings.BuiltInIconSources = mergeBuiltInIconSourceSettings(base.BuiltInIconSources, sourcePatch)
+	settings.OnlineIconSources = mergeOnlineIconSourceSettings(base.OnlineIconSources, onlineSourcePatch)
 	if !hasEnabledBuiltInIconSource(settings.BuiltInIconSources) {
 		return base, errors.New("BUILT_IN_ICON_SOURCE_REQUIRED")
 	}
@@ -235,6 +240,7 @@ func sanitizeSettings(settings appSettings) appSettings {
 		settings.PublicStatusCurrency = "inherit"
 	}
 	settings.BuiltInIconSources = sanitizeBuiltInIconSources(settings.BuiltInIconSources)
+	settings.OnlineIconSources = sanitizeOnlineIconSources(settings.OnlineIconSources)
 	settings.AIRecognition = sanitizeAIRecognitionSettings(settings.AIRecognition)
 	if _, err := time.LoadLocation(settings.Timezone); err != nil {
 		settings.Timezone = "UTC"
@@ -289,6 +295,11 @@ func sanitizeBuiltInIconSources(settings builtInIconSourceSettings) builtInIconS
 	return out
 }
 
+func sanitizeOnlineIconSources(settings onlineIconSourceSettings) onlineIconSourceSettings {
+	// 读取历史 settings 时补齐 App Store storefronts；写入路径仍由 onlineIconSourceSettingPatch 严格拒绝空/重复/未知地区。
+	return mergeOnlineIconSourceSettings(defaultOnlineIconSourceSettings(), onlineIconSourceSettingsToPatch(settings))
+}
+
 func decodeBuiltInIconSourcePatch(raw json.RawMessage, locale string) (map[string]builtInIconSourceSettingPatch, error) {
 	var envelope map[string]json.RawMessage
 	if err := decodeStrictJSONBytesInto(raw, &envelope, normalizeAppLocale(locale), false); err != nil {
@@ -314,12 +325,47 @@ func decodeBuiltInIconSourcePatch(raw json.RawMessage, locale string) (map[strin
 	return sources, nil
 }
 
+func decodeOnlineIconSourcePatch(raw json.RawMessage, locale string) (map[string]onlineIconSourceSettingPatch, error) {
+	var envelope map[string]json.RawMessage
+	if err := decodeStrictJSONBytesInto(raw, &envelope, normalizeAppLocale(locale), false); err != nil {
+		return nil, err
+	}
+	sourceRaw, ok := envelope["onlineIconSources"]
+	if !ok {
+		return nil, nil
+	}
+	if bytes.Equal(bytes.TrimSpace(sourceRaw), []byte("null")) {
+		return nil, errors.New("ONLINE_ICON_SOURCE_INVALID")
+	}
+	var sources map[string]onlineIconSourceSettingPatch
+	if err := json.Unmarshal(sourceRaw, &sources); err != nil {
+		return nil, err
+	}
+	defaults := defaultOnlineIconSourceSettings()
+	for provider := range sources {
+		if _, ok := defaults[provider]; !ok {
+			return nil, fmt.Errorf("json: unknown field %q", provider)
+		}
+	}
+	return sources, nil
+}
+
 func builtInIconSourceSettingsToPatch(settings builtInIconSourceSettings) map[string]builtInIconSourceSettingPatch {
 	patch := map[string]builtInIconSourceSettingPatch{}
 	for provider, setting := range settings {
 		enabled := setting.Enabled
 		variantsEnabled := setting.VariantsEnabled
 		patch[provider] = builtInIconSourceSettingPatch{Enabled: &enabled, VariantsEnabled: &variantsEnabled}
+	}
+	return patch
+}
+
+func onlineIconSourceSettingsToPatch(settings onlineIconSourceSettings) map[string]onlineIconSourceSettingPatch {
+	patch := map[string]onlineIconSourceSettingPatch{}
+	for provider, setting := range settings {
+		enabled := setting.Enabled
+		storefronts := appStoreStorefrontsOrDefault(setting.Storefronts)
+		patch[provider] = onlineIconSourceSettingPatch{Enabled: &enabled, Storefronts: &storefronts}
 	}
 	return patch
 }
@@ -338,6 +384,31 @@ func mergeBuiltInIconSourceSettings(base builtInIconSourceSettings, patch map[st
 			}
 			if patchSetting.VariantsEnabled != nil {
 				setting.VariantsEnabled = *patchSetting.VariantsEnabled
+			}
+		}
+		out[provider] = setting
+	}
+	return out
+}
+
+func mergeOnlineIconSourceSettings(base onlineIconSourceSettings, patch map[string]onlineIconSourceSettingPatch) onlineIconSourceSettings {
+	defaults := defaultOnlineIconSourceSettings()
+	out := onlineIconSourceSettings{}
+	for provider, defaultSetting := range defaults {
+		setting, ok := base[provider]
+		if !ok {
+			setting = defaultSetting
+		}
+		if provider == appStoreOnlineIconSource {
+			// 历史库值缺 storefronts 时读成默认 US；这不是关闭语义，避免静默保存成“不查任何地区”。
+			setting.Storefronts = appStoreStorefrontsOrDefault(setting.Storefronts)
+		}
+		if patchSetting, ok := patch[provider]; ok {
+			if patchSetting.Enabled != nil {
+				setting.Enabled = *patchSetting.Enabled
+			}
+			if patchSetting.Storefronts != nil {
+				setting.Storefronts = cloneStringSlice(*patchSetting.Storefronts)
 			}
 		}
 		out[provider] = setting
@@ -367,6 +438,39 @@ func (s *builtInIconSourceSettingPatch) UnmarshalJSON(data []byte) error {
 				return err
 			}
 			s.VariantsEnabled = &variantsEnabled
+		default:
+			return fmt.Errorf("json: unknown field %q", key)
+		}
+	}
+	return nil
+}
+
+func (s *onlineIconSourceSettingPatch) UnmarshalJSON(data []byte) error {
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return errors.New("ONLINE_ICON_SOURCE_INVALID")
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	for key, value := range raw {
+		switch key {
+		case "enabled":
+			var enabled bool
+			if err := json.Unmarshal(value, &enabled); err != nil {
+				return err
+			}
+			s.Enabled = &enabled
+		case "storefronts":
+			var storefronts []string
+			if err := json.Unmarshal(value, &storefronts); err != nil {
+				return err
+			}
+			normalized, ok := normalizeAppStoreStorefronts(storefronts)
+			if !ok {
+				return errors.New("APP_STORE_STOREFRONTS_INVALID")
+			}
+			s.Storefronts = &normalized
 		default:
 			return fmt.Errorf("json: unknown field %q", key)
 		}

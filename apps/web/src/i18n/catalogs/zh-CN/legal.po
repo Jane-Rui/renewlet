@@ -106,7 +106,7 @@ msgstr "因使用本项目或其部署实例导致的任何损失，你应自行
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/legal.ts:17
 msgid "legal.privacy.thirdParty.icons"
-msgstr "图标搜索：可能会在浏览器中加载外部 favicon/logo 候选（作为备用能力，失败会自动降级）。"
+msgstr "图标搜索：手动搜索 Logo 时，服务名称可能会按你选择的 App Store 地区通过 Renewlet 后端发送到 Apple Search API，默认只查 US；浏览器可能加载 Apple CDN 图标，也可能加载外部 favicon/logo 备用候选。"
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/legal.ts:32

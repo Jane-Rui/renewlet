@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -46,6 +47,62 @@ func TestMergeSettingsForWriteValidatesTelegramMessageFormat(t *testing.T) {
 	}
 	if _, err := mergeSettingsForWrite(defaultAppSettings(), json.RawMessage(`{"telegramMessageFormat":"markdown"}`)); err == nil {
 		t.Fatal("expected unsupported Telegram message format write to fail")
+	}
+}
+
+func TestSettingsOnlineIconSourcesDefaultAndPatch(t *testing.T) {
+	defaults := defaultAppSettings()
+	if got := defaults.OnlineIconSources[appStoreOnlineIconSource].Enabled; !got {
+		t.Fatal("expected App Store online icon source to be enabled by default")
+	}
+	if got := defaults.OnlineIconSources[appStoreOnlineIconSource].Storefronts; !reflect.DeepEqual(got, []string{appStoreStorefrontUS}) {
+		t.Fatalf("expected App Store storefront default to be US, got %#v", got)
+	}
+	settings, err := mergeSettingsForWrite(defaultAppSettings(), json.RawMessage(`{"onlineIconSources":{"appStore":{"enabled":false}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.OnlineIconSources[appStoreOnlineIconSource].Enabled {
+		t.Fatalf("expected App Store source disabled after patch, got %#v", settings.OnlineIconSources)
+	}
+	if got := settings.OnlineIconSources[appStoreOnlineIconSource].Storefronts; !reflect.DeepEqual(got, []string{appStoreStorefrontUS}) {
+		t.Fatalf("expected enabled-only patch to preserve App Store storefronts, got %#v", got)
+	}
+	settings, err = mergeSettingsForWrite(settings, json.RawMessage(`{"onlineIconSources":{"appStore":{"storefronts":["cn"]}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := settings.OnlineIconSources[appStoreOnlineIconSource].Storefronts; !reflect.DeepEqual(got, []string{appStoreStorefrontCN}) {
+		t.Fatalf("expected CN storefront patch, got %#v", got)
+	}
+	settings, err = mergeSettingsForWrite(settings, json.RawMessage(`{"onlineIconSources":{"appStore":{"storefronts":["cn","us"]}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := settings.OnlineIconSources[appStoreOnlineIconSource].Storefronts; !reflect.DeepEqual(got, []string{appStoreStorefrontUS, appStoreStorefrontCN}) {
+		t.Fatalf("expected canonical US+CN storefronts, got %#v", got)
+	}
+	settings, err = mergeSettingsForWrite(settings, json.RawMessage(`{"onlineIconSources":{"appStore":{}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.OnlineIconSources[appStoreOnlineIconSource].Enabled {
+		t.Fatalf("expected empty App Store patch to preserve disabled state, got %#v", settings.OnlineIconSources)
+	}
+	if _, err := mergeSettingsForWrite(defaultAppSettings(), json.RawMessage(`{"onlineIconSources":{"googlePlay":{"enabled":true}}}`)); err == nil {
+		t.Fatal("expected unknown online icon source to fail")
+	}
+	if _, err := mergeSettingsForWrite(defaultAppSettings(), json.RawMessage(`{"onlineIconSources":{"appStore":{"variantsEnabled":true}}}`)); err == nil {
+		t.Fatal("expected unknown App Store source field to fail")
+	}
+	if _, err := mergeSettingsForWrite(defaultAppSettings(), json.RawMessage(`{"onlineIconSources":{"appStore":{"storefronts":[]}}}`)); err == nil {
+		t.Fatal("expected empty App Store storefronts to fail")
+	}
+	if _, err := mergeSettingsForWrite(defaultAppSettings(), json.RawMessage(`{"onlineIconSources":{"appStore":{"storefronts":["us","us"]}}}`)); err == nil {
+		t.Fatal("expected duplicate App Store storefronts to fail")
+	}
+	if _, err := mergeSettingsForWrite(defaultAppSettings(), json.RawMessage(`{"onlineIconSources":{"appStore":{"storefronts":["jp"]}}}`)); err == nil {
+		t.Fatal("expected unknown App Store storefront to fail")
 	}
 }
 

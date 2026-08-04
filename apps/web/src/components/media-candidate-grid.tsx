@@ -73,7 +73,7 @@ export function MediaCandidateGrid({
     ? candidates.builtIn
     : candidates.builtIn.filter((candidate) => candidate.provider === activeProvider);
   const showProviderFilters = providerOptions.length > 1;
-  const hasCandidateSections = candidates.builtIn.length > 0 || candidates.favicon.length > 0;
+  const hasCandidateSections = candidates.builtIn.length > 0 || candidates.appStore.length > 0 || candidates.favicon.length > 0;
 
   useEffect(() => {
     // provider 过滤只对当前响应有效；新搜索缺少旧 provider 时必须回到“全部”，否则用户会看到假空态。
@@ -101,6 +101,22 @@ export function MediaCandidateGrid({
           ) : null}
         >
           {filteredBuiltIn.map((candidate) => (
+            <MediaCandidateButton
+              key={candidate.id}
+              candidate={candidate}
+              selected={selectedValue === candidate.url}
+              onSelect={onSelect}
+              onError={onError}
+              size={size}
+            />
+          ))}
+        </CandidateSection>
+      ) : null}
+
+      {/* 展示顺序跟 API 的 best 契约一致：内置 SVG 之后才是 App Store，favicon 始终留作弱兜底。 */}
+      {candidates.appStore.length > 0 ? (
+        <CandidateSection title={t("media.appStoreIcons")} columnsClassName={columnsClassName}>
+          {candidates.appStore.map((candidate) => (
             <MediaCandidateButton
               key={candidate.id}
               candidate={candidate}

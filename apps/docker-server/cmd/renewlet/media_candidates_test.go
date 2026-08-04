@@ -3,12 +3,17 @@ package main
 // 媒体候选测试保护内置 provider 排序、用户来源开关、favicon fallback 预算和认证限流边界。
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
+	"time"
 )
 
 type mediaResolverFixture struct {
@@ -439,4 +444,315 @@ func TestMediaCandidatesAutoKeepsPreferredBuiltInVariant(t *testing.T) {
 	if len(item.Candidates.BuiltIn) != 1 {
 		t.Fatalf("expected auto mode to return only preferred built-in variant, got %#v", item.Candidates.BuiltIn)
 	}
+	if len(item.Candidates.AppStore) != 0 {
+		t.Fatalf("auto mode must not return App Store candidates, got %#v", item.Candidates.AppStore)
+	}
+}
+
+func TestMediaCandidatesSearchReturnsAppStoreBetweenBuiltInAndFavicon(t *testing.T) {
+	app := newSchemaTestApp(t)
+	if err := ensureSchema(app); err != nil {
+		t.Fatal(err)
+	}
+	_, token := createRouteTestUser(t, app, "user")
+	calls := []string{}
+	restore := stubAppStoreIconHTTPClient(t, func(request *http.Request) (*http.Response, error) {
+		calls = append(calls, request.URL.RawQuery)
+		country := request.URL.Query().Get("country")
+		if request.URL.Scheme != "https" || request.URL.Host != "itunes.apple.com" || request.URL.Path != "/search" {
+			t.Fatalf("unexpected App Store URL: %s", request.URL.String())
+		}
+		if request.URL.Query().Get("media") != "software" || request.URL.Query().Get("entity") != "software" || request.URL.Query().Get("limit") != "3" {
+			t.Fatalf("unexpected App Store params: %s", request.URL.RawQuery)
+		}
+		if country == "us" {
+			return jsonResponse(`{"resultCount":2,"results":[{"trackId":100,"trackName":"Renewlet Mobile","sellerName":"Renewlet","bundleId":"app.renewlet.mobile","artworkUrl512":"https://is1-ssl.mzstatic.com/image/us512.png","artworkUrl100":"https://is1-ssl.mzstatic.com/image/us100.png","artworkUrl60":"https://is1-ssl.mzstatic.com/image/us60.png","trackViewUrl":"https://apps.apple.com/us/app/renewlet/id100"},{"trackId":101,"trackName":"Renewlet Mobile Pro","sellerName":"Renewlet","bundleId":"app.renewlet.pro","artworkUrl100":"https://is1-ssl.mzstatic.com/image/pro100.png"}]}`), nil
+		}
+		t.Fatalf("unexpected storefront for default App Store search: %s", country)
+		return nil, nil
+	})
+	defer restore()
+
+	bodyBytes, err := json.Marshal(mediaCandidateResolveRequest{
+		Kind:  "logo",
+		Mode:  "search",
+		Items: []mediaCandidateResolveItem{{ID: "renewlet-mobile", Name: "Renewlet Mobile"}},
+		Limit: intPtr(5),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := serveTestRequest(t, app, http.MethodPost, "/api/app/media/candidates", string(bodyBytes), token)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected media candidates 200, got %d: %s", res.Code, res.Body.String())
+	}
+	response := decodeAPISuccessDataForTest[mediaCandidateResolveResponse](t, res.Body.Bytes())
+	item := response.Items[0]
+	if item.AutoCandidate != nil {
+		t.Fatalf("search mode should not auto assign, got %#v", item.AutoCandidate)
+	}
+	if len(item.Candidates.AppStore) != 2 {
+		t.Fatalf("expected deduped App Store candidates, got %#v", item.Candidates.AppStore)
+	}
+	if got := item.Candidates.AppStore[0]; got.Source != "appStore" || got.Provider != "appStore" || got.URL != "https://is1-ssl.mzstatic.com/image/us512.png" || got.AutoAssignable {
+		t.Fatalf("unexpected first App Store candidate: %#v", got)
+	}
+	if item.Candidates.Best == nil || item.Candidates.Best.ID != item.Candidates.AppStore[0].ID {
+		t.Fatalf("expected App Store candidate before favicon fallback when no built-in exists, got %#v", item.Candidates.Best)
+	}
+	if len(calls) != 1 || !strings.Contains(calls[0], "country=us") {
+		t.Fatalf("expected default US App Store call, got %#v", calls)
+	}
+}
+
+func TestMediaCandidatesRespectsAppStoreStorefrontSettings(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		storefronts       []string
+		expectedCountries []string
+	}{
+		{name: "cn only", storefronts: []string{appStoreStorefrontCN}, expectedCountries: []string{appStoreStorefrontCN}},
+		{name: "us and cn", storefronts: []string{appStoreStorefrontCN, appStoreStorefrontUS}, expectedCountries: []string{appStoreStorefrontUS, appStoreStorefrontCN}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app := newSchemaTestApp(t)
+			if err := ensureSchema(app); err != nil {
+				t.Fatal(err)
+			}
+			user, token := createRouteTestUser(t, app, "user")
+			settings := defaultAppSettings()
+			settings.OnlineIconSources[appStoreOnlineIconSource] = onlineIconSourceSetting{Enabled: true, Storefronts: tc.storefronts}
+			createNotificationCronRouteTestSettings(t, app, user, settings)
+			calls := []string{}
+			restore := stubAppStoreIconHTTPClient(t, func(request *http.Request) (*http.Response, error) {
+				country := request.URL.Query().Get("country")
+				calls = append(calls, country)
+				return jsonResponse(`{"resultCount":1,"results":[{"trackId":200,"trackName":"Renewlet Mobile","sellerName":"Renewlet","bundleId":"app.renewlet.mobile","artworkUrl512":"https://is1-ssl.mzstatic.com/image/` + country + `.png"}]}`), nil
+			})
+			defer restore()
+
+			bodyBytes, err := json.Marshal(mediaCandidateResolveRequest{
+				Kind:  "logo",
+				Mode:  "search",
+				Items: []mediaCandidateResolveItem{{ID: "renewlet-mobile", Name: "Renewlet Mobile"}},
+				Limit: intPtr(5),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			res := serveTestRequest(t, app, http.MethodPost, "/api/app/media/candidates", string(bodyBytes), token)
+			if res.Code != http.StatusOK {
+				t.Fatalf("expected media candidates 200, got %d: %s", res.Code, res.Body.String())
+			}
+			response := decodeAPISuccessDataForTest[mediaCandidateResolveResponse](t, res.Body.Bytes())
+			if len(response.Items[0].Candidates.AppStore) == 0 {
+				t.Fatalf("expected App Store candidates, got %#v", response.Items[0].Candidates.AppStore)
+			}
+			sort.Strings(calls)
+			expected := append([]string(nil), tc.expectedCountries...)
+			sort.Strings(expected)
+			if !reflect.DeepEqual(calls, expected) {
+				t.Fatalf("expected App Store countries %#v, got %#v", expected, calls)
+			}
+		})
+	}
+}
+
+func TestMediaCandidatesDoesNotUseAppStoreWhenDisabled(t *testing.T) {
+	app := newSchemaTestApp(t)
+	if err := ensureSchema(app); err != nil {
+		t.Fatal(err)
+	}
+	user, token := createRouteTestUser(t, app, "user")
+	settings := defaultAppSettings()
+	settings.OnlineIconSources[appStoreOnlineIconSource] = onlineIconSourceSetting{Enabled: false, Storefronts: cloneStringSlice(appStoreDefaultStorefronts)}
+	createNotificationCronRouteTestSettings(t, app, user, settings)
+	callCount := 0
+	restore := stubAppStoreIconHTTPClient(t, func(request *http.Request) (*http.Response, error) {
+		callCount++
+		return jsonResponse(`{"resultCount":1,"results":[{"trackId":1,"trackName":"Renewlet Mobile","artworkUrl512":"https://is1-ssl.mzstatic.com/image.png"}]}`), nil
+	})
+	defer restore()
+
+	tc := mediaCandidateResolveRequest{Kind: "logo", Mode: "search", Items: []mediaCandidateResolveItem{{ID: "disabled", Name: "Renewlet Mobile"}}, Limit: intPtr(5)}
+	bodyBytes, err := json.Marshal(tc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := serveTestRequest(t, app, http.MethodPost, "/api/app/media/candidates", string(bodyBytes), token)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected media candidates 200, got %d: %s", res.Code, res.Body.String())
+	}
+	response := decodeAPISuccessDataForTest[mediaCandidateResolveResponse](t, res.Body.Bytes())
+	if len(response.Items[0].Candidates.AppStore) != 0 {
+		t.Fatalf("expected no App Store candidates for disabled settings, got %#v", response.Items[0].Candidates.AppStore)
+	}
+	if callCount != 0 {
+		t.Fatalf("expected App Store to remain unused, got %d calls", callCount)
+	}
+}
+
+func TestMediaCandidatesDoesNotUseAppStoreForAutoOrIconSearch(t *testing.T) {
+	app := newSchemaTestApp(t)
+	if err := ensureSchema(app); err != nil {
+		t.Fatal(err)
+	}
+	_, token := createRouteTestUser(t, app, "user")
+	callCount := 0
+	restore := stubAppStoreIconHTTPClient(t, func(request *http.Request) (*http.Response, error) {
+		callCount++
+		return jsonResponse(`{"resultCount":1,"results":[{"trackId":1,"trackName":"Renewlet Mobile","artworkUrl512":"https://is1-ssl.mzstatic.com/image.png"}]}`), nil
+	})
+	defer restore()
+
+	for _, tc := range []mediaCandidateResolveRequest{
+		{Kind: "logo", Mode: "auto", Items: []mediaCandidateResolveItem{{ID: "auto", Name: "Renewlet Mobile"}}, Limit: intPtr(5)},
+		{Kind: "icon", Mode: "search", Items: []mediaCandidateResolveItem{{ID: "icon", Name: "Renewlet Mobile"}}, Limit: intPtr(5)},
+	} {
+		bodyBytes, err := json.Marshal(tc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res := serveTestRequest(t, app, http.MethodPost, "/api/app/media/candidates", string(bodyBytes), token)
+		if res.Code != http.StatusOK {
+			t.Fatalf("expected media candidates 200, got %d: %s", res.Code, res.Body.String())
+		}
+		response := decodeAPISuccessDataForTest[mediaCandidateResolveResponse](t, res.Body.Bytes())
+		if len(response.Items[0].Candidates.AppStore) != 0 {
+			t.Fatalf("expected no App Store candidates for %#v, got %#v", tc, response.Items[0].Candidates.AppStore)
+		}
+	}
+	if callCount != 0 {
+		t.Fatalf("expected App Store to remain unused, got %d calls", callCount)
+	}
+}
+
+func TestMediaCandidatesDoesNotUseAppStoreForBatchSearch(t *testing.T) {
+	app := newSchemaTestApp(t)
+	if err := ensureSchema(app); err != nil {
+		t.Fatal(err)
+	}
+	_, token := createRouteTestUser(t, app, "user")
+	callCount := 0
+	restore := stubAppStoreIconHTTPClient(t, func(request *http.Request) (*http.Response, error) {
+		callCount++
+		return jsonResponse(`{"resultCount":1,"results":[{"trackId":1,"trackName":"Renewlet Mobile","artworkUrl512":"https://is1-ssl.mzstatic.com/image.png"}]}`), nil
+	})
+	defer restore()
+
+	bodyBytes, err := json.Marshal(mediaCandidateResolveRequest{
+		Kind: "logo",
+		Mode: "search",
+		Items: []mediaCandidateResolveItem{
+			{ID: "one", Name: "Renewlet Mobile"},
+			{ID: "two", Name: "Another Mobile"},
+		},
+		Limit: intPtr(5),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := serveTestRequest(t, app, http.MethodPost, "/api/app/media/candidates", string(bodyBytes), token)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected media candidates 200, got %d: %s", res.Code, res.Body.String())
+	}
+	response := decodeAPISuccessDataForTest[mediaCandidateResolveResponse](t, res.Body.Bytes())
+	for _, item := range response.Items {
+		if len(item.Candidates.AppStore) != 0 {
+			t.Fatalf("expected batch search to avoid App Store candidates, got %#v", item.Candidates.AppStore)
+		}
+	}
+	if callCount != 0 {
+		t.Fatalf("expected App Store to remain unused for batch search, got %d calls", callCount)
+	}
+}
+
+func TestAppStoreIconProviderCachesAndFallsBackToStaleResults(t *testing.T) {
+	callCount := 0
+	restore := stubAppStoreIconHTTPClient(t, func(request *http.Request) (*http.Response, error) {
+		callCount++
+		return jsonResponse(`{"resultCount":1,"results":[{"trackId":200,"trackName":"Renewlet Mobile","sellerName":"Renewlet","bundleId":"app.renewlet.mobile","artworkUrl512":"https://is1-ssl.mzstatic.com/image/cache.png"}]}`), nil
+	})
+	defer restore()
+	candidates, err := searchAppStoreIconCandidates(t.Context(), "logo", "Renewlet Mobile", 4, appStoreDefaultStorefronts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 || candidates[0].URL != "https://is1-ssl.mzstatic.com/image/cache.png" {
+		t.Fatalf("unexpected cached App Store candidates: %#v", candidates)
+	}
+	candidates, err = searchAppStoreIconCandidates(t.Context(), "logo", "Renewlet Mobile", 4, appStoreDefaultStorefronts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 || callCount != 1 {
+		t.Fatalf("expected second search to use the cached US entry, got %d calls and %#v", callCount, candidates)
+	}
+	appStoreIconHTTPClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return nil, contextCanceledErrorForTest()
+	})}
+	appStoreIconsCache.mu.Lock()
+	for key, entry := range appStoreIconsCache.entries {
+		// 手动把 fresh 缓存推到 stale 窗口，测试 Apple 失败时仍返回窄缓存结果而不是整路失败。
+		entry.fetchedAt = time.Now().Add(-appStoreIconFreshTTL - time.Minute)
+		appStoreIconsCache.entries[key] = entry
+	}
+	appStoreIconsCache.mu.Unlock()
+	candidates, err = searchAppStoreIconCandidates(t.Context(), "logo", "Renewlet Mobile", 4, appStoreDefaultStorefronts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 || candidates[0].URL != "https://is1-ssl.mzstatic.com/image/cache.png" {
+		t.Fatalf("expected stale App Store candidates after upstream failure, got %#v", candidates)
+	}
+}
+
+func TestAppStoreIconProviderRejectsOversizedResponses(t *testing.T) {
+	restore := stubAppStoreIconHTTPClient(t, func(request *http.Request) (*http.Response, error) {
+		return jsonResponse(`{"resultCount":1,"padding":"` + strings.Repeat("x", appStoreIconResponseLimitBytes) + `"}`), nil
+	})
+	defer restore()
+
+	if _, err := fetchAppStoreIconResults(t.Context(), "renewlet mobile", "us"); err == nil {
+		t.Fatal("expected oversized App Store response to fail")
+	}
+}
+
+func TestAppStoreIconProviderRejectsUnsafeArtworkURLs(t *testing.T) {
+	candidates := appStoreResultsToCandidates("logo", "renewlet mobile", []appStoreCountryResult{{
+		country: "us",
+		results: []appStoreAPIResult{
+			{TrackID: 1, TrackName: "Renewlet Mobile", ArtworkURL512: "https://example.com/not-apple.png"},
+			{TrackID: 2, TrackName: "Renewlet Mobile", ArtworkURL100: "https://is1-ssl.mzstatic.com/image/safe.png"},
+		},
+	}}, 4)
+
+	if len(candidates) != 1 || candidates[0].URL != "https://is1-ssl.mzstatic.com/image/safe.png" {
+		t.Fatalf("expected only Apple CDN artwork URLs, got %#v", candidates)
+	}
+}
+
+func stubAppStoreIconHTTPClient(t *testing.T, fn roundTripFunc) func() {
+	t.Helper()
+	previousClient := appStoreIconHTTPClient
+	previousCache := appStoreIconsCache
+	// App Store provider 使用进程级 client/cache；每个测试必须隔离，避免缓存命中掩盖是否真的请求 Apple。
+	appStoreIconHTTPClient = &http.Client{Transport: fn}
+	appStoreIconsCache = newAppStoreIconSearchCache(appStoreIconCacheMaxEntries)
+	return func() {
+		appStoreIconHTTPClient = previousClient
+		appStoreIconsCache = previousCache
+	}
+}
+
+func jsonResponse(body string) *http.Response {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+}
+
+func contextCanceledErrorForTest() error {
+	return context.Canceled
 }

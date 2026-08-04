@@ -66,6 +66,7 @@ type appSettings struct {
 	PublicStatusCurrency     string                    `json:"publicStatusCurrency"`
 	ExchangeRateProvider     string                    `json:"exchangeRateProvider"`
 	BuiltInIconSources       builtInIconSourceSettings `json:"builtInIconSources"`
+	OnlineIconSources        onlineIconSourceSettings  `json:"onlineIconSources"`
 	AIRecognition            aiRecognitionSettings     `json:"aiRecognition"`
 	MonthlyBudget            float64                   `json:"monthlyBudget"`
 	Timezone                 string                    `json:"timezone"`
@@ -461,6 +462,7 @@ func defaultAppSettings() appSettings {
 		PublicStatusCurrency: "inherit",
 		ExchangeRateProvider: "frankfurter",
 		BuiltInIconSources:   defaultBuiltInIconSourceSettings(),
+		OnlineIconSources:    defaultOnlineIconSourceSettings(),
 		AIRecognition: aiRecognitionSettings{
 			ProviderType:           aiProviderTypeOpenAI,
 			TransportProtocol:      aiProtocolOpenAIChat,

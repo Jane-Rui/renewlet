@@ -165,4 +165,19 @@ describe("normalizeSettings", () => {
       thesvg: { enabled: false, variantsEnabled: false },
     });
   });
+
+  it("fills missing online icon source settings from defaults", () => {
+    const settings = normalizeSettings({
+      defaultCurrency: "USD",
+      onlineIconSources: {
+        appStore: { enabled: false },
+      },
+    });
+
+    expect(settings.defaultCurrency).toBe("USD");
+    expect(settings.onlineIconSources).toEqual({
+      ...DEFAULT_SETTINGS.onlineIconSources,
+      appStore: { enabled: false, storefronts: ["us"] },
+    });
+  });
 });

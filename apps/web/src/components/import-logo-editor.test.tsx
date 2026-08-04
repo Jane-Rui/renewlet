@@ -75,6 +75,7 @@ describe("ImportLogoEditor", () => {
         candidates: {
           best: null,
           builtIn: [],
+          appStore: [],
           favicon: [],
         },
       }],

@@ -1,10 +1,9 @@
 // SettingsScreen 测试保护设置页分区装配、H5 布局契约和 Cloudflare/Docker 差异入口，不验证普通控件细节样式。
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_CUSTOM_CONFIG } from "@/types/config";
 import {
-  DEFAULT_SETTINGS,
   WEBHOOK_HEADERS_PLACEHOLDER,
   WEBHOOK_PAYLOAD_PLACEHOLDER,
 } from "@/types/subscription";
@@ -504,60 +503,6 @@ describe("SettingsScreen SMTP email settings", () => {
     const providerModelGrid = screen.getByTestId("ai-provider-model-grid");
     expect(providerModelGrid).toHaveClass("items-start");
     expect(providerModelGrid).toHaveClass("md:gap-y-2");
-  });
-
-  it("updates built-in icon source and variant settings without allowing all sources off", async () => {
-    const user = userEvent.setup();
-    const controller = createControllerState();
-    mocks.useSettingsFormController.mockReturnValue(controller);
-
-    renderSettingsScreen();
-
-    expect(screen.getByText("已启用 3 个来源 · 变体 3/3")).toBeInTheDocument();
-    expect(screen.getByText("TheSVG / selfh.st / Dashboard")).toBeInTheDocument();
-    expect(screen.queryByRole("switch", { name: "切换 selfh.st icons 来源" })).not.toBeInTheDocument();
-
-    const configureButton = screen.getByRole("button", { name: "配置" });
-    await user.click(configureButton);
-
-    const dialog = await screen.findByRole("dialog", { name: "配置内置图标来源" });
-    expect(within(dialog).getByText("选择 Logo 和支付方式图标搜索可使用的内置 SVG 图标库，并控制是否展示上游变体。")).toBeInTheDocument();
-    expect(within(dialog).getByRole("switch", { name: "切换 TheSVG 来源" })).toBeEnabled();
-    expect(within(dialog).getByRole("switch", { name: "切换 selfh.st icons 来源" })).toBeEnabled();
-    expect(within(dialog).getByRole("switch", { name: "切换 Dashboard Icons 来源" })).toBeEnabled();
-
-    await user.click(within(dialog).getByRole("switch", { name: "切换 selfh.st icons 来源" }));
-    expect(controller.updateSetting).toHaveBeenLastCalledWith("builtInIconSources", {
-      ...DEFAULT_SETTINGS.builtInIconSources,
-      selfhst: { enabled: false, variantsEnabled: true },
-    });
-
-    await user.click(within(dialog).getByRole("switch", { name: "切换 Dashboard Icons 变体" }));
-    expect(controller.updateSetting).toHaveBeenLastCalledWith("builtInIconSources", {
-      ...DEFAULT_SETTINGS.builtInIconSources,
-      dashboardIcons: { enabled: true, variantsEnabled: false },
-    });
-
-    await user.click(within(dialog).getByRole("button", { name: "完成" }));
-    expect(screen.queryByRole("dialog", { name: "配置内置图标来源" })).not.toBeInTheDocument();
-    expect(configureButton).toHaveFocus();
-
-    mocks.useSettingsFormController.mockReturnValue(createControllerState({
-      settings: {
-        builtInIconSources: {
-          thesvg: { enabled: true, variantsEnabled: true },
-          selfhst: { enabled: false, variantsEnabled: true },
-          dashboardIcons: { enabled: false, variantsEnabled: true },
-        },
-      },
-    }));
-    cleanup();
-    renderSettingsScreen();
-
-    expect(screen.getByText("已启用 1 个来源 · 变体 1/3")).toBeInTheDocument();
-    expect(screen.getByText("TheSVG")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "配置" }));
-    expect(await screen.findByRole("switch", { name: "切换 TheSVG 来源" })).toBeDisabled();
   });
 
   it("uses test wording for the Notifyx channel button", () => {

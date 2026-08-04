@@ -53,6 +53,7 @@ describe("useMediaCandidates", () => {
         candidates: {
           best: netflixCandidate,
           builtIn: [netflixCandidate],
+          appStore: [],
           favicon: [faviconCandidate],
         },
       }],
@@ -170,6 +171,49 @@ describe("useMediaCandidates", () => {
 
     expect(result.current.candidates.favicon).toEqual([]);
     expect(result.current.candidates.best).toEqual(netflixCandidate);
+  });
+
+  it("blacklists App Store image URLs before favicon fallback", async () => {
+    const appStoreCandidate = {
+      ...faviconCandidate,
+      id: "appstore:us:123",
+      source: "appStore" as const,
+      provider: "appStore",
+      label: "Netflix",
+      url: "https://is1-ssl.mzstatic.com/image/thumb/netflix.png",
+      confidence: "strong" as const,
+      matchedQuery: "netflix",
+      rank: 0,
+    };
+    mocks.resolve.mockResolvedValueOnce({
+      items: [{
+        id: "search",
+        autoCandidate: null,
+        candidates: {
+          best: appStoreCandidate,
+          builtIn: [],
+          appStore: [appStoreCandidate],
+          favicon: [faviconCandidate],
+        },
+      }],
+    });
+    const { result } = renderHook(() => useMediaCandidates({ kind: "logo" }));
+
+    act(() => {
+      result.current.onOpenChange(true);
+      result.current.setQuery("Netflix");
+      result.current.search();
+    });
+    await waitFor(() => {
+      expect(result.current.candidates.appStore).toEqual([appStoreCandidate]);
+    });
+
+    act(() => {
+      result.current.removeCandidate(appStoreCandidate.url);
+    });
+
+    expect(result.current.candidates.appStore).toEqual([]);
+    expect(result.current.candidates.best).toEqual(faviconCandidate);
   });
 
   it("keeps failed image URLs blocked across repeated searches in the same open session", async () => {

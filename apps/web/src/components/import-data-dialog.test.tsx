@@ -153,6 +153,7 @@ describe("ImportDataDialog", () => {
         candidates: {
           best: githubCopilotCandidate,
           builtIn: [githubCopilotCandidate],
+          appStore: [],
           favicon: [],
         },
       }],
@@ -260,6 +261,7 @@ describe("ImportDataDialog", () => {
         candidates: {
           best: faviconCandidate,
           builtIn: [],
+          appStore: [],
           favicon: [faviconCandidate],
         },
       }],
