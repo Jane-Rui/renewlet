@@ -39,10 +39,28 @@ function faviconCandidate(overrides: Partial<MediaCandidate> = {}): MediaCandida
   };
 }
 
+function appStoreCandidate(overrides: Partial<MediaCandidate> = {}): MediaCandidate {
+  return {
+    id: "appstore:us:123",
+    kind: "logo",
+    source: "appStore",
+    provider: "appStore",
+    label: "Apple Music",
+    variant: null,
+    url: "https://is1-ssl.mzstatic.com/image/thumb/apple-music.png",
+    confidence: "strong",
+    autoAssignable: false,
+    matchedQuery: "apple music",
+    rank: 0,
+    ...overrides,
+  };
+}
+
 function candidateGroup(group: Partial<MediaCandidateGroup>): MediaCandidateGroup {
   return {
     best: null,
     builtIn: [],
+    appStore: [],
     favicon: [],
     ...group,
   };
@@ -72,13 +90,15 @@ function renderGrid(candidates: MediaCandidateGroup, onError = vi.fn<(candidate:
 }
 
 describe("MediaCandidateGrid provider filters", () => {
-  it("keeps built-in and favicon sections inside one compact spacing container", () => {
-    const { container } = renderGrid(candidateGroup({ builtIn: [builtInCandidate()], favicon: [faviconCandidate()] }));
+  it("keeps built-in, App Store and favicon sections inside one compact spacing container", () => {
+    const { container } = renderGrid(candidateGroup({ builtIn: [builtInCandidate()], appStore: [appStoreCandidate()], favicon: [faviconCandidate()] }));
 
     const sections = container.querySelector(".media-candidate-grid-sections");
     expect(sections).not.toBeNull();
     expect(sections).toHaveClass("grid", "gap-2");
-    expect(sections?.querySelectorAll("section")).toHaveLength(2);
+    expect(sections?.querySelectorAll("section")).toHaveLength(3);
+    expect(screen.getByText("App Store：")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Apple Music" })).toBeInTheDocument();
   });
 
   it("does not leave an empty spacing container without candidates", () => {

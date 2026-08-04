@@ -114,7 +114,7 @@ describe("resolveAutoLogosForPreparedImport", () => {
       {
         id: "0",
         autoCandidate: candidate({ url: "https://cdn.example.com/netflix.svg" }),
-        candidates: { best: null, builtIn: [], favicon: [] },
+        candidates: { best: null, builtIn: [], appStore: [], favicon: [] },
       },
       {
         id: "1",
@@ -124,7 +124,7 @@ describe("resolveAutoLogosForPreparedImport", () => {
           url: "https://icons.example.com/favicon.png",
           confidence: "exact",
         }),
-        candidates: { best: null, builtIn: [], favicon: [] },
+        candidates: { best: null, builtIn: [], appStore: [], favicon: [] },
       },
     ]));
 
@@ -146,7 +146,7 @@ describe("resolveAutoLogosForPreparedImport", () => {
       {
         id: "0",
         autoCandidate: candidate({ confidence: "weak" }),
-        candidates: { best: null, builtIn: [], favicon: [] },
+        candidates: { best: null, builtIn: [], appStore: [], favicon: [] },
       },
     ]));
 

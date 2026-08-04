@@ -16,6 +16,7 @@ import { getSettings } from "./db";
 import { errorResponse, privateShortCache, readJson, requestLocale, successJson } from "./http";
 import { serverText } from "./server-i18n";
 import { requireAuth } from "./auth";
+import { appendAppStoreCandidates } from "./app-store-icons";
 import { getActiveBuiltInMediaResolver } from "./media-icon-index";
 import type { Env } from "./types";
 
@@ -35,7 +36,8 @@ export async function mediaCandidates(request: Request, env: Env): Promise<Respo
   const settings = await getSettings(env, auth.user.id);
   const limit = clampMediaCandidateLimit(mediaResolverConfig, body.limit);
   const builtInResolver = await getActiveBuiltInMediaResolver(env);
-  const items = body.items.map((item) => resolveMediaCandidateItem(
+  const allowAppStore = body.items.length === 1;
+  const builtInItems = body.items.map((item) => resolveMediaCandidateItem(
     builtInResolver,
     body.kind,
     body.mode,
@@ -43,7 +45,23 @@ export async function mediaCandidates(request: Request, env: Env): Promise<Respo
     limit,
     { sources: settings.builtInIconSources },
   ));
-  // Worker 只做运行面边界；候选生成和来源过滤规则在 shared resolver 中，响应再经 Zod 校验防止两端契约漂移。
+  if (!allowAppStore) {
+    // Apple Search API 有共享出口限流；App Store 来源只服务单条手动 Logo 搜索，批量请求保持离线候选。
+    return privateShortCache(successJson(mediaCandidateResolvePayloadSchema.parse({ items: builtInItems })));
+  }
+  const items = await Promise.all(builtInItems.map((item, index) => {
+    const sourceItem = body.items[index];
+    if (!sourceItem) return item;
+    return appendAppStoreCandidates(
+      item,
+      body.kind,
+      body.mode,
+      sourceItem,
+      limit,
+      settings.onlineIconSources,
+    );
+  }));
+  // Worker 只做运行面边界；候选生成和来源过滤规则在 shared resolver/App Store provider 中，响应再经 Zod 校验防止两端契约漂移。
   return privateShortCache(successJson(mediaCandidateResolvePayloadSchema.parse({ items })));
 }
 

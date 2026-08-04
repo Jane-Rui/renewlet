@@ -42,6 +42,7 @@ export const messages = [
   msg({ id: "media.searchIconPlaceholder", message: "输入名称..." }),
   msg({ id: "media.searching", message: "正在搜索..." }),
   msg({ id: "media.builtInIcons", message: "内置图标：" }),
+  msg({ id: "media.appStoreIcons", message: "App Store：" }),
   msg({ id: "media.faviconFallback", message: "网站/Favicon 备用：" }),
   msg({ id: "media.variantCandidateLabel", message: "{label} - {variant}" }),
   msg({ id: "media.providerVariantCandidateLabel", message: "{label} - {provider} / {variant}" }),

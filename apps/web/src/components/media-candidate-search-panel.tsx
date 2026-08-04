@@ -65,7 +65,7 @@ export function MediaCandidateSearchPanel({
   autoFocus = true,
 }: MediaCandidateSearchPanelProps) {
   const { t } = useI18n();
-  const hasResults = search.candidates.builtIn.length > 0 || search.candidates.favicon.length > 0;
+  const hasResults = search.candidates.builtIn.length > 0 || search.candidates.appStore.length > 0 || search.candidates.favicon.length > 0;
   // 搜索中保留已返回候选，能让 provider 图标先可选，同时继续展示“加载更多”而不是闪回空态。
   const shouldShowResultsArea = hasResults || (!search.isSearching && search.hasSearched);
 

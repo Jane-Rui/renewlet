@@ -200,7 +200,7 @@ export function resolveMediaCandidateItem(
   const searchOptions: SearchOptions = {
     sources: options.sources ?? DEFAULT_BUILT_IN_ICON_SOURCES,
   };
-  const candidates: MediaCandidateGroup = { best: null, builtIn: [], favicon: [] };
+  const candidates: MediaCandidateGroup = { best: null, builtIn: [], appStore: [], favicon: [] };
   let autoCandidate: MediaCandidate | null = null;
 
   if (mode === "auto") {
@@ -231,9 +231,9 @@ export function clampMediaCandidateLimit(config: MediaResolverConfig, value: num
   return clamp(value ?? config.limits.defaultCandidates, 1, config.limits.maxCandidates);
 }
 
-/** 候选优先级固定为内置图标优先，再落到 favicon 备用。 */
+/** 候选优先级固定为内置图标优先，再用 App Store 在线结果，最后落到 favicon 备用。 */
 export function bestMediaCandidate(group: MediaCandidateGroup): MediaCandidate | null {
-  return group.builtIn[0] ?? group.favicon[0] ?? null;
+  return group.builtIn[0] ?? group.appStore[0] ?? group.favicon[0] ?? null;
 }
 
 function searchBuiltInCandidateLimit(resolver: MediaResolver, limit: number): number {

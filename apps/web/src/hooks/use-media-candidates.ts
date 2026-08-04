@@ -29,14 +29,16 @@ export interface UseMediaCandidatesResult {
 }
 
 function emptyCandidateGroup(): MediaCandidateGroup {
-  return { best: null, builtIn: [], favicon: [] };
+  return { best: null, builtIn: [], appStore: [], favicon: [] };
 }
 
 function filterBlocked(group: MediaCandidateGroup, blocked: ReadonlySet<string>): MediaCandidateGroup {
+  // 远端图片失败屏蔽后要同步重算 best；否则 App Store/favicons 坏图会继续被保存按钮当作首选。
   const builtIn = group.builtIn.filter((candidate) => !blocked.has(candidate.url));
+  const appStore = group.appStore.filter((candidate) => !blocked.has(candidate.url));
   const favicon = group.favicon.filter((candidate) => !blocked.has(candidate.url));
-  const best = builtIn[0] ?? favicon[0] ?? null;
-  return { best, builtIn, favicon };
+  const best = builtIn[0] ?? appStore[0] ?? favicon[0] ?? null;
+  return { best, builtIn, appStore, favicon };
 }
 
 /**

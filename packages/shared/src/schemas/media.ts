@@ -38,7 +38,7 @@ export const mediaCandidateKindSchema = uploadKindSchema;
 
 export const mediaCandidateModeSchema = z.enum(["auto", "search"]);
 
-export const mediaCandidateSourceSchema = z.enum(["builtIn", "favicon"]);
+export const mediaCandidateSourceSchema = z.enum(["builtIn", "appStore", "favicon"]);
 
 export const mediaCandidateConfidenceSchema = z.enum(["exact", "strong", "medium", "weak"]);
 
@@ -75,6 +75,7 @@ export const mediaCandidateSchema = z.object({
 export const mediaCandidateGroupSchema = z.object({
   best: mediaCandidateSchema.nullable(),
   builtIn: z.array(mediaCandidateSchema),
+  appStore: z.array(mediaCandidateSchema),
   favicon: z.array(mediaCandidateSchema),
 }).strict();
 

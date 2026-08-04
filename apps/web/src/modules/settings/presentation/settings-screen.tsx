@@ -302,6 +302,8 @@ export function SettingsScreen() {
                 className={SETTINGS_SECTION_SCROLL_CLASS}
                 sources={settings.builtInIconSources}
                 onChange={(sources) => updateSetting('builtInIconSources', sources)}
+                onlineSources={settings.onlineIconSources}
+                onOnlineChange={(sources) => updateSetting('onlineIconSources', sources)}
                 iconIndex={builtInIconIndex}
               />
 

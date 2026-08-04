@@ -141,6 +141,7 @@ describe("IconPicker", () => {
             candidates: {
               best: binanceCandidate,
               builtIn: [binanceCandidate],
+              appStore: [],
               favicon: [],
             },
           }],
@@ -254,6 +255,7 @@ describe("IconPicker", () => {
             candidates: {
               best: binanceCandidate,
               builtIn: [binanceCandidate, homepageIconCandidate],
+              appStore: [],
               favicon: [],
             },
           }],
@@ -291,6 +293,7 @@ describe("IconPicker", () => {
             candidates: {
               best: actualBudgetIconCandidate,
               builtIn: [actualBudgetIconCandidate],
+              appStore: [],
               favicon: [],
             },
           }],
@@ -337,6 +340,7 @@ describe("IconPicker", () => {
             candidates: {
               best: defaultCandidate,
               builtIn: [defaultCandidate, monoCandidate],
+              appStore: [],
               favicon: [],
             },
           }],

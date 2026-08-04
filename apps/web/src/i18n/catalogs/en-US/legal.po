@@ -106,7 +106,7 @@ msgstr "You are responsible for any loss caused by using this project or a deplo
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/legal.ts:17
 msgid "legal.privacy.thirdParty.icons"
-msgstr "Icon search: external favicon/logo candidates may be loaded in the browser as a fallback, with graceful fallback on failure."
+msgstr "Icon search: when you manually search for a Logo, the service name may be sent through the Renewlet backend to Apple Search API for the App Store regions you select, with US queried by default; Apple CDN icons and external favicon/logo fallback candidates may also be loaded in the browser."
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/legal.ts:32

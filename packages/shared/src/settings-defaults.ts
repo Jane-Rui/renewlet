@@ -1,5 +1,6 @@
 import type { ApiAppSettings } from "./schemas/settings";
 import { DEFAULT_BUILT_IN_ICON_SOURCES } from "./built-in-icons";
+import { DEFAULT_ONLINE_ICON_SOURCES } from "./online-icon-sources";
 import { DEFAULT_NOTIFICATION_REMINDER_DAYS } from "./runtime";
 
 /** 首次写入或空库读取时允许由运行面注入 locale/timezone，其它默认值保持产品一致。 */
@@ -24,6 +25,7 @@ export function createDefaultAppSettings(options: DefaultSettingsOptions = {}): 
     publicStatusCurrency: "inherit",
     exchangeRateProvider: "frankfurter",
     builtInIconSources: DEFAULT_BUILT_IN_ICON_SOURCES,
+    onlineIconSources: DEFAULT_ONLINE_ICON_SOURCES,
     monthlyBudget: 1500,
     timezone: options.timezone ?? "UTC",
     notificationTimeLocal: "08:00" as ApiAppSettings["notificationTimeLocal"],

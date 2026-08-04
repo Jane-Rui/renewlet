@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { AlertCircle, Check, Clock3, Image as ImageIcon, RefreshCw, SlidersHorizontal } from 'lucide-react';
+import { AlertCircle, AppWindow, Check, Clock3, Image as ImageIcon, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { RawErrorResponseDialog } from '@/components/raw-error-response-dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -15,6 +15,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { BUILT_IN_ICON_PROVIDERS, type BuiltInIconProvider } from '@renewlet/shared/built-in-icons';
+import { APP_STORE_STOREFRONTS, type AppStoreStorefront } from '@renewlet/shared/online-icon-sources';
 import type { AppSettings } from '@/types/subscription';
 import type { BuiltInIconIndexProviderStatus, BuiltInIconIndexStatus, BuiltInIconProviderVersion, BuiltInIconRefreshJob } from '@/lib/api/schemas/media';
 import type { RawErrorResponseDetails } from '@/lib/raw-error-response';
@@ -22,6 +23,7 @@ import { cn } from '@/lib/utils';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { MessageKey, MessageParams } from '@/i18n/messages';
 import { getSettingsSectionClassName } from './settings-layout';
+import { CheckboxSettingRow } from './settings-shared-controls';
 
 interface BuiltInIconIndexController {
   canManage: boolean;
@@ -44,9 +46,23 @@ interface BuiltInIconSourcesSectionProps {
   sources: AppSettings["builtInIconSources"];
   /** 受控更新；SettingsScreen 负责统一保存草稿，组件内不直接打 API。 */
   onChange: (sources: AppSettings["builtInIconSources"]) => void;
+  /** 在线图标来源开关；只影响手动 Logo 搜索，不参与内置 provider 索引状态。 */
+  onlineSources: AppSettings["onlineIconSources"];
+  onOnlineChange: (sources: AppSettings["onlineIconSources"]) => void;
   /** 管理员索引版本检查/刷新；独立于用户 settings 保存草稿。 */
   iconIndex?: BuiltInIconIndexController;
 }
+
+// 显式 key map 让 Lingui catalog key 保持可静态追踪；不要用动态字符串拼 App Store 地区文案。
+const APP_STORE_STOREFRONT_LABEL_KEYS = {
+  us: "settings.onlineIconSource.appStore.storefront.us",
+  cn: "settings.onlineIconSource.appStore.storefront.cn",
+} satisfies Record<AppStoreStorefront, MessageKey>;
+
+const APP_STORE_STOREFRONT_HELP_KEYS = {
+  us: "settings.onlineIconSource.appStore.storefront.us.help",
+  cn: "settings.onlineIconSource.appStore.storefront.cn.help",
+} satisfies Record<AppStoreStorefront, MessageKey>;
 
 /**
  * 管理内置 Logo/Icon 候选来源。
@@ -54,11 +70,12 @@ interface BuiltInIconSourcesSectionProps {
  * 业务约束：至少保留一个 provider 启用，否则媒体候选会退化成纯 favicon/domain 兜底，
  * 导入自动匹配和手动搜索的结果质量都会明显下降。
  */
-export function BuiltInIconSourcesSection({ id, className, sources, onChange, iconIndex }: BuiltInIconSourcesSectionProps) {
+export function BuiltInIconSourcesSection({ id, className, sources, onChange, onlineSources, onOnlineChange, iconIndex }: BuiltInIconSourcesSectionProps) {
   const { t } = useI18n();
   const [dialogOpen, setDialogOpen] = useState(false);
   const enabledCount = BUILT_IN_ICON_PROVIDERS.filter((provider) => sources[provider].enabled).length;
   const variantsEnabledCount = BUILT_IN_ICON_PROVIDERS.filter((provider) => sources[provider].enabled && sources[provider].variantsEnabled).length;
+  const onlineEnabledCount = onlineSources.appStore.enabled ? 1 : 0;
   const enabledSourceNames = BUILT_IN_ICON_PROVIDERS
     .filter((provider) => sources[provider].enabled)
     .map((provider) => t(`settings.builtInIconSourceShort.${provider}`))
@@ -87,6 +104,34 @@ export function BuiltInIconSourcesSection({ id, className, sources, onChange, ic
     if (BUILT_IN_ICON_PROVIDERS.every((item) => !next[item].enabled)) return;
     onChange(next);
   };
+  const updateOnlineAppStore = (enabled: boolean) => {
+    onOnlineChange({
+      ...onlineSources,
+      appStore: {
+        ...onlineSources.appStore,
+        enabled,
+      },
+    });
+  };
+  const updateOnlineAppStoreStorefront = (storefront: AppStoreStorefront, enabled: boolean) => {
+    const selected = new Set(onlineSources.appStore.storefronts);
+    if (enabled) {
+      selected.add(storefront);
+    } else if (selected.size > 1) {
+      selected.delete(storefront);
+    } else {
+      // storefronts 是 App Store 请求放大开关；关闭来源只能走总开关，不能把地区列表保存为空。
+      return;
+    }
+    const storefronts = APP_STORE_STOREFRONTS.filter((item) => selected.has(item));
+    onOnlineChange({
+      ...onlineSources,
+      appStore: {
+        ...onlineSources.appStore,
+        storefronts,
+      },
+    });
+  };
 
   return (
     <section id={id} className={getSettingsSectionClassName(className)}>
@@ -104,6 +149,9 @@ export function BuiltInIconSourcesSection({ id, className, sources, onChange, ic
               })}
             </p>
             <p className="mt-1 truncate text-xs text-muted-foreground">{enabledSourceNames}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t("settings.onlineIconSourcesSummary", { enabled: onlineEnabledCount, total: 1 })}
+            </p>
           </div>
         </div>
 
@@ -126,21 +174,41 @@ export function BuiltInIconSourcesSection({ id, className, sources, onChange, ic
             </DialogHeader>
 
             <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
-              <div className="grid gap-3">
-                {BUILT_IN_ICON_PROVIDERS.map((provider) => (
-                  <BuiltInIconSourceCard
-                    key={provider}
-                    provider={provider}
-                    source={sources[provider]}
-                    disableSourceToggle={sources[provider].enabled && enabledCount <= 1}
-                    providerStatus={providerStatusById.get(provider)}
-                    iconIndex={iconIndex?.canManage ? iconIndex : undefined}
-                    onUpdate={updateProvider}
+              <div className="grid gap-6">
+                <div className="grid gap-3">
+                  <div className="grid gap-1">
+                    <h3 className="text-sm font-semibold text-foreground">{t("settings.builtInIconSourcesBuiltInTitle")}</h3>
+                    <p className="text-xs leading-5 text-muted-foreground">{t("settings.builtInIconSourcesBuiltInHelp")}</p>
+                  </div>
+                  {BUILT_IN_ICON_PROVIDERS.map((provider) => (
+                    <BuiltInIconSourceCard
+                      key={provider}
+                      provider={provider}
+                      source={sources[provider]}
+                      disableSourceToggle={sources[provider].enabled && enabledCount <= 1}
+                      providerStatus={providerStatusById.get(provider)}
+                      iconIndex={iconIndex?.canManage ? iconIndex : undefined}
+                      onUpdate={updateProvider}
+                      t={t}
+                    />
+                  ))}
+                  <p className="text-xs text-muted-foreground">{t("settings.builtInIconSourcesRequired")}</p>
+                </div>
+
+                <div className="grid gap-3 border-t border-border pt-4">
+                  <div className="grid gap-1">
+                    <h3 className="text-sm font-semibold text-foreground">{t("settings.onlineIconSourcesTitle")}</h3>
+                    <p className="text-xs leading-5 text-muted-foreground">{t("settings.onlineIconSourcesHelp")}</p>
+                  </div>
+                  <OnlineAppStoreSourceCard
+                    enabled={onlineSources.appStore.enabled}
+                    storefronts={onlineSources.appStore.storefronts}
+                    onEnabledChange={updateOnlineAppStore}
+                    onStorefrontChange={updateOnlineAppStoreStorefront}
                     t={t}
                   />
-                ))}
+                </div>
               </div>
-              <p className="mt-3 text-xs text-muted-foreground">{t("settings.builtInIconSourcesRequired")}</p>
             </div>
 
             <DialogFooter className="border-t border-border px-4 py-4 sm:px-6">
@@ -238,6 +306,76 @@ function BuiltInIconSourceCard({
           aria-label={t("settings.builtInIconSourceVariantsToggle", { source: t(`settings.builtInIconSource.${provider}`) })}
         />
       </div>
+    </div>
+  );
+}
+
+function OnlineAppStoreSourceCard({
+  enabled,
+  storefronts,
+  onEnabledChange,
+  onStorefrontChange,
+  t,
+}: {
+  enabled: boolean;
+  storefronts: AppSettings["onlineIconSources"]["appStore"]["storefronts"];
+  onEnabledChange: (enabled: boolean) => void;
+  onStorefrontChange: (storefront: AppStoreStorefront, enabled: boolean) => void;
+  t: (key: MessageKey, params?: MessageParams) => string;
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-secondary/40 p-4">
+      <div className="flex flex-col gap-3 min-[520px]:flex-row min-[520px]:items-start min-[520px]:justify-between">
+        <div className="flex min-w-0 gap-3">
+          <AppWindow className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+          <div className="min-w-0">
+            <Label htmlFor="online-icon-source-app-store" className="text-sm font-medium">
+              {t("settings.onlineIconSource.appStore")}
+            </Label>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              {t("settings.onlineIconSource.appStore.help")}
+            </p>
+          </div>
+        </div>
+        <Switch
+          id="online-icon-source-app-store"
+          checked={enabled}
+          onCheckedChange={onEnabledChange}
+          aria-label={t("settings.onlineIconSourceToggle", { source: t("settings.onlineIconSource.appStore") })}
+        />
+      </div>
+      {/* 总开关只控制是否请求 Apple；地区 checkbox 保留用户选择，不能用空列表表达关闭。 */}
+      <fieldset
+        className={cn("mt-4 border-t border-border/70 pt-3", !enabled && "opacity-50")}
+        aria-describedby="online-icon-source-app-store-storefronts-help online-icon-source-app-store-storefronts-required"
+      >
+        <legend className="text-xs font-medium text-foreground">
+          {t("settings.onlineIconSource.appStore.storefronts")}
+        </legend>
+        <p id="online-icon-source-app-store-storefronts-help" className="mt-1 text-xs leading-5 text-muted-foreground">
+          {t("settings.onlineIconSource.appStore.storefronts.help")}
+        </p>
+        <div className="mt-3 grid gap-3" data-testid="app-store-storefront-list">
+          {APP_STORE_STOREFRONTS.map((storefront) => {
+            const checked = storefronts.includes(storefront);
+            const disabled = !enabled || (checked && storefronts.length <= 1);
+            return (
+              <CheckboxSettingRow
+                key={storefront}
+                id={`online-icon-source-app-store-storefront-${storefront}`}
+                checked={checked}
+                disabled={disabled}
+                onCheckedChange={(nextChecked) => onStorefrontChange(storefront, nextChecked)}
+                label={t(APP_STORE_STOREFRONT_LABEL_KEYS[storefront])}
+                description={t(APP_STORE_STOREFRONT_HELP_KEYS[storefront])}
+              />
+            );
+          })}
+        </div>
+        <p id="online-icon-source-app-store-storefronts-required" className="mt-3 text-xs leading-5 text-muted-foreground">
+          {t("settings.onlineIconSource.appStore.storefronts.required")}
+        </p>
+      </fieldset>
     </div>
   );
 }

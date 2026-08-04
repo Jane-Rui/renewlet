@@ -11,6 +11,7 @@ import { translate } from "@/i18n/messages";
 import { getSystemTimeZone } from "@/lib/time/time-zone";
 import { getCurrentUserId } from "@/lib/pocketbase";
 import { cleanBuiltInIconSourceSettingsPatch, mergeBuiltInIconSourceSettings } from "@renewlet/shared/built-in-icons";
+import { cleanOnlineIconSourceSettingsPatch, mergeOnlineIconSourceSettings } from "@renewlet/shared/online-icon-sources";
 import {
   DEFAULT_SETTINGS,
   WEBHOOK_HEADERS_PLACEHOLDER,
@@ -43,6 +44,7 @@ export function normalizeSettings(value: unknown): AppSettings {
       ...patch.aiRecognition,
     },
     builtInIconSources: mergeBuiltInIconSourceSettings(defaults.builtInIconSources, cleanBuiltInIconSourceSettingsPatch(patch.builtInIconSources)),
+    onlineIconSources: mergeOnlineIconSourceSettings(defaults.onlineIconSources, cleanOnlineIconSourceSettingsPatch(patch.onlineIconSources)),
   };
   return {
     ...settings,

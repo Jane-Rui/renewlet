@@ -9,6 +9,7 @@ import {
 import { apiSubscriptionSchema, type ApiSubscription } from "@renewlet/shared/schemas/subscriptions";
 import { customConfigSchema } from "@renewlet/shared/schemas/custom-config";
 import { cleanBuiltInIconSourceSettingsPatch, mergeBuiltInIconSourceSettings } from "@renewlet/shared/built-in-icons";
+import { cleanOnlineIconSourceSettingsPatch, mergeOnlineIconSourceSettings } from "@renewlet/shared/online-icon-sources";
 import { DISABLED_REMINDER_DAYS, MAX_REMINDER_DAYS } from "@renewlet/shared/runtime";
 import type { AdminUser } from "@renewlet/shared/schemas/admin";
 import type { AssetInUseDetails } from "@renewlet/shared/schemas/media";
@@ -269,6 +270,7 @@ export function mergeSettingsPatch(current: ApiAppSettings, patch: ApiAppSetting
       ...patch.aiRecognition,
     },
     builtInIconSources: mergeBuiltInIconSourceSettings(current.builtInIconSources, cleanBuiltInIconSourceSettingsPatch(patch.builtInIconSources)),
+    onlineIconSources: mergeOnlineIconSourceSettings(current.onlineIconSources, cleanOnlineIconSourceSettingsPatch(patch.onlineIconSources)),
   });
 }
 

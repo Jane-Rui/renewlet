@@ -462,15 +462,15 @@ type builtInIconIndexProviderCheckResponse struct {
 }
 
 type builtInIconRefreshJobResponse struct {
-	ID           string  `json:"id"`
-	Provider     string  `json:"provider"`
-	Status       string  `json:"status"`
-	QueuedAt     string  `json:"queuedAt"`
-	StartedAt    *string `json:"startedAt"`
-	FinishedAt   *string `json:"finishedAt"`
-	Attempts     int     `json:"attempts"`
-	Error        *string `json:"error"`
-	IndexHash    *string `json:"indexHash"`
+	ID         string  `json:"id"`
+	Provider   string  `json:"provider"`
+	Status     string  `json:"status"`
+	QueuedAt   string  `json:"queuedAt"`
+	StartedAt  *string `json:"startedAt"`
+	FinishedAt *string `json:"finishedAt"`
+	Attempts   int     `json:"attempts"`
+	Error      *string `json:"error"`
+	IndexHash  *string `json:"indexHash"`
 }
 
 type builtInIconIndexProviderRefreshResponse struct {
@@ -540,9 +540,10 @@ type mediaCandidate struct {
 
 // mediaCandidateGroup 按来源分组；best 只指向分组中的首选候选，不额外生成第三类结果。
 type mediaCandidateGroup struct {
-	Best    *mediaCandidate  `json:"best"`
-	BuiltIn []mediaCandidate `json:"builtIn"`
-	Favicon []mediaCandidate `json:"favicon"`
+	Best     *mediaCandidate  `json:"best"`
+	BuiltIn  []mediaCandidate `json:"builtIn"`
+	AppStore []mediaCandidate `json:"appStore"`
+	Favicon  []mediaCandidate `json:"favicon"`
 }
 
 // mediaCandidateResolveItemResponse 是单条解析响应。

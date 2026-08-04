@@ -8,6 +8,7 @@
  */
 import type { CustomThemeColor, ThemeMode, ThemeVariant } from './theme';
 import type { BuiltInIconSourceSettings } from "@renewlet/shared/built-in-icons";
+import type { OnlineIconSourceSettings } from "@renewlet/shared/online-icon-sources";
 import type { AiRecognitionSettings } from "@renewlet/shared/schemas/ai-recognition";
 import type { ApiAppSettings } from "@renewlet/shared/schemas/settings";
 import { labelsFromCatalog } from "@/i18n/label-messages";
@@ -278,6 +279,8 @@ export interface AppSettings {
   exchangeRateProvider: ExchangeRateProvider;
   /** 内置 Logo/Icon 来源配置；影响搜索候选和导入自动匹配。 */
   builtInIconSources: BuiltInIconSourceSettings;
+  /** 在线 App 图标来源配置；只影响用户手动 Logo 搜索。 */
+  onlineIconSources: OnlineIconSourceSettings;
   /** AI 识别订阅导入使用的第三方模型配置。 */
   aiRecognition: AiRecognitionSettings;
   
