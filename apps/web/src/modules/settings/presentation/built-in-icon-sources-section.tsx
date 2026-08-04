@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { type ReactNode, useMemo, useState } from 'react';
 import { AlertCircle, AppWindow, Check, Clock3, Image as ImageIcon, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { RawErrorResponseDialog } from '@/components/raw-error-response-dialog';
@@ -310,6 +310,36 @@ function BuiltInIconSourceCard({
   );
 }
 
+function IconSourceCardHeading({
+  description,
+  icon,
+  labelFor,
+  testId,
+  title,
+}: {
+  description: ReactNode;
+  icon: ReactNode;
+  labelFor: string;
+  testId: string;
+  title: ReactNode;
+}) {
+  return (
+    <div className="grid min-w-0 grid-cols-[1.25rem_minmax(0,1fr)] gap-x-3 gap-y-1" data-testid={testId}>
+      <span
+        aria-hidden="true"
+        className="flex h-5 w-5 items-center justify-center text-primary"
+        data-testid={`${testId}-icon-frame`}
+      >
+        {icon}
+      </span>
+      <Label htmlFor={labelFor} className="min-w-0 cursor-pointer text-sm font-medium leading-5 text-foreground">
+        {title}
+      </Label>
+      <p className="col-start-2 text-xs leading-5 text-muted-foreground">{description}</p>
+    </div>
+  );
+}
+
 function OnlineAppStoreSourceCard({
   enabled,
   storefronts,
@@ -326,17 +356,13 @@ function OnlineAppStoreSourceCard({
   return (
     <div className="rounded-lg border border-border bg-secondary/40 p-4">
       <div className="flex flex-col gap-3 min-[520px]:flex-row min-[520px]:items-start min-[520px]:justify-between">
-        <div className="flex min-w-0 gap-3">
-          <AppWindow className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-          <div className="min-w-0">
-            <Label htmlFor="online-icon-source-app-store" className="text-sm font-medium">
-              {t("settings.onlineIconSource.appStore")}
-            </Label>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              {t("settings.onlineIconSource.appStore.help")}
-            </p>
-          </div>
-        </div>
+        <IconSourceCardHeading
+          labelFor="online-icon-source-app-store"
+          icon={<AppWindow className="h-4 w-4" />}
+          testId="online-icon-source-app-store-heading"
+          title={t("settings.onlineIconSource.appStore")}
+          description={t("settings.onlineIconSource.appStore.help")}
+        />
         <Switch
           id="online-icon-source-app-store"
           checked={enabled}

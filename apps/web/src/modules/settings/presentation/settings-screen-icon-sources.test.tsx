@@ -53,6 +53,14 @@ describe("SettingsScreen icon source settings", () => {
     expect(within(dialog).getByRole("switch", { name: "切换 selfh.st icons 来源" })).toBeEnabled();
     expect(within(dialog).getByRole("switch", { name: "切换 Dashboard Icons 来源" })).toBeEnabled();
     expect(within(dialog).getByRole("switch", { name: "切换 App Store 来源" })).toBeEnabled();
+    const appStoreHeading = within(dialog).getByTestId("online-icon-source-app-store-heading");
+    expect(appStoreHeading).toHaveClass("grid", "grid-cols-[1.25rem_minmax(0,1fr)]", "gap-x-3", "gap-y-1");
+    expect(within(appStoreHeading).getByText("App Store")).toHaveClass("leading-5");
+    const appStoreIconFrame = within(appStoreHeading).getByTestId("online-icon-source-app-store-heading-icon-frame");
+    expect(appStoreIconFrame).toHaveClass("flex", "h-5", "w-5", "items-center", "justify-center");
+    const appStoreIcon = appStoreIconFrame.querySelector("svg");
+    expect(appStoreIcon).toHaveClass("h-4", "w-4");
+    expect(appStoreIcon).not.toHaveClass("mt-0.5");
     expect(within(dialog).getByText("App Store 地区")).toBeInTheDocument();
     expect(within(dialog).getByText("至少保留一个地区；关闭 App Store 来源请使用上方开关。")).toBeInTheDocument();
     expect(within(dialog).getByTestId("app-store-storefront-list")).toHaveClass("grid", "gap-3");
