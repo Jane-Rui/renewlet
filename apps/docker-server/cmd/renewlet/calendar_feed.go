@@ -53,7 +53,7 @@ type calendarFeedCreateResponse struct {
 type calendarFeedSubscription struct {
 	ID               string
 	Name             string
-	Price            float64
+	Price            string
 	Currency         string
 	BillingCycle     string
 	CustomDays       int
@@ -465,7 +465,7 @@ func calendarFeedSubscriptionFromRecord(row *core.Record) calendarFeedSubscripti
 	return calendarFeedSubscription{
 		ID:               row.Id,
 		Name:             row.GetString("name"),
-		Price:            row.GetFloat("price"),
+		Price:            moneyForRecord(row.Get("price")),
 		Currency:         row.GetString("currency"),
 		BillingCycle:     row.GetString("billingCycle"),
 		CustomDays:       row.GetInt("customDays"),

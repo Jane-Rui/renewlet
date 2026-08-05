@@ -255,14 +255,14 @@ describe("useSettingsFormController monthly budget input", () => {
       result.current.handleMonthlyBudgetInputChange("0");
     });
     expect(result.current.monthlyBudgetInput).toBe("0");
-    expect(result.current.settings.monthlyBudget).toBe(0);
+    expect(result.current.settings.monthlyBudget).toBe("0");
     expect(result.current.monthlyBudgetError).toBeNull();
 
     act(() => {
       result.current.handleMonthlyBudgetInputChange("1000.5");
     });
     expect(result.current.monthlyBudgetInput).toBe("1000.5");
-    expect(result.current.settings.monthlyBudget).toBe(1000.5);
+    expect(result.current.settings.monthlyBudget).toBe("1000.5");
     expect(result.current.monthlyBudgetError).toBeNull();
   });
 
@@ -302,11 +302,11 @@ describe("useSettingsFormController monthly budget input", () => {
   it("syncs monthly budget input from remote settings while the form is clean", async () => {
     const { result, rerender } = renderHook(() => useSettingsFormController());
 
-    mocks.remoteSettings = { ...BASE_SETTINGS, monthlyBudget: 2500 };
+    mocks.remoteSettings = { ...BASE_SETTINGS, monthlyBudget: "2500" };
     rerender();
 
     await waitFor(() => {
-      expect(result.current.settings.monthlyBudget).toBe(2500);
+      expect(result.current.settings.monthlyBudget).toBe("2500");
     });
     expect(result.current.monthlyBudgetInput).toBe("2500");
     expect(result.current.hasUnsavedChanges).toBe(false);

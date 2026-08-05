@@ -126,25 +126,24 @@ func registerRecordHooks(app core.App) {
 		if err := e.Next(); err != nil {
 			return err
 		}
-		return refreshSubscriptionSchedulerStateAfterWrite(app, e.Record)
+		return refreshSubscriptionDerivedStateAfterWrite(app, e.Record)
 	})
 	app.OnRecordAfterUpdateSuccess("subscriptions").BindFunc(func(e *core.RecordEvent) error {
 		if err := e.Next(); err != nil {
 			return err
 		}
-		return refreshSubscriptionSchedulerStateAfterWrite(app, e.Record)
+		return refreshSubscriptionDerivedStateAfterWrite(app, e.Record)
 	})
 	app.OnRecordAfterDeleteSuccess("subscriptions").BindFunc(func(e *core.RecordEvent) error {
 		if err := e.Next(); err != nil {
 			return err
 		}
-		return refreshSubscriptionSchedulerStateAfterWrite(app, e.Record)
+		return refreshSubscriptionDerivedStateAfterWrite(app, e.Record)
 	})
 }
 
-func refreshSubscriptionSchedulerStateAfterWrite(app core.App, record *core.Record) error {
-	_, err := refreshSubscriptionSchedulerState(app, record.GetString("user"), true)
-	return err
+func refreshSubscriptionDerivedStateAfterWrite(app core.App, record *core.Record) error {
+	return refreshSubscriptionDerivedState(app, record.GetString("user"), true)
 }
 
 func normalizeCloudBackupTargetRecord(record *core.Record) error {
@@ -256,13 +255,16 @@ func normalizeSubscriptionRecord(record *core.Record) error {
 	}
 	record.Set("currency", currency)
 
-	price := record.GetFloat("price")
-	if price < 0 {
-		return errors.New("SUBSCRIPTION_PRICE_NEGATIVE")
+	rawPrice, ok := record.Get("price").(string)
+	if !ok {
+		return errors.New("SUBSCRIPTION_PRICE_INVALID")
 	}
-	if price > maxSubscriptionPrice {
-		return errors.New("SUBSCRIPTION_PRICE_TOO_HIGH")
+	// 旧 numeric 只允许 migrateMoneyStrings 处理；持久层写入边界必须保持 decimal string 单一事实源。
+	price, err := canonicalMoneyString(rawPrice)
+	if err != nil {
+		return errors.New("SUBSCRIPTION_PRICE_INVALID")
 	}
+	record.Set("price", price)
 
 	billingCycle := record.GetString("billingCycle")
 	customDays := record.GetInt("customDays")

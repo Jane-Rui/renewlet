@@ -32,10 +32,11 @@ export interface UserRow {
   updated_at: string;
 }
 
-/** Worker session 表保存 token hash；浏览器只持有原始 Bearer token，不读取此行结构。 */
+/** Worker session 表保存 session/CSRF hash；浏览器只能通过 HttpOnly cookie 使用原始 session token。 */
 export interface SessionRow {
   id: string;
   token_hash: string;
+  csrf_token_hash: string | null;
   user_id: string;
   expires_at: string;
   created_at: string;
@@ -46,6 +47,7 @@ export interface SessionRow {
 export interface SessionAuthRow extends UserRow {
   session_id: string;
   session_token_hash: string;
+  session_csrf_token_hash: string | null;
   session_user_id: string;
   session_expires_at: string;
   session_created_at: string;
@@ -144,7 +146,7 @@ export interface SubscriptionRow {
   user_id: string;
   name: string;
   logo: string | null;
-  price: number;
+  price: string;
   currency: string;
   billing_cycle: string;
   custom_days: number | null;
@@ -217,6 +219,7 @@ export interface SubscriptionUserStatsRow {
   user_id: string;
   total_count: number;
   status_counts_json: string;
+  source_updated_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -325,7 +328,6 @@ export interface MediaIconIndexRefreshJobRow {
 
 /** 已通过 Worker session 校验的请求上下文。 */
 export interface AuthContext {
-  token: string;
   session: SessionRow;
   user: UserRow;
 }

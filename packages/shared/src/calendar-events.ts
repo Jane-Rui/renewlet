@@ -4,6 +4,8 @@
  * 浏览器端在线日历链接也会使用这里的 UID/描述规则；不要把需要安全上下文的
  * ICS 序列化依赖重新引回本模块。
  */
+import type { MoneyString } from "./money";
+
 /** ICS 中的单个续费事件；date 始终是 YYYY-MM-DD，不是 datetime。 */
 export interface RenewalCalendarEvent {
   uid: string;
@@ -20,7 +22,7 @@ export interface RenewalCalendarEvent {
 export interface RenewalCalendarSubscription {
   id: string;
   name: string;
-  price: number;
+  price: MoneyString;
   currency: string;
   billingCycle: string;
   oneTimeTermCount?: number | undefined;

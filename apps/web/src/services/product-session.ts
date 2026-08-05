@@ -7,12 +7,20 @@ import { sessionPayloadSchema, type SessionResponse } from "@renewlet/shared/sch
 const STORAGE_KEY = "renewlet_app_session";
 const CHANGE_EVENT = "renewlet:app-session-change";
 const STORAGE_VERSION = 1;
+const CSRF_COOKIE_NAME = "renewlet_csrf";
+const CSRF_HEADER_NAME = "X-Renewlet-CSRF";
 
 export type ProductSessionData = SessionResponse;
 
 /** 产品 session 是 Docker/Cloudflare 的统一前端缓存；真实认证仍以服务端 token hash 为准。 */
 export interface ProductSessionRecord {
   value: ProductSessionData;
+  verifiedAt: number;
+}
+
+export interface ProductSessionSnapshot {
+  userId: string;
+  expiresAt: string;
   verifiedAt: number;
 }
 
@@ -78,11 +86,52 @@ export function subscribeProductSession(listener: () => void): () => void {
   };
 }
 
-export function getProductAuthHeader(): Record<string, string> {
-  const token = readProductSession()?.session.id;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 export function getProductCurrentUserId(): string | null {
   return readProductSession()?.user.id ?? null;
+}
+
+export function readProductSessionSnapshot(): ProductSessionSnapshot | null {
+  const record = readProductSessionRecord();
+  if (!record) return null;
+  return {
+    userId: record.value.user.id,
+    expiresAt: record.value.session.expiresAt,
+    verifiedAt: record.verifiedAt,
+  };
+}
+
+export function clearProductSessionForSnapshot(snapshot: ProductSessionSnapshot | null): void {
+  if (!snapshot) return;
+  const current = readProductSessionSnapshot();
+  if (!current) return;
+  // 401 清理只消费请求发出时的非密快照，避免旧请求把刚登录/续签的新 session 清掉。
+  if (
+    current.userId !== snapshot.userId ||
+    current.expiresAt !== snapshot.expiresAt ||
+    current.verifiedAt !== snapshot.verifiedAt
+  ) {
+    return;
+  }
+  writeProductSession(null);
+}
+
+export function getProductCsrfHeader(): Record<string, string> {
+  const token = readCookie(CSRF_COOKIE_NAME);
+  return token ? { [CSRF_HEADER_NAME]: token } : {};
+}
+
+function readCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  for (const part of document.cookie.split(";")) {
+    const [rawName, ...rest] = part.trim().split("=");
+    if (rawName !== name) continue;
+    const value = rest.join("=");
+    if (!value) return "";
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return value;
+    }
+  }
+  return null;
 }

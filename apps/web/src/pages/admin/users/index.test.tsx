@@ -201,7 +201,7 @@ describe("AdminUsersPage", () => {
     mocks.useI18n.mockReturnValue({ t: makeT() });
     mocks.useSession.mockReturnValue({
       data: {
-        session: { id: "token" },
+        session: { expiresAt: "2026-07-01T00:00:00.000Z" },
         user: {
           id: "current-admin",
           email: "admin@example.com",

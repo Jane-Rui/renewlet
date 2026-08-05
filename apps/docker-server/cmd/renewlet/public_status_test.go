@@ -28,7 +28,7 @@ func TestPublicStatusPageLifecycleAndPublicRoute(t *testing.T) {
 	assetID := createPublicStatusTestAsset(t, app, token, "visible.svg")
 	visible := createCalendarFeedTestSubscription(t, app, user.Id, calendarFeedTestSubscription{
 		Name:            "Visible Plan",
-		Price:           12,
+		Price:           "12",
 		BillingCycle:    "monthly",
 		Category:        "developer_tools",
 		Status:          "active",
@@ -44,7 +44,7 @@ func TestPublicStatusPageLifecycleAndPublicRoute(t *testing.T) {
 	time.Sleep(2 * time.Millisecond)
 	pinned := createCalendarFeedTestSubscription(t, app, user.Id, calendarFeedTestSubscription{
 		Name:            "Pinned Plan",
-		Price:           20,
+		Price:           "20",
 		BillingCycle:    "monthly",
 		Status:          "active",
 		NextBillingDate: "2099-12-01",
@@ -55,7 +55,7 @@ func TestPublicStatusPageLifecycleAndPublicRoute(t *testing.T) {
 	}
 	hidden := createCalendarFeedTestSubscription(t, app, user.Id, calendarFeedTestSubscription{
 		Name:            "Hidden Plan",
-		Price:           99,
+		Price:           "99",
 		BillingCycle:    "monthly",
 		Status:          "active",
 		NextBillingDate: "2099-06-01",
@@ -67,7 +67,7 @@ func TestPublicStatusPageLifecycleAndPublicRoute(t *testing.T) {
 	time.Sleep(2 * time.Millisecond)
 	createCalendarFeedTestSubscription(t, app, user.Id, calendarFeedTestSubscription{
 		Name:            "Legacy Overdue",
-		Price:           10,
+		Price:           "10",
 		BillingCycle:    "monthly",
 		Status:          "active",
 		NextBillingDate: "2000-01-01",
@@ -135,7 +135,7 @@ func TestPublicStatusPageLifecycleAndPublicRoute(t *testing.T) {
 		t.Fatalf("expected public status patch 200, got %d: %s", patchRes.Code, patchRes.Body.String())
 	}
 	pricedRes := serveTestRequest(t, app, http.MethodGet, publicTarget, "", "")
-	if !strings.Contains(pricedRes.Body.String(), `"price":12`) || !strings.Contains(pricedRes.Body.String(), `"currency":"USD"`) {
+	if !strings.Contains(pricedRes.Body.String(), `"price":"12"`) || !strings.Contains(pricedRes.Body.String(), `"currency":"USD"`) {
 		t.Fatalf("expected showPrices to expose amount fields, got %s", pricedRes.Body.String())
 	}
 	pricedBody := decodeAPISuccessDataForTest[map[string]any](t, pricedRes.Body.Bytes())

@@ -11,6 +11,7 @@ import {
 } from "../runtime";
 import { apiSuccessResponseSchema } from "./api";
 import { okResponseSchema } from "./common";
+import { moneyStringSchema } from "../money";
 import { settingsUpdateBodySchema } from "./settings";
 import { upstreamErrorDetailsSchema } from "./upstream";
 
@@ -41,7 +42,7 @@ export const notificationContentItemResponseSchema = z.object({
   type: z.enum(["renewal", "trial", "expired", "expiry"]),
   subscriptionId: z.string(),
   name: z.string(),
-  price: z.number(),
+  price: moneyStringSchema,
   currency: z.string(),
   status: z.enum(SUBSCRIPTION_STATUSES),
   targetDate: dateOnlyResponseSchema,

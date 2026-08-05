@@ -1,15 +1,8 @@
 import { expect, type Page } from "@playwright/test";
 
-type ProductSessionRecord = {
-  value?: {
-    session?: { id?: string };
-    user?: { id?: string };
-  };
-};
-
 export type ProductSubscriptionSeed = {
   name: string;
-  price: number;
+  price: string;
   currency?: string;
   billingCycle?: "monthly" | "yearly";
   category?: string;
@@ -23,32 +16,22 @@ export type ProductSubscriptionSeed = {
   tags?: string[];
 };
 
-async function getProductAuthHeader(page: Page) {
-  return page.evaluate(() => {
-    const raw = window.localStorage.getItem("renewlet_app_session");
-    if (!raw) {
-      throw new Error("Missing Renewlet product session");
-    }
-
-    const record = JSON.parse(raw) as ProductSessionRecord;
-    const token = record.value?.session?.id;
-    const userId = record.value?.user?.id;
-    if (!token || !userId) {
-      throw new Error("Renewlet product session is missing token or user id");
-    }
-
-    return `Bearer ${token}`;
-  });
-}
-
 export async function createProductSubscriptionSeed(page: Page, seed: ProductSubscriptionSeed) {
-  const authorization = await getProductAuthHeader(page);
-  const result = await page.evaluate(async ({ authorization: authHeader, seed: payload }) => {
+  const result = await page.evaluate(async (payload) => {
+    const csrfToken = document.cookie
+      .split(";")
+      .map((part) => part.trim())
+      .find((part) => part.startsWith("renewlet_csrf="))
+      ?.slice("renewlet_csrf=".length);
+    if (!csrfToken) throw new Error("Missing Renewlet CSRF cookie");
+
+    // E2E seed 走真实产品 API：HttpOnly session 随 cookie 发送，CSRF header 证明请求来自同站页面上下文。
     const response = await window.fetch("/api/app/subscriptions", {
       method: "POST",
+      credentials: "include",
       headers: {
-        Authorization: authHeader,
         "Content-Type": "application/json",
+        "X-Renewlet-CSRF": decodeURIComponent(csrfToken),
       },
       body: JSON.stringify({
         name: payload.name,
@@ -87,7 +70,7 @@ export async function createProductSubscriptionSeed(page: Page, seed: ProductSub
       ok: response.ok,
       status: response.status,
     };
-  }, { authorization, seed });
+  }, seed);
 
   expect(result.ok, `create subscription seed ${seed.name}: ${result.status} ${result.body}`).toBe(true);
 }

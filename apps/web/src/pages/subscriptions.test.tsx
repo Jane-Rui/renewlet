@@ -206,7 +206,7 @@ function subscription(overrides: SubscriptionOverrides = {}): Subscription {
     id: "sub",
     name: "Service",
     logo: undefined,
-    price: 10,
+    price: "10",
     currency: "USD",
     category: "productivity",
     status: "active",
@@ -304,7 +304,7 @@ function manySubscriptions(count: number) {
     subscription({
       id: `service-${index.toString().padStart(3, "0")}`,
       name: `Service ${index.toString().padStart(3, "0")}`,
-      price: index + 1,
+      price: String(index + 1),
     }),
   );
 }
@@ -333,9 +333,9 @@ describe("Subscriptions page sorting", () => {
     });
     mocks.useInfiniteSubscriptions.mockReturnValue({
       subscriptions: [
-        subscription({ id: "annual-usd", name: "Annual USD", price: 120, currency: "USD", billingCycle: "annual" }),
-        subscription({ id: "monthly-cny", name: "Monthly CNY", price: 80, currency: "CNY", billingCycle: "monthly" }),
-        subscription({ id: "quarterly-cny", name: "Quarterly CNY", price: 180, currency: "CNY", billingCycle: "quarterly" }),
+        subscription({ id: "annual-usd", name: "Annual USD", price: "120", currency: "USD", billingCycle: "annual" }),
+        subscription({ id: "monthly-cny", name: "Monthly CNY", price: "80", currency: "CNY", billingCycle: "monthly" }),
+        subscription({ id: "quarterly-cny", name: "Quarterly CNY", price: "180", currency: "CNY", billingCycle: "quarterly" }),
       ],
       isPending: false,
     });
@@ -381,8 +381,8 @@ describe("Subscriptions page sorting", () => {
     const user = userEvent.setup();
     mocks.useInfiniteSubscriptions.mockReturnValue({
       subscriptions: [
-        subscription({ id: "regular", name: "Regular Service", price: 999 }),
-        subscription({ id: "pinned", name: "Pinned Service", price: 1, pinned: true }),
+        subscription({ id: "regular", name: "Regular Service", price: "999" }),
+        subscription({ id: "pinned", name: "Pinned Service", price: "1", pinned: true }),
       ],
       isPending: false,
     });

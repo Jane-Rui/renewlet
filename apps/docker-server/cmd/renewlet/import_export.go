@@ -50,7 +50,7 @@ type importPayload struct {
 type importSubscription struct {
 	Name                         string                 `json:"name"`
 	Logo                         *string                `json:"logo,omitempty"`
-	Price                        float64                `json:"price"`
+	Price                        string                 `json:"price"`
 	Currency                     string                 `json:"currency"`
 	BillingCycle                 string                 `json:"billingCycle"`
 	CustomDays                   *int                   `json:"customDays,omitempty"`
@@ -74,6 +74,7 @@ type importSubscription struct {
 	RepeatReminderEnabled        bool                   `json:"repeatReminderEnabled"`
 	RepeatReminderInterval       string                 `json:"repeatReminderInterval"`
 	RepeatReminderWindow         string                 `json:"repeatReminderWindow"`
+	CostSharing                  map[string]interface{} `json:"costSharing,omitempty"`
 	Extra                        map[string]interface{} `json:"extra"`
 }
 
@@ -393,6 +394,11 @@ func setImportSubscriptionRecord(record *core.Record, userID string, subscriptio
 	record.Set("repeatReminderEnabled", subscription.RepeatReminderEnabled)
 	record.Set("repeatReminderInterval", subscription.RepeatReminderInterval)
 	record.Set("repeatReminderWindow", subscription.RepeatReminderWindow)
+	if subscription.CostSharing != nil {
+		record.Set("costSharing", subscription.CostSharing)
+	} else {
+		record.Set("costSharing", emptyJSONPayload{})
+	}
 	// extra.import 是导入唯一同源键；只写 allowlist 字段后再整体存入 JSON，避免用户 payload 扩权。
 	record.Set("extra", subscription.Extra)
 }

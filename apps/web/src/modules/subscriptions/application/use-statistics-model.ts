@@ -14,9 +14,9 @@ import { buildStatisticsModel } from "../domain/statistics-model";
 export function useStatisticsModel(
   subscriptions: readonly Subscription[],
   config: CustomConfig,
-  monthlyBudget: number,
+  monthlyBudget: string,
   defaultCurrency: string,
-  convert: (amount: number, from: string, to: string) => number,
+  convert: (amount: number | string, from: string, to: string) => number,
   timeZone: string,
   locale: Locale,
   costBasis: "total" | "personal" = "total",

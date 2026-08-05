@@ -138,7 +138,7 @@ function versionFixture(overrides: Partial<SystemVersionResponse> = {}): SystemV
 function adminSession(role: "admin" | "user") {
   return {
     data: {
-      session: { id: "session-1" },
+      session: { expiresAt: "2026-07-01T00:00:00.000Z" },
       user: { id: "user-1", email: "alice@example.com", name: "Alice", role, banned: false },
     },
     isPending: false,

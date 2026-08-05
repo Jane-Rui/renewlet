@@ -14,12 +14,12 @@ import {
 import { pb } from "@/lib/pocketbase";
 import { getLocaleHeaders } from "@/i18n/api-locale";
 import {
-  getProductAuthHeader,
+  getProductCsrfHeader,
   isProductSessionFresh,
-  readProductSession,
   readProductSessionRecord,
   subscribeProductSession,
   writeProductSession,
+  type ProductSessionRecord,
 } from "@/services/product-session";
 import { passkeyService } from "@/services/passkey-service";
 import { isCloudflareRuntime } from "@/services/runtime";
@@ -52,7 +52,7 @@ const SESSION_QUERY_KEY = ["auth-session"] as const;
 const SESSION_STALE_TIME_MS = 60_000;
 const CLOUDFLARE_PASSWORD_RESET_DISABLED = "Email password reset is not enabled for this deployment.";
 
-let sessionRefreshToken: string | null = null;
+let sessionRefreshKey: string | null = null;
 let sessionRefreshPromise: Promise<SessionData | null> | null = null;
 
 const queryClientSubscriptions = new WeakMap<QueryClient, {
@@ -65,6 +65,11 @@ async function fetchAuthJson(input: RequestInfo, init?: RequestInit): Promise<un
   if (!headers.has("content-type") && init?.body) headers.set("content-type", "application/json");
   for (const [key, value] of Object.entries(getLocaleHeaders())) {
     if (!headers.has(key)) headers.set(key, value);
+  }
+  if (init?.method && !["GET", "HEAD", "OPTIONS"].includes(init.method.toUpperCase())) {
+    for (const [key, value] of Object.entries(getProductCsrfHeader())) {
+      if (!headers.has(key)) headers.set(key, value);
+    }
   }
   const response = await fetch(input, { ...init, headers, credentials: "include" });
   const payload = await response.json().catch(() => null) as unknown;
@@ -102,36 +107,40 @@ async function fetchLogin(input: RequestInfo, init?: RequestInit): Promise<Login
 }
 
 async function refreshSession(): Promise<SessionData | null> {
-  const token = readProductSession()?.session.id;
-  if (!token) return null;
-  if (sessionRefreshPromise && sessionRefreshToken === token) {
+  const record = readProductSessionRecord();
+  if (!record) return null;
+  const key = sessionRecordKey(record);
+  if (sessionRefreshPromise && sessionRefreshKey === key) {
     return sessionRefreshPromise;
   }
 
-  sessionRefreshToken = token;
+  sessionRefreshKey = key;
   sessionRefreshPromise = (async () => {
     try {
-      const session = await fetchSession("/api/app/auth/session", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (readProductSession()?.session.id === token) {
+      const session = await fetchSession("/api/app/auth/session");
+      if (sessionRecordKey(readProductSessionRecord()) === key) {
         writeProductSession(session);
       }
       return session;
     } catch {
-      if (readProductSession()?.session.id === token) {
+      if (sessionRecordKey(readProductSessionRecord()) === key) {
         writeProductSession(null);
       }
       return null;
     }
   })().finally(() => {
-    if (sessionRefreshToken === token) {
-      sessionRefreshToken = null;
+    if (sessionRefreshKey === key) {
+      sessionRefreshKey = null;
       sessionRefreshPromise = null;
     }
   });
 
   return sessionRefreshPromise;
+}
+
+function sessionRecordKey(record: ProductSessionRecord | null): string {
+  if (!record) return "";
+  return `${record.value.user.id}:${record.value.session.expiresAt}:${record.verifiedAt}`;
 }
 
 function subscribeQueryClientToSession(queryClient: QueryClient): () => void {
@@ -259,7 +268,7 @@ export const authClient = {
 
   async signOut() {
     try {
-      await fetch("/api/app/auth/logout", { method: "POST", headers: getProductAuthHeader() });
+      await fetch("/api/app/auth/logout", { method: "POST", headers: getProductCsrfHeader(), credentials: "include" });
     } finally {
       writeProductSession(null);
     }

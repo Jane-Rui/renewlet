@@ -62,9 +62,30 @@ func TestAppAuthMiddlewareThrottlesLastSeenAt(t *testing.T) {
 	}
 }
 
+func TestAppAuthMiddlewareRejectsAuthorizationBearerSession(t *testing.T) {
+	app := newSchemaTestApp(t)
+	if err := ensureSchema(app); err != nil {
+		t.Fatal(err)
+	}
+	registerRecordHooks(app)
+	user, productAuth := createRouteTestUser(t, app, "cookie-only")
+	sessionToken, _ := routeTestProductSessionParts(t, productAuth)
+
+	res := serveTestRequest(t, app, http.MethodGet, "/api/app/settings", "", "Bearer "+sessionToken)
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("expected Authorization bearer product session to be rejected, got %d: %s", res.Code, res.Body.String())
+	}
+
+	cookieRes := serveTestRequest(t, app, http.MethodGet, "/api/app/settings", "", productAuth)
+	if cookieRes.Code != http.StatusOK {
+		t.Fatalf("expected cookie product session for %s to be accepted, got %d: %s", user.Email(), cookieRes.Code, cookieRes.Body.String())
+	}
+}
+
 func reloadSessionForBearer(t *testing.T, app core.App, token string) *core.Record {
 	t.Helper()
-	_, session, err := appAuthRecordByToken(app, bearerTokenFromHeader(token))
+	sessionToken, _ := routeTestProductSessionParts(t, token)
+	_, session, err := appAuthRecordByToken(app, sessionToken)
 	if err != nil {
 		t.Fatal(err)
 	}

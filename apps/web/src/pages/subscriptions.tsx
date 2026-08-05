@@ -113,7 +113,7 @@ type SubscriptionGridProps = {
   viewMode: "grid" | "list";
   timeZone: string;
   inheritedReminderDays: number;
-  costSharingCurrencyConvert: (amount: number, fromCurrency: string, toCurrency: string) => number;
+  costSharingCurrencyConvert: (amount: number | string, fromCurrency: string, toCurrency: string) => number;
   categoryByValue: SubscriptionCardLookup;
   paymentMethodByValue: SubscriptionCardLookup;
   onEdit: (id: string) => void;

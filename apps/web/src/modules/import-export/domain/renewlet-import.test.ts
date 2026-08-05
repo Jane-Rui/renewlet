@@ -18,7 +18,7 @@ const currentExportSubscription = {
   id: "current-1",
   name: "Current Backup",
   logo: undefined,
-  price: 42,
+  price: "42",
   currency: "USD",
   billingCycle: "monthly",
   customDays: undefined,
@@ -49,7 +49,7 @@ describe("renewlet import", () => {
       {
         id: "03v2x7u3pyafogh",
         name: "Docker",
-        price: 10,
+        price: "10",
         currency: "USD",
         category: "productivity",
         status: "active",
@@ -73,7 +73,7 @@ describe("renewlet import", () => {
         subscriptions: [{
           id: "legacy-1",
           name: "Legacy Netflix",
-          price: 15.99,
+          price: "15.99",
           currency: "USD",
           billingCycle: "monthly",
           category: "streaming",

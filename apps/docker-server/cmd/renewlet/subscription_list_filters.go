@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
@@ -108,256 +109,283 @@ func parseSubscriptionListQuery(values url.Values) (subscriptionListQuery, error
 }
 
 func listSubscriptionRecordsForQuery(app core.App, userID string, query subscriptionListQuery, today string) (subscriptionListPage, error) {
+	if err := ensureSubscriptionListStateFresh(app, userID); err != nil {
+		return subscriptionListPage{}, err
+	}
 	if !query.hasFilters() {
-		return listDefaultSubscriptionRecords(app, userID, query)
+		return listProjectedDefaultSubscriptionRecords(app, userID, query)
 	}
-	total, err := countFilteredSubscriptionRecords(app, userID, query, today)
+	total, pageIDs, err := collectProjectedSubscriptionPageIDs(app, userID, query, today)
 	if err != nil {
 		return subscriptionListPage{}, err
 	}
-	rows, err := collectFilteredSubscriptionPage(app, userID, query, today)
+	rows, err := getSubscriptionRecordsByIDs(app, userID, pageIDs)
 	if err != nil {
 		return subscriptionListPage{}, err
 	}
-	pageRows := rows
 	var nextCursor *string
 	if len(rows) > query.Limit {
-		pageRows = rows[:query.Limit]
-		cursor := encodeSubscriptionCursor(pageRows[len(pageRows)-1])
+		rows = rows[:query.Limit]
+		cursor := encodeSubscriptionCursor(rows[len(rows)-1])
 		nextCursor = &cursor
 	}
-	return subscriptionListPage{Rows: pageRows, NextCursor: nextCursor, Total: total}, nil
+	return subscriptionListPage{Rows: rows, NextCursor: nextCursor, Total: total}, nil
 }
 
-func listDefaultSubscriptionRecords(app core.App, userID string, query subscriptionListQuery) (subscriptionListPage, error) {
-	filter := "user = {:user}"
-	params := dbx.Params{"user": userID}
+func listProjectedDefaultSubscriptionRecords(app core.App, userID string, query subscriptionListQuery) (subscriptionListPage, error) {
+	pageIDs, err := projectedSubscriptionPageIDs(app, userID, query)
+	if err != nil {
+		return subscriptionListPage{}, err
+	}
+	rows, err := getSubscriptionRecordsByIDs(app, userID, pageIDs)
+	if err != nil {
+		return subscriptionListPage{}, err
+	}
+	var nextCursor *string
+	if len(rows) > query.Limit {
+		rows = rows[:query.Limit]
+		cursor := encodeSubscriptionCursor(rows[len(rows)-1])
+		nextCursor = &cursor
+	}
+	stats, err := getSubscriptionStats(app, userID)
+	if err != nil {
+		return subscriptionListPage{}, err
+	}
+	return subscriptionListPage{Rows: rows, NextCursor: nextCursor, Total: int64(stats.Total)}, nil
+}
+
+func projectedSubscriptionPageIDs(app core.App, userID string, query subscriptionListQuery) ([]string, error) {
+	base := subscriptionProjectionBaseQuery(userID, query)
 	if query.Cursor != nil {
-		filter = "user = {:user} && (created < {:createdAt} || (created = {:createdAt} && id < {:id}))"
-		params["createdAt"] = query.Cursor.CreatedAt
-		params["id"] = query.Cursor.ID
+		base.conditions = append(base.conditions, "(idx.created_at < {:cursorCreatedAt} OR (idx.created_at = {:cursorCreatedAt} AND idx.subscription_id < {:cursorID}))")
+		base.params["cursorCreatedAt"] = query.Cursor.CreatedAt
+		base.params["cursorID"] = query.Cursor.ID
 	}
-	// 游标只描述分页位置，不能参与权限判断；所有查询都先按当前 user 过滤。
-	rows, err := app.FindRecordsByFilter("subscriptions", filter, "-created,-id", query.Limit+1, 0, params)
+	rows, err := runSubscriptionProjectionScan(app, base, query.Limit+1, nil)
 	if err != nil {
-		return subscriptionListPage{}, err
+		return nil, err
 	}
-	pageRows := rows
-	var nextCursor *string
-	if len(rows) > query.Limit {
-		pageRows = rows[:query.Limit]
-		cursor := encodeSubscriptionCursor(pageRows[len(pageRows)-1])
-		nextCursor = &cursor
-	}
-	total, err := app.CountRecords("subscriptions", dbx.HashExp{"user": userID})
-	if err != nil {
-		return subscriptionListPage{}, err
-	}
-	return subscriptionListPage{Rows: pageRows, NextCursor: nextCursor, Total: total}, nil
+	return subscriptionProjectionIDs(rows), nil
 }
 
-func countFilteredSubscriptionRecords(app core.App, userID string, query subscriptionListQuery, today string) (int64, error) {
-	filter, params := subscriptionListBaseFilter(userID, query, nil)
-	var total int64
-	offset := 0
+func collectProjectedSubscriptionPageIDs(app core.App, userID string, query subscriptionListQuery, today string) (int64, []string, error) {
+	base := subscriptionProjectionBaseQuery(userID, query)
+	total := int64(0)
+	pageIDs := make([]string, 0, query.Limit+1)
+	var scanCursor *subscriptionCursorPayload
+	// 业务 cursor 只影响当前页收集，不影响 total；否则筛选页 total 会随着滚动递减。
 	for {
-		rows, err := app.FindRecordsByFilter("subscriptions", filter, "-created,-id", subscriptionListScanPageSize, offset, params)
+		rows, err := runSubscriptionProjectionScan(app, base, subscriptionListScanPageSize, scanCursor)
 		if err != nil {
-			return 0, err
+			return 0, nil, err
 		}
-		for _, record := range rows {
-			if subscriptionRecordMatchesPostFilters(record, query, today) {
-				total++
+		for _, row := range rows {
+			if !subscriptionIndexRowMatchesPostFilters(row, query, today) {
+				continue
+			}
+			total++
+			if len(pageIDs) <= query.Limit && subscriptionIndexRowIsAfterCursor(row, query.Cursor) {
+				pageIDs = append(pageIDs, row.SubscriptionID)
 			}
 		}
 		if len(rows) < subscriptionListScanPageSize {
-			return total, nil
+			return total, pageIDs, nil
 		}
-		offset += subscriptionListScanPageSize
+		last := rows[len(rows)-1]
+		scanCursor = &subscriptionCursorPayload{CreatedAt: last.CreatedAt, ID: last.SubscriptionID}
 	}
 }
 
-func collectFilteredSubscriptionPage(app core.App, userID string, query subscriptionListQuery, today string) ([]*core.Record, error) {
-	filter, params := subscriptionListBaseFilter(userID, query, query.Cursor)
-	rows := make([]*core.Record, 0, query.Limit+1)
-	offset := 0
-	for len(rows) <= query.Limit {
-		candidates, err := app.FindRecordsByFilter("subscriptions", filter, "-created,-id", subscriptionListScanPageSize, offset, params)
-		if err != nil {
-			return nil, err
-		}
-		for _, record := range candidates {
-			if subscriptionRecordMatchesPostFilters(record, query, today) {
-				rows = append(rows, record)
-				if len(rows) > query.Limit {
-					return rows, nil
-				}
-			}
-		}
-		if len(candidates) < subscriptionListScanPageSize {
-			return rows, nil
-		}
-		offset += subscriptionListScanPageSize
-	}
-	return rows, nil
+type subscriptionProjectionBase struct {
+	conditions []string
+	params     dbx.Params
 }
 
-func subscriptionListBaseFilter(userID string, query subscriptionListQuery, cursor *subscriptionCursorPayload) (string, dbx.Params) {
-	// 所有可下推条件都必须挂在 owner 过滤之后；标签、搜索和有效状态留给后处理以保持 PocketBase/D1 语义一致。
-	conditions := []string{"user = {:user}"}
-	params := dbx.Params{"user": userID}
-	if cursor != nil {
-		conditions = append(conditions, "(created < {:createdAt} || (created = {:createdAt} && id < {:id}))")
-		params["createdAt"] = cursor.CreatedAt
-		params["id"] = cursor.ID
+func subscriptionProjectionBaseQuery(userID string, query subscriptionListQuery) subscriptionProjectionBase {
+	base := subscriptionProjectionBase{
+		conditions: []string{"idx.user_id = {:user}"},
+		params:     dbx.Params{"user": userID},
 	}
-	appendStringFieldConditions(&conditions, params, "category", "category", query.Categories)
-	appendStringFieldConditions(&conditions, params, "billingCycle", "billingCycle", query.BillingCycles)
-	appendStringFieldConditions(&conditions, params, "currency", "currency", query.Currencies)
-	appendPaymentMethodConditions(&conditions, params, query.PaymentMethods)
-	appendRenewalCondition(&conditions, query.Renewal)
+	appendSQLInCondition(&base, "idx.category", "category", query.Categories)
+	appendSQLInCondition(&base, "idx.billing_cycle", "billingCycle", query.BillingCycles)
+	appendSQLInCondition(&base, "idx.currency", "currency", query.Currencies)
+	appendSQLPaymentMethodCondition(&base, query.PaymentMethods)
+	appendSQLRenewalCondition(&base, query.Renewal)
+	appendSQLTagCondition(&base, query.Tags)
 	if query.NextBillingFrom != "" {
-		conditions = append(conditions, "nextBillingDate >= {:nextBillingFrom}")
-		params["nextBillingFrom"] = query.NextBillingFrom
+		base.conditions = append(base.conditions, "idx.next_billing_date >= {:nextBillingFrom}")
+		base.params["nextBillingFrom"] = query.NextBillingFrom
 	}
 	if query.NextBillingTo != "" {
-		conditions = append(conditions, "nextBillingDate <= {:nextBillingTo}")
-		params["nextBillingTo"] = query.NextBillingTo
+		base.conditions = append(base.conditions, "idx.next_billing_date <= {:nextBillingTo}")
+		base.params["nextBillingTo"] = query.NextBillingTo
 	}
 	if query.Pinned != nil {
-		conditions = append(conditions, boolFieldCondition("pinned", *query.Pinned))
+		base.conditions = append(base.conditions, "idx.pinned = {:pinned}")
+		base.params["pinned"] = boolToSQLiteInt(*query.Pinned)
 	}
 	if query.PublicHidden != nil {
-		conditions = append(conditions, boolFieldCondition("publicHidden", *query.PublicHidden))
+		base.conditions = append(base.conditions, "idx.public_hidden = {:publicHidden}")
+		base.params["publicHidden"] = boolToSQLiteInt(*query.PublicHidden)
 	}
-	appendReminderModeCondition(&conditions, query.ReminderMode)
+	appendSQLReminderModeCondition(&base, query.ReminderMode)
 	if query.RepeatReminder != nil {
-		conditions = append(conditions, boolFieldCondition("repeatReminderEnabled", *query.RepeatReminder))
+		base.conditions = append(base.conditions, "idx.repeat_reminder_enabled = {:repeatReminder}")
+		base.params["repeatReminder"] = boolToSQLiteInt(*query.RepeatReminder)
 	}
-	return strings.Join(conditions, " && "), params
+	return base
 }
 
-func appendStringFieldConditions(conditions *[]string, params dbx.Params, field string, prefix string, values []string) {
+func runSubscriptionProjectionScan(app core.App, base subscriptionProjectionBase, limit int, cursor *subscriptionCursorPayload) ([]subscriptionListIndexRow, error) {
+	conditions := append([]string{}, base.conditions...)
+	params := dbx.Params{}
+	for key, value := range base.params {
+		params[key] = value
+	}
+	if cursor != nil {
+		conditions = append(conditions, "(idx.created_at < {:scanCreatedAt} OR (idx.created_at = {:scanCreatedAt} AND idx.subscription_id < {:scanID}))")
+		params["scanCreatedAt"] = cursor.CreatedAt
+		params["scanID"] = cursor.ID
+	}
+	params["limit"] = limit
+	var rows []subscriptionListIndexRow
+	// 搜索不是公开全文检索；所有查询先按 idx.user_id 限定，再在当前 owner 的轻量投影内 contains。
+	err := app.DB().NewQuery(fmt.Sprintf(`SELECT subscription_id, user_id, name, website, notes, search_text_lower, category, billing_cycle, currency,
+		payment_method, status, pinned, public_hidden, next_billing_date, trial_end_date, one_time_term_count,
+		auto_renew, reminder_days, repeat_reminder_enabled, created_at, updated_at
+		FROM subscription_list_index AS idx
+		WHERE %s
+		ORDER BY idx.created_at DESC, idx.subscription_id DESC
+		LIMIT {:limit}`, strings.Join(conditions, " AND "))).
+		Bind(params).
+		All(&rows)
+	return rows, err
+}
+
+func appendSQLInCondition(base *subscriptionProjectionBase, column string, prefix string, values []string) {
 	if len(values) == 0 {
 		return
 	}
-	orParts := make([]string, 0, len(values))
+	placeholders := make([]string, 0, len(values))
 	for index, value := range values {
 		key := prefix + strconv.Itoa(index)
-		orParts = append(orParts, field+" = {:"+key+"}")
-		params[key] = value
+		placeholders = append(placeholders, "{:"+key+"}")
+		base.params[key] = value
 	}
-	*conditions = append(*conditions, "("+strings.Join(orParts, " || ")+")")
+	base.conditions = append(base.conditions, column+" IN ("+strings.Join(placeholders, ", ")+")")
 }
 
-func appendPaymentMethodConditions(conditions *[]string, params dbx.Params, values []string) {
+func appendSQLPaymentMethodCondition(base *subscriptionProjectionBase, values []string) {
 	if len(values) == 0 {
 		return
 	}
-	orParts := make([]string, 0, len(values))
-	for index, value := range values {
+	parts := []string{}
+	concrete := []string{}
+	for _, value := range values {
 		if value == subscriptionPaymentMethodNoneValue {
-			orParts = append(orParts, "paymentMethod = ''")
-			continue
+			parts = append(parts, "idx.payment_method = ''")
+		} else {
+			concrete = append(concrete, value)
 		}
-		key := "paymentMethod" + strconv.Itoa(index)
-		orParts = append(orParts, "paymentMethod = {:"+key+"}")
-		params[key] = value
 	}
-	*conditions = append(*conditions, "("+strings.Join(orParts, " || ")+")")
+	if len(concrete) > 0 {
+		placeholders := make([]string, 0, len(concrete))
+		for index, value := range concrete {
+			key := "paymentMethod" + strconv.Itoa(index)
+			placeholders = append(placeholders, "{:"+key+"}")
+			base.params[key] = value
+		}
+		parts = append(parts, "idx.payment_method IN ("+strings.Join(placeholders, ", ")+")")
+	}
+	base.conditions = append(base.conditions, "("+strings.Join(parts, " OR ")+")")
 }
 
-func appendRenewalCondition(conditions *[]string, renewal string) {
+func appendSQLRenewalCondition(base *subscriptionProjectionBase, renewal string) {
 	switch renewal {
 	case "auto":
-		*conditions = append(*conditions, "billingCycle != 'one-time' && autoRenew = true")
+		base.conditions = append(base.conditions, "idx.billing_cycle != 'one-time' AND idx.auto_renew = 1")
 	case "manual":
-		*conditions = append(*conditions, "billingCycle != 'one-time' && autoRenew = false")
+		base.conditions = append(base.conditions, "idx.billing_cycle != 'one-time' AND idx.auto_renew = 0")
 	case "one-time":
-		*conditions = append(*conditions, "billingCycle = 'one-time'")
+		base.conditions = append(base.conditions, "idx.billing_cycle = 'one-time'")
 	}
 }
 
-func appendReminderModeCondition(conditions *[]string, mode string) {
+func appendSQLTagCondition(base *subscriptionProjectionBase, values []string) {
+	if len(values) == 0 {
+		return
+	}
+	parts := make([]string, 0, len(values))
+	for index, tag := range values {
+		keyNorm := "tagNorm" + strconv.Itoa(index)
+		keyValue := "tag" + strconv.Itoa(index)
+		parts = append(parts, "(tag.tag_norm = {:"+keyNorm+"} AND tag.tag = {:"+keyValue+"})")
+		base.params[keyNorm] = strings.ToLower(tag)
+		base.params[keyValue] = tag
+	}
+	base.conditions = append(base.conditions, `EXISTS (
+		SELECT 1 FROM subscription_tags AS tag
+		WHERE tag.user_id = idx.user_id
+			AND tag.subscription_id = idx.subscription_id
+			AND (`+strings.Join(parts, " OR ")+`)
+	)`)
+}
+
+func appendSQLReminderModeCondition(base *subscriptionProjectionBase, mode string) {
 	switch mode {
 	case "disabled":
-		*conditions = append(*conditions, "reminderDays = -2")
+		base.conditions = append(base.conditions, "idx.reminder_days = -2")
 	case "inherit":
-		*conditions = append(*conditions, "reminderDays = -1")
+		base.conditions = append(base.conditions, "idx.reminder_days = -1")
 	case "custom":
-		*conditions = append(*conditions, "reminderDays >= 0")
+		base.conditions = append(base.conditions, "idx.reminder_days >= 0")
 	}
 }
 
-func boolFieldCondition(field string, value bool) string {
-	if value {
-		return field + " = true"
+func subscriptionProjectionIDs(rows []subscriptionListIndexRow) []string {
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.SubscriptionID)
 	}
-	return field + " = false"
+	return ids
 }
 
-func subscriptionRecordMatchesPostFilters(record *core.Record, query subscriptionListQuery, today string) bool {
-	if query.Status != "" && effectiveSubscriptionStatusFromRecord(record, today) != query.Status {
+func subscriptionIndexRowMatchesPostFilters(row subscriptionListIndexRow, query subscriptionListQuery, today string) bool {
+	if query.Status != "" && effectiveSubscriptionIndexStatus(row, today) != query.Status {
 		return false
 	}
-	tags := subscriptionRecordStringSlice(record, "tags")
-	if len(query.Tags) > 0 && !subscriptionTagsMatch(tags, query.Tags) {
-		return false
-	}
-	if query.Search != "" && !subscriptionSearchMatches(record, tags, query.Search) {
+	if query.Search != "" && !subscriptionIndexSearchMatches(row, query.Search) {
 		return false
 	}
 	return true
 }
 
-func effectiveSubscriptionStatusFromRecord(record *core.Record, today string) string {
-	status := record.GetString("status")
-	if status == "expired" {
+func effectiveSubscriptionIndexStatus(row subscriptionListIndexRow, today string) string {
+	if row.Status == "expired" {
 		return "expired"
 	}
-	if record.GetString("billingCycle") == "one-time" && record.GetInt("oneTimeTermCount") <= 0 {
-		return status
+	if row.BillingCycle == "one-time" && row.OneTimeTermCount <= 0 {
+		return row.Status
 	}
-	// 列表筛选沿用公开页的有效状态口径：老数据只在查询投影中过期，不回写用户记录。
-	if (status == "active" || status == "trial") && isValidDateOnly(record.GetString("nextBillingDate")) && record.GetString("nextBillingDate") < today {
+	if (row.Status == "active" || row.Status == "trial") && isValidDateOnly(row.NextBillingDate) && row.NextBillingDate < today {
 		return "expired"
 	}
-	return status
+	return row.Status
 }
 
-func subscriptionTagsMatch(tags []string, selected []string) bool {
-	byValue := make(map[string]struct{}, len(tags))
-	for _, tag := range tags {
-		byValue[tag] = struct{}{}
-	}
-	for _, value := range selected {
-		if _, ok := byValue[value]; ok {
-			return true
-		}
-	}
-	return false
-}
-
-func subscriptionSearchMatches(record *core.Record, tags []string, search string) bool {
+func subscriptionIndexSearchMatches(row subscriptionListIndexRow, search string) bool {
 	query := strings.ToLower(strings.TrimSpace(search))
 	if query == "" {
 		return true
 	}
-	for _, value := range []string{
-		record.GetString("name"),
-		record.GetString("website"),
-		record.GetString("notes"),
-	} {
-		if strings.Contains(strings.ToLower(value), query) {
-			return true
-		}
+	return strings.Contains(row.SearchTextLower, query)
+}
+
+func subscriptionIndexRowIsAfterCursor(row subscriptionListIndexRow, cursor *subscriptionCursorPayload) bool {
+	if cursor == nil {
+		return true
 	}
-	for _, tag := range tags {
-		if strings.Contains(strings.ToLower(tag), query) {
-			return true
-		}
-	}
-	return false
+	return row.CreatedAt < cursor.CreatedAt || (row.CreatedAt == cursor.CreatedAt && row.SubscriptionID < cursor.ID)
 }
 
 func subscriptionRecordStringSlice(record *core.Record, name string) []string {

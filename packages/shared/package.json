@@ -39,6 +39,7 @@
     "./media-resolver": "./src/media-resolver.ts",
     "./media-resolver-config": "./src/media-resolver-config.ts",
     "./media-resolver-fixtures": "./src/media-resolver-fixtures.ts",
+    "./money": "./src/money.ts",
     "./online-icon-sources": "./src/online-icon-sources.ts",
     "./email-template": "./src/email-template.ts",
     "./ics": "./src/ics.ts",

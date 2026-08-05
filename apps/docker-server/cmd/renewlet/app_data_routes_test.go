@@ -76,14 +76,14 @@ func TestSettingsUpdateCreatesDefaultsFromRequestLocale(t *testing.T) {
 	registerRecordHooks(app)
 	user, token := createRouteTestUser(t, app, "settings-update-locale")
 
-	update := serveTestRequestWithHeaders(t, app, http.MethodPut, "/api/app/settings", `{"monthlyBudget":2333}`, token, map[string]string{
+	update := serveTestRequestWithHeaders(t, app, http.MethodPut, "/api/app/settings", `{"monthlyBudget":"2333"}`, token, map[string]string{
 		"X-Renewlet-Locale": "zh-CN",
 	})
 	if update.Code != http.StatusOK {
 		t.Fatalf("expected settings update 200, got %d: %s", update.Code, update.Body.String())
 	}
 	body := decodeAPISuccessDataForTest[settingsResponse](t, update.Body.Bytes())
-	if body.Settings.Locale != string(localeZhCN) || body.Settings.MonthlyBudget != 2333 {
+	if body.Settings.Locale != string(localeZhCN) || body.Settings.MonthlyBudget != "2333" {
 		t.Fatalf("expected update to create zh-CN settings with monthly budget, got %#v", body.Settings)
 	}
 	if got := settingsRecordLocale(t, app, user.Id); got != string(localeZhCN) {
@@ -118,12 +118,12 @@ func TestSettingsProductAPIRoundTripAndStrictJSON(t *testing.T) {
 	registerRecordHooks(app)
 	_, token := createRouteTestUser(t, app, "settings-api")
 
-	update := serveTestRequest(t, app, http.MethodPut, "/api/app/settings", `{"monthlyBudget":2333,"timezone":"Asia/Shanghai"}`, token)
+	update := serveTestRequest(t, app, http.MethodPut, "/api/app/settings", `{"monthlyBudget":"2333","timezone":"Asia/Shanghai"}`, token)
 	if update.Code != http.StatusOK {
 		t.Fatalf("expected settings update 200, got %d: %s", update.Code, update.Body.String())
 	}
 	updateBody := decodeAPISuccessDataForTest[settingsResponse](t, update.Body.Bytes())
-	if updateBody.Settings.MonthlyBudget != 2333 || updateBody.Settings.Timezone != "Asia/Shanghai" {
+	if updateBody.Settings.MonthlyBudget != "2333" || updateBody.Settings.Timezone != "Asia/Shanghai" {
 		t.Fatalf("unexpected settings response: %#v", updateBody.Settings)
 	}
 
@@ -132,7 +132,7 @@ func TestSettingsProductAPIRoundTripAndStrictJSON(t *testing.T) {
 		t.Fatalf("expected settings read 200, got %d: %s", read.Code, read.Body.String())
 	}
 	readBody := decodeAPISuccessDataForTest[settingsResponse](t, read.Body.Bytes())
-	if readBody.Settings.MonthlyBudget != 2333 || readBody.Settings.Timezone != "Asia/Shanghai" {
+	if readBody.Settings.MonthlyBudget != "2333" || readBody.Settings.Timezone != "Asia/Shanghai" {
 		t.Fatalf("expected persisted settings, got %#v", readBody.Settings)
 	}
 
@@ -211,12 +211,12 @@ func TestSubscriptionsProductAPIUsesOwnerScopedCRUD(t *testing.T) {
 		t.Fatalf("expected foreign delete 404, got %d: %s", foreignDelete.Code, foreignDelete.Body.String())
 	}
 
-	patch := serveTestRequest(t, app, http.MethodPatch, "/api/app/subscriptions/"+id, `{"name":"Renamed API","price":20}`, token)
+	patch := serveTestRequest(t, app, http.MethodPatch, "/api/app/subscriptions/"+id, `{"name":"Renamed API","price":"20"}`, token)
 	if patch.Code != http.StatusOK {
 		t.Fatalf("expected subscription patch 200, got %d: %s", patch.Code, patch.Body.String())
 	}
 	patched := decodeAPISuccessDataForTest[subscriptionResponse](t, patch.Body.Bytes())
-	if patched.Subscription["name"] != "Renamed API" || patched.Subscription["price"] != float64(20) {
+	if patched.Subscription["name"] != "Renamed API" || patched.Subscription["price"] != "20" {
 		t.Fatalf("unexpected patched subscription: %#v", patched.Subscription)
 	}
 
@@ -758,7 +758,7 @@ func subscriptionCreateBody(name string) string {
 	body := map[string]interface{}{
 		"name":                         name,
 		"logo":                         nil,
-		"price":                        12,
+		"price":                        "12",
 		"currency":                     "USD",
 		"billingCycle":                 "monthly",
 		"customDays":                   nil,

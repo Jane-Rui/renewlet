@@ -173,7 +173,7 @@ func TestNormalizeSubscriptionRecordDefaultsAndValidatesContract(t *testing.T) {
 	collection := core.NewBaseCollection("subscriptions")
 	record := core.NewRecord(collection)
 	record.Set("name", " Netflix ")
-	record.Set("price", 10)
+	record.Set("price", "10")
 	record.Set("currency", "usd")
 	record.Set("billingCycle", "monthly")
 	record.Set("customDays", 30)
@@ -285,22 +285,27 @@ func TestNormalizeSubscriptionRecordDefaultsAndValidatesContract(t *testing.T) {
 	}
 
 	record.Set("billingCycle", "monthly")
-	record.Set("price", 0)
+	record.Set("price", "0")
 	if err := normalizeSubscriptionRecord(record); err != nil {
 		t.Fatalf("expected zero price to be accepted: %v", err)
 	}
 
-	record.Set("price", -1)
+	record.Set("price", 0.1)
+	if err := normalizeSubscriptionRecord(record); err == nil {
+		t.Fatal("expected numeric price write to fail after decimal string migration")
+	}
+
+	record.Set("price", "-1")
 	if err := normalizeSubscriptionRecord(record); err == nil {
 		t.Fatal("expected negative price to fail")
 	}
 
-	record.Set("price", float64(maxSubscriptionPrice)+1)
+	record.Set("price", fmt.Sprintf("%d.000001", maxSubscriptionPrice))
 	if err := normalizeSubscriptionRecord(record); err == nil {
 		t.Fatal("expected too-high price to fail")
 	}
 
-	record.Set("price", 10)
+	record.Set("price", "10")
 	record.Set("reminderDays", disabledReminderDays)
 	if err := normalizeSubscriptionRecord(record); err != nil {
 		t.Fatalf("expected disabled reminder days to be accepted: %v", err)
@@ -321,7 +326,7 @@ func TestNormalizeSubscriptionRecordDefaultsAndValidatesContract(t *testing.T) {
 
 func TestNormalizeSubscriptionRecordValidatesCostSharing(t *testing.T) {
 	collection := core.NewBaseCollection("subscriptions")
-	base := func(price float64, costSharing string) *core.Record {
+	base := func(price string, costSharing string) *core.Record {
 		record := core.NewRecord(collection)
 		record.Set("name", "Family Plan")
 		record.Set("price", price)
@@ -336,12 +341,12 @@ func TestNormalizeSubscriptionRecordValidatesCostSharing(t *testing.T) {
 		return record
 	}
 
-	valid := base(100, `{
+	valid := base("100", `{
 		"enabled": true,
 		"splitMode": "custom",
 		"members": [
-			{"id": "partner", "name": "Partner", "currency": "USD", "customAmount": 40},
-			{"id": "child", "name": "Child", "currency": "USD", "customAmount": 60}
+			{"id": "partner", "name": "Partner", "currency": "USD", "customAmount": "40"},
+			{"id": "child", "name": "Child", "currency": "USD", "customAmount": "60"}
 		]
 	}`)
 	if err := normalizeSubscriptionRecord(valid); err != nil {
@@ -355,29 +360,29 @@ func TestNormalizeSubscriptionRecordValidatesCostSharing(t *testing.T) {
 	if err := json.Unmarshal(data, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.SplitMode != "custom" || len(payload.Members) != 2 || payload.Members[0].CustomAmount == nil || *payload.Members[0].CustomAmount != 40 {
+	if payload.SplitMode != "custom" || len(payload.Members) != 2 || payload.Members[0].CustomAmount == nil || *payload.Members[0].CustomAmount != "40" {
 		t.Fatalf("unexpected normalized cost sharing payload: %#v", payload)
 	}
 
-	flexibleTotal := base(100, `{
+	flexibleTotal := base("100", `{
 		"enabled": true,
 		"splitMode": "custom",
 		"members": [
-			{"id": "partner", "name": "Partner", "currency": "USD", "customAmount": 40},
-			{"id": "child", "name": "Child", "currency": "USD", "customAmount": 50}
+			{"id": "partner", "name": "Partner", "currency": "USD", "customAmount": "40"},
+			{"id": "child", "name": "Child", "currency": "USD", "customAmount": "50"}
 		]
 	}`)
 	if err := normalizeSubscriptionRecord(flexibleTotal); err != nil {
 		t.Fatalf("expected flexible custom total to be accepted: %v", err)
 	}
 
-	legacyIdentityFields := base(100, `{
+	legacyIdentityFields := base("100", `{
 		"enabled": true,
 		"payerMemberId": "me",
 		"selfMemberId": "me",
 		"splitMode": "custom",
 		"members": [
-			{"id": "partner", "name": "Partner", "currency": "USD", "included": true, "customAmount": 40}
+			{"id": "partner", "name": "Partner", "currency": "USD", "included": true, "customAmount": "40"}
 		]
 	}`)
 	if err := normalizeSubscriptionRecord(legacyIdentityFields); err == nil || !strings.Contains(err.Error(), "COST_SHARING_JSON_INVALID") {
@@ -390,7 +395,7 @@ func TestNormalizeSubscriptionRecordValidatesDateOrder(t *testing.T) {
 	base := func(startDate, nextBillingDate string) *core.Record {
 		record := core.NewRecord(collection)
 		record.Set("name", "Date Order")
-		record.Set("price", 10)
+		record.Set("price", "10")
 		record.Set("currency", "USD")
 		record.Set("billingCycle", "monthly")
 		record.Set("customDays", 0)
@@ -427,7 +432,7 @@ func TestNormalizeSubscriptionRecordValidatesLogoReferences(t *testing.T) {
 	base := func(logo string) *core.Record {
 		record := core.NewRecord(collection)
 		record.Set("name", "Logo Test")
-		record.Set("price", 10)
+		record.Set("price", "10")
 		record.Set("currency", "USD")
 		record.Set("billingCycle", "monthly")
 		record.Set("customDays", 0)
@@ -597,7 +602,7 @@ func newSubscriptionRecord(t *testing.T, app core.App, userID string, tags inter
 		"user":                         userID,
 		"name":                         name,
 		"logo":                         "https://aws.amazon.com/favicon.ico",
-		"price":                        15,
+		"price":                        "15",
 		"currency":                     "USD",
 		"billingCycle":                 "monthly",
 		"customDays":                   0,

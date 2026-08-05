@@ -6,6 +6,7 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { DEFAULT_CUSTOM_CONFIG, type CustomConfig } from "@/types/config";
+import { canonicalizeMoneyString } from "@renewlet/shared/money";
 import type {
   ExchangeRateCoverageWarning,
   ExchangeRates,
@@ -71,9 +72,9 @@ export function StatefulEmailNotificationPanel({ initialPort = "" }: { initialPo
   );
 }
 
-export function useStatefulMonthlyBudgetController(initialBudget = 10000) {
+export function useStatefulMonthlyBudgetController(initialBudget = "10000") {
   const [monthlyBudgetInput, setMonthlyBudgetInput] = useState(String(initialBudget));
-  const [monthlyBudget, setMonthlyBudget] = useState(initialBudget);
+  const [monthlyBudget, setMonthlyBudget] = useState(String(initialBudget));
   const [monthlyBudgetError, setMonthlyBudgetError] = useState<string | null>(null);
 
   return {
@@ -89,8 +90,8 @@ export function useStatefulMonthlyBudgetController(initialBudget = 10000) {
         setMonthlyBudgetError("预算金额无效");
         return;
       }
-      const parsed = Number(value);
-      if (!Number.isFinite(parsed) || parsed < 0) {
+      const parsed = canonicalizeMoneyString(value);
+      if (parsed === null) {
         setMonthlyBudgetError("预算金额无效");
         return;
       }

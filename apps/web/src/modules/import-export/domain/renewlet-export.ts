@@ -6,7 +6,6 @@ import {
   type RenewletExportMissingAssetReason,
   type RenewletExportMissingAssetReference,
 } from "@/lib/api/schemas/import-export";
-import { getAuthHeader } from "@/lib/pocketbase";
 import { MAX_IMAGE_BYTES } from "@/lib/upload-constraints";
 import { downloadFile } from "@/shared/browser/download-file";
 import type { CustomConfig } from "@/types/config";
@@ -33,6 +32,7 @@ export async function exportRenewletBackup(options: {
   const zip = new JSZip();
   const assets: RenewletExportAsset[] = [];
   const missingAssets: RenewletExportMissingAsset[] = [];
+  // 同一私有资产可能被多个订阅/logo 或支付方式 icon 引用；读取和 ZIP 写入都按 assetId 去重。
   const assetReads = new Map<string, Promise<PrivateAssetReadResult>>();
   const assetMetadataById = new Map<string, RenewletExportAsset>();
   async function resolveAsset(reference: PrivateAssetReference): Promise<string | null> {
@@ -66,6 +66,7 @@ export async function exportRenewletBackup(options: {
       if (path) {
         row.logo = path;
       } else {
+        // data.json 是恢复事实源；跨账号不可读的私有代理路径只能进 manifest 审计，不能留给导入写库。
         delete row.logo;
       }
     }
@@ -83,6 +84,7 @@ export async function exportRenewletBackup(options: {
         referenceId: paymentMethod.id,
       });
       if (path) return { ...paymentMethod, icon: path };
+      // 支付方式 icon 与订阅 logo 同属私有资产引用，失败时同样从恢复事实源移除。
       const { icon: _icon, ...rest } = paymentMethod;
       return rest;
     })),
@@ -138,9 +140,8 @@ async function readPrivateAssetForExport(url: string, cache: Map<string, Promise
 
 async function fetchPrivateAsset(url: string): Promise<PrivateAssetReadResult> {
   try {
-    // 导出私有资产必须复用当前认证头；裸 fetch 在 Cloudflare/PocketBase 两端都会丢登录态边界。
+    // 私有资产读取只信同源 HttpOnly cookie session；导出链路不能重新引入浏览器可见 bearer。
     const response = await fetch(url, {
-      headers: getAuthHeader(),
       credentials: "include",
     });
     if (!response.ok) return { ok: false, reason: response.status === 404 ? "not_found" : "read_failed" };

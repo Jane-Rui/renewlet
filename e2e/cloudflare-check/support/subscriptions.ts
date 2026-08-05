@@ -111,37 +111,25 @@ export async function cleanupTemporarySubscriptions(page: Page, prefix: string) 
 
   // 清理走线上 API 而不是 UI：失败/超时后页面可能已处在半关闭状态，但 e2e-prod 数据不能污染测试账号。
   const result = await page.evaluate<{ deletedNames: string[]; skippedReason?: string }, string>(async (temporaryPrefix) => {
-    const raw = localStorage.getItem("renewlet_cloudflare_session");
-    if (!raw) return { deletedNames: [], skippedReason: "missing-session" };
+    const csrfToken = document.cookie
+      .split(";")
+      .map((part) => part.trim())
+      .find((part) => part.startsWith("renewlet_csrf="))
+      ?.slice("renewlet_csrf=".length);
+    if (!csrfToken) return { deletedNames: [], skippedReason: "missing-csrf" };
 
-    let token: string | null = null;
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        const record = parsed as Record<string, unknown>;
-        const value = record["value"];
-        if (value && typeof value === "object" && !Array.isArray(value)) {
-          const session = (value as Record<string, unknown>)["session"];
-          if (session && typeof session === "object" && !Array.isArray(session)) {
-            const id = (session as Record<string, unknown>)["id"];
-            token = typeof id === "string" ? id : null;
-          }
-        }
-      }
-    } catch {
-      return { deletedNames: [], skippedReason: "invalid-session" };
-    }
-    if (!token) return { deletedNames: [], skippedReason: "missing-token" };
-
-    // 清理请求显式使用当前浏览器 session token，验证 Worker 的 Bearer auth 和 D1 owner 过滤仍然生效。
-    const headers = { Authorization: `Bearer ${token}`, "content-type": "application/json" };
-    const listResponse = await fetch("/api/app/subscriptions", { headers });
+    // 产品 API 不再接受浏览器 Bearer；巡检显式使用 cookie+CSRF，覆盖 Worker 的 session/owner 隔离。
+    const unsafeHeaders = { "X-Renewlet-CSRF": decodeURIComponent(csrfToken), "content-type": "application/json" };
+    const listResponse = await fetch("/api/app/subscriptions", { credentials: "include" });
     if (!listResponse.ok) {
       return { deletedNames: [], skippedReason: `list-${listResponse.status}` };
     }
     const payload = await listResponse.json().catch(() => null) as unknown;
-    const rows = payload && typeof payload === "object" && !Array.isArray(payload)
-      ? (payload as Record<string, unknown>)["subscriptions"]
+    const data = payload && typeof payload === "object" && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>)["data"]
+      : null;
+    const rows = data && typeof data === "object" && !Array.isArray(data)
+      ? (data as Record<string, unknown>)["subscriptions"]
       : null;
     const subscriptions = Array.isArray(rows) ? rows : [];
     const deletedNames: string[] = [];
@@ -154,7 +142,8 @@ export async function cleanupTemporarySubscriptions(page: Page, prefix: string) 
       if (typeof id !== "string" || typeof name !== "string" || !name.startsWith(temporaryPrefix)) continue;
       const deleteResponse = await fetch(`/api/app/subscriptions/${encodeURIComponent(id)}`, {
         method: "DELETE",
-        headers,
+        credentials: "include",
+        headers: unsafeHeaders,
       });
       if (!deleteResponse.ok) {
         return { deletedNames, skippedReason: `delete-${deleteResponse.status}-${name}` };
@@ -266,36 +255,17 @@ function getStringArray(value: unknown): string[] {
 
 async function expectSubscriptionTagsFromApi(page: Page, subscriptionName: string, expectedTags: string[]) {
   const result = await page.evaluate<{ tags?: string[]; error?: string }, string>(async (name) => {
-    const raw = localStorage.getItem("renewlet_cloudflare_session");
-    if (!raw) return { error: "missing-session" };
-
-    let token: string | null = null;
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        const record = parsed as Record<string, unknown>;
-        const value = record["value"];
-        if (value && typeof value === "object" && !Array.isArray(value)) {
-          const session = (value as Record<string, unknown>)["session"];
-          if (session && typeof session === "object" && !Array.isArray(session)) {
-            const id = (session as Record<string, unknown>)["id"];
-            token = typeof id === "string" ? id : null;
-          }
-        }
-      }
-    } catch {
-      return { error: "invalid-session" };
-    }
-    if (!token) return { error: "missing-token" };
-
     const response = await fetch("/api/app/subscriptions", {
-      headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+      credentials: "include",
     });
     if (!response.ok) return { error: `list-${response.status}` };
 
     const payload = await response.json().catch(() => null) as unknown;
-    const rows = payload && typeof payload === "object" && !Array.isArray(payload)
-      ? (payload as Record<string, unknown>)["subscriptions"]
+    const data = payload && typeof payload === "object" && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>)["data"]
+      : null;
+    const rows = data && typeof data === "object" && !Array.isArray(data)
+      ? (data as Record<string, unknown>)["subscriptions"]
       : null;
     const subscriptions = Array.isArray(rows) ? rows : [];
     const target = subscriptions.find((row) =>

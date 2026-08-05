@@ -113,7 +113,15 @@ class TelegramBotTestStatement {
       const id = String(this.values[0]);
       return this.state.bindings.find((row) => row.id === id) as T | undefined ?? null;
     }
-    if (this.sql.includes("SELECT COUNT(*) AS count FROM subscriptions")) {
+    if (this.sql.includes("SELECT COUNT(*) AS count") && this.sql.includes("FROM subscriptions")) {
+      const userId = String(this.values[0]);
+      const rows = this.state.subscriptions.filter((row) => row.user_id === userId);
+      return {
+        count: rows.length,
+        source_updated_at: rows.reduce((max, row) => row.updated_at > max ? row.updated_at : max, ""),
+      } as T;
+    }
+    if (this.sql.includes("COUNT(*) AS count FROM subscription_list_index")) {
       const userId = String(this.values[0]);
       return { count: this.state.subscriptions.filter((row) => row.user_id === userId).length } as T;
     }
@@ -128,6 +136,7 @@ class TelegramBotTestStatement {
         user_id: userId,
         total_count: rows.length,
         status_counts_json: JSON.stringify(statusCounts),
+        source_updated_at: rows.reduce((max, row) => row.updated_at > max ? row.updated_at : max, ""),
         created_at: "2026-06-05T00:00:00.000Z",
         updated_at: "2026-06-05T00:00:00.000Z",
       } as T;
@@ -240,7 +249,6 @@ class TelegramBotTestStatement {
 describe("Cloudflare Telegram Bot commands", () => {
   beforeEach(() => {
     authMocks.requireAuth.mockReset().mockResolvedValue({
-      token: "session-token",
       user: { id: USER_ID },
       session: { id: "ses" },
     });
@@ -382,12 +390,15 @@ describe("Cloudflare Telegram Bot commands", () => {
 type AuthorizedRequestInit = Omit<RequestInit, "headers"> & { headers?: Record<string, string>; url?: string };
 
 function authorizedRequest(path: string, init: AuthorizedRequestInit = {}): Request {
+  const method = init.method ?? "GET";
+  const unsafe = !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
   const requestInit: RequestInit = {
-    method: init.method ?? "GET",
+    method,
     headers: {
-      authorization: "Bearer session-token",
+      cookie: "renewlet_session=session-token; renewlet_csrf=csrf-token",
       "content-type": "application/json",
       "x-renewlet-locale": "en-US",
+      ...(unsafe ? { origin: "https://renewlet.test", "x-renewlet-csrf": "csrf-token" } : {}),
       ...init.headers,
     },
   };
@@ -433,7 +444,7 @@ function subscriptionRow(overrides: Partial<SubscriptionRow> = {}): Subscription
     user_id: USER_ID,
     name: "Telegram Plan",
     logo: null,
-    price: 12,
+    price: "12",
     currency: "USD",
     billing_cycle: "monthly",
     custom_days: null,

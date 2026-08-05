@@ -95,7 +95,6 @@ describe("Cloudflare notification test endpoint upstream details", () => {
     authMocks.requireAuth.mockResolvedValue({
       user: { id: "usr_due", role: "admin" },
       session: { id: "ses" },
-      token: "test",
     });
   });
 

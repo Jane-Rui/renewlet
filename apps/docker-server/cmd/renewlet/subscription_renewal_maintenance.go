@@ -61,29 +61,22 @@ func registerSubscriptionRenewalCron(app core.App) error {
 
 func renewAutoSubscriptionsForAllUsers(app core.App, now time.Time) (subscriptionRenewalMaintenanceResult, error) {
 	result := subscriptionRenewalMaintenanceResult{}
-	for offset := 0; ; offset += subscriptionRenewalMaintenancePageSize {
-		users, err := app.FindRecordsByFilter("users", "banned = false", "created", subscriptionRenewalMaintenancePageSize, offset)
+	for {
+		userIDs, err := listAutoRenewDueUserIDs(app, now, subscriptionRenewalMaintenancePageSize)
 		if err != nil {
 			return result, err
 		}
-		for _, user := range users {
-			if demoModePolicy.IsUserRecord(user) {
-				// demo 数据靠固定 reset 周期回到基线；自动续订会让访客看到的日期随后台 tick 漂移。
-				continue
-			}
-			settings, err := currentUserSettings(app, user, nil)
-			if err != nil {
-				// settings 损坏不能让该用户永久跳过自动续订；回落默认时区后仍按持久层校验保存。
-				settings = defaultAppSettings()
-			}
-			updated, err := renewAutoSubscriptionsForUser(app, user.Id, settings.Timezone, now)
+		// due-index 只决定本轮候选用户；真正是否已处理今天仍由单用户 state gate 决定。
+		for _, userID := range userIDs {
+			settings := schedulerSettingsForUser(app, userID)
+			updated, err := renewAutoSubscriptionsForUser(app, userID, settings.Timezone, now)
 			if err != nil {
 				return result, err
 			}
 			result.UsersProcessed++
 			result.SubscriptionsUpdated += updated
 		}
-		if len(users) < subscriptionRenewalMaintenancePageSize {
+		if len(userIDs) < subscriptionRenewalMaintenancePageSize {
 			return result, nil
 		}
 	}
@@ -106,6 +99,9 @@ func renewAutoSubscriptionsForUser(app core.App, userID string, timezone string,
 	}
 	today := todayDateOnly(now, timezone)
 	if state.LastAutoRenewLocalDate == today {
+		if _, err := refreshSubscriptionSchedulerStateWithOptions(app, userID, subscriptionSchedulerRefreshOptions{Now: now}); err != nil {
+			return 0, err
+		}
 		return 0, nil
 	}
 	updated := 0
@@ -142,6 +138,11 @@ func renewAutoSubscriptionsForUser(app core.App, userID string, timezone string,
 		if pageUpdated == 0 || len(rows) < subscriptionRenewalMaintenancePageSize {
 			if err := markSubscriptionAutoRenewChecked(app, userID, today); err != nil {
 				return updated, err
+			}
+			if updated > 0 {
+				if err := refreshSubscriptionListState(app, userID); err != nil {
+					return updated, err
+				}
 			}
 			return updated, nil
 		}

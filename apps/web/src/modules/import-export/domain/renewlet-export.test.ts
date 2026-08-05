@@ -8,21 +8,15 @@ import { exportRenewletBackup } from "./renewlet-export";
 
 const exportMocks = vi.hoisted(() => ({
   downloadFile: vi.fn(),
-  getAuthHeader: vi.fn(),
 }));
 
 vi.mock("@/shared/browser/download-file", () => ({
   downloadFile: exportMocks.downloadFile,
 }));
 
-vi.mock("@/lib/pocketbase", () => ({
-  getAuthHeader: exportMocks.getAuthHeader,
-}));
-
 describe("exportRenewletBackup", () => {
   beforeEach(() => {
     exportMocks.downloadFile.mockReset();
-    exportMocks.getAuthHeader.mockReset().mockReturnValue({ authorization: "Bearer session" });
   });
 
   afterEach(() => {
@@ -30,7 +24,8 @@ describe("exportRenewletBackup", () => {
   });
 
   it("removes missing private subscription logos from data.json and audits them in manifest.json", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 404 })));
+    const fetchPrivateAsset = vi.fn(async () => new Response("", { status: 404 }));
+    vi.stubGlobal("fetch", fetchPrivateAsset);
 
     await exportRenewletBackup({
       subscriptions: [subscriptionFixture({ id: "sub_1", logo: "/api/app/assets/asset_missing" })],
@@ -41,6 +36,7 @@ describe("exportRenewletBackup", () => {
     const { data, manifest } = await readDownloadedRenewletZip();
 
     expect(data.data.subscriptions[0]).not.toHaveProperty("logo");
+    expect(fetchPrivateAsset).toHaveBeenCalledWith("/api/app/assets/asset_missing", { credentials: "include" });
     expect(manifest.missingAssets).toEqual([{
       assetId: "asset_missing",
       path: "/api/app/assets/asset_missing",
@@ -99,7 +95,7 @@ function subscriptionFixture(overrides: Partial<RecurringCycleSubscription> = {}
     id: "sub_1",
     name: "GitHub",
     logo: undefined,
-    price: 4,
+    price: "4",
     currency: "USD",
     billingCycle: "monthly",
     customDays: undefined,

@@ -10,7 +10,10 @@ const mocks = vi.hoisted(() => ({
     themeVariant: "emerald",
     themeCustomColor: { h: 160, s: 84, l: 39 },
   },
-  sessionData: { session: { id: "session-1" } },
+  sessionData: {
+    session: { expiresAt: "2026-07-01T00:00:00.000Z" },
+    user: { id: "user-1", email: "alice@example.com", name: "Alice", role: "admin", banned: false },
+  },
   setTheme: vi.fn(),
   applyThemeVariant: vi.fn(),
 }));

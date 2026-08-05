@@ -74,7 +74,7 @@ function subscription(overrides: SubscriptionOverrides = {}): Subscription {
     id: "sub",
     name: "Service",
     logo: undefined,
-    price: 20,
+    price: "20",
     currency: "CNY",
     category: "productivity",
     status: "active",

@@ -50,6 +50,12 @@ async function runScheduled(): Promise<void> {
   }, envFixture(), {} as ExecutionContext);
 }
 
+async function fetchWorker(request: Request): Promise<Response> {
+  if (!worker.fetch) throw new Error("Expected fetch handler");
+  // Wrangler handler 的 Request 类型带 cf 元数据；单元测试只需要普通 Request 覆盖路由分派。
+  return await worker.fetch(request as Parameters<NonNullable<typeof worker.fetch>>[0], envFixture(), {} as ExecutionContext);
+}
+
 describe("Cloudflare worker scheduled entrypoint", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -108,5 +114,33 @@ describe("Cloudflare worker scheduled entrypoint", () => {
       phase: "notifications",
       error: { name: "Error", message: "notify failed [redacted]" },
     }));
+  });
+});
+
+describe("Cloudflare app CSRF origin middleware", () => {
+  it("rejects unsafe /api/app requests without Origin or Referer", async () => {
+    const response = await fetchWorker(new Request("https://renewlet.example/api/app/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    }));
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "CSRF_ORIGIN_REQUIRED" },
+    });
+  });
+
+  it("rejects unsafe /api/app requests from a different origin before handlers run", async () => {
+    const response = await fetchWorker(new Request("https://renewlet.example/api/app/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://evil.example" },
+      body: "{}",
+    }));
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "CSRF_ORIGIN_MISMATCH" },
+    });
   });
 });

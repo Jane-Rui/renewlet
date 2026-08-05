@@ -158,7 +158,7 @@ describe("Cloudflare AI recognition", () => {
     vi.mocked(createGoogleGenerativeAI).mockClear();
     vi.mocked(createAnthropic).mockClear();
     vi.mocked(createOpenAICompatible).mockClear();
-    authMocks.requireAuth.mockResolvedValue({ user: authUser, session: { id: "ses" }, token: "test" });
+    authMocks.requireAuth.mockResolvedValue({ user: authUser, session: { id: "ses" } });
     dbMocks.getSettings.mockResolvedValue({
       aiRecognition: {
         providerType: "openai",
@@ -246,7 +246,7 @@ describe("Cloudflare AI recognition", () => {
     expect(body.model).toBe("gpt-5.1");
     expect(body.subscriptions[0]).toMatchObject({
       name: "dmit",
-      price: 15,
+      price: "15",
       currency: "CNY",
       billingCycle: "monthly",
       category: "hosting_domains",

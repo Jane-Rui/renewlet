@@ -25,7 +25,7 @@ type RecurringSubscriptionDraft = Omit<RecurringCycleSubscription, "id">;
 type SubscriptionWritePayload = {
   name: string;
   logo: string | null;
-  price: number;
+  price: string;
   currency: string;
   billingCycle: Subscription["billingCycle"];
   customDays: number | null;
@@ -67,7 +67,6 @@ vi.mock("@/lib/pocketbase", () => ({
     beforeSend: undefined,
   },
   getCurrentUserId: mocks.getCurrentUserId,
-  getAuthHeader: vi.fn(() => ({})),
 }));
 
 function createWrapper() {
@@ -152,7 +151,7 @@ function subscriptionDraft(overrides: Partial<RecurringSubscriptionDraft> = {}):
   return {
     name: "Aws",
     logo: "https://aws.amazon.com/favicon.ico",
-    price: 15,
+    price: "15",
     currency: "USD",
     billingCycle: "monthly",
     customDays: undefined,

@@ -20,7 +20,6 @@ vi.mock("@/lib/pocketbase", () => ({
     beforeSend: undefined,
   },
   getCurrentUserId: mocks.getCurrentUserId,
-  getAuthHeader: vi.fn(() => ({})),
 }));
 
 beforeEach(() => {
@@ -34,7 +33,7 @@ describe("product API services", () => {
     mocks.apiFetch.mockResolvedValue({ settings: DEFAULT_SETTINGS });
 
     await settingsService.get();
-    await settingsService.update(DEFAULT_SETTINGS, { monthlyBudget: 2000 });
+    await settingsService.update(DEFAULT_SETTINGS, { monthlyBudget: "2000" });
 
     expect(mocks.apiFetch.mock.calls[0]?.[0]).toBe("/api/app/settings");
     expect(mocks.apiFetch.mock.calls[1]?.[0]).toBe("/api/app/settings");

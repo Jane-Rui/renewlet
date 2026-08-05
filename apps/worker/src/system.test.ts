@@ -11,16 +11,16 @@ const authMocks = vi.hoisted(() => ({
 
 vi.mock("./auth", () => ({
   requireAuth: vi.fn(async () => ({
-    token: "session-token",
     user: { id: "usr_current", email: "current@example.com", name: "Current", role: authMocks.role, banned: 0 },
+    session: { id: "ses_current" },
   })),
   requireAdmin: vi.fn(async () => {
     if (authMocks.role !== "admin") {
       throw Object.assign(new Error("Administrator permission required"), { status: 403 });
     }
     return {
-      token: "session-token",
       user: { id: "usr_admin", email: "admin@example.com", name: "Admin", role: "admin", banned: 0 },
+      session: { id: "ses_admin" },
     };
   }),
 }));

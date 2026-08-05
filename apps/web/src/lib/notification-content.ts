@@ -23,6 +23,7 @@ import { daysBetweenDateOnly, isValidDateOnly, todayDateOnlyInTimeZone, type Dat
 import { isValidTimeZone } from "@/lib/time/time-zone";
 import { DEFAULT_LOCALE, normalizeLocale, type Locale } from "@/i18n/locales";
 import { translateStaticMessage, type MessageKey, type MessageParams } from "@/i18n/static-catalogs";
+import { moneyToNumber } from "@renewlet/shared/money";
 
 /**
  * 生成通知内容（不负责发送）。
@@ -37,7 +38,7 @@ import { translateStaticMessage, type MessageKey, type MessageParams } from "@/i
 export interface SubscriptionForNotification {
   id: string;
   name: string;
-  price: number;
+  price: string;
   currency: string;
   status: SubscriptionStatus;
   billingCycle?: BillingCycle;
@@ -58,7 +59,7 @@ export interface NotificationContentItem {
   type: NotificationItemType;
   subscriptionId: string;
   name: string;
-  price: number;
+  price: string;
   currency: string;
   status: SubscriptionStatus;
   targetDate: string;
@@ -125,9 +126,10 @@ export function formatNotificationDisplayTime(now: Date, timeZone: string, local
   return `${year}-${month}-${day} ${hour}:${minute}:${second} ${displayTimeZone}`;
 }
 
-function formatAmount(amount: number): string {
-  if (!Number.isFinite(amount)) return String(amount);
-  const fixed = amount.toFixed(2);
+function formatAmount(amount: string | number): string {
+  const numericAmount = moneyToNumber(amount);
+  if (!Number.isFinite(numericAmount)) return String(amount);
+  const fixed = numericAmount.toFixed(2);
   return fixed.replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
 }
 

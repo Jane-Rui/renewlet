@@ -49,7 +49,7 @@ import type { CalendarFeedStatus } from "@/lib/api/schemas/calendar-feed";
 import { DEFAULT_SETTINGS, type AppSettings, type NotificationChannel, type Subscription } from "@/types/subscription";
 import { normalizePaymentMethods, type ConfigItem, type CustomConfig } from "@/types/config";
 import type { CustomThemeColor, ThemeMode, ThemeVariant } from "@/types/theme";
-import { parseNonNegativeFiniteNumberInput } from "@/lib/subscription-form";
+import { parseMoneyInput } from "@/lib/subscription-form";
 import { normalizeCustomConfig } from "@/modules/custom-config/domain/normalize-custom-config";
 import { isCloudflareRuntime } from "@/services/runtime";
 import { countSubscriptionsByCategory } from "../domain/category-usage";
@@ -327,7 +327,7 @@ export function useSettingsFormController(): SettingsFormController {
         return;
       }
 
-      const parsed = parseNonNegativeFiniteNumberInput(rawValue);
+      const parsed = parseMoneyInput(rawValue);
       if (parsed === null) {
         setMonthlyBudgetError(t("settings.budgetInvalid"));
         return;

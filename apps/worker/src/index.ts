@@ -88,7 +88,7 @@ import {
   telegramWebhook,
 } from "./telegram-bot";
 import { systemRestart, systemUpdate, systemVersion } from "./system";
-import { errorResponse, methodNotAllowed, requestLocale, successJson, toResponse, type AppLocale } from "./http";
+import { errorResponse, methodNotAllowed, requestLocale, requireSameOriginUnsafe, successJson, toResponse, type AppLocale } from "./http";
 import { serverText } from "./server-i18n";
 import type { Env } from "./types";
 
@@ -115,6 +115,10 @@ const app = newAppRouter();
 app.use("*", async (context, next) => {
   // locale 必须在全局 middleware 设置，404/405/onError 这类未进入业务 handler 的响应也依赖它。
   context.set("locale", requestLocale(context.req.raw));
+  // CSRF 的同源检查只约束浏览器产品 API；Public API、Telegram、ICS 和 Cron 都有自己的 bearer/secret 边界。
+  if (context.req.path.startsWith("/api/app/")) {
+    requireSameOriginUnsafe(context.req.raw, context.get("locale"));
+  }
   await next();
 });
 

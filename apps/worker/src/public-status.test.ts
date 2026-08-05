@@ -207,7 +207,7 @@ function subscriptionRow(overrides: Partial<SubscriptionRow> = {}): Subscription
     user_id: USER_ID,
     name: "Visible Plan",
     logo: null,
-    price: 12,
+    price: "12",
     currency: "USD",
     billing_cycle: "monthly",
     custom_days: null,
@@ -263,7 +263,7 @@ function r2Object(body: string, contentType: string): R2ObjectBody {
 
 beforeEach(() => {
   authMocks.requireAuth.mockReset();
-  authMocks.requireAuth.mockResolvedValue({ user: { id: USER_ID }, session: { id: "ses" }, token: "test" });
+  authMocks.requireAuth.mockResolvedValue({ user: { id: USER_ID }, session: { id: "ses" } });
 });
 
 describe("public status worker handlers", () => {
@@ -345,7 +345,7 @@ describe("public status worker handlers", () => {
     const pricedResponse = await readPublicStatus(publicRequest(`/api/public/status/${TOKEN}`), pricedEnv, TOKEN);
     expect(await readSuccessData(pricedResponse)).toMatchObject({
       page: { showPrices: true, currency: "USD" },
-      subscriptions: [{ price: 12, currency: "USD", billingCycle: "monthly" }],
+      subscriptions: [{ price: "12", currency: "USD", billingCycle: "monthly" }],
     });
   });
 

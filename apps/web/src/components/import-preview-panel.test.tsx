@@ -14,7 +14,7 @@ const payload = {
     {
       name: "Sentry Business",
       logo: null,
-      price: 29,
+      price: "29",
       currency: "USD",
       category: "developer_tools",
       status: "active",

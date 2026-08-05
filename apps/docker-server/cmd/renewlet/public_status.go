@@ -83,7 +83,7 @@ type publicStatusSubscriptionView struct {
 	StartDate        *string                  `json:"startDate"`
 	NextBillingDate  string                   `json:"nextBillingDate"`
 	UpdatedAt        string                   `json:"updatedAt"`
-	Price            *float64                 `json:"price,omitempty"`
+	Price            *string                  `json:"price,omitempty"`
 	Currency         string                   `json:"currency,omitempty"`
 	BillingCycle     string                   `json:"billingCycle,omitempty"`
 	CustomDays       int                      `json:"customDays,omitempty"`
@@ -336,7 +336,7 @@ func publicStatusSubscriptionFromRecord(request *http.Request, token string, row
 		UpdatedAt:       row.GetDateTime("updated").Time().UTC().Format(time.RFC3339),
 	}
 	if showPrices {
-		price := row.GetFloat("price")
+		price := moneyForRecord(row.Get("price"))
 		item.Price = &price
 		item.Currency = row.GetString("currency")
 		item.BillingCycle = row.GetString("billingCycle")

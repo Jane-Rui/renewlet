@@ -21,6 +21,7 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 )
 
@@ -281,6 +282,37 @@ func buildNotificationOverview(now time.Time, settings appSettings, subscription
 func runNotificationCron(app core.App, options notificationCronOptions) (notificationCronResult, error) {
 	options = resolveCronOptions(options)
 	results := []notificationCronUserResult{}
+	if !options.Force {
+		seenUserIDs := map[string]struct{}{}
+		for {
+			// failed/fresh sending 会故意留在 due-index 内；SQL 层排除本 tick 已处理用户，避免第一页失败用户饿住后续 due 用户。
+			userIDs, err := listNotificationDueUserIDsExcluding(app, options.Now, notificationCronPageSize, seenUserIDs)
+			if err != nil {
+				return notificationCronResult{}, err
+			}
+			if len(userIDs) == 0 {
+				return summarizeCronResult(options, results), nil
+			}
+			for _, userID := range userIDs {
+				seenUserIDs[userID] = struct{}{}
+				row, err := notificationSettingsRecordForUser(app, userID)
+				if err != nil {
+					if _, refreshErr := refreshSubscriptionSchedulerStateWithOptions(app, userID, subscriptionSchedulerRefreshOptions{Now: options.Now}); refreshErr != nil {
+						return notificationCronResult{}, refreshErr
+					}
+					continue
+				}
+				result, err := processNotificationCronUser(app, options, row)
+				if err != nil {
+					return notificationCronResult{}, err
+				}
+				results = append(results, result)
+			}
+			if len(userIDs) < notificationCronPageSize {
+				return summarizeCronResult(options, results), nil
+			}
+		}
+	}
 	for offset := 0; ; offset += notificationCronPageSize {
 		settingsRows, err := app.FindRecordsByFilter("settings", "user != ''", "created", notificationCronPageSize, offset)
 		if err != nil {
@@ -299,6 +331,10 @@ func runNotificationCron(app core.App, options notificationCronOptions) (notific
 	}
 
 	return summarizeCronResult(options, results), nil
+}
+
+func notificationSettingsRecordForUser(app core.App, userID string) (*core.Record, error) {
+	return app.FindFirstRecordByFilter("settings", "user = {:user}", dbx.Params{"user": userID})
 }
 
 func processNotificationCronUser(app core.App, options notificationCronOptions, row *core.Record) (notificationCronUserResult, error) {
@@ -329,6 +365,9 @@ func processNotificationCronUser(app core.App, options notificationCronOptions, 
 		}
 	}
 	if !schedule.Due {
+		if _, err := refreshSubscriptionSchedulerStateWithOptions(app, userID, subscriptionSchedulerRefreshOptions{Now: options.Now}); err != nil {
+			return notificationCronUserResult{}, err
+		}
 		return notificationCronUserResult{
 			UserID: userID,
 			Action: "skipped",
@@ -350,6 +389,9 @@ func processNotificationCronUser(app core.App, options notificationCronOptions, 
 		reason := "already_sent"
 		if existingJob.GetString("status") == notificationStatusSkipped {
 			reason = "already_skipped"
+		}
+		if _, err := refreshSubscriptionSchedulerStateWithOptions(app, userID, subscriptionSchedulerRefreshOptions{Now: options.Now, SkipCurrentNotificationWindow: true}); err != nil {
+			return notificationCronUserResult{}, err
 		}
 		return notificationCronUserResult{UserID: userID, Action: "skipped", Reason: reason}, nil
 	}
@@ -421,6 +463,9 @@ func processNotificationCronUser(app core.App, options notificationCronOptions, 
 		if err := finalizeNotificationJob(app, existingJob, userID, schedule, notificationStatusSkipped, "", result); err != nil {
 			return notificationCronUserResult{}, err
 		}
+		if _, err := refreshSubscriptionSchedulerStateWithOptions(app, userID, subscriptionSchedulerRefreshOptions{Now: options.Now, SkipCurrentNotificationWindow: true}); err != nil {
+			return notificationCronUserResult{}, err
+		}
 		return notificationCronUserResult{UserID: userID, Action: "skipped", Reason: finalReason}, nil
 	}
 
@@ -428,6 +473,9 @@ func processNotificationCronUser(app core.App, options notificationCronOptions, 
 		channels := mergeChannelResults(previousChannels, sendSummary{}, settings.EnabledChannels)
 		result := createJobResult("", schedule.localScheduleOccurrence, settings, due, options, channels)
 		if err := finalizeNotificationJob(app, existingJob, userID, schedule, notificationStatusSent, "", result); err != nil {
+			return notificationCronUserResult{}, err
+		}
+		if _, err := refreshSubscriptionSchedulerStateWithOptions(app, userID, subscriptionSchedulerRefreshOptions{Now: options.Now, SkipCurrentNotificationWindow: true}); err != nil {
 			return notificationCronUserResult{}, err
 		}
 		return notificationCronUserResult{UserID: userID, Action: "sent"}, nil
@@ -454,6 +502,8 @@ func processNotificationCronUser(app core.App, options notificationCronOptions, 
 	action := "sent"
 	if status == notificationStatusFailed {
 		action = "failed"
+	} else if _, err := refreshSubscriptionSchedulerStateWithOptions(app, userID, subscriptionSchedulerRefreshOptions{Now: options.Now, SkipCurrentNotificationWindow: true}); err != nil {
+		return notificationCronUserResult{}, err
 	}
 	return notificationCronUserResult{UserID: userID, Action: action, Reason: reason}, nil
 }

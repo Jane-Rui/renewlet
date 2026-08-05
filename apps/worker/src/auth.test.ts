@@ -15,6 +15,7 @@ import {
   passkeyAuthenticateVerify,
   passkeyDelete,
   passkeyRegisterVerify,
+  requireAuth,
 } from "./auth";
 import { readSuccessData } from "./api-test-helpers";
 import { AccountSecuritySchemaError } from "./account-security-schema";
@@ -99,29 +100,39 @@ beforeEach(() => {
   mocks.disableAuthenticatorMfaForUser.mockReset().mockResolvedValue(undefined);
   mocks.enableTotp.mockReset().mockResolvedValue({
     ...renewedSession("totp-enable-session"),
-    recoveryCodes: ["ABCD-EFGH-IJKL"],
+    response: { ...renewedSession("totp-enable-session").response, recoveryCodes: ["ABCD-EFGH-IJKL"] },
   });
   mocks.finishPasskeyAuthentication.mockReset().mockResolvedValue({
-    type: "session",
-    session: { id: "passkey-session", expiresAt: "2026-07-03T00:00:00.000Z" },
-    user: { id: "usr_passkey", email: "passkey@example.com", name: "Passkey User", role: "user", banned: false },
+    response: {
+      type: "session",
+      session: { expiresAt: "2026-07-03T00:00:00.000Z" },
+      user: { id: "usr_passkey", email: "passkey@example.com", name: "Passkey User", role: "user", banned: false },
+    },
+    sessionToken: "passkey-session",
+    csrfToken: "csrf-token",
+    expiresAt: "2026-07-03T00:00:00.000Z",
   });
   mocks.finishPasskeyRegistration.mockReset().mockResolvedValue(renewedSession("passkey-register-session"));
   mocks.authenticatorMfaMethodsForUser.mockReset().mockResolvedValue([]);
   mocks.regenerateRecoveryCodes.mockReset().mockResolvedValue({
     ...renewedSession("recovery-regenerate-session"),
-    recoveryCodes: ["MNOP-QRST-UVWX"],
+    response: { ...renewedSession("recovery-regenerate-session").response, recoveryCodes: ["MNOP-QRST-UVWX"] },
   });
   mocks.startPasskeyAuthentication.mockReset().mockResolvedValue({
     challengeId: "challenge-1",
     expiresAt: "2026-06-03T00:05:00.000Z",
     options: { challenge: "challenge-value" },
   });
-  mocks.verifyMfaLogin.mockReset().mockResolvedValue(new Response(JSON.stringify({
-    type: "session",
-    session: { id: "mfa-session", expiresAt: "2026-07-03T00:00:00.000Z" },
-    user: { id: "usr_mfa", email: "mfa@example.com", name: "MFA User", role: "user", banned: false },
-  }), { headers: { "content-type": "application/json" } }));
+  mocks.verifyMfaLogin.mockReset().mockResolvedValue({
+    response: {
+      type: "session",
+      session: { expiresAt: "2026-07-03T00:00:00.000Z" },
+      user: { id: "usr_mfa", email: "mfa@example.com", name: "MFA User", role: "user", banned: false },
+    },
+    sessionToken: "mfa-session",
+    csrfToken: "csrf-token",
+    expiresAt: "2026-07-03T00:00:00.000Z",
+  });
 });
 
 describe("Cloudflare admin password reset boundary", () => {
@@ -248,12 +259,12 @@ describe("Cloudflare account security session renewal", () => {
       setupId: "setup-token",
       code: "123456",
       currentPassword: "password123",
-    }, { authorization: "Bearer session-token" }), envFixture(vi.fn()));
+    }, authHeaders()), envFixture(vi.fn()));
 
     expect(response.status).toBe(200);
     await expect(readSuccessData(response)).resolves.toMatchObject({
       type: "session",
-      session: { id: "totp-enable-session" },
+      session: { expiresAt: "2026-07-03T00:00:00.000Z" },
       recoveryCodes: ["ABCD-EFGH-IJKL"],
     });
     expect(mocks.enableTotp).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: "usr_admin" }), "setup-token", "123456");
@@ -264,12 +275,12 @@ describe("Cloudflare account security session renewal", () => {
 
     const response = await mfaRecoveryRegenerate(jsonRequest("/api/app/auth/mfa/recovery/regenerate", "POST", {
       currentPassword: "password123",
-    }, { authorization: "Bearer session-token" }), envFixture(vi.fn()));
+    }, authHeaders()), envFixture(vi.fn()));
 
     expect(response.status).toBe(200);
     await expect(readSuccessData(response)).resolves.toMatchObject({
       type: "session",
-      session: { id: "recovery-regenerate-session" },
+      session: { expiresAt: "2026-07-03T00:00:00.000Z" },
       recoveryCodes: ["MNOP-QRST-UVWX"],
     });
     expect(mocks.regenerateRecoveryCodes).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: "usr_admin" }));
@@ -282,20 +293,52 @@ describe("Cloudflare account security session renewal", () => {
       challengeId: "challenge-1",
       name: "MacBook Touch ID",
       response: { id: "credential-id" },
-    }, { authorization: "Bearer session-token" }), env);
+    }, authHeaders()), env);
     const deleteResponse = await passkeyDelete(jsonRequest("/api/app/auth/passkeys/pkey_1/delete", "POST", {
       currentPassword: "password123",
-    }, { authorization: "Bearer session-token" }), env, "pkey_1");
+    }, authHeaders()), env, "pkey_1");
     const disableResponse = await mfaDisable(jsonRequest("/api/app/auth/mfa/disable", "POST", {
       currentPassword: "password123",
-    }, { authorization: "Bearer session-token" }), env);
+    }, authHeaders()), env);
 
-    await expect(readSuccessData(registerResponse)).resolves.toMatchObject({ session: { id: "passkey-register-session" } });
-    await expect(readSuccessData(deleteResponse)).resolves.toMatchObject({ session: { id: "passkey-delete-session" } });
-    await expect(readSuccessData(disableResponse)).resolves.toMatchObject({ session: { id: "mfa-disable-session" } });
+    await expect(readSuccessData(registerResponse)).resolves.toMatchObject({ session: { expiresAt: "2026-07-03T00:00:00.000Z" } });
+    await expect(readSuccessData(deleteResponse)).resolves.toMatchObject({ session: { expiresAt: "2026-07-03T00:00:00.000Z" } });
+    await expect(readSuccessData(disableResponse)).resolves.toMatchObject({ session: { expiresAt: "2026-07-03T00:00:00.000Z" } });
     expect(mocks.finishPasskeyRegistration).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ id: "usr_admin" }), "challenge-1", "MacBook Touch ID", expect.anything());
     expect(mocks.deletePasskeyForCurrentUser).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: "usr_admin" }), "pkey_1");
     expect(mocks.disableAuthenticatorMfaForCurrentUser).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: "usr_admin" }));
+  });
+});
+
+describe("Cloudflare cookie session boundary", () => {
+  beforeEach(() => {
+    mocks.enabledAdminCount.mockReset().mockResolvedValue(2);
+    mocks.ensureSettings.mockReset().mockResolvedValue(undefined);
+    mocks.findUserByEmail.mockReset();
+    mocks.findUserById.mockReset();
+    mocks.hashPassword.mockReset().mockResolvedValue("hashed-new-password");
+    mocks.nowIso.mockReset().mockReturnValue("2026-06-03T00:00:00.000Z");
+    mocks.sha256.mockReset().mockResolvedValue("token-hash");
+    mocks.verifyPassword.mockReset().mockResolvedValue(true);
+  });
+
+  it("does not accept Authorization bearer as a browser session", async () => {
+    await expect(requireAuth(new Request("https://renewlet.example/api/app/settings", {
+      headers: { authorization: "Bearer session-token" },
+    }), envFixture(vi.fn()))).rejects.toMatchObject({
+      status: 401,
+    });
+  });
+
+  it("requires CSRF header for unsafe cookie-authenticated requests", async () => {
+    await expect(requireAuth(new Request("https://renewlet.example/api/app/settings", {
+      method: "PUT",
+      headers: { cookie: "renewlet_session=session-token; renewlet_csrf=csrf-token" },
+      body: "{}",
+    }), envFixture(vi.fn()))).rejects.toMatchObject({
+      status: 403,
+      code: "CSRF_TOKEN_INVALID",
+    });
   });
 });
 
@@ -445,8 +488,8 @@ function requestFixture(body: unknown): Request {
     method: "PATCH",
     headers: {
       "accept-language": "en-US",
-      "authorization": "Bearer session-token",
       "content-type": "application/json",
+      ...authHeaders(),
     },
     body: JSON.stringify(body),
   });
@@ -457,9 +500,16 @@ function adminRequest(): Request {
     method: "POST",
     headers: {
       "accept-language": "en-US",
-      "authorization": "Bearer session-token",
+      ...authHeaders(),
     },
   });
+}
+
+function authHeaders(): Record<string, string> {
+  return {
+    "cookie": "renewlet_session=session-token; renewlet_csrf=csrf-token",
+    "x-renewlet-csrf": "csrf-token",
+  };
 }
 
 function envFixture(updateRun: ReturnType<typeof vi.fn>): Env {
@@ -504,6 +554,7 @@ function authRow(): UserRow & {
   session_expires_at: string;
   session_created_at: string;
   session_last_seen_at: string;
+  session_csrf_token_hash: string;
 } {
   return {
     ...userRow({ id: "usr_admin", email: "admin@example.com", name: "Admin", role: "admin" }),
@@ -513,14 +564,20 @@ function authRow(): UserRow & {
     session_expires_at: "2026-07-03T00:00:00.000Z",
     session_created_at: "2026-06-03T00:00:00.000Z",
     session_last_seen_at: "2026-06-03T00:00:00.000Z",
+    session_csrf_token_hash: "token-hash",
   };
 }
 
 function renewedSession(token: string) {
   return {
-    type: "session" as const,
-    session: { id: token, expiresAt: "2026-07-03T00:00:00.000Z" },
-    user: { id: "usr_admin", email: "admin@example.com", name: "Admin", role: "admin", banned: false },
+    response: {
+      type: "session" as const,
+      session: { expiresAt: "2026-07-03T00:00:00.000Z" },
+      user: { id: "usr_admin", email: "admin@example.com", name: "Admin", role: "admin", banned: false },
+    },
+    sessionToken: token,
+    csrfToken: "csrf-token",
+    expiresAt: "2026-07-03T00:00:00.000Z",
   };
 }
 

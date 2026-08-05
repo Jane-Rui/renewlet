@@ -37,7 +37,7 @@ export const mfaService = {
       method: "POST",
       body: JSON.stringify(payload),
     });
-    // 后端会在账号安全状态切换后废弃旧 bearer；必须先写入续签 session，再让设置页刷新状态查询。
+    // 后端会在账号安全状态切换后废弃旧 cookie session；必须先写入续签后的非密 session 视图，再让设置页刷新状态查询。
     writeRenewedSession(data);
     return data.recoveryCodes;
   },

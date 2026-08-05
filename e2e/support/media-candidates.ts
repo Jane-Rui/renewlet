@@ -42,7 +42,7 @@ export async function installLogoCandidateRoute(page: Page, count = 40) {
     const itemId = body?.items?.[0]?.id ?? "search";
     const builtIn = candidates.filter((candidate) => candidate.source === "builtIn");
     const favicon = candidates.filter((candidate) => candidate.source === "favicon");
-    // 固定候选数量和 data URL 图片，专门测试 Logo 选择器滚动/虚拟布局，不依赖外部 provider 或网络图片。
+    // E2E mock 必须完整贴合 shared media schema；appStore 即使为空也要出站，避免前端把 mock 漂移误判为真实搜索失败。
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
@@ -55,6 +55,7 @@ export async function installLogoCandidateRoute(page: Page, count = 40) {
               candidates: {
                 best: builtIn[0] ?? favicon[0] ?? null,
                 builtIn,
+                appStore: [],
                 favicon,
               },
             },

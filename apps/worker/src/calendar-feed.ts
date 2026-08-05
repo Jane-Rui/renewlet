@@ -510,10 +510,8 @@ function part(parts: Intl.DateTimeFormatPart[], type: Intl.DateTimeFormatPartTyp
   return parts.find((item) => item.type === type)?.value ?? "00";
 }
 
-function formatAmount(amount: number): string {
-  if (!Number.isFinite(amount)) return String(amount);
-  const fixed = amount.toFixed(2);
-  return fixed.replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
+function formatAmount(amount: string): string {
+  return amount;
 }
 
 function safeCalendarFeedFilename(value: string): string {

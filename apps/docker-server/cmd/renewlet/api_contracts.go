@@ -86,14 +86,15 @@ type authUserResponse struct {
 }
 
 type appSessionTokenResponse struct {
-	ID        string `json:"id"`
 	ExpiresAt string `json:"expiresAt"`
 }
 
 type sessionResponse struct {
-	Type    string                  `json:"type"`
-	Session appSessionTokenResponse `json:"session"`
-	User    authUserResponse        `json:"user"`
+	Type      string                  `json:"type"`
+	Session   appSessionTokenResponse `json:"session"`
+	User      authUserResponse        `json:"user"`
+	token     string
+	csrfToken string
 }
 
 type mfaRequiredResponse struct {
@@ -122,6 +123,8 @@ type mfaRecoveryCodesResponse struct {
 	Session       appSessionTokenResponse `json:"session"`
 	User          authUserResponse        `json:"user"`
 	RecoveryCodes []string                `json:"recoveryCodes"`
+	token         string
+	csrfToken     string
 }
 
 type passkeyResponse struct {

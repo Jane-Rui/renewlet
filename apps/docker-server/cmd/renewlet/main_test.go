@@ -137,6 +137,9 @@ func TestStaticFallbackSharesMuxWithProductAPIFallbacks(t *testing.T) {
 	}
 	serve := func(method string, target string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, target, nil)
+		if strings.HasPrefix(req.URL.Path, "/api/app/") && isUnsafeHTTPMethod(method) {
+			applyRouteTestSameOrigin(req)
+		}
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 		return rec

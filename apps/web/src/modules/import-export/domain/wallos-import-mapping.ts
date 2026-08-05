@@ -3,6 +3,7 @@ import { getIntlCurrencySymbol, SUPPORTED_EXCHANGE_RATE_CURRENCIES } from "@/lib
 import type { CustomConfig } from "@/types/config";
 import { DISABLED_REMINDER_DAYS, INHERIT_REMINDER_DAYS, MAX_REMINDER_DAYS, type AppSettings } from "@/types/subscription";
 import type { DateOnly } from "@/lib/time/date-only";
+import { moneyFromNumber } from "@renewlet/shared/money";
 import {
   WALLOS_DEFAULT_CURRENCIES,
   WALLOS_DEFAULT_CURRENCY_BY_ID,
@@ -384,7 +385,7 @@ function makeImportSubscription(input: {
   return {
     name: input.name,
     logo: input.logo ?? null,
-    price: Math.max(0, input.price),
+    price: moneyFromNumber(Math.max(0, input.price)),
     currency: input.currency,
     billingCycle: input.billing.billingCycle,
     customDays: input.billing.billingCycle === "custom" ? input.billing.customDays ?? 1 : null,

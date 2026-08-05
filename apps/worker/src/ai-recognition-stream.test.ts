@@ -168,7 +168,7 @@ describe("Cloudflare AI recognition stream", () => {
     aiMocks.isNoObjectGeneratedError.mockClear();
     aiMocks.isAPICallError.mockClear();
     vi.mocked(createOpenAI).mockClear();
-    authMocks.requireAuth.mockResolvedValue({ user: authUser, session: { id: "ses" }, token: "test" });
+    authMocks.requireAuth.mockResolvedValue({ user: authUser, session: { id: "ses" } });
     dbMocks.getSettings.mockResolvedValue({
       aiRecognition: {
         providerType: "openai",

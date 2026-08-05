@@ -118,7 +118,7 @@ beforeEach(() => {
   aiMocks.wrapLanguageModel.mockClear();
   aiMocks.isNoObjectGeneratedError.mockClear();
   aiMocks.isAPICallError.mockClear();
-  authMocks.requireAuth.mockResolvedValue({ user: authUser, session: { id: "ses" }, token: "test" });
+  authMocks.requireAuth.mockResolvedValue({ user: authUser, session: { id: "ses" } });
   dbMocks.getSettings.mockResolvedValue({
     aiRecognition: {
       providerType: "openai",

@@ -104,10 +104,17 @@ class PublicApiTestStatement {
       const [userId, id] = this.values as [string, string];
       return this.state.subscriptions.find((row) => row.user_id === userId && row.id === id) as T | undefined ?? null;
     }
-    if (this.sql.includes("SELECT COUNT(*) AS count FROM subscriptions")) {
+    if (this.sql.includes("SELECT COUNT(*) AS count") && this.sql.includes("FROM subscriptions")) {
       const userId = String(this.values[0]);
-      const count = this.state.subscriptions.filter((row) => row.user_id === userId).length;
-      return { count } as T;
+      const rows = this.state.subscriptions.filter((row) => row.user_id === userId);
+      return {
+        count: rows.length,
+        source_updated_at: rows.reduce((max, row) => row.updated_at > max ? row.updated_at : max, ""),
+      } as T;
+    }
+    if (this.sql.includes("COUNT(*) AS count FROM subscription_list_index")) {
+      const userId = String(this.values[0]);
+      return { count: this.state.subscriptions.filter((row) => row.user_id === userId).length } as T;
     }
     if (this.sql.includes("FROM subscription_user_stats")) {
       const userId = String(this.values[0]);
@@ -118,6 +125,7 @@ class PublicApiTestStatement {
         user_id: userId,
         total_count: rows.length,
         status_counts_json: JSON.stringify(statusCounts),
+        source_updated_at: rows.reduce((max, row) => row.updated_at > max ? row.updated_at : max, ""),
         created_at: "2026-06-01T00:00:00.000Z",
         updated_at: "2026-06-01T00:00:00.000Z",
       } as T;
@@ -220,14 +228,18 @@ class PublicApiTestStatement {
 }
 
 function authorizedRequest(path: string, init: RequestInit = {}): Request {
+  const method = init.method ?? "GET";
+  const unsafe = !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
   return new Request(`https://renewlet.test${path}`, {
+    ...init,
+    method,
     headers: {
-      authorization: "Bearer session-token",
+      cookie: "renewlet_session=session-token; renewlet_csrf=csrf-token",
       "content-type": "application/json",
       "x-renewlet-locale": "en-US",
+      ...(unsafe ? { origin: "https://renewlet.test", "x-renewlet-csrf": "csrf-token" } : {}),
       ...init.headers,
     },
-    ...init,
   });
 }
 
@@ -255,7 +267,7 @@ function subscriptionRow(overrides: Partial<SubscriptionRow> = {}): Subscription
     user_id: USER_ID,
     name: "Public API Plan",
     logo: null,
-    price: 12,
+    price: "12",
     currency: "USD",
     billing_cycle: "monthly",
     custom_days: null,
@@ -338,7 +350,7 @@ describe("Cloudflare Public API", () => {
         }),
       ],
     });
-    authMocks.requireAuth.mockResolvedValue({ user: { id: USER_ID }, session: { id: "ses" }, token: "session-token" });
+    authMocks.requireAuth.mockResolvedValue({ user: { id: USER_ID }, session: { id: "ses" } });
 
     await expect(createApiToken(authorizedRequest("/api/app/api-tokens", {
       method: "POST",
@@ -409,12 +421,12 @@ describe("Cloudflare Public API", () => {
     expect(dueBody.items.find((item) => item.subscription.id === "sub_renewal")?.subscription.startDate).toBeNull();
     expect(dueBody.items.map((item) => item.subscription.id)).not.toContain("sub_other");
 
-    authMocks.requireAuth.mockResolvedValueOnce({ user: { id: OTHER_USER_ID }, session: { id: "ses_other" }, token: "session-token" });
+    authMocks.requireAuth.mockResolvedValueOnce({ user: { id: OTHER_USER_ID }, session: { id: "ses_other" } });
     await expect(deleteApiToken(authorizedRequest(`/api/app/api-tokens/${created.token.id}`, { method: "DELETE" }), env, created.token.id))
       .rejects.toMatchObject({ status: 404 });
     expect(env.__state.apiTokens).toHaveLength(1);
 
-    authMocks.requireAuth.mockResolvedValue({ user: { id: USER_ID }, session: { id: "ses" }, token: "session-token" });
+    authMocks.requireAuth.mockResolvedValue({ user: { id: USER_ID }, session: { id: "ses" } });
     const deleteResponse = await deleteApiToken(authorizedRequest(`/api/app/api-tokens/${created.token.id}`, { method: "DELETE" }), env, created.token.id);
     expect(deleteResponse.status).toBe(200);
     expect(env.__state.apiTokens).toHaveLength(0);

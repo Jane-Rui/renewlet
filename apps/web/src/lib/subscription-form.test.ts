@@ -5,7 +5,7 @@ import {
   getSubscriptionDraftValidationError,
   isOptionalHttpUrl,
   normalizeTagsArray,
-  parseNonNegativeFiniteNumberInput,
+  parseMoneyInput,
   parseNonNegativeIntegerInput,
   parseTagsInput,
   toSubscriptionDraft,
@@ -43,15 +43,17 @@ describe("subscription-form", () => {
   });
 
   it("rejects loose numeric prefixes, Infinity, NaN and negative prices", () => {
-    expect(parseNonNegativeFiniteNumberInput("0")).toBe(0);
-    expect(parseNonNegativeFiniteNumberInput("0.00")).toBe(0);
-    expect(parseNonNegativeFiniteNumberInput("12.5")).toBe(12.5);
-    expect(parseNonNegativeFiniteNumberInput(".5")).toBe(0.5);
-    expect(parseNonNegativeFiniteNumberInput("12abc")).toBeNull();
-    expect(parseNonNegativeFiniteNumberInput("Infinity")).toBeNull();
-    expect(parseNonNegativeFiniteNumberInput("NaN")).toBeNull();
-    expect(parseNonNegativeFiniteNumberInput("-1")).toBeNull();
-    expect(parseNonNegativeFiniteNumberInput("1000000001")).toBeNull();
+    expect(parseMoneyInput("0")).toBe("0");
+    expect(parseMoneyInput("0.00")).toBe("0");
+    expect(parseMoneyInput("12.5")).toBe("12.5");
+    expect(parseMoneyInput(".5")).toBe("0.5");
+    expect(parseMoneyInput("12abc")).toBeNull();
+    expect(parseMoneyInput("Infinity")).toBeNull();
+    expect(parseMoneyInput("NaN")).toBeNull();
+    expect(parseMoneyInput("-1")).toBeNull();
+    expect(parseMoneyInput("1000000001")).toBeNull();
+    expect(parseMoneyInput("1.0000001")).toBeNull();
+    expect(parseMoneyInput("1e3")).toBeNull();
   });
 
   it("accepts only integer reminder/custom day inputs", () => {
@@ -93,7 +95,7 @@ describe("subscription-form", () => {
       nextBillingDate: assertDateOnly("2026-02-01"),
     });
 
-    expect(toSubscriptionDraft(form)).toMatchObject({ price: 0 });
+    expect(toSubscriptionDraft(form)).toMatchObject({ price: "0" });
   });
 
   it("rejects renewal dates before the start date", () => {
@@ -137,7 +139,7 @@ describe("subscription-form", () => {
     });
 
     expect(toSubscriptionDraft(valid)).toMatchObject({
-      price: 19.99,
+      price: "19.99",
       customDays: 45,
       customCycleUnit: "year",
       reminderDays: 0,
@@ -343,8 +345,8 @@ describe("subscription-form", () => {
         enabled: true,
         splitMode: "custom",
         members: [
-          { id: "partner", name: "Partner", currency: "USD", customAmount: 40 },
-          { id: "child", name: "Child", currency: "CNY", customAmount: 420 },
+          { id: "partner", name: "Partner", currency: "USD", customAmount: "40" },
+          { id: "child", name: "Child", currency: "CNY", customAmount: "420" },
         ],
       },
     });
@@ -364,8 +366,8 @@ describe("subscription-form", () => {
         enabled: true,
         splitMode: "custom",
         members: [
-          { id: "partner", name: "Partner", currency: "USD", customAmount: 40 },
-          { id: "child", name: "Child", currency: "USD", customAmount: 50 },
+          { id: "partner", name: "Partner", currency: "USD", customAmount: "40" },
+          { id: "child", name: "Child", currency: "USD", customAmount: "50" },
         ],
       },
     });

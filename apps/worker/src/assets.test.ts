@@ -107,6 +107,7 @@ function requestFixture(method = "DELETE"): Request {
     method,
     headers: {
       authorization: "Bearer test",
+      origin: "https://renewlet.test",
       "x-renewlet-locale": "en-US",
     },
   });
@@ -150,7 +151,6 @@ describe("Cloudflare uploaded assets", () => {
     authMocks.requireAuth.mockResolvedValue({
       user: { id: USER_ID },
       session: { id: "ses" },
-      token: "test",
     });
   });
 

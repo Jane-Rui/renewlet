@@ -23,11 +23,19 @@ describe("auth schemas", () => {
   it("accepts direct session login responses", () => {
     const parsed = loginResponseSchema.parse(success({
       type: "session",
-      session: { id: "session-token", expiresAt: "2026-07-01T00:00:00.000Z" },
+      session: { expiresAt: "2026-07-01T00:00:00.000Z" },
       user: { id: "usr_1", email: "admin@example.com", name: "Admin", role: "admin", banned: false },
     })).data;
 
     expect(parsed.type).toBe("session");
+  });
+
+  it("rejects leaking session identifiers in session responses", () => {
+    expect(loginResponseSchema.safeParse(success({
+      type: "session",
+      session: { id: "ses_1", expiresAt: "2026-07-01T00:00:00.000Z" },
+      user: { id: "usr_1", email: "admin@example.com", name: "Admin", role: "admin", banned: false },
+    })).success).toBe(false);
   });
 
   it("accepts MFA-required login responses with authenticator methods only", () => {
@@ -82,7 +90,7 @@ describe("auth schemas", () => {
     }).code).toBe("123456");
     expect(mfaRecoveryCodesResponseSchema.parse(success({
       type: "session",
-      session: { id: "renewed-session", expiresAt: "2026-07-01T00:00:00.000Z" },
+      session: { expiresAt: "2026-07-01T00:00:00.000Z" },
       user: { id: "usr_1", email: "admin@example.com", name: "Admin", role: "admin", banned: false },
       recoveryCodes: ["ABCD-EFGH-IJKL"],
     })).data.recoveryCodes).toHaveLength(1);

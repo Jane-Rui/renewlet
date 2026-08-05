@@ -75,7 +75,7 @@ const subscription: Subscription = {
   id: "sub-1",
   name: "Fastmail",
   logo: undefined,
-  price: 5,
+  price: "5",
   currency: "USD",
   billingCycle: "monthly",
   customDays: undefined,

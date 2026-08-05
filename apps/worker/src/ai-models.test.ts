@@ -46,7 +46,7 @@ describe("Cloudflare AI model list proxy", () => {
   beforeEach(() => {
     vi.useRealTimers();
     authMocks.requireAuth.mockReset();
-    authMocks.requireAuth.mockResolvedValue({ user: authUser, session: { id: "ses" }, token: "test" });
+    authMocks.requireAuth.mockResolvedValue({ user: authUser, session: { id: "ses" } });
     vi.unstubAllGlobals();
   });
 

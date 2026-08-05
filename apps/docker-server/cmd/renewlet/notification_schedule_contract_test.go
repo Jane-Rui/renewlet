@@ -28,7 +28,7 @@ type notificationScheduleFixtureSettings struct {
 type notificationScheduleFixtureSub struct {
 	ID                     string  `json:"id"`
 	Name                   string  `json:"name"`
-	Price                  float64 `json:"price"`
+	Price                  string  `json:"price"`
 	Currency               string  `json:"currency"`
 	Status                 string  `json:"status"`
 	BillingCycle           string  `json:"billingCycle"`

@@ -98,7 +98,7 @@ describe("Login page", () => {
     mocks.signInPasskey.mockResolvedValue({
       data: {
         type: "session",
-        session: { id: "passkey-session", expiresAt: "2026-07-01T00:00:00.000Z" },
+        session: { expiresAt: "2026-07-01T00:00:00.000Z" },
         user: { id: "user-1", email: "passkey@example.com", name: "Passkey", role: "user", banned: false },
       },
       error: null,
@@ -268,7 +268,7 @@ describe("Login page", () => {
     passkey.resolve({
       data: {
         type: "session",
-        session: { id: "passkey-session", expiresAt: "2026-07-01T00:00:00.000Z" },
+        session: { expiresAt: "2026-07-01T00:00:00.000Z" },
         user: { id: "user-1", email: "passkey@example.com", name: "Passkey", role: "user", banned: false },
       },
       error: null,

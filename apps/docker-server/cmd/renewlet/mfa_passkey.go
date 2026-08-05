@@ -128,7 +128,7 @@ func finishPasskeyRegistration(app core.App, request *http.Request, user *core.R
 	}
 	var responseBody sessionResponse
 	err = app.RunInTransaction(func(txApp core.App) error {
-		// 注册通行密钥后续签产品 session，避免保存新登录方式的旧 bearer 继续流通。
+		// 注册通行密钥后续签产品 session，避免保存新登录方式的旧 cookie session 继续流通。
 		if err := savePasskeyCredential(txApp, user.Id, strings.TrimSpace(name), credential); err != nil {
 			return err
 		}

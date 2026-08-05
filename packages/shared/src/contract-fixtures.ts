@@ -10,13 +10,14 @@ import {
   SUBSCRIPTION_STATUSES,
   isValidDateOnly,
 } from "./runtime";
+import { moneyStringSchema } from "./money";
 
 const dateOnlyFixtureSchema = z.string().refine(isValidDateOnly, "Invalid date");
 
 const notificationSubscriptionFixtureSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
-  price: z.number(),
+  price: moneyStringSchema,
   currency: z.string().min(1),
   status: z.enum(SUBSCRIPTION_STATUSES),
   billingCycle: z.enum(BILLING_CYCLES),

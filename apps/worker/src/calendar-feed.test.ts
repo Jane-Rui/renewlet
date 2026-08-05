@@ -13,8 +13,10 @@ import {
   readCalendarFeed,
 } from "./calendar-feed";
 import { sha256 } from "./crypto";
+import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME, SESSION_COOKIE_NAME } from "./http";
 
 const SESSION_TOKEN = "session-token";
+const CSRF_TOKEN = "csrf-token";
 const USER_ID = "usr_calendar";
 
 function expectCalendarIcsLineEndings(value: string) {
@@ -357,7 +359,7 @@ describe("calendar feed worker handlers", () => {
         subscriptionRow("sub_custom_year", "Three Year Plan", "active", "custom", "2099-06-02", {
           custom_days: 3,
           custom_cycle_unit: "year",
-          price: 360,
+          price: "360",
         }),
       ],
     });
@@ -441,6 +443,7 @@ interface CalendarFeedTestState {
   feeds: CalendarFeedRow[];
   legacyFeeds: CalendarFeedRow[];
   sessionHash: string;
+  csrfHash: string;
   customConfigJson: string | null;
   settingsJson: string;
   subscriptions: SubscriptionRow[];
@@ -467,6 +470,7 @@ async function createCalendarFeedTestEnv(options: CalendarFeedTestOptions = {}):
   // 这份状态同时模拟正常表、旧 hash-only 表和缺表，用来锁住 Worker 的自修复与 migration-required 分支。
   const state: CalendarFeedTestState = {
     sessionHash: await sha256(SESSION_TOKEN),
+    csrfHash: await sha256(CSRF_TOKEN),
     user: {
       id: USER_ID,
       email: "calendar@example.com",
@@ -514,7 +518,11 @@ async function createCalendarFeedTestEnv(options: CalendarFeedTestOptions = {}):
 
 function authorizedRequest(url: string, init: RequestInit = {}): Request {
   const headers = new Headers(init.headers);
-  headers.set("authorization", `Bearer ${SESSION_TOKEN}`);
+  headers.set("cookie", `${SESSION_COOKIE_NAME}=${SESSION_TOKEN}; ${CSRF_COOKIE_NAME}=${CSRF_TOKEN}`);
+  if (!["GET", "HEAD", "OPTIONS"].includes((init.method ?? "GET").toUpperCase())) {
+    headers.set(CSRF_HEADER_NAME, CSRF_TOKEN);
+    if (!headers.has("origin")) headers.set("origin", new URL(url).origin);
+  }
   return new Request(url, { ...init, headers });
 }
 
@@ -524,7 +532,7 @@ function subscriptionRow(id: string, name: string, status: string, billingCycle:
     user_id: USER_ID,
     name,
     logo: null,
-    price: 12.5,
+    price: "12.5",
     currency: "USD",
     billing_cycle: billingCycle,
     custom_days: null,
@@ -620,6 +628,7 @@ class CalendarFeedTestStatement {
       const row: SessionAuthRow = {
         session_id: "ses_calendar",
         session_token_hash: this.state.sessionHash,
+        session_csrf_token_hash: this.state.csrfHash,
         session_user_id: USER_ID,
         session_expires_at: "2099-01-01T00:00:00.000Z",
         session_created_at: "2026-05-29T00:00:00.000Z",

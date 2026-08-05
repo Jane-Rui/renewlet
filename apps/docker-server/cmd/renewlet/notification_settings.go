@@ -167,6 +167,15 @@ func mergeSettingsWithOptions(base appSettings, patch json.RawMessage, rejectUns
 		} else if ok && runeCount(contentTemplate) > dingtalkContentTemplateMaxRunes {
 			return base, errors.New("DINGTALK_CONTENT_TEMPLATE_TOO_LONG")
 		}
+		if monthlyBudget, ok, err := explicitSettingsStringPatch(patch, "monthlyBudget"); err != nil {
+			return base, err
+		} else if ok {
+			canonical, err := canonicalMoneyString(monthlyBudget)
+			if err != nil {
+				return base, errors.New("MONTHLY_BUDGET_INVALID")
+			}
+			settings.MonthlyBudget = canonical
+		}
 	}
 	settings.BuiltInIconSources = mergeBuiltInIconSourceSettings(base.BuiltInIconSources, sourcePatch)
 	settings.OnlineIconSources = mergeOnlineIconSourceSettings(base.OnlineIconSources, onlineSourcePatch)
@@ -216,6 +225,19 @@ func normalizeRecoverableStoredSettingsPatch(raw json.RawMessage) json.RawMessag
 	}
 	normalizeTemplate("dingtalkTitleTemplate", dingtalkTitleTemplateMaxRunes)
 	normalizeTemplate("dingtalkContentTemplate", dingtalkContentTemplateMaxRunes)
+	if value, ok := fields["monthlyBudget"]; ok {
+		var rawValue interface{}
+		if err := json.Unmarshal(value, &rawValue); err == nil {
+			if amount, err := canonicalMoneyFromValue(rawValue); err == nil {
+				encoded, _ := json.Marshal(amount)
+				if !bytes.Equal(value, encoded) {
+					// 历史 settings_json 里的 number 只在读取/迁移边界转成 string；新写入仍由 strict decoder 拒绝 number。
+					fields["monthlyBudget"] = encoded
+					changed = true
+				}
+			}
+		}
+	}
 	if !changed {
 		return raw
 	}
@@ -242,6 +264,11 @@ func sanitizeSettings(settings appSettings) appSettings {
 	settings.BuiltInIconSources = sanitizeBuiltInIconSources(settings.BuiltInIconSources)
 	settings.OnlineIconSources = sanitizeOnlineIconSources(settings.OnlineIconSources)
 	settings.AIRecognition = sanitizeAIRecognitionSettings(settings.AIRecognition)
+	if amount, err := canonicalMoneyString(settings.MonthlyBudget); err == nil {
+		settings.MonthlyBudget = amount
+	} else {
+		settings.MonthlyBudget = defaultAppSettings().MonthlyBudget
+	}
 	if _, err := time.LoadLocation(settings.Timezone); err != nil {
 		settings.Timezone = "UTC"
 	}

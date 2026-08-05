@@ -10,7 +10,7 @@ const subscription: Subscription = {
   id: "sub-1",
   name: "Supabase Pro",
   logo: undefined,
-  price: 25,
+  price: "25",
   currency: "USD",
   billingCycle: "monthly",
   customDays: undefined,

@@ -17,7 +17,7 @@ const context = {
 function draft(overrides: Partial<AiRecognizedSubscriptionDraft> = {}): AiRecognizedSubscriptionDraft {
   return {
     name: "Netflix",
-    price: 9.99,
+    price: "9.99",
     currency: "USD",
     billingCycle: "monthly",
     customDays: null,
@@ -71,7 +71,7 @@ describe("AI recognition import mapping", () => {
     ], context);
 
     const subscription = prepared.payload.subscriptions[0];
-    expect(subscription?.price).toBe(0);
+    expect(subscription?.price).toBe("0");
     expect(subscription?.currency).toBe("USD");
     expect(subscription?.billingCycle).toBe("monthly");
     expect(subscription?.startDate).toBeNull();

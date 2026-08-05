@@ -19,7 +19,7 @@ type costSharingMember struct {
 	Name         string   `json:"name"`
 	Note         string   `json:"note,omitempty"`
 	Currency     string   `json:"currency,omitempty"`
-	CustomAmount *float64 `json:"customAmount,omitempty"`
+	CustomAmount *string  `json:"customAmount,omitempty"`
 }
 
 // normalizeCostSharing 是 Docker 持久层的 costSharing 契约门：当前用户固定付款，members 只保存其他人的应收金额。
@@ -66,8 +66,15 @@ func normalizeCostSharing(value interface{}) (interface{}, error) {
 			return nil, errors.New("COST_SHARING_MEMBER_DUPLICATE")
 		}
 		ids[member.ID] = struct{}{}
+		if member.CustomAmount != nil {
+			amount, err := canonicalMoneyString(*member.CustomAmount)
+			if err != nil {
+				return nil, errors.New("COST_SHARING_CUSTOM_AMOUNT_INVALID")
+			}
+			member.CustomAmount = &amount
+		}
 		if payload.SplitMode == "custom" {
-			if member.CustomAmount == nil || *member.CustomAmount < 0 || *member.CustomAmount > maxSubscriptionPrice {
+			if member.CustomAmount == nil {
 				return nil, errors.New("COST_SHARING_CUSTOM_AMOUNT_INVALID")
 			}
 		}

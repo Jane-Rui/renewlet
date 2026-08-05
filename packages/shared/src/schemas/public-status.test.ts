@@ -69,7 +69,7 @@ describe("public status schemas", () => {
         startDate: "2026-01-01",
         nextBillingDate: "2026-07-01",
         updatedAt: "2026-06-07T00:00:00.000Z",
-        price: 9.99,
+        price: "9.99",
       }],
     })).success).toBe(false);
   });
@@ -90,7 +90,7 @@ describe("public status schemas", () => {
         startDate: "2026-01-01",
         nextBillingDate: "2026-07-01",
         updatedAt: "2026-06-07T00:00:00.000Z",
-        price: 120,
+        price: "120",
         currency: "USD",
         billingCycle: "annual",
       }],

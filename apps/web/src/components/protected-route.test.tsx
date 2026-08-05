@@ -74,7 +74,7 @@ describe("ProtectedRoute", () => {
   it("keeps rendering protected content while a cached session refreshes", () => {
     mocks.useSession.mockReturnValue({
       data: {
-        session: { id: "token-1" },
+        session: { expiresAt: "2026-07-01T00:00:00.000Z" },
         user: { id: "user-1", email: "alice@example.com", name: "Alice", role: "admin", banned: false },
       },
       isPending: true,
@@ -89,7 +89,7 @@ describe("ProtectedRoute", () => {
   it("renders protected content for authenticated users", () => {
     mocks.useSession.mockReturnValue({
       data: {
-        session: { id: "token-1" },
+        session: { expiresAt: "2026-07-01T00:00:00.000Z" },
         user: { id: "user-1", email: "alice@example.com", name: "Alice", role: "admin", banned: false },
       },
       isPending: false,
@@ -103,7 +103,7 @@ describe("ProtectedRoute", () => {
   it("redirects authenticated non-admin users away from admin-only routes before mounting them", () => {
     mocks.useSession.mockReturnValue({
       data: {
-        session: { id: "token-1" },
+        session: { expiresAt: "2026-07-01T00:00:00.000Z" },
         user: { id: "user-1", email: "alice@example.com", name: "Alice", role: "user", banned: false },
       },
       isPending: false,
@@ -118,7 +118,7 @@ describe("ProtectedRoute", () => {
   it("renders admin-only routes for enabled admins", () => {
     mocks.useSession.mockReturnValue({
       data: {
-        session: { id: "token-1" },
+        session: { expiresAt: "2026-07-01T00:00:00.000Z" },
         user: { id: "admin-1", email: "admin@example.com", name: "Admin", role: "admin", banned: false },
       },
       isPending: false,

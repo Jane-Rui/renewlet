@@ -26,6 +26,7 @@ import { PieChart, Pie, Cell, Tooltip as RechartsTooltip } from 'recharts';
 import { CircleHelp, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useExchangeRates } from '@/hooks/use-exchange-rates';
+import { moneyToNumber } from "@renewlet/shared/money";
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -136,7 +137,8 @@ const Statistics = () => {
   const settingsQuery = useSettings();
   const settings = settingsQuery.data;
   const { config } = useCustomConfig();
-  const monthlyBudget = settings?.monthlyBudget ?? 0;
+  const monthlyBudget = settings?.monthlyBudget ?? "0";
+  const monthlyBudgetAmount = moneyToNumber(monthlyBudget);
   const defaultCurrency = settings?.defaultCurrency ?? "CNY";
   const timeZone = settings?.timezone ?? "UTC";
   const { locale, t, formatCurrency, formatDateTime, formatNumber } = useI18n();
@@ -431,7 +433,7 @@ const Statistics = () => {
               {renderDonutChart(stats.budgetChartData, "currency", t("statistics.costBudget"))}
               <div className="mt-4 flex flex-col justify-center gap-4 min-[380px]:flex-row min-[380px]:gap-8">
                 <div className="text-center">
-                  <p className="text-2xl font-bold text-foreground">{formatCurrency(Math.min(stats.totalMonthly, monthlyBudget), defaultCurrency)}</p>
+                  <p className="text-2xl font-bold text-foreground">{formatCurrency(Math.min(stats.totalMonthly, monthlyBudgetAmount), defaultCurrency)}</p>
                   <p className="text-xs text-muted-foreground">{t("statistics.budgetUsed")}</p>
                 </div>
                 <div className="text-center">

@@ -1,7 +1,7 @@
 import type { BillingCycle, CustomCycleUnit, DateOnly } from "./runtime";
+import { divideMoney, moneyToNumber, multiplyMoneyRatio, type MoneyString } from "./money";
 import { addBillingCycles, calculateNextBillingDate as calculateRenewalNextBillingDate } from "./subscription-renewal";
 
-const AVERAGE_WEEKS_PER_MONTH = 4.33;
 const AVERAGE_DAYS_PER_MONTH = 30;
 
 export interface SubscriptionBillingFields {
@@ -18,7 +18,7 @@ export interface SubscriptionBillingFields {
  * 汇率换算不是本模块职责；调用方必须先把 amount 统一到目标币种，再做周期折算。
  */
 export function toMonthlyAmount(
-  amount: number,
+  amount: MoneyString | number,
   cycle: BillingCycle,
   customDays?: number | null | undefined,
   customCycleUnit: CustomCycleUnit = "day",
@@ -27,24 +27,24 @@ export function toMonthlyAmount(
 ): number {
   switch (cycle) {
     case "weekly":
-      return amount * AVERAGE_WEEKS_PER_MONTH;
+      return moneyToNumber(multiplyMoneyRatio(amount, 433, 100));
     case "monthly":
-      return amount;
+      return moneyToNumber(amount);
     case "quarterly":
-      return amount / 3;
+      return moneyToNumber(divideMoney(amount, 3));
     case "semi-annual":
-      return amount / 6;
+      return moneyToNumber(divideMoney(amount, 6));
     case "annual":
-      return amount / 12;
+      return moneyToNumber(divideMoney(amount, 12));
     case "custom":
-      return customDays ? customCycleToMonthlyAmount(amount, customDays, customCycleUnit) : amount;
+      return customDays ? customCycleToMonthlyAmount(amount, customDays, customCycleUnit) : moneyToNumber(amount);
     case "one-time":
       // one-time 无服务期是买断，不进入月均；固定服务期才把整段预付权益按月摊销。
       return oneTimeTermCount ? customCycleToMonthlyAmount(amount, oneTimeTermCount, oneTimeTermUnit) : 0;
   }
 }
 
-export function toSubscriptionMonthlyAmount(amount: number, subscription: SubscriptionBillingFields): number {
+export function toSubscriptionMonthlyAmount(amount: MoneyString | number, subscription: SubscriptionBillingFields): number {
   return toMonthlyAmount(
     amount,
     subscription.billingCycle,
@@ -55,16 +55,16 @@ export function toSubscriptionMonthlyAmount(amount: number, subscription: Subscr
   );
 }
 
-function customCycleToMonthlyAmount(amount: number, count: number, unit: CustomCycleUnit): number {
+function customCycleToMonthlyAmount(amount: MoneyString | number, count: number, unit: CustomCycleUnit): number {
   switch (unit) {
     case "week":
-      return (amount / count) * AVERAGE_WEEKS_PER_MONTH;
+      return moneyToNumber(multiplyMoneyRatio(amount, 433, count * 100));
     case "month":
-      return amount / count;
+      return moneyToNumber(divideMoney(amount, count));
     case "year":
-      return amount / count / 12;
+      return moneyToNumber(divideMoney(amount, count * 12));
     case "day":
-      return (amount / count) * AVERAGE_DAYS_PER_MONTH;
+      return moneyToNumber(multiplyMoneyRatio(amount, AVERAGE_DAYS_PER_MONTH, count));
   }
 }
 

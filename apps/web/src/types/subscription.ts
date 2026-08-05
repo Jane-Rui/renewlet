@@ -163,8 +163,8 @@ interface SubscriptionBase {
   name: string;
   /** Logo（可选）。 */
   logo: string | undefined;
-  /** 单次扣费金额。 */
-  price: number;
+  /** 单次扣费金额；API/storage 使用 canonical decimal string，展示前再按需要转 number。 */
+  price: string;
   /** 货币代码（如：CNY、USD）。 */
   currency: string;
   /** 分类。 */
@@ -285,8 +285,8 @@ export interface AppSettings {
   aiRecognition: AiRecognitionSettings;
   
   // 预算
-  /** 月度预算（用于统计页预算占比）。 */
-  monthlyBudget: number;
+  /** 月度预算；和订阅金额一样使用 canonical decimal string。 */
+  monthlyBudget: string;
   
   // 时区
   /** 用户时区（用于后续定时任务/通知展示）。 */

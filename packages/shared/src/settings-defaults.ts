@@ -26,7 +26,7 @@ export function createDefaultAppSettings(options: DefaultSettingsOptions = {}): 
     exchangeRateProvider: "frankfurter",
     builtInIconSources: DEFAULT_BUILT_IN_ICON_SOURCES,
     onlineIconSources: DEFAULT_ONLINE_ICON_SOURCES,
-    monthlyBudget: 1500,
+    monthlyBudget: "1500",
     timezone: options.timezone ?? "UTC",
     notificationTimeLocal: "08:00" as ApiAppSettings["notificationTimeLocal"],
     notificationReminderDays: DEFAULT_NOTIFICATION_REMINDER_DAYS,

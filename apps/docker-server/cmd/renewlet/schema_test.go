@@ -34,7 +34,7 @@ func TestEnsureSchemaCreatesContractFieldsAndIndexes(t *testing.T) {
 		"user":                         core.FieldTypeRelation,
 		"name":                         core.FieldTypeText,
 		"logo":                         core.FieldTypeText,
-		"price":                        core.FieldTypeNumber,
+		"price":                        core.FieldTypeText,
 		"currency":                     core.FieldTypeText,
 		"billingCycle":                 core.FieldTypeSelect,
 		"customDays":                   core.FieldTypeNumber,
@@ -76,12 +76,15 @@ func TestEnsureSchemaCreatesContractFieldsAndIndexes(t *testing.T) {
 		"updated": core.FieldTypeAutodate,
 	})
 	assertFields(t, app, "subscription_scheduler_states", map[string]string{
-		"user":                   core.FieldTypeRelation,
-		"autoRenewCount":         core.FieldTypeNumber,
-		"repeatReminderCount":    core.FieldTypeNumber,
-		"lastAutoRenewLocalDate": core.FieldTypeText,
-		"created":                core.FieldTypeAutodate,
-		"updated":                core.FieldTypeAutodate,
+		"user":                           core.FieldTypeRelation,
+		"autoRenewCount":                 core.FieldTypeNumber,
+		"repeatReminderCount":            core.FieldTypeNumber,
+		"lastAutoRenewLocalDate":         core.FieldTypeText,
+		"nextAutoRenewCheckAtUTC":        core.FieldTypeText,
+		"nextDailyNotificationDueAtUTC":  core.FieldTypeText,
+		"nextRepeatNotificationDueAtUTC": core.FieldTypeText,
+		"created":                        core.FieldTypeAutodate,
+		"updated":                        core.FieldTypeAutodate,
 	})
 	assertFields(t, app, "assets", map[string]string{
 		"user":         core.FieldTypeRelation,
@@ -93,7 +96,7 @@ func TestEnsureSchemaCreatesContractFieldsAndIndexes(t *testing.T) {
 		"created":      core.FieldTypeAutodate,
 		"updated":      core.FieldTypeAutodate,
 	})
-	assertNumberField(t, app, "subscriptions", "price", false, 0, maxSubscriptionPrice)
+	assertTextFieldRequired(t, app, "subscriptions", "price", true)
 	assertNumberField(t, app, "subscriptions", "reminderDays", false, disabledReminderDays, maxReminderDays)
 	assertTextFieldRequired(t, app, "subscriptions", "startDate", false)
 	assertSelectFieldValues(t, app, "subscriptions", "billingCycle", "weekly", "monthly", "quarterly", "semi-annual", "annual", "custom", "one-time")
@@ -144,12 +147,13 @@ func TestEnsureSchemaCreatesContractFieldsAndIndexes(t *testing.T) {
 	})
 	assertMissingField(t, app, "api_tokens", "revokedAt")
 	assertFields(t, app, "app_sessions", map[string]string{
-		"user":       core.FieldTypeRelation,
-		"tokenHash":  core.FieldTypeText,
-		"expiresAt":  core.FieldTypeText,
-		"lastSeenAt": core.FieldTypeText,
-		"created":    core.FieldTypeAutodate,
-		"updated":    core.FieldTypeAutodate,
+		"user":          core.FieldTypeRelation,
+		"tokenHash":     core.FieldTypeText,
+		"csrfTokenHash": core.FieldTypeText,
+		"expiresAt":     core.FieldTypeText,
+		"lastSeenAt":    core.FieldTypeText,
+		"created":       core.FieldTypeAutodate,
+		"updated":       core.FieldTypeAutodate,
 	})
 	assertFields(t, app, "mfa_totp_credentials", map[string]string{
 		"user":             core.FieldTypeRelation,
@@ -334,7 +338,7 @@ func TestBackfillSubscriptionAutoRenewOnlyForcesOneTimeFalse(t *testing.T) {
 		record := core.NewRecord(subscriptions)
 		record.Set("user", user.Id)
 		record.Set("name", name)
-		record.Set("price", 1)
+		record.Set("price", "1")
 		record.Set("currency", "USD")
 		record.Set("billingCycle", cycle)
 		record.Set("category", "productivity")
@@ -395,6 +399,9 @@ func TestEnsureSchemaSelfHealsSubscriptionLogoURLFieldToText(t *testing.T) {
 	if err := upsertField(subscriptions, &core.URLField{Name: "logo"}); err != nil {
 		t.Fatal(err)
 	}
+	if err := upsertField(subscriptions, &core.NumberField{Name: "price"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := app.Save(subscriptions); err != nil {
 		t.Fatal(err)
 	}
@@ -409,6 +416,7 @@ func TestEnsureSchemaSelfHealsSubscriptionLogoURLFieldToText(t *testing.T) {
 	record.Set("user", user.Id)
 	record.Set("name", "Logo Field")
 	record.Set("logo", "https://example.com/logo.png")
+	record.Set("price", 12.5)
 	if err := app.Save(record); err != nil {
 		t.Fatal(err)
 	}
@@ -463,7 +471,7 @@ func TestEnsureSchemaCleansInvalidSubscriptionLogosButKeepsHttpLinks(t *testing.
 		record := core.NewRecord(subscriptions)
 		record.Set("user", user.Id)
 		record.Set("name", name)
-		record.Set("price", 1)
+		record.Set("price", "1")
 		record.Set("currency", "USD")
 		record.Set("billingCycle", "monthly")
 		record.Set("category", "productivity")

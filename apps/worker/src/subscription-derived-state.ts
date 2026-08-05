@@ -22,6 +22,11 @@ export interface SubscriptionStats {
   byStatus: Record<(typeof SUBSCRIPTION_STATUSES)[number], number>;
 }
 
+interface SubscriptionSourceSnapshot {
+  count: number;
+  source_updated_at: string;
+}
+
 export async function refreshSubscriptionDerivedState(
   env: Env,
   userId: string,
@@ -33,6 +38,7 @@ export async function refreshSubscriptionDerivedState(
 
 export async function refreshSubscriptionListState(env: Env, userId: string): Promise<void> {
   if (!userId) return;
+  const source = await readSubscriptionSourceSnapshot(env, userId);
   const rows = await env.DB.prepare(`
     SELECT ${SUBSCRIPTION_COLUMNS} FROM subscriptions
     WHERE user_id = ?
@@ -79,17 +85,40 @@ export async function refreshSubscriptionListState(env: Env, userId: string): Pr
   }
   // 订阅写入是低频路径；这里集中重建用户级派生表，换取列表、tag、统计和 Cron 热路径的稳定低读放大。
   statements.push(env.DB.prepare(`
-    INSERT INTO subscription_user_stats (user_id, total_count, status_counts_json, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO subscription_user_stats (user_id, total_count, status_counts_json, source_updated_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(user_id) DO UPDATE SET
       total_count = excluded.total_count,
       status_counts_json = excluded.status_counts_json,
+      source_updated_at = excluded.source_updated_at,
       updated_at = excluded.updated_at
-  `).bind(userId, stats.total, JSON.stringify(stats.byStatus), timestamp, timestamp));
+  `).bind(userId, stats.total, JSON.stringify(stats.byStatus), source.source_updated_at, timestamp, timestamp));
   await env.DB.batch(statements);
 }
 
+export async function ensureSubscriptionListStateFresh(env: Env, userId: string): Promise<void> {
+  if (!userId) return;
+  const source = await readSubscriptionSourceSnapshot(env, userId);
+  const projection = await env.DB.prepare("SELECT COUNT(*) AS count FROM subscription_list_index WHERE user_id = ? LIMIT 1")
+    .bind(userId)
+    .first<{ count: number }>();
+  const stats = await readSubscriptionStatsRow(env, userId);
+  const baseCount = numberValue(source.count);
+  const projectionCount = numberValue(projection?.count);
+  // 派生表只是可删重建的缓存；数量或源版本漂移时以 subscriptions 为事实源重建，避免筛选页被旧投影误导。
+  if (
+    !stats ||
+    baseCount !== projectionCount ||
+    baseCount !== numberValue(stats.total_count) ||
+    source.source_updated_at !== (stats.source_updated_at ?? "")
+  ) {
+    await refreshSubscriptionListState(env, userId);
+  }
+}
+
 export async function getSubscriptionStats(env: Env, userId: string): Promise<SubscriptionStats> {
+  // stats 也会被 Public API/Telegram 直接读取，不能假设用户一定先走过列表页刷新投影。
+  await ensureSubscriptionListStateFresh(env, userId);
   const row = await readSubscriptionStatsRow(env, userId);
   if (row) return normalizeSubscriptionStats(row);
   await refreshSubscriptionListState(env, userId);
@@ -104,11 +133,24 @@ export async function getSubscriptionTotal(env: Env, userId: string): Promise<nu
 async function readSubscriptionStatsRow(env: Env, userId: string): Promise<SubscriptionUserStatsRow | null> {
   if (!userId) return null;
   return await env.DB.prepare(`
-    SELECT user_id, total_count, status_counts_json, created_at, updated_at
+    SELECT user_id, total_count, status_counts_json, source_updated_at, created_at, updated_at
     FROM subscription_user_stats
     WHERE user_id = ?
     LIMIT 1
   `).bind(userId).first<SubscriptionUserStatsRow>();
+}
+
+async function readSubscriptionSourceSnapshot(env: Env, userId: string): Promise<SubscriptionSourceSnapshot> {
+  // count + max(updated_at) 是 D1 轻量源版本：抓同数量旧投影，同时避免每次列表都扫完整订阅行。
+  const row = await env.DB.prepare(`
+    SELECT COUNT(*) AS count, COALESCE(MAX(updated_at), '') AS source_updated_at
+    FROM subscriptions
+    WHERE user_id = ?
+  `).bind(userId).first<SubscriptionSourceSnapshot>();
+  return {
+    count: numberValue(row?.count),
+    source_updated_at: typeof row?.source_updated_at === "string" ? row.source_updated_at : "",
+  };
 }
 
 function normalizeSubscriptionStats(row: SubscriptionUserStatsRow): SubscriptionStats {

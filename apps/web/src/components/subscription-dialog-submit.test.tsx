@@ -177,7 +177,7 @@ describe("SubscriptionDialog submit", () => {
 
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
       name: "Free uptime check",
-      price: 0,
+      price: "0",
     }));
   });
 

@@ -147,7 +147,7 @@ function subscription(overrides: Partial<RecurringCycleSubscription> = {}): Recu
     id: "codex-pro",
     name: "Codex Pro",
     logo: undefined,
-    price: 200,
+    price: "200",
     currency: "USD",
     billingCycle: "monthly",
     customDays: undefined,

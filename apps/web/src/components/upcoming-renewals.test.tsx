@@ -29,7 +29,7 @@ const baseSubscription: RecurringCycleSubscription = {
   id: "netflix",
   name: "Netflix",
   logo: undefined,
-  price: 10,
+  price: "10",
   currency: "USD",
   billingCycle: "annual",
   customDays: undefined,

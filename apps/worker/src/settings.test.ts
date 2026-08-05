@@ -98,12 +98,14 @@ class SettingsTestStatement {
 }
 
 function settingsRequest(method: string, locale: string, body?: unknown): Request {
+  const unsafe = !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
   const init: RequestInit = {
     method,
     headers: {
-      authorization: "Bearer session-token",
+      cookie: "renewlet_session=session-token; renewlet_csrf=csrf-token",
       "content-type": "application/json",
       "x-renewlet-locale": locale,
+      ...(unsafe ? { origin: "https://renewlet.example", "x-renewlet-csrf": "csrf-token" } : {}),
     },
   };
   if (body !== undefined) {
@@ -115,7 +117,6 @@ function settingsRequest(method: string, locale: string, body?: unknown): Reques
 describe("Cloudflare settings initialization", () => {
   beforeEach(() => {
     authMocks.requireAuth.mockReset().mockResolvedValue({
-      token: "session-token",
       user: { id: USER_ID },
       session: { id: "ses" },
     });
@@ -145,7 +146,7 @@ describe("Cloudflare settings initialization", () => {
     expect(createDefaultAppSettings().telegramMessageFormat).toBe("plain");
     const existing = {
       ...createDefaultAppSettings({ locale: "en-US" }),
-      monthlyBudget: 2333,
+      monthlyBudget: "2333",
       telegramMessageFormat: "markdown",
     };
     const state: SettingsTestState = {
@@ -161,13 +162,13 @@ describe("Cloudflare settings initialization", () => {
     const settings = await ensureSettings(env, USER_ID, "zh-CN");
 
     expect(settings.telegramMessageFormat).toBe("plain");
-    expect(settings.monthlyBudget).toBe(2333);
+    expect(settings.monthlyBudget).toBe("2333");
   });
 
   it("recovers invalid stored DingTalk template fields without dropping other settings", async () => {
     const existing = {
       ...createDefaultAppSettings({ locale: "en-US" }),
-      monthlyBudget: 2333,
+      monthlyBudget: "2333",
       dingtalkTitleTemplate: "x".repeat(501),
       dingtalkContentTemplate: 42,
     };
@@ -185,7 +186,7 @@ describe("Cloudflare settings initialization", () => {
 
     expect(settings.dingtalkTitleTemplate).toBe("");
     expect(settings.dingtalkContentTemplate).toBe("");
-    expect(settings.monthlyBudget).toBe(2333);
+    expect(settings.monthlyBudget).toBe("2333");
   });
 
   it("readSettings ensures a settings row from the request locale", async () => {
@@ -201,11 +202,11 @@ describe("Cloudflare settings initialization", () => {
   it("updateSettings uses the request locale when creating the first row", async () => {
     const { env, state } = createEnv();
 
-    const response = await updateSettings(settingsRequest("PUT", "zh-CN", { monthlyBudget: 2333 }), env);
+    const response = await updateSettings(settingsRequest("PUT", "zh-CN", { monthlyBudget: "2333" }), env);
 
     expect(response.status).toBe(200);
-    await expect(readSuccessData(response)).resolves.toMatchObject({ settings: { locale: "zh-CN", monthlyBudget: 2333 } });
-    expect(JSON.parse(state.rows.get(USER_ID) ?? "{}")).toMatchObject({ locale: "zh-CN", monthlyBudget: 2333 });
+    await expect(readSuccessData(response)).resolves.toMatchObject({ settings: { locale: "zh-CN", monthlyBudget: "2333" } });
+    expect(JSON.parse(state.rows.get(USER_ID) ?? "{}")).toMatchObject({ locale: "zh-CN", monthlyBudget: "2333" });
   });
 
   it("does not create settings when the PATCH payload is invalid", async () => {

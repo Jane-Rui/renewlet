@@ -39,6 +39,8 @@ func ensureAppSessionsCollection(app core.App, users *core.Collection) error {
 		fields := []core.Field{
 			userRelation(users),
 			&core.TextField{Name: "tokenHash", Required: true, Max: 128, Pattern: `^[A-Za-z0-9_-]{43}$`},
+			// csrfTokenHash 只校验 unsafe 请求的同站脚本证明；真实登录态仍只看 HttpOnly session token hash。
+			&core.TextField{Name: "csrfTokenHash", Max: 128, Pattern: `^$|^[A-Za-z0-9_-]{43}$`},
 			&core.TextField{Name: "expiresAt", Required: true, Max: 40},
 			&core.TextField{Name: "lastSeenAt", Required: true, Max: 40},
 		}
@@ -51,6 +53,7 @@ func ensureAppSessionsCollection(app core.App, users *core.Collection) error {
 			return err
 		}
 		c.AddIndex("idx_app_sessions_token_hash_unique", true, "tokenHash", "")
+		c.AddIndex("idx_app_sessions_csrf_hash", false, "csrfTokenHash", "")
 		c.AddIndex("idx_app_sessions_user", false, "user", "")
 		c.AddIndex("idx_app_sessions_expires", false, "expiresAt", "")
 		return nil

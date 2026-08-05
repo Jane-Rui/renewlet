@@ -201,7 +201,7 @@ func aiGeneratedDraftForTest(name string, notes aiGeneratedNotesField, tags []st
 	status := "active"
 	return aiGeneratedSubscriptionDraft{
 		Name:                         name,
-		Price:                        15,
+		Price:                        "15",
 		Currency:                     &currency,
 		BillingCycle:                 &billingCycle,
 		CustomDays:                   nil,

@@ -72,7 +72,7 @@ func readSubscriptionNormalizationFixtures(t *testing.T) []subscriptionNormaliza
 func newFixtureSubscriptionRecord(fields subscriptionNormalizationFields) *core.Record {
 	record := core.NewRecord(core.NewBaseCollection("subscriptions"))
 	record.Set("name", "Fixture SaaS")
-	record.Set("price", 10)
+	record.Set("price", "10")
 	record.Set("currency", "USD")
 	record.Set("billingCycle", fields.BillingCycle)
 	if fields.CustomDays != nil {

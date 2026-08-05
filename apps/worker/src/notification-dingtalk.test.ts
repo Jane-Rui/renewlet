@@ -126,8 +126,8 @@ describe("Cloudflare DingTalk notification sender", () => {
       title: "订阅提醒",
       content: "即将到期：\n- GitHub：{timestamp}",
       items: [
-        { type: "renewal", name: "GitHub", price: 10, currency: "USD", status: "active", targetDate: "2026-08-01", reminderDays: 3 },
-        { type: "trial", name: "Figma", price: 12, currency: "USD", status: "trial", targetDate: "2026-08-02", reminderDays: 3 },
+        { type: "renewal", name: "GitHub", price: "10", currency: "USD", status: "active", targetDate: "2026-08-01", reminderDays: 3 },
+        { type: "trial", name: "Figma", price: "12", currency: "USD", status: "trial", targetDate: "2026-08-02", reminderDays: 3 },
       ],
     }, "zh-CN");
 

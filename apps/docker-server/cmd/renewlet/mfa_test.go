@@ -95,17 +95,40 @@ func totpCodeForSecret(t *testing.T, secret string) string {
 	return code
 }
 
-func parseSessionToken(t *testing.T, res *http.Response) string {
+func parseProductSessionAuthFromResponse(t *testing.T, res *http.Response) string {
 	t.Helper()
-	data, err := io.ReadAll(res.Body)
-	if err != nil {
-		t.Fatal(err)
+	var sessionToken string
+	var csrfToken string
+	for _, cookie := range res.Cookies() {
+		switch cookie.Name {
+		case appSessionCookieName:
+			sessionToken = cookie.Value
+			if !cookie.HttpOnly {
+				t.Fatalf("%s must be HttpOnly", appSessionCookieName)
+			}
+		case appCSRFCookieName:
+			csrfToken = cookie.Value
+			if cookie.HttpOnly {
+				t.Fatalf("%s must stay readable by same-origin JS for CSRF headers", appCSRFCookieName)
+			}
+		}
 	}
-	body := decodeAPISuccessDataForTest[sessionResponse](t, data)
-	if body.Type != "session" || body.Session.ID == "" {
-		t.Fatalf("expected session response, got %#v", body)
+	if sessionToken == "" || csrfToken == "" {
+		t.Fatalf("expected product session and CSRF cookies, got %#v", res.Cookies())
 	}
-	return body.Session.ID
+	return routeTestProductSessionAuth(sessionToken, csrfToken)
+}
+
+func routeTestProductSessionParts(t *testing.T, token string) (string, string) {
+	t.Helper()
+	if !strings.HasPrefix(token, routeTestProductSessionPrefix) {
+		t.Fatalf("expected route product session token, got %q", token)
+	}
+	parts := strings.SplitN(strings.TrimPrefix(token, routeTestProductSessionPrefix), ":", 2)
+	if len(parts) != 2 {
+		t.Fatalf("expected route product session + csrf pair, got %q", token)
+	}
+	return parts[0], parts[1]
 }
 
 func parseMFATicket(t *testing.T, res *http.Response) string {
@@ -151,9 +174,10 @@ func TestProductAuthLoginWithoutMFAIssuesSession(t *testing.T) {
 		t.Fatalf("expected login 200, got %d: %s", res.Code, res.Body.String())
 	}
 	body := decodeAPISuccessDataForTest[sessionResponse](t, res.Body.Bytes())
-	if body.Type != "session" || body.Session.ID == "" {
+	if body.Type != "session" || body.Session.ExpiresAt == "" {
 		t.Fatalf("expected product session response, got %#v", body)
 	}
+	_ = parseProductSessionAuthFromResponse(t, res.Result())
 	if got := countMFARecords(t, app, "app_sessions", user.Id); got != 1 {
 		t.Fatalf("expected exactly one app session, got %d", got)
 	}
@@ -166,10 +190,11 @@ func TestSelfServiceTOTPEnableRenewsProductSession(t *testing.T) {
 	resetMFATestKeyCache(t)
 	app := newMFATestApp(t)
 	user, oldToken := createRouteTestUser(t, app, "self-mfa")
-	otherToken, _, err := createAppSession(app, user.Id)
+	otherToken, otherCSRFToken, _, err := createAppSession(app, user.Id)
 	if err != nil {
 		t.Fatal(err)
 	}
+	otherAuth := routeTestProductSessionAuth(otherToken, otherCSRFToken)
 	setup, err := startTOTPSetup(app, user)
 	if err != nil {
 		t.Fatal(err)
@@ -181,20 +206,23 @@ func TestSelfServiceTOTPEnableRenewsProductSession(t *testing.T) {
 		t.Fatalf("expected TOTP enable 200, got %d: %s", res.Code, res.Body.String())
 	}
 	response := decodeAPISuccessDataForTest[mfaRecoveryCodesResponse](t, res.Body.Bytes())
-	if response.Type != "session" || response.Session.ID == "" || len(response.RecoveryCodes) != mfaRecoveryCodeCount {
+	if response.Type != "session" || response.Session.ExpiresAt == "" || len(response.RecoveryCodes) != mfaRecoveryCodeCount {
 		t.Fatalf("expected renewed session with recovery codes, got %#v", response)
 	}
-	if response.Session.ID == strings.TrimPrefix(oldToken, "Bearer ") || response.Session.ID == otherToken {
+	renewedAuth := parseProductSessionAuthFromResponse(t, res.Result())
+	renewedToken, _ := routeTestProductSessionParts(t, renewedAuth)
+	oldSessionToken, _ := routeTestProductSessionParts(t, oldToken)
+	if renewedToken == oldSessionToken || renewedToken == otherToken {
 		t.Fatalf("expected TOTP enable to rotate away from old tokens")
 	}
 
-	for _, token := range []string{oldToken, "Bearer " + otherToken} {
+	for _, token := range []string{oldToken, otherAuth} {
 		staleRes := serveTestRequest(t, app, http.MethodGet, "/api/app/auth/mfa/status", "", token)
 		if staleRes.Code != http.StatusUnauthorized {
 			t.Fatalf("expected old token to be unauthorized, got %d: %s", staleRes.Code, staleRes.Body.String())
 		}
 	}
-	statusRes := serveTestRequest(t, app, http.MethodGet, "/api/app/auth/mfa/status", "", "Bearer "+response.Session.ID)
+	statusRes := serveTestRequest(t, app, http.MethodGet, "/api/app/auth/mfa/status", "", renewedAuth)
 	if statusRes.Code != http.StatusOK {
 		t.Fatalf("expected renewed token to read MFA status, got %d: %s", statusRes.Code, statusRes.Body.String())
 	}
@@ -297,11 +325,35 @@ func TestProductAuthLoginWithPasskeyOnlyIssuesSession(t *testing.T) {
 		t.Fatalf("expected passkey-only password login 200, got %d: %s", res.Code, res.Body.String())
 	}
 	body := decodeAPISuccessDataForTest[sessionResponse](t, res.Body.Bytes())
-	if body.Type != "session" || body.Session.ID == "" {
+	if body.Type != "session" || body.Session.ExpiresAt == "" {
 		t.Fatalf("expected passkey-only password login to issue product session, got %#v", body)
 	}
+	_ = parseProductSessionAuthFromResponse(t, res.Result())
 	if got := countMFARecords(t, app, "mfa_auth_tickets", user.Id); got != 0 {
 		t.Fatalf("expected no MFA ticket for passkey-only password login, got %d", got)
+	}
+}
+
+func TestPasskeyRegisterOptionsDoesNotRenewSession(t *testing.T) {
+	resetMFATestKeyCache(t)
+	app := newMFATestApp(t)
+	_, token := createRouteTestUser(t, app, "passkey-options")
+
+	res := serveTestRequestWithHeaders(t, app, http.MethodPost, "/api/app/auth/passkeys/register/options", `{"name":"MacBook Touch ID","currentPassword":"password123"}`, token, map[string]string{
+		"X-Forwarded-Proto": "https",
+		"X-Forwarded-Host":  "renewlet.example",
+	})
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected Passkey register options 200, got %d: %s", res.Code, res.Body.String())
+	}
+	body := decodeAPISuccessDataForTest[passkeyWebAuthnOptionsResponse](t, res.Body.Bytes())
+	if body.ChallengeID == "" || body.ExpiresAt == "" || body.Options == nil {
+		t.Fatalf("expected Passkey register options challenge response, got %#v", body)
+	}
+	for _, cookie := range res.Result().Cookies() {
+		if cookie.Name == appSessionCookieName || cookie.Name == appCSRFCookieName {
+			t.Fatalf("Passkey register options must not renew session cookies, got %#v", res.Result().Cookies())
+		}
 	}
 }
 
@@ -431,7 +483,7 @@ func TestAdminResetMFAClearsCredentialsSessionsAndTickets(t *testing.T) {
 	if _, err := replaceRecoveryCodes(app, target.Id); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := createAppSession(app, target.Id); err != nil {
+	if _, _, _, err := createAppSession(app, target.Id); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := createMfaTicketRecord(app, target.Id, []string{mfaMethodTOTP}, ""); err != nil {
@@ -470,7 +522,7 @@ func TestAdminResetPasskeysPreservesAuthenticatorCredentials(t *testing.T) {
 	if _, err := replaceRecoveryCodes(app, target.Id); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := createAppSession(app, target.Id); err != nil {
+	if _, _, _, err := createAppSession(app, target.Id); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := createMfaTicketRecord(app, target.Id, []string{mfaMethodTOTP}, ""); err != nil {

@@ -11,6 +11,7 @@ import { useCallback, useDeferredValue, useMemo, useState } from "react";
 import { DEFAULT_LOCALE, type Locale } from "@/i18n/locales";
 import { todayDateOnlyInTimeZone } from "@/lib/time/date-only";
 import type { Category, Subscription, SubscriptionStatus } from "@/types/subscription";
+import { moneyToNumber } from "@renewlet/shared/money";
 import {
   collectSubscriptionTags,
   DEFAULT_SUBSCRIPTION_ADVANCED_FILTERS,
@@ -28,12 +29,12 @@ import {
 
 interface UseSubscriptionFiltersOptions {
   defaultCurrency?: string;
-  convert?: (amount: number, from: string, to: string) => number;
+  convert?: (amount: number | string, from: string, to: string) => number;
   locale?: Locale;
   timeZone?: string;
 }
 
-const IDENTITY_CONVERT = (amount: number) => amount;
+const IDENTITY_CONVERT = (amount: number | string) => moneyToNumber(amount);
 
 /** 管理订阅列表筛选状态，并返回筛选后的结果。 */
 export function useSubscriptionFilters(

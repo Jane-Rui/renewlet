@@ -3,7 +3,7 @@
  *
  * 架构位置：
  * - 自定义配置和订阅 Logo 可能指向 `/api/app/assets/...` 私有资产。
- * - 浏览器原生 `<img>` 无法附加 PocketBase Authorization header，因此这里先 fetch 为 Blob，再转 object URL。
+ * - 私有资产读取依赖 HttpOnly cookie；这里先 credentialed fetch 为 Blob，再转 object URL。
  *
  * 状态链路：
  * ```
@@ -14,8 +14,8 @@
  * 注意： object URL 必须在 src 变化或卸载时释放，否则长时间管理图标会造成内存泄漏。
  */
 import { useEffect, useMemo, useState, type ImgHTMLAttributes } from "react";
-import { getAuthHeader } from "@/lib/pocketbase";
 import { isExternalHttpImageSrc, resolveDisplayLogoSrc } from "@/lib/logo-url";
+import { readProductSessionSnapshot } from "@/services/product-session";
 
 type AuthorizedImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, "src" | "onError"> & {
   /** 支持私有资产代理路径和外部 http(s) 图片；显示前会按当前页面协议做安全降级/升级。 */
@@ -46,8 +46,9 @@ function isPrivateAssetUrl(src: string): boolean {
   }
 }
 
-function authorizedImageAuthKey(headers: Record<string, string>): string {
-  return headers["Authorization"] ?? "";
+function authorizedImageAuthKey(): string {
+  const snapshot = readProductSessionSnapshot();
+  return snapshot ? `${snapshot.userId}:${snapshot.expiresAt}:${snapshot.verifiedAt}` : "";
 }
 
 function authorizedImageCacheKey(src: string, authKey: string): string {
@@ -56,8 +57,7 @@ function authorizedImageCacheKey(src: string, authKey: string): string {
 }
 
 async function acquireAuthorizedImageObjectUrl(src: string, signal: AbortSignal): Promise<{ objectUrl: string; release: () => void }> {
-  const headers = getAuthHeader();
-  const authKey = authorizedImageAuthKey(headers);
+  const authKey = authorizedImageAuthKey();
   clearIdleAuthorizedImageCacheForOtherAuth(authKey);
   const key = authorizedImageCacheKey(src, authKey);
   let entry = authorizedImageCache.get(key);
@@ -67,7 +67,7 @@ async function acquireAuthorizedImageObjectUrl(src: string, signal: AbortSignal)
       refs: 0,
       objectUrl: null,
       revokeTimer: null,
-      promise: fetchAuthorizedImageObjectUrl(src, headers),
+      promise: fetchAuthorizedImageObjectUrl(src, authKey),
     };
     authorizedImageCache.set(key, entry);
   }
@@ -90,15 +90,13 @@ async function acquireAuthorizedImageObjectUrl(src: string, signal: AbortSignal)
   }
 }
 
-async function fetchAuthorizedImageObjectUrl(src: string, headers: Record<string, string>): Promise<string> {
+async function fetchAuthorizedImageObjectUrl(src: string, authKey: string): Promise<string> {
   const response = await fetch(src, {
     credentials: "include",
-    headers,
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   const blob = await response.blob();
   const objectUrl = URL.createObjectURL(blob);
-  const authKey = authorizedImageAuthKey(headers);
   const entry = authorizedImageCache.get(authorizedImageCacheKey(src, authKey));
   if (entry) entry.objectUrl = objectUrl;
   return objectUrl;

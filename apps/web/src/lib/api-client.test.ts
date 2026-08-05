@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, apiFetch, apiFetchStream } from "./api-client";
 import { okResponseSchema } from "@/lib/api/schemas/common";
-import { readProductSession, writeProductSession, type ProductSessionData } from "@/services/product-session";
+import { readProductSession, writeProductSession, type ProductSessionData, type ProductSessionSnapshot } from "@/services/product-session";
 
 const mocks = vi.hoisted(() => ({
   clearAuthSession: vi.fn(),
@@ -12,17 +12,17 @@ vi.mock("@/lib/auth-session", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/auth-session")>();
   return {
     ...actual,
-    clearAuthSession: (token: string) => {
-      mocks.clearAuthSession(token);
-      actual.clearAuthSession(token);
+    clearAuthSession: (snapshot: ProductSessionSnapshot | null) => {
+      mocks.clearAuthSession(snapshot);
+      actual.clearAuthSession(snapshot);
     },
   };
 });
 
-function sessionFixture(token: string): ProductSessionData {
+function sessionFixture(expiresAt = "2026-07-03T00:00:00.000Z"): ProductSessionData {
   return {
     type: "session",
-    session: { id: token, expiresAt: "2026-07-03T00:00:00.000Z" },
+    session: { expiresAt },
     user: {
       id: "user-1",
       email: "alice@example.com",
@@ -52,6 +52,7 @@ describe("api-client", () => {
     vi.stubGlobal("fetch", vi.fn());
     mocks.clearAuthSession.mockReset();
     window.localStorage.clear();
+    document.cookie = "renewlet_csrf=; Max-Age=0; path=/";
   });
 
   afterEach(() => {
@@ -77,6 +78,7 @@ describe("api-client", () => {
   it("sends JSON content-type when a non-FormData body is present", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValue(new Response(successResponseBody(), { status: 200 }));
+    document.cookie = "renewlet_csrf=csrf-token-1; path=/";
 
     await apiFetch("/api/example", okResponseSchema, {
       method: "POST",
@@ -85,6 +87,7 @@ describe("api-client", () => {
 
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
     expect((init.headers as Headers).get("content-type")).toBe("application/json");
+    expect((init.headers as Headers).get("x-renewlet-csrf")).toBe("csrf-token-1");
   });
 
   it("does not set content-type for FormData bodies", async () => {
@@ -148,8 +151,8 @@ describe("api-client", () => {
     expect(mocks.clearAuthSession).not.toHaveBeenCalled();
   });
 
-  it("clears the matching product session for required requests that carried a token", async () => {
-    writeProductSession(sessionFixture("token-1"));
+  it("clears the matching product session for required requests that had a session snapshot", async () => {
+    writeProductSession(sessionFixture());
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValue(new Response(errorResponseBody("UNAUTHORIZED", "Session has expired"), { status: 401 }));
 
@@ -159,16 +162,19 @@ describe("api-client", () => {
     });
 
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
-    expect((init.headers as Headers).get("authorization")).toBe("Bearer token-1");
-    expect(mocks.clearAuthSession).toHaveBeenCalledWith("token-1");
+    expect((init.headers as Headers).get("authorization")).toBeNull();
+    expect(mocks.clearAuthSession).toHaveBeenCalledWith(expect.objectContaining({
+      userId: "user-1",
+      expiresAt: "2026-07-03T00:00:00.000Z",
+    }));
     expect(readProductSession()).toBeNull();
   });
 
   it("does not let an older required request clear a newer product session", async () => {
-    writeProductSession(sessionFixture("old-token"));
+    writeProductSession(sessionFixture("2026-07-03T00:00:00.000Z"));
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockImplementation(async () => {
-      writeProductSession(sessionFixture("new-token"));
+      writeProductSession(sessionFixture("2026-08-03T00:00:00.000Z"));
       return new Response(errorResponseBody("UNAUTHORIZED", "Session has expired"), { status: 401 });
     });
 
@@ -177,12 +183,14 @@ describe("api-client", () => {
       code: "UNAUTHORIZED",
     });
 
-    expect(mocks.clearAuthSession).toHaveBeenCalledWith("old-token");
-    expect(readProductSession()?.session.id).toBe("new-token");
+    expect(mocks.clearAuthSession).toHaveBeenCalledWith(expect.objectContaining({
+      expiresAt: "2026-07-03T00:00:00.000Z",
+    }));
+    expect(readProductSession()?.session.expiresAt).toBe("2026-08-03T00:00:00.000Z");
   });
 
   it("omits Authorization and keeps the current session for authMode none", async () => {
-    writeProductSession(sessionFixture("token-1"));
+    writeProductSession(sessionFixture());
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValue(new Response(errorResponseBody("UNAUTHORIZED", "No pre-auth challenge"), { status: 401 }));
 
@@ -197,11 +205,11 @@ describe("api-client", () => {
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
     expect((init.headers as Headers).get("authorization")).toBeNull();
     expect(mocks.clearAuthSession).not.toHaveBeenCalled();
-    expect(readProductSession()?.session.id).toBe("token-1");
+    expect(readProductSession()?.session.expiresAt).toBe("2026-07-03T00:00:00.000Z");
   });
 
-  it("can send Authorization for authMode optional without clearing the session on 401", async () => {
-    writeProductSession(sessionFixture("token-1"));
+  it("omits Authorization for authMode optional without clearing the session on 401", async () => {
+    writeProductSession(sessionFixture());
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValue(new Response(errorResponseBody("UNAUTHORIZED", "Optional auth failed"), { status: 401 }));
 
@@ -213,13 +221,13 @@ describe("api-client", () => {
     });
 
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
-    expect((init.headers as Headers).get("authorization")).toBe("Bearer token-1");
+    expect((init.headers as Headers).get("authorization")).toBeNull();
     expect(mocks.clearAuthSession).not.toHaveBeenCalled();
-    expect(readProductSession()?.session.id).toBe("token-1");
+    expect(readProductSession()?.session.expiresAt).toBe("2026-07-03T00:00:00.000Z");
   });
 
   it("does not clear auth session for AI model list provider failures", async () => {
-    writeProductSession(sessionFixture("token-1"));
+    writeProductSession(sessionFixture());
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValue(new Response(errorResponseBody(
       "AI_MODEL_LIST_FAILED",
@@ -236,7 +244,7 @@ describe("api-client", () => {
       code: "AI_MODEL_LIST_FAILED",
     });
     expect(mocks.clearAuthSession).not.toHaveBeenCalled();
-    expect(readProductSession()?.session.id).toBe("token-1");
+    expect(readProductSession()?.session.expiresAt).toBe("2026-07-03T00:00:00.000Z");
   });
 
   it("turns Zod field errors into a readable message", async () => {

@@ -45,7 +45,7 @@ function makeSubscription(overrides: Partial<Subscription> = {}): Subscription {
     id: "sub-1",
     name: "Original SaaS",
     logo: undefined,
-    price: 29,
+    price: "29",
     currency: "USD",
     billingCycle: "monthly",
     customDays: undefined,
@@ -98,7 +98,7 @@ function CreateCloneDialogHarness({
   const [dialogKind, setDialogKind] = useState<"create" | "clone" | null>(null);
   const cloneSource = makeSubscription({
     name: "Cloned SaaS",
-    price: 42,
+    price: "42",
     currency: "CNY",
     publicHidden: true,
     notes: "Keep note",

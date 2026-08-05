@@ -14,7 +14,7 @@ import { buildUpcomingReminderItems } from "./upcoming-reminders";
 interface BuildDashboardStatsInput {
   subscriptions: readonly Subscription[];
   defaultCurrency: string;
-  convert: (amount: number, from: string, to: string) => number;
+  convert: (amount: number | string, from: string, to: string) => number;
   notificationReminderDays?: number;
   now?: Date;
   timeZone?: string;

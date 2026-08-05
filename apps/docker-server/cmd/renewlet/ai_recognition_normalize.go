@@ -98,7 +98,12 @@ func aiGeneratedDraftToRecognized(draft aiGeneratedSubscriptionDraft) aiRecogniz
 		Warnings:                     warnings,
 	}
 	if price, ok, valid := parseAIGeneratedNumber(draft.Price); ok {
-		recognized.Price = &price
+		amount, err := canonicalMoneyFromFloat(price)
+		if err != nil {
+			recognized.Warnings = append(recognized.Warnings, "AI_WARNING_PRICE_INVALID")
+		} else {
+			recognized.Price = &amount
+		}
 	} else if !valid {
 		recognized.Warnings = append(recognized.Warnings, "AI_WARNING_PRICE_INVALID")
 	}
@@ -167,9 +172,14 @@ func normalizeAISubscriptionDraft(draft aiRecognizedSubscriptionDraft, configCon
 		return draft, false
 	}
 	draft.Warnings = compactAIWarnings(draft.Warnings, 12)
-	if draft.Price != nil && (*draft.Price < 0 || *draft.Price > 1_000_000_000) {
-		draft.Price = nil
-		draft.Warnings = append(draft.Warnings, "AI_WARNING_PRICE_INVALID")
+	if draft.Price != nil {
+		amount, err := canonicalMoneyString(*draft.Price)
+		if err != nil {
+			draft.Price = nil
+			draft.Warnings = append(draft.Warnings, "AI_WARNING_PRICE_INVALID")
+		} else {
+			draft.Price = &amount
+		}
 	}
 	draft.Currency = normalizeAIOptionalCurrency(draft.Currency, &draft.Warnings)
 	draft.BillingCycle = normalizeAIOptionalEnum(draft.BillingCycle, isValidBillingCycle, "AI_WARNING_BILLING_CYCLE_INVALID", &draft.Warnings)

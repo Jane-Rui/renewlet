@@ -14,7 +14,7 @@ CREATE TABLE subscriptions_new (
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   logo TEXT,
-  price REAL NOT NULL,
+  price TEXT NOT NULL,
   currency TEXT NOT NULL,
   billing_cycle TEXT NOT NULL,
   custom_days INTEGER,

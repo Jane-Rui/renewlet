@@ -64,7 +64,7 @@ function makeSubscription(overrides: Partial<Subscription> = {}): Subscription {
     id: "sub-1",
     name: "Critical SaaS",
     logo: undefined,
-    price: 99,
+    price: "99",
     currency: "USD",
     billingCycle: "monthly",
     customDays: undefined,

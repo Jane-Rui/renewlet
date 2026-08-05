@@ -207,7 +207,7 @@ function publicStatusStats(data: PublicStatusResponse) {
 
 function publicStatusMonthlyTotal(
   data: PublicStatusResponse,
-  convert: (amount: number, from: string, to: string) => number,
+  convert: (amount: number | string, from: string, to: string) => number,
 ) {
   const targetCurrency = data.page.currency;
   if (!data.page.showPrices || !targetCurrency) return 0;

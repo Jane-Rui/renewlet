@@ -68,7 +68,7 @@ type appSettings struct {
 	BuiltInIconSources       builtInIconSourceSettings `json:"builtInIconSources"`
 	OnlineIconSources        onlineIconSourceSettings  `json:"onlineIconSources"`
 	AIRecognition            aiRecognitionSettings     `json:"aiRecognition"`
-	MonthlyBudget            float64                   `json:"monthlyBudget"`
+	MonthlyBudget            string                    `json:"monthlyBudget"`
 	Timezone                 string                    `json:"timezone"`
 	NotificationTimeLocal    string                    `json:"notificationTimeLocal"`
 	NotificationReminderDays int                       `json:"notificationReminderDays"`
@@ -124,7 +124,7 @@ type notificationSubscription struct {
 	ID                     string  `json:"id"`
 	Name                   string  `json:"name"`
 	LogoURL                string  `json:"-"`
-	Price                  float64 `json:"price"`
+	Price                  string  `json:"price"`
 	Currency               string  `json:"currency"`
 	Status                 string  `json:"status"`
 	BillingCycle           string  `json:"billingCycle"`
@@ -149,7 +149,7 @@ type notificationContentItem struct {
 	SubscriptionID string                  `json:"subscriptionId"`
 	Name           string                  `json:"name"`
 	LogoURL        string                  `json:"-"`
-	Price          float64                 `json:"price"`
+	Price          string                  `json:"price"`
 	Currency       string                  `json:"currency"`
 	Status         string                  `json:"status"`
 	TargetDate     string                  `json:"targetDate"`
@@ -472,7 +472,7 @@ func defaultAppSettings() appSettings {
 			APIKey:                 "",
 			DefaultThinkingControl: nil,
 		},
-		MonthlyBudget:            1500,
+		MonthlyBudget:            "1500",
 		Timezone:                 "UTC",
 		NotificationTimeLocal:    "08:00",
 		NotificationReminderDays: defaultNotificationReminderDays,

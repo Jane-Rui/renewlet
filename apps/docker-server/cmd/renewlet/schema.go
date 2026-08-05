@@ -66,6 +66,9 @@ func ensureSchema(app core.App) error {
 	if err := ensureSubscriptionSchedulerStatesCollection(app, users); err != nil {
 		return err
 	}
+	if err := ensureSubscriptionDerivedTables(app); err != nil {
+		return err
+	}
 	if err := ensureSettingsCollection(app, users); err != nil {
 		return err
 	}
@@ -105,7 +108,10 @@ func ensureSchema(app core.App) error {
 	if err := backfillAutodates(app, "subscriptions", "subscription_scheduler_states", "settings", "custom_configs", "assets", "notification_jobs", "calendar_feeds", "public_status_pages", "api_tokens", "app_sessions", "mfa_totp_credentials", "mfa_recovery_codes", "mfa_auth_tickets", "passkey_credentials", "passkey_challenges", "telegram_bot_bindings", "cloud_backup_targets", "media_icon_indexes"); err != nil {
 		return err
 	}
-	if err := backfillSubscriptionSchedulerStates(app); err != nil {
+	if err := migrateMoneyStrings(app); err != nil {
+		return err
+	}
+	if err := backfillSubscriptionDerivedStates(app); err != nil {
 		return err
 	}
 	if err := deleteLegacyHashOnlyCalendarFeeds(app); err != nil {
@@ -292,7 +298,6 @@ func ensureSubscriptionsCollection(app core.App, users *core.Collection) error {
 	return ensureCollectionWithSave(app, "subscriptions", func(c *core.Collection) (bool, error) {
 		ownerRules(c)
 		minZero := 0.0
-		maxPrice := float64(maxSubscriptionPrice)
 		maxReminder := float64(maxReminderDays)
 		replaceLegacyLogoURLField := false
 		if existingLogo := c.Fields.GetByName("logo"); existingLogo != nil && existingLogo.Type() == core.FieldTypeURL {
@@ -302,7 +307,7 @@ func ensureSubscriptionsCollection(app core.App, users *core.Collection) error {
 			userRelation(users),
 			&core.TextField{Name: "name", Required: true, Max: 120},
 			&core.TextField{Name: "logo", Max: maxLogoReferenceLength},
-			&core.NumberField{Name: "price", Min: &minZero, Max: &maxPrice},
+			&core.TextField{Name: "price", Required: true, Max: 32},
 			&core.TextField{Name: "currency", Required: true, Max: 8, Pattern: `^[A-Z]{3}$`},
 			&core.SelectField{Name: "billingCycle", Required: true, Values: []string{"weekly", "monthly", "quarterly", "semi-annual", "annual", "custom", "one-time"}},
 			&core.NumberField{Name: "customDays", OnlyInt: true, Min: &minZero},
@@ -332,6 +337,13 @@ func ensureSubscriptionsCollection(app core.App, users *core.Collection) error {
 		for _, field := range fields {
 			if field.GetName() == "logo" {
 				if err := upsertFieldAllowingTypeReplace(c, field, core.FieldTypeURL); err != nil {
+					return false, err
+				}
+				continue
+			}
+			if field.GetName() == "price" {
+				// 金额字段以 decimal string 为事实源；允许从旧 NumberField 原地替换后由启动迁移 canonicalize 旧值。
+				if err := upsertFieldAllowingTypeReplace(c, field, core.FieldTypeNumber); err != nil {
 					return false, err
 				}
 				continue
@@ -387,10 +399,19 @@ func ensureSubscriptionSchedulerStatesCollection(app core.App, users *core.Colle
 		if err := upsertField(c, &core.TextField{Name: "lastAutoRenewLocalDate", Max: 10, Pattern: `^$|^\d{4}-\d{2}-\d{2}$`}); err != nil {
 			return err
 		}
+		// next* 字段只是 Cron 热路径索引；提醒幂等仍由单用户逻辑和 notification_jobs 唯一键承担。
+		for _, name := range []string{"nextAutoRenewCheckAtUTC", "nextDailyNotificationDueAtUTC", "nextRepeatNotificationDueAtUTC"} {
+			if err := upsertField(c, &core.TextField{Name: name, Max: 40}); err != nil {
+				return err
+			}
+		}
 		if err := ensureAutodates(c); err != nil {
 			return err
 		}
 		c.AddIndex("idx_subscription_scheduler_states_user_unique", true, "user", "")
+		c.AddIndex("idx_subscription_scheduler_states_auto_due", false, "nextAutoRenewCheckAtUTC, user", "")
+		c.AddIndex("idx_subscription_scheduler_states_daily_due", false, "nextDailyNotificationDueAtUTC, user", "")
+		c.AddIndex("idx_subscription_scheduler_states_repeat_due", false, "nextRepeatNotificationDueAtUTC, user", "")
 		return nil
 	})
 }
@@ -718,76 +739,4 @@ func deleteLegacyHashOnlyCalendarFeeds(app core.App) error {
 		}
 	}
 	return nil
-}
-
-func migrateCostSharingCurrentUserPayerShape(app core.App) error {
-	for offset := 0; ; offset += subscriptionCleanupPageSize {
-		rows, err := app.FindRecordsByFilter("subscriptions", "id != ''", "created", subscriptionCleanupPageSize, offset)
-		if err != nil {
-			return err
-		}
-		for _, record := range rows {
-			if err := migrateCostSharingCurrentUserPayerRecord(app, record); err != nil {
-				return err
-			}
-		}
-		if len(rows) < subscriptionCleanupPageSize {
-			return nil
-		}
-	}
-}
-
-func migrateCostSharingCurrentUserPayerRecord(app core.App, record *core.Record) error {
-	data, err := jsonBytesFromValue(record.Get("costSharing"))
-	if err != nil {
-		return err
-	}
-	trimmed := strings.TrimSpace(string(data))
-	if trimmed == "" || trimmed == "{}" {
-		return nil
-	}
-	var payload map[string]interface{}
-	if err := json.Unmarshal(data, &payload); err != nil {
-		return nil
-	}
-	changed := false
-	selfMemberID, _ := payload["selfMemberId"].(string)
-	// 旧 PR 形状把“我/付款人/是否参与”写进成员 JSON；新契约固定当前账户付款，成员数组只表示其他人的应收金额。
-	for _, key := range []string{"payerMemberId", "selfMemberId"} {
-		if _, ok := payload[key]; ok {
-			delete(payload, key)
-			changed = true
-		}
-	}
-	if members, ok := payload["members"].([]interface{}); ok {
-		nextMembers := members[:0]
-		for _, item := range members {
-			member, ok := item.(map[string]interface{})
-			if !ok {
-				nextMembers = append(nextMembers, item)
-				continue
-			}
-			if strings.TrimSpace(selfMemberID) != "" && strings.TrimSpace(fmt.Sprint(member["id"])) == strings.TrimSpace(selfMemberID) {
-				changed = true
-				continue
-			}
-			if _, ok := member["included"]; ok {
-				delete(member, "included")
-				changed = true
-			}
-			nextMembers = append(nextMembers, member)
-		}
-		if len(nextMembers) != len(members) {
-			payload["members"] = nextMembers
-		}
-		if len(nextMembers) == 0 {
-			record.Set("costSharing", emptyJSONPayload{})
-			return app.SaveNoValidate(record)
-		}
-	}
-	if !changed {
-		return nil
-	}
-	record.Set("costSharing", payload)
-	return app.SaveNoValidate(record)
 }

@@ -82,7 +82,7 @@ type aiRecognizeResponse struct {
 
 type aiRecognizedSubscriptionDraft struct {
 	Name                         string                `json:"name"`
-	Price                        *float64              `json:"price"`
+	Price                        *string               `json:"price"`
 	Currency                     *string               `json:"currency"`
 	BillingCycle                 *string               `json:"billingCycle"`
 	CustomDays                   *int                  `json:"customDays"`

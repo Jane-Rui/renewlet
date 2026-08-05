@@ -11,7 +11,7 @@ import {
   SubscriptionsPageSkeleton,
 } from "@/components/loading-skeleton";
 import { subscriptionsInfiniteQueryOptions, subscriptionsListQueryOptions } from "@/hooks/use-subscriptions";
-import { readProductSession } from "@/services/product-session";
+import { readProductSession, readProductSessionSnapshot } from "@/services/product-session";
 
 type RouteModule = { default: ComponentType };
 type RouteLoader = () => Promise<RouteModule>;
@@ -200,7 +200,7 @@ const resourcesByExactPath = new Map<string, RouteResource>(
 const inFlightPreloads = new Map<string, Promise<void>>();
 const preloadListeners = new Set<() => void>();
 let routePreloadPendingCount = 0;
-let lastIdlePreloadSessionToken: string | null = null;
+let lastIdlePreloadSessionKey: string | null = null;
 
 function routeResourceForPathname(pathname: string): RouteResource | null {
   if (pathname.startsWith("/status/")) return routeResources.publicStatus;
@@ -233,7 +233,7 @@ function trackPreloadPromise(promise: Promise<void>) {
 }
 
 function canPrefetchPrivateData() {
-  return Boolean(readProductSession()?.session.id);
+  return Boolean(readProductSession());
 }
 
 function canIdlePreloadRoutes() {
@@ -292,11 +292,12 @@ export function preloadRoute(pathname: string, queryClient?: QueryClient | null)
 }
 
 export function scheduleAuthenticatedRoutePreloads(queryClient: QueryClient): () => void {
-  const sessionToken = readProductSession()?.session.id;
-  if (!sessionToken || sessionToken === lastIdlePreloadSessionToken || !canIdlePreloadRoutes()) {
+  const snapshot = readProductSessionSnapshot();
+  const sessionKey = snapshot ? `${snapshot.userId}:${snapshot.expiresAt}:${snapshot.verifiedAt}` : "";
+  if (!sessionKey || sessionKey === lastIdlePreloadSessionKey || !canIdlePreloadRoutes()) {
     return () => undefined;
   }
-  lastIdlePreloadSessionToken = sessionToken;
+  lastIdlePreloadSessionKey = sessionKey;
 
   return scheduleIdleTask(() => {
     // 登录后的 H5 主导航没有 hover；只在浏览器空闲且非省流量网络下预热主工作区路由。

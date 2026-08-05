@@ -118,7 +118,7 @@ function subscriptionFixture(overrides: Partial<ApiSubscription> = {}): ApiSubsc
     id: "sub_1",
     name: "GitHub",
     logo: undefined,
-    price: 4,
+    price: "4",
     currency: "USD",
     billingCycle: "monthly",
     customDays: undefined,

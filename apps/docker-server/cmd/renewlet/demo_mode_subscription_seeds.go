@@ -12,7 +12,7 @@ type demoSubscriptionSeedSource struct {
 	Name               string
 	LogoSlug           string
 	LogoURL            string
-	Price              float64
+	Price              string
 	Currency           string
 	BillingCycle       string
 	Category           string
@@ -35,7 +35,7 @@ type demoSubscriptionSeed struct {
 	LogoSlug                     string
 	LogoURL                      string
 	Name                         string
-	Price                        float64
+	Price                        string
 	Currency                     string
 	BillingCycle                 string
 	CustomDays                   int
@@ -75,13 +75,13 @@ var demoPinnedSubscriptionSlugs = map[string]struct{}{
 	"linear-business":             {},
 }
 
-func demoSubscriptionSeedSourceItem(slug string, name string, logoSlug string, logoURL string, price float64, currency string, billingCycle string, category string, status string, paymentMethod string, startOffsetDays int, nextOffsetDays int, trialEndOffsetDays *int, reminderDays int, website string, pricingSource string, tags []string, planLabel string, priceBasis string) demoSubscriptionSeedSource {
+func demoSubscriptionSeedSourceItem(slug string, name string, logoSlug string, logoURL string, price string, currency string, billingCycle string, category string, status string, paymentMethod string, startOffsetDays int, nextOffsetDays int, trialEndOffsetDays *int, reminderDays int, website string, pricingSource string, tags []string, planLabel string, priceBasis string) demoSubscriptionSeedSource {
 	return demoSubscriptionSeedSource{
 		Slug:               slug,
 		Name:               name,
 		LogoSlug:           logoSlug,
 		LogoURL:            logoURL,
-		Price:              price,
+		Price:              mustDemoMoneyString(price),
 		Currency:           currency,
 		BillingCycle:       billingCycle,
 		Category:           category,
@@ -97,6 +97,15 @@ func demoSubscriptionSeedSourceItem(slug string, name string, logoSlug string, l
 		PlanLabel:          planLabel,
 		PriceBasis:         priceBasis,
 	}
+}
+
+func mustDemoMoneyString(value string) string {
+	amount, err := canonicalMoneyString(value)
+	if err != nil {
+		// demo catalog 随源码发布，不是用户输入；金额 seed 损坏要在启动/测试时失败，不能静默写成 0。
+		panic("invalid demo money seed: " + value)
+	}
+	return amount
 }
 
 func demoIntPtr(value int) *int {

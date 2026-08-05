@@ -12,7 +12,7 @@ import { buildDashboardStats } from "../domain/dashboard-stats";
 export function useDashboardStats(
   subscriptions: readonly Subscription[],
   defaultCurrency: string,
-  convert: (amount: number, from: string, to: string) => number,
+  convert: (amount: number | string, from: string, to: string) => number,
   timeZone: string,
   notificationReminderDays: number,
 ) {

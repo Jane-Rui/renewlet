@@ -7,9 +7,6 @@ package main
 //
 // 注意： 调整 item type 或文案分组会影响所有渠道文本和 notification job result schema。
 import (
-	"fmt"
-	"math"
-	"strconv"
 	"strings"
 	"time"
 
@@ -81,7 +78,7 @@ func notificationSubscriptionFromRecord(row *core.Record) notificationSubscripti
 		ID:                     row.Id,
 		Name:                   row.GetString("name"),
 		LogoURL:                row.GetString("logo"),
-		Price:                  row.GetFloat("price"),
+		Price:                  moneyForRecord(row.Get("price")),
 		Currency:               row.GetString("currency"),
 		Status:                 row.GetString("status"),
 		BillingCycle:           row.GetString("billingCycle"),
@@ -365,16 +362,8 @@ func formatRepeatReminderText(interval string, locale appLocale) string {
 	return serverFormat(locale, "notification.content.repeatEvery", map[string]interface{}{"hours": hours})
 }
 
-func formatAmount(amount float64) string {
-	if math.IsNaN(amount) || math.IsInf(amount, 0) {
-		return fmt.Sprintf("%v", amount)
-	}
-	fixed := strconv.FormatFloat(amount, 'f', 2, 64)
-	fixed = strings.TrimSuffix(fixed, ".00")
-	if strings.HasSuffix(fixed, "0") && strings.Contains(fixed, ".") {
-		fixed = strings.TrimSuffix(fixed, "0")
-	}
-	return fixed
+func formatAmount(amount string) string {
+	return moneyForRecord(amount)
 }
 
 func formatNotificationTime(now time.Time, timezone string) string {

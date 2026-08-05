@@ -143,9 +143,11 @@ func TestNotificationHistoryRouteNormalizesNoDueItemsMessageArrays(t *testing.T)
 	settings.NotificationTimeLocal = "08:00"
 	settings.EnabledChannels = []string{"webhook"}
 	createNotificationCronRouteTestSettings(t, app, user, settings)
+	now := time.Date(2026, 5, 17, 8, 0, 0, 0, time.UTC)
+	refreshNotificationSchedulerForTest(t, app, user.Id, now)
 
 	result, err := runNotificationCron(app, notificationCronOptions{
-		Now:           time.Date(2026, 5, 17, 8, 0, 0, 0, time.UTC),
+		Now:           now,
 		WindowMinutes: 2,
 	})
 	if err != nil {

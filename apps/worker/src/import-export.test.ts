@@ -94,7 +94,7 @@ function importSubscription(overrides: Record<string, unknown> = {}) {
   return {
     name: "Imported",
     logo: null,
-    price: 12,
+    price: "12",
     currency: "USD",
     billingCycle: "monthly",
     customDays: null,
@@ -139,7 +139,7 @@ describe("Cloudflare import", () => {
     dbMocks.getSettings.mockReset();
     dbMocks.nowIso.mockReset();
     dbMocks.newId.mockReset();
-    authMocks.requireAuth.mockResolvedValue({ user: authUser, session: { id: "ses" }, token: "test" });
+    authMocks.requireAuth.mockResolvedValue({ user: authUser, session: { id: "ses" } });
     dbMocks.listSubscriptions.mockResolvedValue([]);
     dbMocks.getSettings.mockResolvedValue({});
     dbMocks.nowIso.mockReturnValue("2026-06-05T00:00:00.000Z");
@@ -258,8 +258,8 @@ describe("Cloudflare import", () => {
       enabled: true,
       splitMode: "custom",
       members: [
-        { id: "partner", name: "Partner", customAmount: 7 },
-        { id: "child", name: "Child", customAmount: 5 },
+        { id: "partner", name: "Partner", customAmount: "7" },
+        { id: "child", name: "Child", customAmount: "5" },
       ],
     };
     const response = await applyImport(requestFor("/api/app/import/apply", importPayload([
@@ -303,7 +303,7 @@ describe("Cloudflare import", () => {
         user_id: "usr_import",
         name: "Imported",
         logo: null,
-        price: 12,
+        price: "12",
         currency: "USD",
         billing_cycle: "monthly",
         custom_days: null,

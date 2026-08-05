@@ -210,8 +210,8 @@ describe("PublicStatusPage", () => {
         ...baseResponse,
         page: { ...baseResponse.page, showPrices: true, currency: "USD" },
         subscriptions: [
-          { ...baseResponse.subscriptions[0]!, price: 120, currency: "USD", billingCycle: "annual" },
-          { ...baseResponse.subscriptions[1]!, price: 10, currency: "USD", billingCycle: "monthly" },
+          { ...baseResponse.subscriptions[0]!, price: "120", currency: "USD", billingCycle: "annual" },
+          { ...baseResponse.subscriptions[1]!, price: "10", currency: "USD", billingCycle: "monthly" },
         ],
       },
     });

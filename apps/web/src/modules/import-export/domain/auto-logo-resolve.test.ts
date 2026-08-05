@@ -20,7 +20,7 @@ function prepared(): PreparedImport {
         {
           name: "Netflix",
           logo: null,
-          price: 9.99,
+          price: "9.99",
           currency: "USD",
           billingCycle: "monthly",
           customDays: null,
@@ -49,7 +49,7 @@ function prepared(): PreparedImport {
         {
           name: "Unknown Tool",
           logo: null,
-          price: 3,
+          price: "3",
           currency: "USD",
           billingCycle: "monthly",
           customDays: null,

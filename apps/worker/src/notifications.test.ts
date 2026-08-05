@@ -85,6 +85,9 @@ async function handleFakeD1(
       repeat_reminder_count: state?.repeatReminderCount ?? 0,
     };
   }
+  if (query.method === "first" && query.sql.includes("COUNT(*) AS count") && query.sql.includes("MAX(updated_at)")) {
+    return { count: 0, source_updated_at: "" };
+  }
   if (query.method === "run" && query.sql.includes("subscription_scheduler_state")) {
     return d1Run(1);
   }
@@ -97,10 +100,6 @@ async function handleFakeD1(
   }
   if (query.method === "all" && query.params.length === 1 && query.sql.includes("FROM subscriptions") && query.sql.includes("WHERE user_id = ?") && query.sql.includes("ORDER BY created_at DESC, id DESC")) {
     return d1All([]);
-  }
-  if (query.method === "all" && query.sql.includes("FROM subscription_scheduler_state AS scheduler")) {
-    const legacy = await handler({ sql: "SELECT id FROM users WHERE banned = 0", params: [], method: "all" }) as D1Result<{ id?: string; user_id?: string }>;
-    return d1All((legacy.results ?? []).map((row) => ({ user_id: row.user_id ?? row.id ?? "usr_due" })));
   }
   return await handler(query);
 }
@@ -126,7 +125,7 @@ function subscription(overrides: Partial<ApiSubscription> = {}): ApiSubscription
   return {
     id: "sub_quiet",
     name: "Quiet SaaS",
-    price: 10,
+    price: "10",
     currency: "USD",
     billingCycle: "monthly",
     category: "productivity",
@@ -152,7 +151,7 @@ function subscriptionRow(overrides: Partial<SubscriptionRow> = {}): Subscription
     user_id: "usr_due",
     name: "Apple",
     logo: null,
-    price: 10,
+    price: "10",
     currency: "USD",
     billing_cycle: "monthly",
     custom_days: null,
@@ -251,7 +250,6 @@ describe("Cloudflare notifications", () => {
     authMocks.requireAuth.mockResolvedValue({
       user: { id: "usr_due", role: "admin" },
       session: { id: "ses" },
-      token: "test",
     });
   });
 
@@ -337,7 +335,7 @@ describe("Cloudflare notifications", () => {
   it("logs and rejects top-level scheduled failures without leaking secrets", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const env = fakeEnv(({ sql }) => {
-      if (sql.includes("SELECT id FROM users WHERE banned = 0")) {
+      if (sql.includes("FROM subscription_scheduler_state AS scheduler")) {
         throw new Error("database is locked SCTsecret Bearer abc.def");
       }
       throw new Error(`unexpected query: ${sql}`);
@@ -359,8 +357,8 @@ describe("Cloudflare notifications", () => {
     const seenSettingsUsers: string[] = [];
     // Cron 顶层按用户隔离失败；坏用户只写脱敏日志，不能阻断后续用户的通知窗口。
     const env = fakeEnv(({ sql, params, method }) => {
-      if (method === "all" && sql.includes("SELECT id FROM users WHERE banned = 0")) {
-        return d1All([{ id: "usr_bad" }, { id: "usr_ok" }]);
+      if (method === "all" && sql.includes("FROM subscription_scheduler_state AS scheduler")) {
+        return d1All([{ user_id: "usr_bad" }, { user_id: "usr_ok" }]);
       }
       if (method === "first" && sql.includes("SELECT settings_json FROM settings")) {
         const userId = String(params[0]);
@@ -403,8 +401,8 @@ describe("Cloudflare notifications", () => {
     let finalizeParams: unknown[] | null = null;
     // 渠道业务失败属于单个 notification_jobs 结果，不能升级成顶层 scheduled failure 或泄露 sendkey。
     const env = fakeEnv(({ sql, params, method }) => {
-      if (method === "all" && sql.includes("SELECT id FROM users WHERE banned = 0")) {
-        return d1All([{ id: "usr_due" }]);
+      if (method === "all" && sql.includes("FROM subscription_scheduler_state AS scheduler")) {
+        return d1All([{ user_id: "usr_due" }]);
       }
       if (method === "first" && sql.includes("SELECT settings_json FROM settings")) {
         return { settings_json: JSON.stringify(settings({ enabledChannels: ["serverchan"], serverchanSendKey: "SCTsecret" })) };
@@ -459,8 +457,8 @@ describe("Cloudflare notifications", () => {
     let renewalUpdateParams: unknown[] | null = null;
     let finalizeParams: unknown[] | null = null;
     const env = fakeEnv(({ sql, params, method }) => {
-      if (method === "all" && sql.includes("SELECT id FROM users WHERE banned = 0")) {
-        return d1All([{ id: "usr_due" }]);
+      if (method === "all" && sql.includes("FROM subscription_scheduler_state AS scheduler")) {
+        return d1All([{ user_id: "usr_due" }]);
       }
       if (method === "first" && sql.includes("SELECT settings_json FROM settings")) {
         return { settings_json: JSON.stringify(settings({ enabledChannels: [], showExpired: true })) };
@@ -520,8 +518,8 @@ describe("Cloudflare notifications", () => {
     vi.stubGlobal("fetch", fetchMock);
     let finalizeParams: unknown[] | null = null;
     const env = fakeEnv(({ sql, params, method }) => {
-      if (method === "all" && sql.includes("SELECT id FROM users WHERE banned = 0")) {
-        return d1All([{ id: "usr_due" }]);
+      if (method === "all" && sql.includes("FROM subscription_scheduler_state AS scheduler")) {
+        return d1All([{ user_id: "usr_due" }]);
       }
       if (method === "first" && sql.includes("SELECT settings_json FROM settings")) {
         return { settings_json: JSON.stringify(settings({ enabledChannels: ["serverchan", "telegram"], serverchanSendKey: "SCT123456" })) };
@@ -567,7 +565,7 @@ describe("Cloudflare notifications", () => {
       updated_at: "2026-01-09T08:00:00.000Z",
     });
     const env = fakeEnv(({ sql, params, method }) => {
-      if (method === "all" && sql.includes("SELECT id FROM users WHERE banned = 0")) return d1All([{ id: "usr_due" }]);
+      if (method === "all" && sql.includes("FROM subscription_scheduler_state AS scheduler")) return d1All([{ user_id: "usr_due" }]);
       if (method === "first" && sql.includes("SELECT settings_json FROM settings")) {
         return { settings_json: JSON.stringify(settings({ enabledChannels: ["serverchan", "telegram"], serverchanSendKey: "SCT123456" })) };
       }
@@ -603,7 +601,7 @@ describe("Cloudflare notifications", () => {
     vi.stubGlobal("fetch", fetchMock);
     const writes: string[] = [];
     const env = fakeEnv(({ sql, method }) => {
-      if (method === "all" && sql.includes("SELECT id FROM users WHERE banned = 0")) return d1All([{ id: "usr_due" }]);
+      if (method === "all" && sql.includes("FROM subscription_scheduler_state AS scheduler")) return d1All([{ user_id: "usr_due" }]);
       if (method === "first" && sql.includes("SELECT settings_json FROM settings")) {
         return { settings_json: JSON.stringify(settings({ enabledChannels: ["serverchan"], serverchanSendKey: "SCT123456" })) };
       }
@@ -635,7 +633,7 @@ describe("Cloudflare notifications", () => {
     let markSendingParams: unknown[] | null = null;
     let finalizeParams: unknown[] | null = null;
     const env = fakeEnv(({ sql, params, method }) => {
-      if (method === "all" && sql.includes("SELECT id FROM users WHERE banned = 0")) return d1All([{ id: "usr_due" }]);
+      if (method === "all" && sql.includes("FROM subscription_scheduler_state AS scheduler")) return d1All([{ user_id: "usr_due" }]);
       if (method === "first" && sql.includes("SELECT settings_json FROM settings")) {
         return { settings_json: JSON.stringify(settings({ enabledChannels: ["serverchan"], serverchanSendKey: "SCT123456" })) };
       }

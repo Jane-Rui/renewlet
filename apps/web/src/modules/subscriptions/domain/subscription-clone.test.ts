@@ -8,7 +8,7 @@ const sourceSubscription: Subscription = {
   id: "sub-1",
   name: "Original SaaS",
   logo: "https://example.com/logo.svg",
-  price: 29,
+  price: "29",
   currency: "USD",
   billingCycle: "monthly",
   customDays: undefined,
@@ -41,7 +41,7 @@ const sourceSubscription: Subscription = {
 const draftFromCloneForm: SubscriptionDraft = {
   name: "Original SaaS",
   logo: "https://example.com/logo.svg",
-  price: 29,
+  price: "29",
   currency: "USD",
   billingCycle: "monthly",
   customDays: undefined,

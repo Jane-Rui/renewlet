@@ -11,6 +11,7 @@ import { customConfigSchema } from "@renewlet/shared/schemas/custom-config";
 import { cleanBuiltInIconSourceSettingsPatch, mergeBuiltInIconSourceSettings } from "@renewlet/shared/built-in-icons";
 import { cleanOnlineIconSourceSettingsPatch, mergeOnlineIconSourceSettings } from "@renewlet/shared/online-icon-sources";
 import { DISABLED_REMINDER_DAYS, MAX_REMINDER_DAYS } from "@renewlet/shared/runtime";
+import { moneyFromUnknown } from "@renewlet/shared/money";
 import type { AdminUser } from "@renewlet/shared/schemas/admin";
 import type { AssetInUseDetails } from "@renewlet/shared/schemas/media";
 import type { z } from "zod";
@@ -296,8 +297,10 @@ function normalizeStoredSettingsPatch(value: unknown): unknown {
   const dingtalkMessageType = value["dingtalkMessageType"];
   const dingtalkTitleTemplate = value["dingtalkTitleTemplate"];
   const dingtalkContentTemplate = value["dingtalkContentTemplate"];
+  const monthlyBudget = moneyFromUnknown(value["monthlyBudget"]);
   return {
     ...value,
+    ...(monthlyBudget ? { monthlyBudget } : {}),
     ...(
       telegramMessageFormat === undefined || telegramMessageFormat === "plain" || telegramMessageFormat === "html"
         ? {}
@@ -363,7 +366,7 @@ export function toApiSubscription(row: SubscriptionRow): ApiSubscription {
     id: row.id,
     name: row.name,
     ...(row.logo ? { logo: row.logo } : {}),
-    price: row.price,
+    price: moneyFromUnknown(row.price) ?? "0",
     currency: row.currency,
     billingCycle: row.billing_cycle,
     ...(row.custom_days === null ? {} : { customDays: row.custom_days }),

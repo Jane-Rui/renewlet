@@ -228,7 +228,7 @@ function subscription(overrides: Partial<Subscription> = {}): Subscription {
     id: "sub",
     name: "Service",
     logo: undefined,
-    price: 10,
+    price: "10",
     currency: "USD",
     category: "productivity",
     status: "active",

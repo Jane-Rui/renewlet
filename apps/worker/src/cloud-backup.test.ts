@@ -281,7 +281,7 @@ function emptyWebDAVMultiStatus(): string {
 }
 
 beforeEach(() => {
-  authMocks.requireAuth.mockReset().mockResolvedValue({ user: authUser, session: { id: "ses" }, token: "test" });
+  authMocks.requireAuth.mockReset().mockResolvedValue({ user: authUser, session: { id: "ses" } });
   dbMocks.getAsset.mockReset().mockResolvedValue(null);
   dbMocks.getCustomConfig.mockReset().mockResolvedValue({ categories: [], statuses: [], paymentMethods: [], currencies: [] });
   dbMocks.getSettings.mockReset().mockResolvedValue(createDefaultAppSettings());

@@ -5,6 +5,7 @@ import {
   SUBSCRIPTION_STATUSES,
   isValidDateOnly,
 } from "../runtime";
+import { moneyStringSchema } from "../money";
 import { apiSuccessResponseSchema } from "./api";
 import { okResponseSchema } from "./common";
 
@@ -73,7 +74,7 @@ const publicStatusSubscriptionSchema = z.object({
   startDate: z.string().refine(isValidDateOnly).nullable(),
   nextBillingDate: z.string().refine(isValidDateOnly),
   updatedAt: z.string().trim().min(1),
-  price: z.number().finite().nonnegative().max(1_000_000_000).optional(),
+  price: moneyStringSchema.optional(),
   currency: z.string().trim().regex(/^[A-Z]{3}$/).optional(),
   billingCycle: z.enum(BILLING_CYCLES).optional(),
   customDays: z.number().int().positive().optional(),

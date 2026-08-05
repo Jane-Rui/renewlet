@@ -3,6 +3,7 @@ import type { Locale } from "@/i18n/locales";
 import type { AiRecognizedSubscriptionDraft } from "@/lib/api/schemas/ai-recognition";
 import { hasAIDraftBlockingIssues } from "@/modules/ai-recognition/domain/ai-draft-preflight";
 import type { BillingCycle, CustomCycleUnit, SubscriptionStatus } from "@/types/subscription";
+import { moneyToNumber } from "@renewlet/shared/money";
 
 export const BILLING_CYCLE_LABEL_KEYS: Record<BillingCycle, MessageKey> = {
   weekly: "cycle.weekly",
@@ -52,7 +53,7 @@ export function formatDraftPrice(draft: AiRecognizedSubscriptionDraft, locale: L
       style: "currency",
       currency: draft.currency,
       maximumFractionDigits: 2,
-    }).format(draft.price);
+    }).format(moneyToNumber(draft.price));
   } catch {
     return `${draft.price} ${draft.currency}`;
   }

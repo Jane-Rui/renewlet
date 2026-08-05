@@ -21,7 +21,7 @@ import (
 )
 
 func registerRoutes(app core.App, router *router.Router[*core.RequestEvent]) {
-	api := router.Group("").BindFunc(apiErrorMiddleware)
+	api := router.Group("").BindFunc(apiErrorMiddleware).BindFunc(appSameOriginUnsafeMiddleware)
 
 	// 公共状态接口不要求认证，但响应仍使用命名 struct，避免前端在登录前信任松散 JSON。
 	api.GET("/api/app/health", func(e *core.RequestEvent) error {
@@ -289,12 +289,12 @@ func registerRoutes(app core.App, router *router.Router[*core.RequestEvent]) {
 		if err := app.Save(e.Auth); err != nil {
 			return e.BadRequestError(serverText(locale, "auth.passwordUpdateFailed"), err)
 		}
-		_, currentSession, _ := appAuthRecordByToken(app, bearerTokenFromHeader(e.Request.Header.Get("Authorization")))
+		_, currentSession, _ := appAuthRecordByToken(app, sessionTokenFromRequest(e.Request))
 		keepSessionID := ""
 		if currentSession != nil {
 			keepSessionID = currentSession.Id
 		}
-		// 改密后保留当前产品 session，踢掉其它设备；账号安全自助操作会另行续签当前 session 并废弃旧 bearer。
+		// 改密后保留当前产品 session，踢掉其它设备；账号安全自助操作会另行续签当前 cookie session。
 		if err := deleteAppSessionsForUserExcept(app, e.Auth.Id, keepSessionID); err != nil {
 			return e.InternalServerError(serverText(locale, "common.internalError"), err)
 		}

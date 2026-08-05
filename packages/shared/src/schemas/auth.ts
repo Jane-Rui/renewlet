@@ -12,8 +12,8 @@ export interface AuthUserResponse {
 
 export interface SessionResponse {
   type: "session";
-  // session.id 对前端是 Bearer token，不是数据库 session row id；两种运行面都遵守这个形状。
-  session: { id: string; expiresAt: string };
+  // 浏览器 session token 只存在 HttpOnly cookie；响应只暴露过期时间和用户安全视图。
+  session: { expiresAt: string };
   user: AuthUserResponse;
 }
 
@@ -42,7 +42,6 @@ export const authUserSchema: z.ZodType<AuthUserResponse> = z.object({
 export const sessionPayloadSchema = z.object({
   type: z.literal("session"),
   session: z.object({
-    id: z.string().min(1),
     expiresAt: z.iso.datetime(),
   }).strict(),
   user: authUserSchema,
@@ -108,7 +107,7 @@ export type MfaRecoveryCodesResponse = SessionResponse & {
   recoveryCodes: string[];
 };
 
-// 启用/重建恢复码属于账号安全状态切换：响应必须同时续签产品 session，避免旧 bearer 被废弃后前端掉登录。
+// 启用/重建恢复码属于账号安全状态切换：响应必须同时续签产品 session，避免旧 cookie session 被废弃后前端掉登录。
 export const mfaRecoveryCodesPayloadSchema = sessionPayloadSchema.extend({
   recoveryCodes: z.array(z.string().min(1)).min(1),
 }).strict() satisfies z.ZodType<MfaRecoveryCodesResponse>;
