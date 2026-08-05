@@ -60,6 +60,9 @@ func ensureSchema(app core.App) error {
 		return err
 	}
 
+	if err := migrateLegacySubscriptionPriceNumberField(app); err != nil {
+		return err
+	}
 	if err := ensureSubscriptionsCollection(app, users); err != nil {
 		return err
 	}
@@ -182,12 +185,13 @@ func upsertField(collection *core.Collection, field core.Field) error {
 	return nil
 }
 
-func upsertFieldAllowingTypeReplace(collection *core.Collection, field core.Field, allowedExistingType string) error {
+func upsertTextFieldReplacingLegacyURL(collection *core.Collection, field *core.TextField) error {
 	existing := collection.Fields.GetByName(field.GetName())
 	if existing != nil && existing.Type() != field.Type() {
-		if existing.Type() != allowedExistingType {
+		if existing.Type() != core.FieldTypeURL {
 			return fmt.Errorf("collection %q field %q type mismatch: existing %q, expected %q", collection.Name, field.GetName(), existing.Type(), field.Type())
 		}
+		// URLField 和 TextField 底层同为 TEXT；只允许历史 logo URL 字段走这一条，不把它泛化成任意 type replace。
 		field.SetId(existing.GetId())
 		if existing.GetSystem() {
 			field.SetSystem(true)
@@ -307,7 +311,7 @@ func ensureSubscriptionsCollection(app core.App, users *core.Collection) error {
 			userRelation(users),
 			&core.TextField{Name: "name", Required: true, Max: 120},
 			&core.TextField{Name: "logo", Max: maxLogoReferenceLength},
-			&core.TextField{Name: "price", Required: true, Max: 32},
+			subscriptionPriceTextField(),
 			&core.TextField{Name: "currency", Required: true, Max: 8, Pattern: `^[A-Z]{3}$`},
 			&core.SelectField{Name: "billingCycle", Required: true, Values: []string{"weekly", "monthly", "quarterly", "semi-annual", "annual", "custom", "one-time"}},
 			&core.NumberField{Name: "customDays", OnlyInt: true, Min: &minZero},
@@ -336,14 +340,11 @@ func ensureSubscriptionsCollection(app core.App, users *core.Collection) error {
 		}
 		for _, field := range fields {
 			if field.GetName() == "logo" {
-				if err := upsertFieldAllowingTypeReplace(c, field, core.FieldTypeURL); err != nil {
-					return false, err
+				logoField, ok := field.(*core.TextField)
+				if !ok {
+					return false, fmt.Errorf("subscriptions.logo field must be text")
 				}
-				continue
-			}
-			if field.GetName() == "price" {
-				// 金额字段以 decimal string 为事实源；允许从旧 NumberField 原地替换后由启动迁移 canonicalize 旧值。
-				if err := upsertFieldAllowingTypeReplace(c, field, core.FieldTypeNumber); err != nil {
+				if err := upsertTextFieldReplacingLegacyURL(c, logoField); err != nil {
 					return false, err
 				}
 				continue

@@ -445,6 +445,62 @@ func TestEnsureSchemaSelfHealsSubscriptionLogoURLFieldToText(t *testing.T) {
 	}
 }
 
+func TestEnsureSchemaMigratesLegacySubscriptionPriceNumberFieldToText(t *testing.T) {
+	app := newSchemaTestApp(t)
+	users, err := app.FindCollectionByNameOrId("users")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	subscriptions := core.NewBaseCollection("subscriptions")
+	if err := upsertField(subscriptions, userRelation(users)); err != nil {
+		t.Fatal(err)
+	}
+	if err := upsertField(subscriptions, &core.TextField{Name: "name", Required: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := upsertField(subscriptions, &core.TextField{Name: "logo"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := upsertField(subscriptions, &core.NumberField{Name: "price"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.Save(subscriptions); err != nil {
+		t.Fatal(err)
+	}
+
+	user := core.NewRecord(users)
+	user.SetEmail("schema-price@example.com")
+	user.SetPassword("password123")
+	user.SetVerified(true)
+	if err := app.Save(user); err != nil {
+		t.Fatal(err)
+	}
+	record := core.NewRecord(subscriptions)
+	record.Set("user", user.Id)
+	record.Set("name", "Legacy Price")
+	record.Set("logo", "https://example.com/logo.png")
+	record.Set("price", 12.5)
+	if err := app.Save(record); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ensureSchema(app); err != nil {
+		t.Fatal(err)
+	}
+
+	assertTextFieldRequired(t, app, "subscriptions", "price", true)
+	assertTableColumnType(t, app, "subscriptions", "price", "TEXT")
+	assertMissingTableColumn(t, app, "subscriptions", legacySubscriptionPriceNumberColumn)
+	savedRecord, err := app.FindRecordById("subscriptions", record.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := savedRecord.GetString("price"); got != "12.5" {
+		t.Fatalf("legacy price = %q, want %q", got, "12.5")
+	}
+}
+
 func TestEnsureSchemaCleansInvalidSubscriptionLogosButKeepsHttpLinks(t *testing.T) {
 	app := newSchemaTestApp(t)
 	if err := ensureSchema(app); err != nil {
@@ -706,4 +762,34 @@ func assertIndexDefinition(t *testing.T, app core.App, collectionName string, in
 		}
 	}
 	t.Fatalf("collection %s index %s definition mismatch, want %q in %#v", collectionName, indexName, expected, collection.Indexes)
+}
+
+func assertTableColumnType(t *testing.T, app core.App, tableName string, columnName string, expectedType string) {
+	t.Helper()
+	info, err := app.TableInfo(tableName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range info {
+		if row.Name == columnName {
+			if row.Type != expectedType {
+				t.Fatalf("table %s column %s type = %q, want %q", tableName, columnName, row.Type, expectedType)
+			}
+			return
+		}
+	}
+	t.Fatalf("table %s is missing column %s", tableName, columnName)
+}
+
+func assertMissingTableColumn(t *testing.T, app core.App, tableName string, columnName string) {
+	t.Helper()
+	columns, err := app.TableColumns(tableName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, column := range columns {
+		if column == columnName {
+			t.Fatalf("table %s column %s should not exist", tableName, columnName)
+		}
+	}
 }
