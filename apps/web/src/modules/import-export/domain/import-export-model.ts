@@ -12,13 +12,20 @@ import { isValidDateOnly } from "@renewlet/shared/runtime";
  */
 export const MAX_IMPORT_FILE_BYTES = 50 * 1024 * 1024;
 
+export type ImportAssetKind = "logo" | "icon";
+
+export type ImportAssetTarget =
+  | { type: "subscriptionLogo"; subscriptionIndex: number }
+  | { type: "paymentMethodIcon"; paymentMethodIndex: number };
+
 /**
- * ImportAssetRef 描述导入流程中尚未上传到 Renewlet 的 Logo 资产。
+ * ImportAssetRef 描述导入流程中尚未上传到 Renewlet 的私有资产。
  *
- * subscriptionIndex 绑定预览行，最终 apply 前会上传并改写 payload.logo 为 `/api/app/assets/{id}`。
+ * target 绑定最终要改写的 payload 字段；apply 前必须先落资产表，再写 `/api/app/assets/{id}` 代理路径。
  */
 export interface ImportAssetRef {
-  subscriptionIndex: number;
+  target: ImportAssetTarget;
+  kind: ImportAssetKind;
   filename: string;
   blob?: Blob;
   zipEntryName?: string;
@@ -315,7 +322,7 @@ export function toBillingCycleFromUnit(count: number, unit: CustomCycleUnit): Im
   return { billingCycle: "custom", customDays: normalizedCount, customCycleUnit: unit };
 }
 
-/** privateAssetIdFromLogo 只识别受控资产代理路径，外链 Logo 不参与 ZIP 资产导出。 */
+/** privateAssetIdFromLogo 只识别受控资产代理路径；历史命名保留，当前同时服务订阅 Logo 和支付方式 Icon。 */
 export function privateAssetIdFromLogo(value: string | undefined): string | null {
   const match = value?.match(/^\/api\/app\/assets\/([A-Za-z0-9_-]+)$/);
   return match?.[1] ?? null;

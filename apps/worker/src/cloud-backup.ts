@@ -2,14 +2,12 @@ import {
   CLOUD_BACKUP_DEFAULT_RETENTION,
   CLOUD_BACKUP_DEFAULT_SCHEDULE_TIME,
   CLOUD_BACKUP_DEFAULT_SCHEDULE_WEEKDAY,
-  CLOUD_BACKUP_MAX_SNAPSHOT_BYTES,
   cloudBackupConfigPayloadSchema,
   cloudBackupConfigUpdateSchema,
   cloudBackupCreateSnapshotRequestSchema,
   cloudBackupCreateSnapshotPayloadSchema,
   cloudBackupPolicySchema,
   cloudBackupS3ConfigSchema,
-  cloudBackupSnapshotManifestSchema,
   cloudBackupSnapshotsPayloadSchema,
   cloudBackupTestPayloadSchema,
   cloudBackupWebDavConfigSchema,
@@ -23,35 +21,27 @@ import {
   type CloudBackupSnapshotManifest,
   type CloudBackupWebDavConfig,
 } from "@renewlet/shared/schemas/cloud-backup";
-import { renewletExportV1Schema, type RenewletExportAsset } from "@renewlet/shared/schemas/import-export";
 // Cloudflare 云备份在 D1 保存策略与锁、R2 保存 ZIP，对外只暴露脱敏后的上游错误详情。
 import {
   boolToInt,
-  getAsset,
-  getCustomConfig,
   getSettings,
-  listSubscriptions,
   nowIso,
-  toApiSubscription,
 } from "./db";
 import { requireAuth } from "./auth";
 import { HttpError, ok, readJson, requestLocale, successJson, type AppLocale } from "./http";
 import { DEFAULT_SERVER_I18N_LOCALE, serverText } from "./server-i18n";
-import { createStoredZip } from "./zip-store";
 import {
   CloudBackupRemoteError,
   S3CloudBackupClient,
   WebDAVCloudBackupClient,
   sanitizeDownloadFilename,
-  sha256Hex,
-  snapshotId,
   type CloudBackupRemoteClient,
 } from "./cloud-backup-remote";
 import { cloudBackupProviderFromRequest, cloudBackupProviderParameterError } from "./cloud-backup-provider";
 import { cloudBackupNextRunAt, cloudBackupTargetDue, createDefaultFallbackSettings } from "./cloud-backup-schedule";
-import { sanitizeSettingsForCloudBackup } from "./cloud-backup-sanitize";
 import { deleteCloudBackupFromTargets, downloadCloudBackupFromTargets, type CloudBackupTarget } from "./cloud-backup-snapshot-resolve";
-import { bytesForFetchBody, extensionFromMime, parseJsonObject, privateAssetIdFromLogo } from "./cloud-backup-utils";
+import { buildCloudBackupSnapshotPayload, verifySnapshotBytes, type CloudBackupSnapshotPayload } from "./cloud-backup-export";
+import { bytesForFetchBody, parseJsonObject } from "./cloud-backup-utils";
 import type { CloudBackupTargetRow, Env, UserRow } from "./types";
 
 const CLOUD_BACKUP_COLUMNS = [
@@ -76,7 +66,6 @@ const CLOUD_BACKUP_COLUMNS = [
 const CLOUD_BACKUP_CONFIG_COLUMNS = CLOUD_BACKUP_COLUMNS.join(", ");
 const CLOUD_BACKUP_LOCK_MS = 15 * 60 * 1000;
 const CLOUD_BACKUP_PAGE_SIZE = 200;
-const textEncoder = new TextEncoder();
 
 type StoredCloudBackupConfig = {
   webdav?: CloudBackupWebDavConfig;
@@ -118,17 +107,6 @@ type ResolvedCloudBackupTarget = {
 
 type ConfiguredCloudBackupTarget = CloudBackupTarget & {
   retention: number;
-};
-
-type CloudBackupSnapshotPayload = {
-  content: Uint8Array;
-  id: string;
-  filename: string;
-  manifest: CloudBackupSnapshotManifest;
-};
-
-type ExportAsset = RenewletExportAsset & {
-  content: Uint8Array;
 };
 
 type ServerTextKey = Parameters<typeof serverText>[1];
@@ -571,107 +549,12 @@ async function createCloudBackupForUserProvider(env: Env, user: UserRow, locale:
   return [await uploadCloudBackupSnapshotToTarget(env, user.id, payload, target)];
 }
 
-async function buildCloudBackupSnapshotPayload(env: Env, userId: string): Promise<CloudBackupSnapshotPayload> {
-  const { content, exportedAt } = await buildCloudBackupExportZip(env, userId);
-  if (content.length > CLOUD_BACKUP_MAX_SNAPSHOT_BYTES) throw new Error("CLOUD_BACKUP_SNAPSHOT_TOO_LARGE");
-  const id = snapshotId(exportedAt);
-  const filename = `${id}.zip`;
-  const manifest = cloudBackupSnapshotManifestSchema.parse({
-    kind: "renewlet-cloud-backup-snapshot",
-    schemaVersion: 1,
-    id,
-    filename,
-    createdAt: exportedAt.toISOString(),
-    sizeBytes: content.length,
-    sha256: await sha256Hex(content),
-    exportKind: "renewlet-export",
-    exportSchemaVersion: 1,
-  });
-  return { content, id, filename, manifest };
-}
-
 async function uploadCloudBackupSnapshotToTarget(env: Env, userId: string, payload: CloudBackupSnapshotPayload, target: ConfiguredCloudBackupTarget): Promise<CloudBackupSnapshot> {
   // 远端快照只以 sidecar manifest 为可信索引；下载时仍会重算 sha256，坏包不能进入导入预览。
   await target.client.upload(payload.filename, payload.content, payload.manifest);
   await enforceRetention(target.client, target.retention, payload.id);
   await markCloudBackupSuccess(env, userId, target.provider, payload.manifest.createdAt);
   return snapshotFromManifest(target.provider, payload.manifest);
-}
-
-async function buildCloudBackupExportZip(env: Env, userId: string): Promise<{ content: Uint8Array; exportedAt: Date }> {
-  const exportedAt = new Date();
-  const subscriptions = await listSubscriptions(env, userId);
-  const assets: ExportAsset[] = [];
-  const exportSubscriptions = [];
-  for (const row of subscriptions) {
-    const subscription = { ...toApiSubscription(row) };
-    const assetId = privateAssetIdFromLogo(subscription.logo ?? null);
-    if (assetId) {
-      const asset = await readExportAsset(env, userId, assetId);
-      if (asset) {
-        subscription.logo = asset.path;
-        assets.push(asset);
-      } else {
-        delete subscription.logo;
-      }
-    }
-    exportSubscriptions.push(subscription);
-  }
-  // 云备份使用业务恢复 allowlist 组包；sessions/MFA/passkey/tickets 和 R2 系统密钥对象都不进入 ZIP。
-  const payload = renewletExportV1Schema.parse({
-    kind: "renewlet-export",
-    schemaVersion: 1,
-    exportedAt: exportedAt.toISOString(),
-    data: {
-      subscriptions: exportSubscriptions,
-      settings: sanitizeSettingsForCloudBackup(await getSettings(env, userId)),
-      customConfig: await getCustomConfig(env, userId),
-      ...(assets.length > 0
-        ? { assets: assets.map(({ content: _content, ...asset }) => asset) }
-        : {}),
-    },
-  });
-  const zipEntries = [
-    ...assets.map((asset) => ({ name: asset.path, data: asset.content, date: exportedAt })),
-    { name: "data.json", data: textEncoder.encode(JSON.stringify(payload, null, 2)), date: exportedAt },
-    {
-      name: "manifest.json",
-      data: textEncoder.encode(JSON.stringify({
-        kind: payload.kind,
-        schemaVersion: payload.schemaVersion,
-        exportedAt: payload.exportedAt,
-        subscriptions: payload.data.subscriptions.length,
-        assets: assets.length,
-      }, null, 2)),
-      date: exportedAt,
-    },
-  ];
-  return { content: createStoredZip(zipEntries, exportedAt), exportedAt };
-}
-
-async function readExportAsset(env: Env, userId: string, assetId: string): Promise<ExportAsset | null> {
-  const row = await getAsset(env, userId, assetId);
-  if (!row) return null;
-  const object = await env.ASSETS_BUCKET.get(row.r2_key);
-  if (!object) return null;
-  if (row.size_bytes !== null && row.size_bytes > CLOUD_BACKUP_MAX_SNAPSHOT_BYTES) return null;
-  const content = new Uint8Array(await object.arrayBuffer());
-  if (content.length > CLOUD_BACKUP_MAX_SNAPSHOT_BYTES) return null;
-  const mimeType = row.mime_type ?? object.httpMetadata?.contentType ?? "application/octet-stream";
-  return {
-    id: assetId,
-    path: `assets/${assetId}${extensionFromMime(mimeType, row.original_name ?? "")}`,
-    ...(row.original_name ? { originalName: row.original_name } : {}),
-    mimeType,
-    sizeBytes: content.length,
-    content,
-  };
-}
-
-async function verifySnapshotBytes(content: Uint8Array, manifest: CloudBackupSnapshotManifest): Promise<boolean> {
-  if (manifest.kind !== "renewlet-cloud-backup-snapshot" || manifest.schemaVersion !== 1) return false;
-  if (manifest.sizeBytes !== content.length) return false;
-  return (await sha256Hex(content)) === manifest.sha256.toLowerCase();
 }
 
 async function downloadCloudBackupWithoutProvider(env: Env, userId: string, locale: AppLocale, id: string): Promise<{ content: Uint8Array; manifest: CloudBackupSnapshotManifest }> {

@@ -1,9 +1,17 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
 	"encoding/json"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/pocketbase/pocketbase/core"
 )
 
 func TestCloudBackupExportSettingsStripsExternalNotificationSecrets(t *testing.T) {
@@ -45,7 +53,178 @@ func TestCloudBackupExportSettingsStripsExternalNotificationSecrets(t *testing.T
 	}
 }
 
+func TestCloudBackupExportZipAuditsMissingPrivateAssets(t *testing.T) {
+	app := newSchemaTestApp(t)
+	if err := ensureSchema(app); err != nil {
+		t.Fatal(err)
+	}
+	registerRecordHooks(app)
+	user, token := createRouteTestUser(t, app, "cloud-backup-missing-assets")
+	logoID, logoURL := uploadCloudBackupExportAssetForTest(t, app, token, "logo", "missing-logo.svg")
+	iconID, iconURL := uploadCloudBackupExportAssetForTest(t, app, token, "icon", "missing-icon.svg")
+	removeCloudBackupExportAssetFileForTest(t, app, logoID)
+	removeCloudBackupExportAssetFileForTest(t, app, iconID)
+	subscription := createRouteTestSubscription(t, app, user.Id, map[string]interface{}{"logo": logoURL})
+	createCalendarFeedTestCustomConfig(t, app, user.Id, func(config *customConfigPayload) {
+		config.PaymentMethods = []customConfigItem{{
+			ID:     "pm_card",
+			Value:  "card",
+			Labels: customConfigLabels{ZhCN: "银行卡", EnUS: "Card"},
+			Icon:   iconURL,
+		}}
+	})
+
+	content, _, err := buildCloudBackupExportZip(app, user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := cloudBackupExportZipJSONForTest(t, content, "data.json")
+	payload := data["data"].(map[string]interface{})
+	subscriptions := payload["subscriptions"].([]interface{})
+	exportedSubscription := subscriptions[0].(map[string]interface{})
+	if _, exists := exportedSubscription["logo"]; exists {
+		t.Fatalf("missing logo path must not stay in data.json: %#v", exportedSubscription)
+	}
+	config := payload["customConfig"].(map[string]interface{})
+	paymentMethods := config["paymentMethods"].([]interface{})
+	exportedPaymentMethod := paymentMethods[0].(map[string]interface{})
+	if _, exists := exportedPaymentMethod["icon"]; exists {
+		t.Fatalf("missing payment method icon must not stay in data.json: %#v", exportedPaymentMethod)
+	}
+
+	manifest := cloudBackupExportZipJSONForTest(t, content, "manifest.json")
+	missingAssets := manifest["missingAssets"].([]interface{})
+	if len(missingAssets) != 2 {
+		t.Fatalf("expected two missing asset audit entries, got %#v", missingAssets)
+	}
+	assertCloudBackupMissingAssetForTest(t, missingAssets[0], logoID, logoURL, "subscription.logo", subscription.Id, "file_missing")
+	assertCloudBackupMissingAssetForTest(t, missingAssets[1], iconID, iconURL, "customConfig.paymentMethods.icon", "pm_card", "file_missing")
+}
+
+func TestCloudBackupExportZipDeduplicatesSharedPrivateAssets(t *testing.T) {
+	app := newSchemaTestApp(t)
+	if err := ensureSchema(app); err != nil {
+		t.Fatal(err)
+	}
+	registerRecordHooks(app)
+	user, token := createRouteTestUser(t, app, "cloud-backup-dedupe-assets")
+	assetID, assetURL := uploadCloudBackupExportAssetForTest(t, app, token, "logo", "shared-logo.svg")
+	createRouteTestSubscription(t, app, user.Id, map[string]interface{}{"name": "First", "logo": assetURL})
+	createRouteTestSubscription(t, app, user.Id, map[string]interface{}{"name": "Second", "logo": assetURL})
+
+	content, _, err := buildCloudBackupExportZip(app, user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := cloudBackupExportZipJSONForTest(t, content, "data.json")
+	payload := data["data"].(map[string]interface{})
+	subscriptions := payload["subscriptions"].([]interface{})
+	if len(subscriptions) != 2 {
+		t.Fatalf("expected two subscriptions, got %#v", subscriptions)
+	}
+	expectedPath := "assets/" + assetID + ".svg"
+	for _, item := range subscriptions {
+		subscription := item.(map[string]interface{})
+		if subscription["logo"] != expectedPath {
+			t.Fatalf("expected shared logo to point at %q, got %#v", expectedPath, subscription)
+		}
+	}
+	manifest := cloudBackupExportZipJSONForTest(t, content, "manifest.json")
+	if manifest["assets"] != float64(1) {
+		t.Fatalf("expected one ZIP asset in manifest, got %#v", manifest)
+	}
+	if len(manifest["missingAssets"].([]interface{})) != 0 {
+		t.Fatalf("expected no missing assets, got %#v", manifest["missingAssets"])
+	}
+	if !cloudBackupExportZipHasEntryForTest(t, content, expectedPath) {
+		t.Fatalf("expected ZIP to contain %s", expectedPath)
+	}
+}
+
 func jsonStringForTest(value interface{}) string {
 	data, _ := json.Marshal(value)
 	return string(data)
+}
+
+func uploadCloudBackupExportAssetForTest(t *testing.T, app core.App, token string, kind string, filename string) (string, string) {
+	t.Helper()
+	upload := serveMultipartTestRequest(
+		t,
+		app,
+		"/api/app/assets",
+		token,
+		map[string]string{"kind": kind},
+		"file",
+		filename,
+		`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"></svg>`,
+	)
+	if upload.Code != http.StatusCreated {
+		t.Fatalf("expected asset upload 201, got %d: %s", upload.Code, upload.Body.String())
+	}
+	uploaded := decodeAPISuccessDataForTest[uploadAssetResponse](t, upload.Body.Bytes())
+	id := strings.TrimPrefix(uploaded.URL, "/api/app/assets/")
+	return id, uploaded.URL
+}
+
+func removeCloudBackupExportAssetFileForTest(t *testing.T, app core.App, id string) {
+	t.Helper()
+	record, err := app.FindRecordById("assets", id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filePath := filepath.Join(app.DataDir(), "storage", record.Collection().Id, record.Id, record.GetString("file"))
+	if err := os.Remove(filePath); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func cloudBackupExportZipJSONForTest(t *testing.T, content []byte, name string) map[string]interface{} {
+	t.Helper()
+	reader, err := zip.NewReader(bytes.NewReader(content), int64(len(content)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range reader.File {
+		if file.Name != name {
+			continue
+		}
+		opened, err := file.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer opened.Close()
+		data, err := io.ReadAll(opened)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out map[string]interface{}
+		if err := json.Unmarshal(data, &out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	t.Fatalf("missing ZIP entry %s", name)
+	return nil
+}
+
+func cloudBackupExportZipHasEntryForTest(t *testing.T, content []byte, name string) bool {
+	t.Helper()
+	reader, err := zip.NewReader(bytes.NewReader(content), int64(len(content)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range reader.File {
+		if file.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func assertCloudBackupMissingAssetForTest(t *testing.T, value interface{}, assetID string, path string, reference string, referenceID string, reason string) {
+	t.Helper()
+	entry := value.(map[string]interface{})
+	if entry["assetId"] != assetID || entry["path"] != path || entry["reference"] != reference || entry["referenceId"] != referenceID || entry["reason"] != reason {
+		t.Fatalf("unexpected missing asset entry: %#v", entry)
+	}
 }

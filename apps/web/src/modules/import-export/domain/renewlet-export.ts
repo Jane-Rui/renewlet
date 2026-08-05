@@ -1,5 +1,13 @@
-import { renewletExportV1Schema, type RenewletExportAsset } from "@/lib/api/schemas/import-export";
+import {
+  renewletExportManifestV1Schema,
+  renewletExportV1Schema,
+  type RenewletExportAsset,
+  type RenewletExportMissingAsset,
+  type RenewletExportMissingAssetReason,
+  type RenewletExportMissingAssetReference,
+} from "@/lib/api/schemas/import-export";
 import { getAuthHeader } from "@/lib/pocketbase";
+import { MAX_IMAGE_BYTES } from "@/lib/upload-constraints";
 import { downloadFile } from "@/shared/browser/download-file";
 import type { CustomConfig } from "@/types/config";
 import type { AppSettings, Subscription } from "@/types/subscription";
@@ -24,21 +32,61 @@ export async function exportRenewletBackup(options: {
   const { default: JSZip } = await import("jszip");
   const zip = new JSZip();
   const assets: RenewletExportAsset[] = [];
+  const missingAssets: RenewletExportMissingAsset[] = [];
+  const assetReads = new Map<string, Promise<PrivateAssetReadResult>>();
+  const assetMetadataById = new Map<string, RenewletExportAsset>();
+  async function resolveAsset(reference: PrivateAssetReference): Promise<string | null> {
+    const result = await readPrivateAssetForExport(reference.path, assetReads);
+    if (!result.ok) {
+      missingAssets.push(missingAssetFromReference(reference, result.reason));
+      return null;
+    }
+    const existing = assetMetadataById.get(reference.assetId);
+    if (existing) return existing.path;
+    const path = `assets/${reference.assetId}${extensionFromMime(result.blob.type)}`;
+    // JSZip 在浏览器和 jsdom/Node 对 Blob 探测不完全一致；先转 ArrayBuffer 可避免备份里写入 "[object Blob]"。
+    zip.file(path, await result.blob.arrayBuffer());
+    const metadata = { id: reference.assetId, path, mimeType: result.blob.type, sizeBytes: result.blob.size };
+    assets.push(metadata);
+    assetMetadataById.set(reference.assetId, metadata);
+    return path;
+  }
   const subscriptions = [];
   for (const subscription of options.subscriptions) {
     const row = subscriptionToExportRow(subscription);
-    const assetId = privateAssetIdFromLogo(subscription.logo);
-    if (assetId) {
-      const asset = await fetchPrivateAsset(subscription.logo);
-      if (asset) {
-        const path = `assets/${assetId}${extensionFromMime(asset.type)}`;
-        zip.file(path, asset);
+    const logo = subscription.logo;
+    const assetId = privateAssetIdFromLogo(logo);
+    if (assetId && logo) {
+      const path = await resolveAsset({
+        assetId,
+        path: logo,
+        reference: "subscription.logo",
+        referenceId: subscription.id,
+      });
+      if (path) {
         row.logo = path;
-        assets.push({ id: assetId, path, mimeType: asset.type, sizeBytes: asset.size });
+      } else {
+        delete row.logo;
       }
     }
     subscriptions.push(row);
   }
+  const customConfig = {
+    ...options.customConfig,
+    paymentMethods: await Promise.all(options.customConfig.paymentMethods.map(async (paymentMethod) => {
+      const assetId = privateAssetIdFromLogo(paymentMethod.icon);
+      if (!assetId || !paymentMethod.icon) return paymentMethod;
+      const path = await resolveAsset({
+        assetId,
+        path: paymentMethod.icon,
+        reference: "customConfig.paymentMethods.icon",
+        referenceId: paymentMethod.id,
+      });
+      if (path) return { ...paymentMethod, icon: path };
+      const { icon: _icon, ...rest } = paymentMethod;
+      return rest;
+    })),
+  };
 
   const exportedAt = new Date().toISOString();
   const data = renewletExportV1Schema.parse({
@@ -48,35 +96,70 @@ export async function exportRenewletBackup(options: {
     data: {
       subscriptions,
       settings: sanitizeSettingsForExport(options.settings, options.includeSecrets),
-      customConfig: options.customConfig,
+      customConfig,
       assets,
     },
   });
-  zip.file("manifest.json", JSON.stringify({
+  const manifest = renewletExportManifestV1Schema.parse({
     kind: data.kind,
     schemaVersion: data.schemaVersion,
     exportedAt: data.exportedAt,
     subscriptions: data.data.subscriptions.length,
     assets: assets.length,
-  }, null, 2));
+    // missingAssets 是导出审计，不参与导入写库；失败资产已从 data.json 的 logo/icon 字段移除。
+    missingAssets,
+  });
+  zip.file("manifest.json", JSON.stringify(manifest, null, 2));
   zip.file("data.json", JSON.stringify(data, null, 2));
   const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
   downloadFile(blob, `renewlet-export-v1-${exportedAt.slice(0, 10)}.zip`);
 }
 
-async function fetchPrivateAsset(url: string | undefined): Promise<Blob | null> {
-  if (!url) return null;
+type PrivateAssetReference = {
+  assetId: string;
+  path: string;
+  reference: RenewletExportMissingAssetReference;
+  referenceId: string;
+};
+
+type PrivateAssetReadResult =
+  | { ok: true; blob: Blob }
+  | { ok: false; reason: RenewletExportMissingAssetReason };
+
+async function readPrivateAssetForExport(url: string, cache: Map<string, Promise<PrivateAssetReadResult>>): Promise<PrivateAssetReadResult> {
+  const assetId = privateAssetIdFromLogo(url);
+  if (!assetId) return { ok: false, reason: "not_found" };
+  const cached = cache.get(assetId);
+  if (cached) return cached;
+  const promise = fetchPrivateAsset(url);
+  cache.set(assetId, promise);
+  return promise;
+}
+
+async function fetchPrivateAsset(url: string): Promise<PrivateAssetReadResult> {
   try {
     // 导出私有资产必须复用当前认证头；裸 fetch 在 Cloudflare/PocketBase 两端都会丢登录态边界。
     const response = await fetch(url, {
       headers: getAuthHeader(),
       credentials: "include",
     });
-    if (!response.ok) return null;
-    return await response.blob();
+    if (!response.ok) return { ok: false, reason: response.status === 404 ? "not_found" : "read_failed" };
+    const blob = await response.blob();
+    if (blob.size > MAX_IMAGE_BYTES) return { ok: false, reason: "too_large" };
+    return { ok: true, blob };
   } catch {
-    return null;
+    return { ok: false, reason: "read_failed" };
   }
+}
+
+function missingAssetFromReference(reference: PrivateAssetReference, reason: RenewletExportMissingAssetReason): RenewletExportMissingAsset {
+  return {
+    assetId: reference.assetId,
+    path: reference.path,
+    reference: reference.reference,
+    referenceId: reference.referenceId,
+    reason,
+  };
 }
 
 function extensionFromMime(mimeType: string): string {

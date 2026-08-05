@@ -12,7 +12,7 @@ import {
   cloudBackupScheduleWeekdaySchema,
   cloudBackupSnapshotManifestSchema,
 } from "./cloud-backup";
-import { renewletExportV1Schema } from "./import-export";
+import { renewletExportManifestV1Schema, renewletExportV1Schema } from "./import-export";
 
 const success = <T>(data: T) => ({ ok: true, data });
 
@@ -331,6 +331,37 @@ describe("cloud backup schemas", () => {
 });
 
 describe("renewlet export schema", () => {
+  it("validates export manifests with missing private asset audit entries", () => {
+    const manifest = {
+      kind: "renewlet-export",
+      schemaVersion: 1,
+      exportedAt: "2026-06-09T00:00:00.000Z",
+      subscriptions: 2,
+      assets: 1,
+      missingAssets: [{
+        assetId: "asset_missing",
+        path: "/api/app/assets/asset_missing",
+        reference: "subscription.logo",
+        referenceId: "sub_1",
+        reason: "file_missing",
+      }],
+    };
+
+    expect(renewletExportManifestV1Schema.parse(manifest).missingAssets[0]?.reason).toBe("file_missing");
+    expect(renewletExportManifestV1Schema.safeParse({
+      ...manifest,
+      missingAssets: [{ ...manifest.missingAssets[0], reason: "permission_denied" }],
+    }).success).toBe(false);
+    expect(renewletExportManifestV1Schema.safeParse({
+      ...manifest,
+      missingAssets: [{ ...manifest.missingAssets[0], reference: "settings.logo" }],
+    }).success).toBe(false);
+    expect(renewletExportManifestV1Schema.safeParse({
+      ...manifest,
+      missingAssets: [{ ...manifest.missingAssets[0], path: "assets/asset_missing.svg" }],
+    }).success).toBe(false);
+  });
+
   it("allows ZIP-internal asset logo paths without loosening subscription API paths", () => {
     expect(renewletExportV1Schema.safeParse({
       kind: "renewlet-export",

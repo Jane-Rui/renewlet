@@ -104,6 +104,11 @@ export const importApplyPayloadSchema = importPreviewPayloadSchema;
 export const importApplyResponseSchema = apiSuccessResponseSchema(importApplyPayloadSchema);
 export type ImportApplyResponse = z.infer<typeof importApplyPayloadSchema>;
 
+const exportPrivateAssetPathSchema = z
+  .string()
+  .trim()
+  .refine((value) => /^\/api\/app\/assets\/[A-Za-z0-9_-]+$/.test(value), "Invalid private asset path");
+
 const exportAssetSchema = z.object({
   id: z.string(),
   path: z.string(),
@@ -137,3 +142,29 @@ export const renewletExportV1Schema = z.object({
   }).strict(),
 }).strict();
 export type RenewletExportV1 = z.infer<typeof renewletExportV1Schema>;
+
+export const renewletExportMissingAssetReferenceSchema = z.enum(["subscription.logo", "customConfig.paymentMethods.icon"]);
+export type RenewletExportMissingAssetReference = z.infer<typeof renewletExportMissingAssetReferenceSchema>;
+
+export const renewletExportMissingAssetReasonSchema = z.enum(["not_found", "file_missing", "too_large", "read_failed"]);
+export type RenewletExportMissingAssetReason = z.infer<typeof renewletExportMissingAssetReasonSchema>;
+
+export const renewletExportMissingAssetSchema = z.object({
+  assetId: z.string().trim().min(1),
+  path: exportPrivateAssetPathSchema,
+  reference: renewletExportMissingAssetReferenceSchema,
+  referenceId: z.string().trim().min(1),
+  reason: renewletExportMissingAssetReasonSchema,
+}).strict();
+export type RenewletExportMissingAsset = z.infer<typeof renewletExportMissingAssetSchema>;
+
+export const renewletExportManifestV1Schema = z.object({
+  kind: z.literal("renewlet-export"),
+  schemaVersion: z.literal(1),
+  exportedAt: z.string(),
+  subscriptions: z.number().int().nonnegative(),
+  assets: z.number().int().nonnegative(),
+  // manifest 只做 ZIP 审计；导入恢复仍以 data.json 为事实源，缺失资产不能反向驱动写库。
+  missingAssets: z.array(renewletExportMissingAssetSchema),
+}).strict();
+export type RenewletExportManifestV1 = z.infer<typeof renewletExportManifestV1Schema>;

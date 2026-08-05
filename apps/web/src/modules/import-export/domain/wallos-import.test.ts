@@ -570,8 +570,8 @@ describe("wallos import", () => {
     const resolved = await resolveImportAssets({
       payload,
       assets: [
-        { subscriptionIndex: 0, filename: "skipped.png", blob: new Blob(["skip"], { type: "image/png" }) },
-        { subscriptionIndex: 1, filename: "writable.png", blob: new Blob(["write"], { type: "image/png" }) },
+        { target: { type: "subscriptionLogo", subscriptionIndex: 0 }, kind: "logo", filename: "skipped.png", blob: new Blob(["skip"], { type: "image/png" }) },
+        { target: { type: "subscriptionLogo", subscriptionIndex: 1 }, kind: "logo", filename: "writable.png", blob: new Blob(["write"], { type: "image/png" }) },
       ],
       warnings: [],
     }, [
@@ -584,6 +584,40 @@ describe("wallos import", () => {
     expect(resolved.uploadedLogoCount).toBe(1);
     expect(resolved.payload.subscriptions[0]?.logo).toBeNull();
     expect(resolved.payload.subscriptions[1]?.logo).toBe("/api/app/assets/uploaded_logo");
+  });
+
+  it("uploads payment method icons as icon assets and rewrites custom config before apply", async () => {
+    const payload = importPayloadSchema.parse({
+      source: "renewlet",
+      subscriptions: [
+        importSubscriptionFixture("Icon Import", "icon"),
+      ],
+      customConfig: {
+        ...DEFAULT_CUSTOM_CONFIG,
+        paymentMethods: [{
+          id: "pm_card",
+          value: "card",
+          labels: { "zh-CN": "Card", "en-US": "Card" },
+        }],
+      },
+    });
+    assetMocks.create.mockResolvedValue({ url: "/api/app/assets/uploaded_icon" });
+
+    const resolved = await resolveImportAssets({
+      payload,
+      assets: [
+        { target: { type: "paymentMethodIcon", paymentMethodIndex: 0 }, kind: "icon", filename: "card.svg", blob: new Blob(["svg"], { type: "image/svg+xml" }) },
+      ],
+      warnings: [],
+    }, [
+      { index: 0, name: "Icon Import", source: "renewlet", sourceId: "icon", action: "create", warnings: [], errors: [] },
+    ]);
+
+    expect(assetMocks.create).toHaveBeenCalledWith(expect.any(Blob), "icon", "card.svg");
+    expect(resolved.uploadedLogoCount).toBe(0);
+    expect(resolved.uploadedIconCount).toBe(1);
+    expect(resolved.payload.customConfig?.paymentMethods[0]?.icon).toBe("/api/app/assets/uploaded_icon");
+    expect(resolved.payload.subscriptions[0]?.logo).toBeNull();
   });
 
   it("reports zero uploaded logos when import apply has no writable staged assets", async () => {
@@ -603,7 +637,7 @@ describe("wallos import", () => {
     ]);
 
     expect(assetMocks.create).not.toHaveBeenCalled();
-    expect(resolved).toEqual({ payload, uploadedLogoCount: 0 });
+    expect(resolved).toEqual({ payload, uploadedLogoCount: 0, uploadedIconCount: 0 });
   });
 });
 

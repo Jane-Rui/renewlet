@@ -209,7 +209,7 @@ function PreviewRow({
               name={subscription.name}
               website={subscription.website}
               value={subscription.logo}
-              assetPreviewUrl={prepared.assets.find((asset) => asset.subscriptionIndex === item.index)?.previewUrl}
+              assetPreviewUrl={prepared.assets.find((asset) => asset.target.type === "subscriptionLogo" && asset.target.subscriptionIndex === item.index)?.previewUrl}
               onChange={(value, asset) => onLogoChange(item.index, value, asset)}
             />
           ) : null}
@@ -221,7 +221,7 @@ function PreviewRow({
 
 function ImportPreviewLogo({ prepared, index, name }: { prepared: PreparedImport; index: number; name: string }) {
   const subscription = prepared.payload.subscriptions[index];
-  const asset = prepared.assets.find((item) => item.subscriptionIndex === index);
+  const asset = prepared.assets.find((item) => item.target.type === "subscriptionLogo" && item.target.subscriptionIndex === index);
   const [assetPreviewUrl, setAssetPreviewUrl] = useState<string | undefined>();
   const src = asset?.previewUrl ?? subscription?.logo ?? assetPreviewUrl;
 

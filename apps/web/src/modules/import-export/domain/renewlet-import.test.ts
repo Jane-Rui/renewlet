@@ -6,6 +6,7 @@ import { assertDateOnly } from "@/lib/time/date-only";
 import { renewletExportV1Schema } from "@/lib/api/schemas/import-export";
 import { parseJsonText } from "./wallos-import";
 import { IMPORT_MESSAGE_CODES, subscriptionToExportRow } from "./import-export-model";
+import { buildFromRenewletExport } from "./wallos-import-mapping";
 
 const context = {
   config: DEFAULT_CUSTOM_CONFIG,
@@ -126,5 +127,36 @@ describe("renewlet import", () => {
     expect(prepared.payload.settings?.defaultCurrency).toBe("USD");
     expect(prepared.payload.customConfig?.statuses.some((item) => item.value === "expired")).toBe(true);
     expect(prepared.warnings).toHaveLength(0);
+  });
+
+  it("stages payment method icons from Renewlet ZIP assets and removes missing ZIP icon paths", () => {
+    const parsed = renewletExportV1Schema.parse({
+      kind: "renewlet-export",
+      schemaVersion: 1,
+      exportedAt: "2026-05-26T00:00:00.000Z",
+      data: {
+        subscriptions: [currentExportSubscription],
+        settings: { defaultCurrency: "USD" },
+        customConfig: {
+          ...DEFAULT_CUSTOM_CONFIG,
+          paymentMethods: [
+            { id: "pm_card", value: "card", labels: { "zh-CN": "Card", "en-US": "Card" }, icon: "assets/asset_icon.svg" },
+            { id: "pm_missing", value: "wallet", labels: { "zh-CN": "Wallet", "en-US": "Wallet" }, icon: "assets/missing.svg" },
+          ],
+        },
+        assets: [{ id: "asset_icon", path: "assets/asset_icon.svg", mimeType: "image/svg+xml", sizeBytes: 7 }],
+      },
+    });
+
+    const prepared = buildFromRenewletExport(parsed, context, new Map([["assets/asset_icon.svg", "assets/asset_icon.svg"]]));
+
+    expect(prepared.assets).toEqual([{
+      target: { type: "paymentMethodIcon", paymentMethodIndex: 0 },
+      kind: "icon",
+      filename: "asset_icon.svg",
+      zipEntryName: "assets/asset_icon.svg",
+    }]);
+    expect(prepared.payload.customConfig?.paymentMethods[0]).not.toHaveProperty("icon");
+    expect(prepared.payload.customConfig?.paymentMethods[1]).not.toHaveProperty("icon");
   });
 });

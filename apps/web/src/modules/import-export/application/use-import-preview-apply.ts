@@ -131,12 +131,16 @@ export function useImportPreviewApply({ onApplied }: UseImportPreviewApplyOption
       const assetInvalidations = resolvedAssets.uploadedLogoCount > 0
         ? [invalidateUploadedAssetsQueries(queryClient, "logo")]
         : [];
+      const iconAssetInvalidations = resolvedAssets.uploadedIconCount > 0
+        ? [invalidateUploadedAssetsQueries(queryClient, "icon")]
+        : [];
       // 导入可能同时写订阅、设置和自定义配置；成功后统一失效，避免页面继续展示导入前缓存。
       await Promise.all([
         invalidateSubscriptionsQueries(queryClient),
         queryClient.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY }),
         queryClient.invalidateQueries({ queryKey: ["custom-config"] }),
         ...assetInvalidations,
+        ...iconAssetInvalidations,
       ]);
       toast({
         title: t("import.successTitle"),

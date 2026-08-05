@@ -19,6 +19,10 @@ export {
   importSubscriptionSchema,
   importSummarySchema,
   renewletExportV1Schema,
+  renewletExportManifestV1Schema,
+  renewletExportMissingAssetReasonSchema,
+  renewletExportMissingAssetReferenceSchema,
+  renewletExportMissingAssetSchema,
 } from "@renewlet/shared/schemas/import-export";
 
 export type {
@@ -34,6 +38,10 @@ export type {
   ImportSource,
   ImportSubscription,
   ImportSummary,
+  RenewletExportManifestV1,
   RenewletExportAsset,
+  RenewletExportMissingAsset,
+  RenewletExportMissingAssetReason,
+  RenewletExportMissingAssetReference,
   RenewletExportV1,
 } from "@renewlet/shared/schemas/import-export";
