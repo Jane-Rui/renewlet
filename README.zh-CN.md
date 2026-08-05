@@ -126,7 +126,7 @@ docker compose down
 | `PB_ENCRYPTION_KEY` | PocketBase 敏感设置加密密钥，部署后不要随意更换。 |
 | `CRON_SECRET` | 外部 Cron 调用 `/api/cron/notifications` 时使用的 Bearer 密钥。 |
 | `RENEWLET_DEMO_MODE` | Docker Demo Mode 开关，默认 `false`。 |
-| `RENEWLET_CUSTOM_HEAD_SCRIPT` | 可选部署者自备外链 `<script>` 注入。默认留空；留空时不注入任何外部脚本。 |
+| `RENEWLET_CUSTOM_HEAD_SCRIPT` | 可选部署者自备外链 `<script>` 注入。默认留空；只建议使用可信 HTTPS 脚本，因为它会运行在 Renewlet 页面内。 |
 | `NOTIFICATION_SCHEDULER_ENABLED` | 内置通知调度器开关，默认 `true`。 |
 | `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` | 可选 Docker/Go 上游 HTTP 代理；也支持小写变量名。 |
 
@@ -159,6 +159,8 @@ RENEWLET_CUSTOM_HEAD_SCRIPT='<script defer src="https://cdn.example.com/widget.j
 ```
 
 Renewlet 只接受单个带 `src`、无内联内容的外链 script。脚本 origin 会自动加入 `script-src` 和 `connect-src`；如果提供 `data-host-url`，该 origin 也会加入 `connect-src`。
+
+请把这个配置视为高信任部署边界。注入脚本和 Renewlet 运行在同一个浏览器页面中，一旦脚本或 CDN 供应链失守，就能读取页面数据以及当前保存在 `localStorage` 中的浏览器 bearer session。优先使用你完全控制的自托管 HTTPS 脚本；不需要时保持 `RENEWLET_CUSTOM_HEAD_SCRIPT` 为空。
 
 Docker/Go 部署在运行时注入，修改环境变量后只需重启 Renewlet。Cloudflare Static Assets 在构建时读取该变量并注入，修改后需要重新构建和部署。
 

@@ -42,6 +42,7 @@ vi.mock("./crypto", async (importOriginal) => {
 type PublicApiTestState = {
   users: Array<{ id: string; banned: number }>;
   apiTokens: ApiTokenRow[];
+  apiTokenLastUsedUpdates: number;
   subscriptions: SubscriptionRow[];
   settingsJson: string | null;
 };
@@ -58,6 +59,7 @@ function createEnv(overrides: Partial<PublicApiTestState> = {}): Env & { __state
       { id: OTHER_USER_ID, banned: 0 },
     ],
     apiTokens: [],
+    apiTokenLastUsedUpdates: 0,
     subscriptions: [],
     settingsJson: JSON.stringify(settings),
     ...overrides,
@@ -208,6 +210,7 @@ class PublicApiTestStatement {
       const [lastUsedAt, updatedAt, id] = this.values as [string, string, string];
       const token = this.state.apiTokens.find((row) => row.id === id);
       if (!token) return d1Result([], 0);
+      this.state.apiTokenLastUsedUpdates += 1;
       token.last_used_at = lastUsedAt;
       token.updated_at = updatedAt;
       return d1Result([], 1);
@@ -416,5 +419,39 @@ describe("Cloudflare Public API", () => {
     expect(deleteResponse.status).toBe(200);
     expect(env.__state.apiTokens).toHaveLength(0);
     await expect(publicApiMe(publicRequest("/api/public/v1/me"), env)).rejects.toMatchObject({ status: 401 });
+  });
+
+  it("throttles public API last_used_at writes", async () => {
+    const tokenHash = await sha256(PLAIN_TOKEN);
+    const token: ApiTokenRow = {
+      id: "tok_existing",
+      user_id: USER_ID,
+      name: "Automation",
+      token_hash: tokenHash,
+      token_prefix: PLAIN_TOKEN.slice(0, 12),
+      scopes_json: JSON.stringify(["read"]),
+      last_used_at: null,
+      created_at: "2026-06-01T00:00:00.000Z",
+      updated_at: "2026-06-01T00:00:00.000Z",
+    };
+    const env = createEnv({ apiTokens: [token] });
+
+    const first = await publicApiMe(publicRequest("/api/public/v1/me"), env);
+    expect(first.status).toBe(200);
+    expect(env.__state.apiTokenLastUsedUpdates).toBe(1);
+    const firstLastUsedAt = token.last_used_at;
+    expect(firstLastUsedAt).toBeTruthy();
+
+    const fresh = await publicApiMe(publicRequest("/api/public/v1/me"), env);
+    expect(fresh.status).toBe(200);
+    expect(env.__state.apiTokenLastUsedUpdates).toBe(1);
+    expect(token.last_used_at).toBe(firstLastUsedAt);
+
+    const staleLastUsedAt = new Date(Date.now() - 16 * 60 * 1000).toISOString();
+    token.last_used_at = staleLastUsedAt;
+    const stale = await publicApiMe(publicRequest("/api/public/v1/me"), env);
+    expect(stale.status).toBe(200);
+    expect(env.__state.apiTokenLastUsedUpdates).toBe(2);
+    expect(Date.parse(token.last_used_at ?? "")).toBeGreaterThan(Date.parse(staleLastUsedAt));
   });
 });

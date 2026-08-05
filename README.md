@@ -126,7 +126,7 @@ Common `.env` values:
 | `PB_ENCRYPTION_KEY` | Encryption key for sensitive PocketBase settings. Do not rotate it casually after deployment. |
 | `CRON_SECRET` | Bearer secret for external Cron calls to `/api/cron/notifications`. |
 | `RENEWLET_DEMO_MODE` | Docker Demo Mode switch, `false` by default. |
-| `RENEWLET_CUSTOM_HEAD_SCRIPT` | Optional deployer-provided external `<script>` injection. Empty by default; leave unset to inject no external script. |
+| `RENEWLET_CUSTOM_HEAD_SCRIPT` | Optional deployer-provided external `<script>` injection. Empty by default; only use trusted HTTPS scripts because they run inside the Renewlet page. |
 | `NOTIFICATION_SCHEDULER_ENABLED` | Built-in notification scheduler switch, `true` by default. |
 | `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` | Optional Docker/Go upstream HTTP proxy; lowercase variable names are also supported. |
 
@@ -159,6 +159,8 @@ RENEWLET_CUSTOM_HEAD_SCRIPT='<script defer src="https://cdn.example.com/widget.j
 ```
 
 Renewlet accepts only a single external script tag with `src` and no inline content. The script origin is automatically added to `script-src` and `connect-src`; when `data-host-url` is present, its origin is also added to `connect-src`.
+
+Treat this as a high-trust deployment boundary. The injected script runs in the same browser page as Renewlet, so a compromised script or CDN can read page data and the current browser bearer session stored in `localStorage`. Prefer a self-hosted HTTPS script that you fully control, and leave `RENEWLET_CUSTOM_HEAD_SCRIPT` empty if you do not need it.
 
 Docker/Go deployments inject this at runtime, so changing the environment variable only requires restarting Renewlet. Cloudflare Static Assets reads the variable at build time, so changes require rebuilding and redeploying.
 

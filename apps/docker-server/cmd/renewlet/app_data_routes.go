@@ -61,6 +61,9 @@ type uploadAssetResponse struct {
 	URL string `json:"url"`
 }
 
+// 与 Cloudflare Worker 的上传 envelope 口径一致：multipart 头部最多放宽 64KiB，不能把 2MiB 文件限额变成大 body 入口。
+const maxAssetUploadBodyBytes = maxImageBytes + 64*1024
+
 type assetInUseDetails struct {
 	UsageCount             int64 `json:"usageCount"`
 	SubscriptionLogoCount  int64 `json:"subscriptionLogoCount"`
@@ -294,6 +297,8 @@ func handleSubscriptionDelete(app core.App, e *core.RequestEvent) error {
 
 func handleAssetUpload(app core.App, e *core.RequestEvent) error {
 	locale := requestLocale(e.Request)
+	// multipart envelope 只放宽表单头部开销；真实文件大小仍由 maxImageBytes 和持久层 MIME 白名单兜底。
+	e.Request.Body = http.MaxBytesReader(e.Response, e.Request.Body, maxAssetUploadBodyBytes)
 	if err := e.Request.ParseMultipartForm(maxImageBytes + 1024); err != nil {
 		return e.BadRequestError(serverText(locale, "asset.uploadChooseImage"), err)
 	}

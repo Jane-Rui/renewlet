@@ -19,6 +19,8 @@ const (
 	appSessionTokenN  = 32
 	mfaTicketTokenN   = 32
 	appSessionHashLen = 43
+	// Docker/Go 与 Worker 共享 15 分钟审计写入窗口；这些字段不参与授权，不能因为节流改变 session/token 有效性。
+	auditTouchInterval = 15 * time.Minute
 )
 
 // 本文件只签发 Renewlet 产品 session；PocketBase 原生 JWT 仅作为账号事实源存在，不能恢复为浏览器 bearer。
@@ -39,9 +41,13 @@ func appAuthMiddleware(app core.App) *hook.Handler[*core.RequestEvent] {
 			if user.GetBool("banned") {
 				return e.UnauthorizedError(localizedDisabledBanReason(locale), nil)
 			}
-			session.Set("lastSeenAt", nowString())
-			if err := app.Save(session); err != nil {
-				return e.InternalServerError(serverText(locale, "common.internalError"), err)
+			now := time.Now().UTC()
+			if shouldTouchAuditTimestamp(session.GetString("lastSeenAt"), now) {
+				// lastSeenAt 只是会话活跃审计，不参与授权或续期；节流写入避免所有只读 API 都放大成 SQLite write。
+				session.Set("lastSeenAt", now.Format(time.RFC3339Nano))
+				if err := app.Save(session); err != nil {
+					return e.InternalServerError(serverText(locale, "common.internalError"), err)
+				}
 			}
 			e.Auth = user
 			return e.Next()
@@ -445,4 +451,17 @@ func tokenHash(token string) string {
 
 func nowString() string {
 	return time.Now().UTC().Format(time.RFC3339Nano)
+}
+
+// 审计时间戳缺失或损坏时必须修复；只有可信 RFC3339Nano 且仍新鲜的值才能跳过写库。
+func shouldTouchAuditTimestamp(value string, now time.Time) bool {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return true
+	}
+	lastTouchedAt, err := time.Parse(time.RFC3339Nano, trimmed)
+	if err != nil {
+		return true
+	}
+	return now.UTC().Sub(lastTouchedAt.UTC()) >= auditTouchInterval
 }
