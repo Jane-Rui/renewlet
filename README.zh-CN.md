@@ -43,6 +43,7 @@ Renewlet 是一个自托管订阅账本，用来记录周期扣费并发送续�
 - AI 识别：从账单截图、备忘录、CSV/TSV 或表格文本生成订阅草稿，确认后再导入。
 - 日历订阅：全局私有 ICS Feed 和单个订阅 Feed。
 - 公开订阅状态页：按订阅控制是否公开，并可选择是否展示金额。
+- 只读 [Public API](docs/public-api.md)：提供 OpenAPI 3.1 文档，方便 CLI、Shortcuts 和自动化平台接入。
 - 数据迁移：导入导出 Renewlet 数据，并支持 Wallos 文件迁入。
 - Logo 来源：上传 Logo、图片链接、内置图标来源和 favicon 候选。
 - Docker 部署：React、Go/PocketBase、SQLite 和静态资源运行在同一个容器中。

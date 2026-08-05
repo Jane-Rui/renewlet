@@ -65,8 +65,59 @@ jobs:
             exit 1
           fi
 
-  docker:
+  e2e-smoke:
     needs: metadata
+    if: ${{ github.repository == 'zhiyingzzhou/renewlet' }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6.0.0
+        with:
+          node-version: 24
+
+      - name: Set up Go
+        uses: actions/setup-go@v6.4.0
+        with:
+          go-version: 1.26.2
+          cache-dependency-path: apps/docker-server/go.sum
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Typecheck E2E
+        run: pnpm typecheck:e2e
+
+      - name: Run release smoke
+        # Tag 发布前先挡 setup/login、ZIP 恢复、AI mock 导入和账号安全改密；失败时不推镜像、不生成 Release。
+        run: pnpm exec playwright test e2e/release-smoke.spec.ts e2e/mobile-release-smoke.spec.ts
+
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v6.0.0
+        with:
+          name: release-smoke-playwright-artifacts
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  docker:
+    needs:
+      - metadata
+      - e2e-smoke
     if: ${{ github.repository == 'zhiyingzzhou/renewlet' }}
     permissions:
       contents: read
@@ -158,7 +209,9 @@ jobs:
           readme-filepath: ./tmp/dockerhub/README.md
 
   cloudflare-check:
-    needs: metadata
+    needs:
+      - metadata
+      - e2e-smoke
     if: ${{ github.repository == 'zhiyingzzhou/renewlet' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30

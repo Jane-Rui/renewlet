@@ -49,6 +49,9 @@ jobs:
       - name: Check deploy config
         run: pnpm check:deploy
 
+      - name: Check Public API docs
+        run: pnpm check:public-api-docs
+
       - name: Lint client
         run: pnpm --filter @renewlet/client lint
 

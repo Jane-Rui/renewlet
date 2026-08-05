@@ -89,7 +89,7 @@ export default defineConfig({
     {
       name: "desktop",
       dependencies: ["setup"],
-      testMatch: ["**/subscriptions.spec.ts", "**/settings.spec.ts", "**/statistics.spec.ts"],
+      testMatch: ["**/subscriptions.spec.ts", "**/settings.spec.ts", "**/statistics.spec.ts", "**/release-smoke.spec.ts"],
       use: {
         ...devices["Desktop Chrome"],
         storageState: adminStorageState,

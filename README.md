@@ -43,6 +43,7 @@ Sign in with `demo@renewlet.local` / `renewlet-demo`. The demo resets regularly,
 - AI recognition for bill screenshots, notes, CSV/TSV, and pasted table text; drafts are reviewed before import.
 - Global private ICS feed and per-subscription calendar feeds.
 - Public subscription status pages with per-subscription visibility and optional price display.
+- Read-only [Public API](docs/public-api.md) with an OpenAPI 3.1 document for CLI tools, Shortcuts, and automation.
 - Import and export Renewlet data, plus Wallos file imports.
 - Uploaded logos, image URLs, built-in icon sources, and favicon fallback suggestions.
 - Docker deployment with React, Go/PocketBase, SQLite, and static assets in one container.
