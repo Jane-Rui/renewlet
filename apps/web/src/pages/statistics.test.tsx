@@ -143,13 +143,14 @@ vi.mock("@/contexts/CustomConfigContext", () => ({
   useCustomConfig: mocks.useCustomConfig,
 }));
 
-vi.mock("@/hooks/use-exchange-rates", () => ({
-  useExchangeRates: () => ({
+vi.mock("@/hooks/use-report-exchange-rates", () => ({
+  useReportExchangeRates: () => ({
     convert: (amount: number | string) => moneyToNumber(amount),
     error: null,
     getCurrencySymbol: () => "¥",
     lastUpdated: null,
     loading: false,
+    reportBasisStatus: { month: "2026-08", locked: true, sourceDate: "2026-08-01", capturedAt: "2026-08-06T00:00:00Z" },
     refresh: mocks.refreshRates,
   }),
 }));

@@ -114,6 +114,8 @@ export function makePreview(): ImportPreviewResponse {
     ],
     includesSettings: false,
     includesCustomConfig: false,
+    includesExchangeRateSnapshots: false,
+    exchangeRateSnapshotsCount: 0,
   };
 }
 

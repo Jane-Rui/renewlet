@@ -145,6 +145,7 @@ export function buildFromRenewletExport(
       subscriptions,
       settings: data.data.settings,
       customConfig: prepareRenewletExportCustomConfig(data.data.customConfig, assetFiles, assets),
+      exchangeRateSnapshots: data.data.exchangeRateSnapshots,
     }),
     assets,
     warnings,

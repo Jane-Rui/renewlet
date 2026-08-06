@@ -274,6 +274,21 @@ export interface PublicStatusPageRow {
   updated_at: string;
 }
 
+/** 月度汇率快照锁定报表折算口径；只保存 normalized USD rates 和非密来源 metadata。 */
+export interface ExchangeRateSnapshotRow {
+  user_id: string;
+  month: string;
+  base: "USD";
+  rates_json: string;
+  requested_provider: "frankfurter" | "floatrates" | "exchange-api";
+  provider: "frankfurter" | "floatrates" | "exchange-api";
+  source_date: string;
+  captured_at: string;
+  warning_json: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 /** 云同步与备份目标；credential_json 是 provider 级 write-only secret，出站只能暴露 credentialSet。 */
 export interface CloudBackupTargetRow {
   user_id: string;

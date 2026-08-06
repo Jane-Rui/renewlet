@@ -12,6 +12,7 @@ import type {
   ExchangeRates,
   ExchangeRateSource,
 } from "@/lib/api/schemas/exchange-rates";
+import type { ReportExchangeRateBasisStatus } from "@/hooks/use-report-exchange-rates";
 import type { BuiltInIconIndexStatus } from "@/lib/api/schemas/media";
 import { DEFAULT_SETTINGS, type AppSettings, type NotificationChannel } from "@/types/subscription";
 import type { ThemeMode } from "@/types/theme";
@@ -414,11 +415,12 @@ export function createControllerState(overrides: {
     }>;
     createdPlainToken?: string | null;
   };
-	  telegramBotCommands?: Partial<SettingsTelegramBotCommandsController>;
-	  rates?: ExchangeRates;
-	  activeRateProvider?: ExchangeRateSource;
-	  ratesWarning?: ExchangeRateCoverageWarning | null;
-	  externalIntegrationsDisabled?: boolean;
+  telegramBotCommands?: Partial<SettingsTelegramBotCommandsController>;
+  rates?: ExchangeRates;
+  activeRateProvider?: ExchangeRateSource;
+  ratesWarning?: ExchangeRateCoverageWarning | null;
+  reportBasisStatus?: ReportExchangeRateBasisStatus;
+  externalIntegrationsDisabled?: boolean;
   sensitiveAccountActionsDisabled?: boolean;
   sensitiveAccountActionsDemoDisabled?: boolean;
   customConfig?: CustomConfig;
@@ -462,6 +464,12 @@ export function createControllerState(overrides: {
     ratesError: null,
     ratesErrorDetails: null,
     ratesWarning: overrides.ratesWarning ?? null,
+    reportBasisStatus: overrides.reportBasisStatus ?? {
+      month: "2026-08",
+      locked: true,
+      sourceDate: "2026-08-01",
+      capturedAt: "2026-08-06T00:00:00.000Z",
+    },
     getCurrencySymbol: (currency: string) => currencySymbols[currency] ?? currency,
     updateCategories: fn,
     updateStatuses: fn,

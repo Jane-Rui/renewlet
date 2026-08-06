@@ -75,6 +75,8 @@ const preview = {
   ],
   includesSettings: false,
   includesCustomConfig: false,
+  includesExchangeRateSnapshots: false,
+  exchangeRateSnapshotsCount: 0,
 } satisfies ImportPreviewResponse;
 
 function renderPanel(showImportOptions?: boolean) {

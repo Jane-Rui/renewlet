@@ -12,6 +12,10 @@ const mocks = vi.hoisted(() => ({
   setTheme: vi.fn(),
   theme: "dark" as "light" | "dark" | "system",
   usePublicStatus: vi.fn(),
+  useExchangeRates: vi.fn(() => ({
+    convert: (amount: number) => amount,
+    loading: false,
+  })),
 }));
 
 vi.mock("react-router-dom", () => ({
@@ -23,10 +27,7 @@ vi.mock("@/hooks/use-public-status-page", () => ({
 }));
 
 vi.mock("@/hooks/use-exchange-rates", () => ({
-  useExchangeRates: () => ({
-    convert: (amount: number) => amount,
-    loading: false,
-  }),
+  useExchangeRates: mocks.useExchangeRates,
 }));
 
 vi.mock("@/lib/theme-provider", () => ({
@@ -66,6 +67,8 @@ vi.mock("@/i18n/I18nProvider", () => ({
         "publicStatus.notFoundDescription": "这个链接不存在、已撤销或已重新生成。",
         "publicStatus.notFoundTitle": "公开页不可用",
         "publicStatus.moneySubtitle": `按 ${String(params?.["currency"] ?? "")} 汇总`,
+        "publicStatus.moneySubtitleLive": `按 ${String(params?.["currency"] ?? "")} 实时汇率估算`,
+        "publicStatus.moneySubtitleLocked": `按 ${String(params?.["month"] ?? "")} 报表口径`,
         "publicStatus.monthlyTotal": "月均总价",
         "publicStatus.ratesLoading": "汇率更新中",
         "publicStatus.startDate": `开始：${String(params?.["date"] ?? "")}`,
@@ -135,6 +138,7 @@ function renderPage() {
 afterEach(() => {
   document.querySelector('meta[name="robots"]')?.remove();
   mocks.setTheme.mockReset();
+  mocks.useExchangeRates.mockClear();
   mocks.theme = "dark";
 });
 
@@ -208,7 +212,19 @@ describe("PublicStatusPage", () => {
       isError: false,
       data: {
         ...baseResponse,
-        page: { ...baseResponse.page, showPrices: true, currency: "USD" },
+        page: {
+          ...baseResponse.page,
+          showPrices: true,
+          currency: "USD",
+          exchangeRateBasis: {
+            status: "locked",
+            month: "2026-06",
+            base: "USD",
+            rates: { USD: 1, CNY: 7 },
+            sourceDate: "2026-06-01",
+            capturedAt: "2026-06-07T00:00:00.000Z",
+          },
+        },
         subscriptions: [
           { ...baseResponse.subscriptions[0]!, price: "120", currency: "USD", billingCycle: "annual" },
           { ...baseResponse.subscriptions[1]!, price: "10", currency: "USD", billingCycle: "monthly" },
@@ -222,10 +238,12 @@ describe("PublicStatusPage", () => {
     expect(screen.getByText("年化总价")).toBeInTheDocument();
     expect(screen.getByText("USD 20")).toBeInTheDocument();
     expect(screen.getByText("USD 240")).toBeInTheDocument();
+    expect(screen.getAllByText("按 2026-06 报表口径")).toHaveLength(2);
     expect(screen.getByText("其中 2 个计入金额")).toBeInTheDocument();
     expect(screen.getByText("USD 120")).toBeInTheDocument();
     expect(screen.getByText("每年")).toBeInTheDocument();
     expect(screen.queryByText("显示金额")).not.toBeInTheDocument();
+    expect(mocks.useExchangeRates).not.toHaveBeenCalled();
   });
 
   it("hides the start-date line when a public subscription has no known start date", () => {

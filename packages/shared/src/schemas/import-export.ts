@@ -3,6 +3,7 @@ import { settingsUpdateBodySchema } from "./settings";
 import { customConfigSchema } from "./custom-config";
 import { apiSubscriptionSchema, subscriptionCreateBodySchema } from "./subscriptions";
 import { apiSuccessResponseSchema } from "./api";
+import { exchangeRateSnapshotV1Schema } from "./exchange-rates";
 
 /**
  * 单次导入执行的订阅上限。
@@ -42,6 +43,7 @@ export const importPayloadSchema = z.object({
   subscriptions: z.array(importSubscriptionSchema).max(5000),
   settings: settingsUpdateBodySchema.optional(),
   customConfig: customConfigSchema.optional(),
+  exchangeRateSnapshots: z.array(exchangeRateSnapshotV1Schema).max(240).optional(),
 }).strict();
 export type ImportPayload = z.infer<typeof importPayloadSchema>;
 
@@ -96,6 +98,8 @@ export const importPreviewPayloadSchema = z.object({
   items: z.array(importPreviewItemSchema),
   includesSettings: z.boolean(),
   includesCustomConfig: z.boolean(),
+  includesExchangeRateSnapshots: z.boolean(),
+  exchangeRateSnapshotsCount: z.number().int().nonnegative(),
 }).strict();
 export const importPreviewResponseSchema = apiSuccessResponseSchema(importPreviewPayloadSchema);
 export type ImportPreviewResponse = z.infer<typeof importPreviewPayloadSchema>;
@@ -138,6 +142,8 @@ export const renewletExportV1Schema = z.object({
     subscriptions: z.array(renewletExportSubscriptionSchema),
     settings: settingsUpdateBodySchema.optional(),
     customConfig: customConfigSchema.optional(),
+    // 历史汇率快照是 data.json 的恢复事实源；manifest 只做审计，不能承载报表口径。
+    exchangeRateSnapshots: z.array(exchangeRateSnapshotV1Schema).max(240).optional(),
     assets: z.array(exportAssetSchema).optional(),
   }).strict(),
 }).strict();

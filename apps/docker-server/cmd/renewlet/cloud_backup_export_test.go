@@ -141,6 +141,42 @@ func TestCloudBackupExportZipDeduplicatesSharedPrivateAssets(t *testing.T) {
 	}
 }
 
+func TestCloudBackupExportZipIncludesExchangeRateSnapshots(t *testing.T) {
+	app := newSchemaTestApp(t)
+	if err := ensureSchema(app); err != nil {
+		t.Fatal(err)
+	}
+	registerRecordHooks(app)
+	user, _ := createRouteTestUser(t, app, "cloud-backup-rate-snapshots")
+	if err := upsertExchangeRateSnapshot(app, user.Id, exchangeRateSnapshotDTO{
+		SchemaVersion:     1,
+		Month:             "2026-08",
+		Base:              "USD",
+		Rates:             map[string]float64{"USD": 1, "CNY": 7},
+		RequestedProvider: "frankfurter",
+		Provider:          "frankfurter",
+		SourceDate:        "2026-08-01",
+		CapturedAt:        "2026-08-06T00:00:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	content, _, err := buildCloudBackupExportZip(app, user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := cloudBackupExportZipJSONForTest(t, content, "data.json")
+	payload := data["data"].(map[string]interface{})
+	snapshots := payload["exchangeRateSnapshots"].([]interface{})
+	if len(snapshots) != 1 {
+		t.Fatalf("expected one exchange rate snapshot, got %#v", snapshots)
+	}
+	snapshot := snapshots[0].(map[string]interface{})
+	if snapshot["month"] != "2026-08" || snapshot["base"] != "USD" || snapshot["provider"] != "frankfurter" {
+		t.Fatalf("unexpected exchange rate snapshot export: %#v", snapshot)
+	}
+}
+
 func jsonStringForTest(value interface{}) string {
 	data, _ := json.Marshal(value)
 	return string(data)

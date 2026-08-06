@@ -339,6 +339,9 @@ func registerRoutes(app core.App, router *router.Router[*core.RequestEvent]) {
 	auth.PUT("/settings", func(e *core.RequestEvent) error { return handleSettingsUpdate(app, e) })
 	auth.GET("/custom-config", func(e *core.RequestEvent) error { return handleCustomConfigRead(app, e) })
 	auth.PUT("/custom-config", func(e *core.RequestEvent) error { return handleCustomConfigUpdate(app, e) })
+	// 汇率快照是登录态报表口径 API；Public API token 不读取也不能写入这组用户级私有报表状态。
+	auth.GET("/exchange-rate-snapshots", func(e *core.RequestEvent) error { return handleExchangeRateSnapshotsList(app, e) })
+	auth.PUT("/exchange-rate-snapshots/{month}", func(e *core.RequestEvent) error { return handleExchangeRateSnapshotPut(app, e) })
 	auth.GET("/subscriptions", func(e *core.RequestEvent) error { return handleSubscriptionsList(app, e) })
 	auth.POST("/subscriptions", func(e *core.RequestEvent) error { return handleSubscriptionCreate(app, e) })
 	auth.PATCH("/subscriptions/{id}", func(e *core.RequestEvent) error { return handleSubscriptionUpdate(app, e) })

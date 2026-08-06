@@ -37,6 +37,7 @@ export function createUseExchangeRates(store: ExchangeRateStore) {
     const [error, setError] = useState<string | null>(null);
     const [errorDetails, setErrorDetails] = useState<RawErrorResponseDetails | null>(null);
     const [warning, setWarning] = useState<ExchangeRateCoverageWarning | null>(null);
+    const [sourceDate, setSourceDate] = useState<string | null>(null);
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
     const mountedRef = useRef(false);
     const requestSeqRef = useRef(0);
@@ -46,12 +47,14 @@ export function createUseExchangeRates(store: ExchangeRateStore) {
       baseRate: string;
       activeProvider: ExchangeRateSource;
       warning: ExchangeRateCoverageWarning | null;
+      sourceDate: string;
       lastUpdated: Date;
     }) => {
       setRates(snapshot.rates);
       setBaseRate(snapshot.baseRate);
       setActiveProvider(snapshot.activeProvider);
       setWarning(snapshot.warning);
+      setSourceDate(snapshot.sourceDate);
       setLastUpdated(snapshot.lastUpdated);
     }, []);
 
@@ -101,6 +104,7 @@ export function createUseExchangeRates(store: ExchangeRateStore) {
           setBaseRate("USD");
           setActiveProvider("builtin");
           setWarning(null);
+          setSourceDate(null);
         })
         .finally(() => {
           if (mountedRef.current && requestSeqRef.current === requestSeq) {
@@ -158,6 +162,7 @@ export function createUseExchangeRates(store: ExchangeRateStore) {
       error,
       errorDetails,
       warning,
+      sourceDate,
       lastUpdated,
       convert,
       getCurrencySymbol,

@@ -72,15 +72,15 @@ vi.mock("@/components/spending-chart", () => ({
     subscriptions,
     defaultCurrency,
     timeZone,
-    exchangeRateProvider,
+    convert,
   }: {
     subscriptions: Subscription[];
     defaultCurrency: string;
     timeZone: string;
-    exchangeRateProvider: string | undefined;
+    convert: (amount: number | string, fromCurrency: string, toCurrency: string) => number;
   }) => (
     <div data-testid="spending-chart">
-      {subscriptions.length}:{defaultCurrency}:{timeZone}:{exchangeRateProvider}
+      {subscriptions.length}:{defaultCurrency}:{timeZone}:{convert("1", "USD", "CNY")}
     </div>
   ),
 }));
@@ -104,14 +104,16 @@ vi.mock("@/components/edit-subscription-dialog", () => ({
   EditSubscriptionDialog: () => null,
 }));
 
-vi.mock("@/hooks/use-exchange-rates", () => ({
-  useExchangeRates: () => ({
-    convert: (amount: number, from: string, to: string) => {
-      if (from === to) return amount;
-      if (from === "USD" && to === "CNY") return amount * 7;
-      return amount;
+vi.mock("@/hooks/use-report-exchange-rates", () => ({
+  useReportExchangeRates: () => ({
+    convert: (amount: number | string, from: string, to: string) => {
+      const value = typeof amount === "number" ? amount : Number(amount);
+      if (from === to) return value;
+      if (from === "USD" && to === "CNY") return value * 7;
+      return value;
     },
     loading: mocks.ratesLoading,
+    reportBasisStatus: { month: "2026-08", locked: true, sourceDate: "2026-08-01", capturedAt: "2026-08-06T00:00:00Z" },
   }),
 }));
 
@@ -212,7 +214,7 @@ describe("Dashboard page loading state", () => {
       timeZone: "Asia/Shanghai",
       notificationReminderDays: 5,
     });
-    expect(screen.getByTestId("spending-chart")).toHaveTextContent("1:CNY:Asia/Shanghai:exchange-api");
+    expect(screen.getByTestId("spending-chart")).toHaveTextContent("1:CNY:Asia/Shanghai:7");
     expect(screen.getByText("汇率加载中...")).toBeInTheDocument();
   });
 

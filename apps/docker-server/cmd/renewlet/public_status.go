@@ -66,11 +66,12 @@ type publicStatusResponse struct {
 
 // publicStatusPageView 描述公开页元信息；Currency 只有 showPrices=true 时才出现。
 type publicStatusPageView struct {
-	Title       string `json:"title"`
-	ShowPrices  bool   `json:"showPrices"`
-	Currency    string `json:"currency,omitempty"`
-	GeneratedAt string `json:"generatedAt"`
-	Truncated   bool   `json:"truncated"`
+	Title             string                   `json:"title"`
+	ShowPrices        bool                     `json:"showPrices"`
+	Currency          string                   `json:"currency,omitempty"`
+	ExchangeRateBasis *exchangeRatePublicBasis `json:"exchangeRateBasis,omitempty"`
+	GeneratedAt       string                   `json:"generatedAt"`
+	Truncated         bool                     `json:"truncated"`
 }
 
 // publicStatusSubscriptionView 是公开订阅字段白名单。
@@ -289,6 +290,8 @@ func buildPublicStatusResponse(app core.App, request *http.Request, page *core.R
 	}
 	if showPrices {
 		view.Currency = effectivePublicStatusCurrency(settings)
+		basis := exchangeRatePublicBasisForUser(app, userID, time.Now().UTC())
+		view.ExchangeRateBasis = &basis
 	}
 	return publicStatusResponse{
 		Page:          view,
@@ -331,7 +334,7 @@ func publicStatusSubscriptionFromRecord(request *http.Request, token string, row
 		Logo:            publicStatusLogoURL(request, token, row.GetString("logo")),
 		Category:        resolver.Category(row.GetString("category")),
 		Status:          publicStatusEffectiveStatus(row, today),
-			StartDate:       nullableStringPointer(row.GetString("startDate")),
+		StartDate:       nullableStringPointer(row.GetString("startDate")),
 		NextBillingDate: row.GetString("nextBillingDate"),
 		UpdatedAt:       row.GetDateTime("updated").Time().UTC().Format(time.RFC3339),
 	}

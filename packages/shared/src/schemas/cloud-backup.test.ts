@@ -12,7 +12,7 @@ import {
   cloudBackupScheduleWeekdaySchema,
   cloudBackupSnapshotManifestSchema,
 } from "./cloud-backup";
-import { renewletExportManifestV1Schema, renewletExportV1Schema } from "./import-export";
+import { importPayloadSchema, renewletExportManifestV1Schema, renewletExportV1Schema } from "./import-export";
 
 const success = <T>(data: T) => ({ ok: true, data });
 
@@ -421,6 +421,43 @@ describe("renewlet export schema", () => {
           repeatReminderWindow: "full",
           extra: {},
         }],
+      },
+    }).success).toBe(false);
+  });
+
+  it("accepts exchange-rate snapshots only when they match the export and import schema", () => {
+    const snapshot = {
+      schemaVersion: 1,
+      month: "2026-08",
+      base: "USD",
+      rates: { USD: 1, CNY: 7 },
+      requestedProvider: "frankfurter",
+      provider: "frankfurter",
+      sourceDate: "2026-08-01",
+      capturedAt: "2026-08-06T00:00:00.000Z",
+    };
+
+    expect(renewletExportV1Schema.safeParse({
+      kind: "renewlet-export",
+      schemaVersion: 1,
+      exportedAt: "2026-08-06T00:00:00.000Z",
+      data: {
+        subscriptions: [],
+        exchangeRateSnapshots: [snapshot],
+      },
+    }).success).toBe(true);
+    expect(importPayloadSchema.safeParse({
+      source: "renewlet",
+      subscriptions: [],
+      exchangeRateSnapshots: [snapshot],
+    }).success).toBe(true);
+    expect(renewletExportV1Schema.safeParse({
+      kind: "renewlet-export",
+      schemaVersion: 1,
+      exportedAt: "2026-08-06T00:00:00.000Z",
+      data: {
+        subscriptions: [],
+        exchangeRateSnapshots: [{ ...snapshot, provider: "builtin" }],
       },
     }).success).toBe(false);
   });

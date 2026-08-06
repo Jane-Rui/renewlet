@@ -74,6 +74,39 @@ describe("exportRenewletBackup", () => {
     expect(data.data.assets).toEqual([{ id: "asset_icon", path: "assets/asset_icon.svg", mimeType: "image/svg+xml", sizeBytes: 7 }]);
     expect(manifest.missingAssets).toEqual([]);
   });
+
+  it("writes exchange rate snapshots into the recoverable data payload", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+
+    await exportRenewletBackup({
+      subscriptions: [subscriptionFixture()],
+      settings: DEFAULT_SETTINGS,
+      customConfig: DEFAULT_CUSTOM_CONFIG,
+      includeSecrets: false,
+      exchangeRateSnapshots: [{
+        schemaVersion: 1,
+        month: "2026-08",
+        base: "USD",
+        rates: { USD: 1, CNY: 7 },
+        requestedProvider: "frankfurter",
+        provider: "frankfurter",
+        sourceDate: "2026-08-01",
+        capturedAt: "2026-08-06T00:00:00.000Z",
+      }],
+    });
+    const { data } = await readDownloadedRenewletZip();
+
+    expect(data.data.exchangeRateSnapshots).toEqual([{
+      schemaVersion: 1,
+      month: "2026-08",
+      base: "USD",
+      rates: { USD: 1, CNY: 7 },
+      requestedProvider: "frankfurter",
+      provider: "frankfurter",
+      sourceDate: "2026-08-01",
+      capturedAt: "2026-08-06T00:00:00.000Z",
+    }]);
+  });
 });
 
 async function readDownloadedRenewletZip() {

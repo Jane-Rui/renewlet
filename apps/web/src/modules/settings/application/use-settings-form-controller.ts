@@ -21,7 +21,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clearThemeModeOverride, useTheme } from "@/lib/theme-provider";
 import { useCustomConfig } from "@/contexts/CustomConfigContext";
-import { useExchangeRates } from "@/hooks/use-exchange-rates";
+import { useReportExchangeRates, type ReportExchangeRateBasisStatus } from "@/hooks/use-report-exchange-rates";
 import { useSettings, useUpdateSettings } from "@/hooks/use-settings";
 import { useSubscriptions } from "@/hooks/use-subscriptions";
 import { usePasswordResetAvailability } from "@/hooks/use-password-reset-availability";
@@ -135,6 +135,7 @@ export interface SettingsFormController {
   ratesError: string | null;
   ratesErrorDetails: RawErrorResponseDetails | null;
   ratesWarning: ExchangeRateCoverageWarning | null;
+  reportBasisStatus: ReportExchangeRateBasisStatus;
   getCurrencySymbol: (currency: string) => string;
   updateCategories: (items: ConfigItem[]) => void;
   updateStatuses: (items: ConfigItem[]) => void;
@@ -206,8 +207,9 @@ export function useSettingsFormController(): SettingsFormController {
     error: ratesError,
     errorDetails: ratesErrorDetails,
     warning: ratesWarning,
+    reportBasisStatus,
     getCurrencySymbol,
-  } = useExchangeRates(savedSettings.exchangeRateProvider);
+  } = useReportExchangeRates(savedSettings.exchangeRateProvider);
   const { toast } = useToast();
   const { t, setLocale } = useI18n();
   const appStatus = useSetupStatus();
@@ -714,6 +716,7 @@ export function useSettingsFormController(): SettingsFormController {
     ratesError,
     ratesErrorDetails,
     ratesWarning,
+    reportBasisStatus,
     getCurrencySymbol,
     updateCategories,
     updateStatuses,

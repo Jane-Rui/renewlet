@@ -2,7 +2,7 @@
  * 统计分析页（/statistics）。
  *
  * 功能：
- * - 月度/年度支出汇总（使用实时汇率换算到默认币种）
+ * - 月度/年度支出汇总（使用当前月报表汇率口径换算到默认币种）
  * - 预算使用情况（与 Settings 中 monthlyBudget 对齐）
  * - 分类分布 / 支付方式分布图表
  *
@@ -10,7 +10,7 @@
  * - 统计聚合由 `useStatisticsModel` 完成。
  * - 页面只负责图表/卡片渲染和汇率刷新入口。
  *
- * 注意： 统计口径依赖订阅 domain 类型、Settings.defaultCurrency 和 USD base 汇率；
+ * 注意： 统计口径依赖订阅 domain 类型、Settings.defaultCurrency 和 USD base 月度快照；
  * 修改其中任一处都要同步首页统计、SpendingChart 和导出逻辑。
  */
 
@@ -25,7 +25,7 @@ import { StatisticsTrendChart } from '@/components/statistics-trend-chart';
 import { PieChart, Pie, Cell, Tooltip as RechartsTooltip } from 'recharts';
 import { CircleHelp, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useExchangeRates } from '@/hooks/use-exchange-rates';
+import { useReportExchangeRates } from '@/hooks/use-report-exchange-rates';
 import { moneyToNumber } from "@renewlet/shared/money";
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -146,7 +146,7 @@ const Statistics = () => {
   const [detailSubscriptionId, setDetailSubscriptionId] = useState<string | null>(null);
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
 
-  const { convert, loading: ratesLoading, refresh: refreshRates, lastUpdated, error: ratesError } = useExchangeRates(settings?.exchangeRateProvider);
+  const { convert, loading: ratesLoading, refresh: refreshRates, lastUpdated, error: ratesError } = useReportExchangeRates(settings?.exchangeRateProvider);
   const stats = useStatisticsModel(subscriptions, config, monthlyBudget, defaultCurrency, convert, timeZone, locale, personalCostBasis ? "personal" : "total");
   const {
     editingSubscription,

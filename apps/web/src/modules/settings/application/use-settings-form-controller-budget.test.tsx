@@ -61,14 +61,15 @@ vi.mock("@/hooks/use-setup-status", () => ({
   useSetupStatus: () => mocks.appStatus,
 }));
 
-vi.mock("@/hooks/use-exchange-rates", () => ({
-  useExchangeRates: () => ({
+vi.mock("@/hooks/use-report-exchange-rates", () => ({
+  useReportExchangeRates: () => ({
     rates: {},
     activeProvider: "floatrates",
     loading: false,
     lastUpdated: null,
     refresh: mocks.refreshRates,
     error: null,
+    reportBasisStatus: { month: "2026-08", locked: true, sourceDate: "2026-08-01", capturedAt: "2026-08-06T00:00:00Z" },
     getCurrencySymbol: () => "¥",
   }),
 }));

@@ -18,6 +18,7 @@ import { requireAuth } from "./auth";
 import { HttpError, ok, readJson, requestLocale, successJson } from "./http";
 import { serverText, type AppLocale } from "./server-i18n";
 import { calendarFeedBuiltInCategoryLabelKey } from "./calendar-feed-built-in-labels";
+import { getExchangeRatePublicBasis } from "./exchange-rate-snapshots";
 import { requestOrigin } from "./request-origin";
 import type { AssetRow, Env, PublicStatusPageRow, SubscriptionRow } from "./types";
 
@@ -91,6 +92,7 @@ export async function readPublicStatus(request: Request, env: Env, token: string
       title: "Renewlet",
       showPrices,
       ...(showPrices ? { currency: effectivePublicStatusCurrency(settings) } : {}),
+      ...(showPrices ? { exchangeRateBasis: await getExchangeRatePublicBasis(env, page.user_id) } : {}),
       generatedAt: nowIso(),
       truncated,
     },

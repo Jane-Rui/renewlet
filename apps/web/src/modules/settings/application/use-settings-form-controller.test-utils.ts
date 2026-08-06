@@ -102,19 +102,20 @@ vi.mock("@/hooks/use-setup-status", () => ({
   useSetupStatus: () => mocks.appStatus,
 }));
 
-vi.mock("@/hooks/use-exchange-rates", () => ({
-	  useExchangeRates: () => ({
-	    rates: {},
-	    activeProvider: "frankfurter",
-	    loading: false,
-	    lastUpdated: null,
-	    refresh: mocks.refreshRates,
-	    error: null,
-	    errorDetails: null,
-	    warning: null,
-	    getCurrencySymbol: () => "¥",
-	  }),
-	}));
+vi.mock("@/hooks/use-report-exchange-rates", () => ({
+  useReportExchangeRates: () => ({
+    rates: {},
+    activeProvider: "frankfurter",
+    loading: false,
+    lastUpdated: null,
+    refresh: mocks.refreshRates,
+    error: null,
+    errorDetails: null,
+    warning: null,
+    reportBasisStatus: { month: "2026-08", locked: true, sourceDate: "2026-08-01", capturedAt: "2026-08-06T00:00:00Z" },
+    getCurrencySymbol: () => "¥",
+  }),
+}));
 
 vi.mock("@/hooks/use-subscriptions", () => ({
   useSubscriptions: () => ({

@@ -40,6 +40,7 @@ import {
   readSubscriptionCalendarFeed,
 } from "./calendar-feed";
 import { readCustomConfig, readSettings, updateCustomConfig, updateSettings } from "./settings";
+import { putExchangeRateSnapshot, readExchangeRateSnapshots } from "./exchange-rate-snapshots";
 import { createSubscription, deleteSubscription, readSubscriptions, renewSubscription, updateSubscription } from "./subscriptions";
 import { applyImport, previewImport } from "./import-export";
 import {
@@ -206,6 +207,13 @@ defineRoute(app, "/api/app/settings", {
 defineRoute(app, "/api/app/custom-config", {
   GET: (context) => readCustomConfig(context.req.raw, context.env),
   PUT: (context) => updateCustomConfig(context.req.raw, context.env),
+});
+
+defineRoute(app, "/api/app/exchange-rate-snapshots", {
+  GET: (context) => readExchangeRateSnapshots(context.req.raw, context.env),
+});
+defineRoute(app, "/api/app/exchange-rate-snapshots/:month", {
+  PUT: (context) => putExchangeRateSnapshot(context.req.raw, context.env, routeParam(context, "month")),
 });
 
 const apiTokenRoutes = newAppRouter();

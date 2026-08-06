@@ -151,6 +151,11 @@ func buildCloudBackupExportBundle(app core.App, user *core.Record, exportedAt ti
 	} else if ok {
 		data["customConfig"] = config
 	}
+	if snapshots, ok, err := cloudBackupExportExchangeRateSnapshots(app, user); err != nil {
+		return cloudBackupExportBundle{}, err
+	} else if ok {
+		data["exchangeRateSnapshots"] = snapshots
+	}
 	if len(assetCollector.assets) > 0 {
 		exportAssets := make([]interface{}, 0, len(assetCollector.assets))
 		for _, asset := range assetCollector.assets {

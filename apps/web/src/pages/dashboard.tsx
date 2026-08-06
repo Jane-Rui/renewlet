@@ -26,7 +26,7 @@ import { DashboardPageSkeleton } from "@/components/loading-skeleton";
 import { EditSubscriptionDialog } from "@/components/edit-subscription-dialog";
 import { CreditCard, TrendingUp, Clock, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useExchangeRates } from "@/hooks/use-exchange-rates";
+import { useReportExchangeRates } from "@/hooks/use-report-exchange-rates";
 import { useSubscriptions } from "@/hooks/use-subscriptions";
 import { useSettings } from "@/hooks/use-settings";
 import { useCustomConfig } from "@/contexts/CustomConfigContext";
@@ -50,7 +50,7 @@ export default function Index() {
   const { config } = useCustomConfig();
   const { t, formatCurrency } = useI18n();
   const exchangeRateProvider = settings?.exchangeRateProvider;
-  const { convert, loading: ratesLoading } = useExchangeRates(exchangeRateProvider);
+  const { convert, loading: ratesLoading } = useReportExchangeRates(exchangeRateProvider);
   const defaultCurrency = settings?.defaultCurrency ?? "CNY";
   const timeZone = settings?.timezone ?? "UTC";
   const inheritedReminderDays = settings?.notificationReminderDays ?? DEFAULT_NOTIFICATION_REMINDER_DAYS;
@@ -218,7 +218,7 @@ export default function Index() {
                 categories={config.categories}
                 defaultCurrency={defaultCurrency}
                 timeZone={timeZone}
-                exchangeRateProvider={exchangeRateProvider}
+                convert={convert}
               />
             </div>
 

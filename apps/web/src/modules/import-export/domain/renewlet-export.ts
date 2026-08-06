@@ -6,6 +6,7 @@ import {
   type RenewletExportMissingAssetReason,
   type RenewletExportMissingAssetReference,
 } from "@/lib/api/schemas/import-export";
+import type { ExchangeRateSnapshotV1 } from "@/lib/api/schemas/exchange-rates";
 import { MAX_IMAGE_BYTES } from "@/lib/upload-constraints";
 import { downloadFile } from "@/shared/browser/download-file";
 import type { CustomConfig } from "@/types/config";
@@ -27,6 +28,7 @@ export async function exportRenewletBackup(options: {
   settings: AppSettings;
   customConfig: CustomConfig;
   includeSecrets: boolean;
+  exchangeRateSnapshots?: readonly ExchangeRateSnapshotV1[];
 }) {
   const { default: JSZip } = await import("jszip");
   const zip = new JSZip();
@@ -99,6 +101,7 @@ export async function exportRenewletBackup(options: {
       subscriptions,
       settings: sanitizeSettingsForExport(options.settings, options.includeSecrets),
       customConfig,
+      exchangeRateSnapshots: [...(options.exchangeRateSnapshots ?? [])],
       assets,
     },
   });

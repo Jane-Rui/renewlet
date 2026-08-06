@@ -27,6 +27,8 @@ const basePreview: ImportPreviewResponse = {
   ],
   includesSettings: false,
   includesCustomConfig: false,
+  includesExchangeRateSnapshots: false,
+  exchangeRateSnapshotsCount: 0,
 };
 
 describe("import preview list", () => {

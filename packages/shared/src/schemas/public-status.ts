@@ -8,6 +8,7 @@ import {
 import { moneyStringSchema } from "../money";
 import { apiSuccessResponseSchema } from "./api";
 import { okResponseSchema } from "./common";
+import { exchangeRateSnapshotPublicBasisSchema } from "./exchange-rates";
 
 const publicStatusTokenSchema = z.string().trim().regex(/^[A-Za-z0-9_-]{43}$/);
 
@@ -94,6 +95,7 @@ export const publicStatusPayloadSchema = z.object({
     title: z.literal("Renewlet"),
     showPrices: z.boolean(),
     currency: z.string().trim().regex(/^[A-Z]{3}$/).optional(),
+    exchangeRateBasis: exchangeRateSnapshotPublicBasisSchema.optional(),
     generatedAt: z.string().trim().min(1),
     truncated: z.boolean(),
   }).strict(),
@@ -112,6 +114,13 @@ export const publicStatusPayloadSchema = z.object({
       code: "custom",
       path: ["page", "currency"],
       message: "Currency must be hidden when prices are not exposed",
+    });
+  }
+  if (!value.page.showPrices && value.page.exchangeRateBasis !== undefined) {
+    context.addIssue({
+      code: "custom",
+      path: ["page", "exchangeRateBasis"],
+      message: "Exchange-rate basis must be hidden when prices are not exposed",
     });
   }
   value.subscriptions.forEach((subscription, index) => {

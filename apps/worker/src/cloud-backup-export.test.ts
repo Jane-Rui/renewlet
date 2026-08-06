@@ -11,6 +11,9 @@ const dbMocks = vi.hoisted(() => ({
   listSubscriptions: vi.fn(),
   toApiSubscription: vi.fn(),
 }));
+const snapshotMocks = vi.hoisted(() => ({
+  listExchangeRateSnapshots: vi.fn(),
+}));
 
 vi.mock("./db", () => ({
   getAsset: dbMocks.getAsset,
@@ -20,6 +23,10 @@ vi.mock("./db", () => ({
   toApiSubscription: dbMocks.toApiSubscription,
 }));
 
+vi.mock("./exchange-rate-snapshots", () => ({
+  listExchangeRateSnapshots: snapshotMocks.listExchangeRateSnapshots,
+}));
+
 describe("Cloudflare cloud backup export ZIP", () => {
   beforeEach(() => {
     dbMocks.getAsset.mockReset().mockResolvedValue(null);
@@ -27,6 +34,7 @@ describe("Cloudflare cloud backup export ZIP", () => {
     dbMocks.getSettings.mockReset().mockResolvedValue(createDefaultAppSettings());
     dbMocks.listSubscriptions.mockReset().mockResolvedValue([]);
     dbMocks.toApiSubscription.mockReset().mockImplementation((row: ApiSubscription) => row);
+    snapshotMocks.listExchangeRateSnapshots.mockReset().mockResolvedValue([]);
   });
 
   it("removes subscription logos when D1 metadata exists but the R2 object is missing", async () => {
@@ -77,6 +85,33 @@ describe("Cloudflare cloud backup export ZIP", () => {
       reference: "customConfig.paymentMethods.icon",
       referenceId: "pm_missing",
       reason: "file_missing",
+    }]);
+  });
+
+  it("includes exchange rate snapshots in the recoverable data payload", async () => {
+    snapshotMocks.listExchangeRateSnapshots.mockResolvedValue([{
+      schemaVersion: 1,
+      month: "2026-08",
+      base: "USD",
+      rates: { USD: 1, CNY: 7 },
+      requestedProvider: "frankfurter",
+      provider: "frankfurter",
+      sourceDate: "2026-08-01",
+      capturedAt: "2026-08-06T00:00:00.000Z",
+    }]);
+
+    const { content } = await buildCloudBackupExportZip(envWithR2({}), "usr_cloud");
+    const data = readStoredZipJson(content, "data.json");
+
+    expect(data.data.exchangeRateSnapshots).toEqual([{
+      schemaVersion: 1,
+      month: "2026-08",
+      base: "USD",
+      rates: { USD: 1, CNY: 7 },
+      requestedProvider: "frankfurter",
+      provider: "frankfurter",
+      sourceDate: "2026-08-01",
+      capturedAt: "2026-08-06T00:00:00.000Z",
     }]);
   });
 });

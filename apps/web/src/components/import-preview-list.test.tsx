@@ -78,6 +78,8 @@ const preview = {
   ],
   includesSettings: false,
   includesCustomConfig: false,
+  includesExchangeRateSnapshots: false,
+  exchangeRateSnapshotsCount: 0,
 } satisfies ImportPreviewResponse;
 
 describe("ImportPreviewList", () => {

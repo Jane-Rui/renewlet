@@ -318,23 +318,6 @@ func getSubscriptionRecordsByIDs(app core.App, userID string, ids []string) ([]*
 	return out, nil
 }
 
-func backfillSubscriptionDerivedStates(app core.App) error {
-	for offset := 0; ; offset += subscriptionRenewalMaintenancePageSize {
-		users, err := app.FindRecordsByFilter("users", "id != ''", "created", subscriptionRenewalMaintenancePageSize, offset)
-		if err != nil {
-			return err
-		}
-		for _, user := range users {
-			if err := refreshSubscriptionDerivedState(app, user.Id, false); err != nil {
-				return err
-			}
-		}
-		if len(users) < subscriptionRenewalMaintenancePageSize {
-			return nil
-		}
-	}
-}
-
 func newSubscriptionStats() subscriptionStats {
 	return subscriptionStats{
 		ByStatus: map[string]int{

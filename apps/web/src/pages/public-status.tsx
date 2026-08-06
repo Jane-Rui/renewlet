@@ -41,8 +41,11 @@ import { customCycleUnitLabelKey, toMonthlyAmount } from "@/lib/subscription-bil
 import type { PublicStatusResponse } from "@/lib/api/schemas/public-status";
 import { CYCLE_LABELS } from "@/types/subscription";
 import type { ThemeMode } from "@/types/theme";
+import { moneyToNumber } from "@renewlet/shared/money";
 
 type PublicStatusSubscription = PublicStatusResponse["subscriptions"][number];
+type PublicStatusExchangeRateBasis = NonNullable<PublicStatusResponse["page"]["exchangeRateBasis"]>;
+type PublicStatusCurrencyConverter = (amount: number | string, fromCurrency: string, toCurrency: string) => number;
 
 const PUBLIC_STATUS_THEME_OPTIONS: Array<{
   value: ThemeMode;
@@ -233,6 +236,17 @@ function publicStatusMonthlyTotal(
   }, 0);
 }
 
+function publicStatusConverterFromBasis(basis: PublicStatusExchangeRateBasis | undefined) {
+  if (!basis || basis.status !== "locked") return null;
+  return (amount: number | string, fromCurrency: string, toCurrency: string): number => {
+    const numericAmount = moneyToNumber(amount);
+    if (fromCurrency === toCurrency) return numericAmount;
+    const fromRate = basis.rates[fromCurrency] || 1;
+    const toRate = basis.rates[toCurrency] || 1;
+    return (numericAmount / fromRate) * toRate;
+  };
+}
+
 function PublicStatusSummary({ data }: { data: PublicStatusResponse }) {
   if (data.page.showPrices && data.page.currency) {
     return <PublicStatusMoneySummary data={data} />;
@@ -242,13 +256,61 @@ function PublicStatusSummary({ data }: { data: PublicStatusResponse }) {
 
 function PublicStatusMoneySummary({ data }: { data: PublicStatusResponse }) {
   const { t, formatCurrency, formatNumber } = useI18n();
+  const lockedConvert = publicStatusConverterFromBasis(data.page.exchangeRateBasis);
+  if (lockedConvert) {
+    // 匿名公开页拿到 locked basis 时不能再挂实时汇率 hook；否则快照口径仍会触发浏览器直连外部 provider。
+    return (
+      <PublicStatusMoneyCards
+        data={data}
+        convert={lockedConvert}
+        moneySubtitle={t("publicStatus.moneySubtitleLocked", { month: data.page.exchangeRateBasis?.month ?? "" })}
+        formatCurrency={formatCurrency}
+        formatNumber={formatNumber}
+      />
+    );
+  }
+
+  return <PublicStatusLiveMoneySummary data={data} />;
+}
+
+function PublicStatusLiveMoneySummary({ data }: { data: PublicStatusResponse }) {
+  const { t, formatCurrency, formatNumber } = useI18n();
   const { convert, loading: ratesLoading } = useExchangeRates();
-  const stats = publicStatusStats(data);
-  const monthlyTotal = publicStatusMonthlyTotal(data, convert);
   const currency = data.page.currency!;
   const moneySubtitle = ratesLoading
     ? t("publicStatus.ratesLoading")
-    : t("publicStatus.moneySubtitle", { currency });
+    : data.page.exchangeRateBasis?.status === "live"
+      ? t("publicStatus.moneySubtitleLive", { currency })
+      : t("publicStatus.moneySubtitle", { currency });
+
+  return (
+    <PublicStatusMoneyCards
+      data={data}
+      convert={convert}
+      moneySubtitle={moneySubtitle}
+      formatCurrency={formatCurrency}
+      formatNumber={formatNumber}
+    />
+  );
+}
+
+function PublicStatusMoneyCards({
+  data,
+  convert,
+  moneySubtitle,
+  formatCurrency,
+  formatNumber,
+}: {
+  data: PublicStatusResponse;
+  convert: PublicStatusCurrencyConverter;
+  moneySubtitle: string;
+  formatCurrency: ReturnType<typeof useI18n>["formatCurrency"];
+  formatNumber: ReturnType<typeof useI18n>["formatNumber"];
+}) {
+  const stats = publicStatusStats(data);
+  const monthlyTotal = publicStatusMonthlyTotal(data, convert);
+  const currency = data.page.currency!;
+  const { t } = useI18n();
 
   return (
     <div className="grid gap-5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,14rem),1fr))]">

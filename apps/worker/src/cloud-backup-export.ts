@@ -16,6 +16,7 @@ import { getAsset, getCustomConfig, getSettings, listSubscriptions, toApiSubscri
 import { sanitizeSettingsForCloudBackup } from "./cloud-backup-sanitize";
 import { sha256Hex, snapshotId } from "./cloud-backup-remote";
 import { extensionFromMime, privateAssetIdFromLogo } from "./cloud-backup-utils";
+import { listExchangeRateSnapshots } from "./exchange-rate-snapshots";
 import { createStoredZip } from "./zip-store";
 import type { Env } from "./types";
 
@@ -100,6 +101,7 @@ export async function buildCloudBackupExportZip(env: Env, userId: string): Promi
       subscriptions: exportSubscriptions,
       settings: sanitizeSettingsForCloudBackup(await getSettings(env, userId)),
       customConfig,
+      exchangeRateSnapshots: await listExchangeRateSnapshots(env, userId),
       ...(collector.assets.length > 0
         ? { assets: collector.assets.map(({ content: _content, ...asset }) => asset) }
         : {}),

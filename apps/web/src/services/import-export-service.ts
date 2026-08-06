@@ -59,6 +59,7 @@ export const importExportService = {
         subscriptions: chunk,
         ...(index === chunks.length - 1 && payload.settings ? { settings: payload.settings } : {}),
         ...(index === chunks.length - 1 && payload.customConfig ? { customConfig: payload.customConfig } : {}),
+        ...(index === chunks.length - 1 && payload.exchangeRateSnapshots ? { exchangeRateSnapshots: payload.exchangeRateSnapshots } : {}),
       };
       const chunkSkipIndexes = skipIndexes
         .filter((itemIndex) => itemIndex >= offset && itemIndex < offset + chunk.length)
@@ -80,6 +81,8 @@ export const importExportService = {
       items,
       includesSettings: Boolean(payload.settings),
       includesCustomConfig: Boolean(payload.customConfig),
+      includesExchangeRateSnapshots: Boolean(payload.exchangeRateSnapshots?.length),
+      exchangeRateSnapshotsCount: payload.exchangeRateSnapshots?.length ?? 0,
     });
   },
 };

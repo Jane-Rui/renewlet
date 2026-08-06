@@ -44,27 +44,6 @@ var (
 	telegramSecretHashRe   = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
 )
 
-type customConfigLabels struct {
-	ZhCN string `json:"zh-CN"`
-	EnUS string `json:"en-US"`
-}
-
-type customConfigItem struct {
-	ID      string             `json:"id"`
-	Value   string             `json:"value"`
-	Labels  customConfigLabels `json:"labels"`
-	Color   string             `json:"color,omitempty"`
-	Icon    string             `json:"icon,omitempty"`
-	Enabled *bool              `json:"enabled,omitempty"`
-}
-
-type customConfigPayload struct {
-	Categories     []customConfigItem `json:"categories"`
-	Statuses       []customConfigItem `json:"statuses"`
-	PaymentMethods []customConfigItem `json:"paymentMethods"`
-	Currencies     []customConfigItem `json:"currencies"`
-}
-
 // registerRecordHooks 注册所有 collection 的写入前规范化逻辑。
 // 为什么放在 RecordValidate：同一规则可以覆盖自定义 API、PocketBase SDK 和管理后台写入。
 func registerRecordHooks(app core.App) {
@@ -83,6 +62,10 @@ func registerRecordHooks(app core.App) {
 			}
 		case "custom_configs":
 			if err := normalizeCustomConfigRecord(e.Record); err != nil {
+				return err
+			}
+		case "exchange_rate_snapshots":
+			if err := normalizeExchangeRateSnapshotRecord(e.Record); err != nil {
 				return err
 			}
 		case "assets":
