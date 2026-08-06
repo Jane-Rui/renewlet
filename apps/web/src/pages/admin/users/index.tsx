@@ -13,7 +13,7 @@
  * 注意： 不要只依赖前端禁用来保护管理员账号；这里的保护是 UX，安全边界仍在 Go route。
  */
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { Shield, UserPlus } from "lucide-react";
 import { Header } from "@/components/header";
 import { AdminUsersRowsSkeleton } from "@/components/loading-skeleton";

@@ -55,11 +55,11 @@
   },
   "dependencies": {
     "@js-temporal/polyfill": "^0.5.1",
-    "ical-generator": "10.2.0",
+    "ical-generator": "11.1.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.6"
+    "typescript": "6.0.3",
+    "vitest": "^4.1.10"
   }
 }

@@ -289,7 +289,7 @@ describe("AI recognition stream event schema", () => {
       providerType: "openai",
       transportProtocol: "openai-chat",
       model: "gpt-5.1",
-      subscriptions: [generatedDraft()],
+      subscriptions: [generatedDraft({ price: "15" })],
       warnings: [],
       diagnostics,
     };

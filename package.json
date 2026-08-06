@@ -3,9 +3,9 @@
   "private": true,
   "license": "MIT",
   "version": "0.2.95",
-  "packageManager": "pnpm@11.1.2",
+  "packageManager": "pnpm@11.20.0",
   "engines": {
-    "node": ">=22.13.0"
+    "node": ">=24.19.0"
   },
   "cloudflare": {
     "bindings": {
@@ -82,14 +82,14 @@
     "update:built-in-icons-index": "node scripts/update-built-in-icons-index.mjs"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20260728.1",
-    "@lingui/format-po": "6.1.0",
-    "@playwright/test": "^1.60.0",
-    "@redocly/cli": "2.44.1",
-    "@types/node": "^25.8.0",
-    "tsx": "4.23.7",
-    "typescript": "^6.0.3",
-    "wrangler": "^4.115.0",
+    "@cloudflare/workers-types": "^5.20260804.1",
+    "@lingui/format-po": "6.6.0",
+    "@playwright/test": "^1.62.1",
+    "@redocly/cli": "2.45.0",
+    "@types/node": "24.13.3",
+    "tsx": "4.23.9",
+    "typescript": "6.0.3",
+    "wrangler": "^4.119.0",
     "zod": "4.4.3"
   }
 }

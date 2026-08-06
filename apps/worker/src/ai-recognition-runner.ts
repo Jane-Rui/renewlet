@@ -472,7 +472,6 @@ async function generateAIRecognitionObject({
       ...(providerOptions ? { providerOptions } : {}),
       maxRetries: 1,
       ...(abortSignal ? { abortSignal } : {}),
-      timeout: { totalMs: AI_RECOGNITION_PROVIDER_TIMEOUT_MS },
     });
     return {
       object: result.object,

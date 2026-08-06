@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Link, MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
+import { Link, MemoryRouter, Route, Routes, useNavigate } from "react-router";
 import { describe, expect, it } from "vitest";
 import { AppScrollRestoration } from "./app-scroll-restoration";
 

@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { act, render } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, useLocation } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router";
 import { vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { DEFAULT_CUSTOM_CONFIG, type CustomConfig } from "@/types/config";

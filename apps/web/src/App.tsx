@@ -7,7 +7,7 @@
  * 注意： 新增公开页面时必须同步 `public-routes.ts`，否则刷新后会被客户端守卫带回登录页。
  */
 import { lazy, Suspense } from "react";
-import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router";
 import { AppScrollRestoration } from "@/components/app-scroll-restoration";
 import { ProtectedRoute } from "@/components/protected-route";
 import { lazyRouteLoader, routeFallbackForPathname } from "@/lib/route-resources";

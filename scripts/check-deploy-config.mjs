@@ -219,7 +219,7 @@ function checkDockerSelfUpdateLayout() {
     "uses: actions/github-script@v9.0.0",
     "item.draft && item.tag_name === tag",
     "github.rest.repos.deleteRelease",
-    "uses: softprops/action-gh-release@v3.0.0",
+    "uses: softprops/action-gh-release@v3.0.2",
     "fail_on_unmatched_files: true",
   ]) {
     if (!releaseWorkflow.includes(snippet)) {

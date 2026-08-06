@@ -92,6 +92,9 @@ func parseCustomHeadScript(raw string) (customHeadScript, error) {
 	if !strings.HasSuffix(strings.ToLower(markup), "</script>") {
 		return customHeadScript{}, errors.New("custom head script must include an explicit closing script tag")
 	}
+	if err := rejectDuplicateRawScriptAttributes(markup); err != nil {
+		return customHeadScript{}, err
+	}
 
 	nodes, err := html.ParseFragment(strings.NewReader(markup), &html.Node{Type: html.ElementNode, DataAtom: atom.Head, Data: "head"})
 	if err != nil {
@@ -147,6 +150,106 @@ func parseCustomHeadScript(raw string) (customHeadScript, error) {
 		ScriptOrigin:   scriptOrigin,
 		ConnectOrigins: connectOrigins,
 	}, nil
+}
+
+func rejectDuplicateRawScriptAttributes(markup string) error {
+	// x/net/html 会按浏览器口径丢弃重复属性；安全校验必须先看原始 opening tag，避免 SRC/src 这类大小写重复绕过。
+	keys, err := rawScriptAttributeKeys(markup)
+	if err != nil {
+		return err
+	}
+	seenAttrs := map[string]bool{}
+	for _, key := range keys {
+		if key == "" || seenAttrs[key] {
+			return errors.New("custom head script must not contain duplicate or empty attributes")
+		}
+		seenAttrs[key] = true
+	}
+	return nil
+}
+
+func rawScriptAttributeKeys(markup string) ([]string, error) {
+	const scriptTag = "<script"
+	lower := strings.ToLower(markup)
+	if !strings.HasPrefix(lower, scriptTag) {
+		return nil, errors.New("custom head script must be a single script tag")
+	}
+	pos := len(scriptTag)
+	if pos < len(markup) && !isHTMLAttributeBoundary(markup[pos]) {
+		return nil, errors.New("custom head script must be a single script tag")
+	}
+
+	keys := []string{}
+	for pos < len(markup) {
+		pos = skipHTMLSpace(markup, pos)
+		if pos >= len(markup) {
+			return nil, errors.New("custom head script must include an opening script tag")
+		}
+		if markup[pos] == '>' {
+			return keys, nil
+		}
+		if markup[pos] == '/' {
+			return nil, errors.New("custom head script must not be self-closing")
+		}
+		start := pos
+		for pos < len(markup) && !isHTMLAttributeBoundary(markup[pos]) && markup[pos] != '=' {
+			pos++
+		}
+		key := strings.ToLower(strings.TrimSpace(markup[start:pos]))
+		keys = append(keys, key)
+		pos = skipHTMLSpace(markup, pos)
+		if pos < len(markup) && markup[pos] == '=' {
+			next, err := skipHTMLAttributeValue(markup, pos+1)
+			if err != nil {
+				return nil, err
+			}
+			pos = next
+		}
+	}
+	return nil, errors.New("custom head script must include an opening script tag")
+}
+
+func skipHTMLAttributeValue(markup string, pos int) (int, error) {
+	pos = skipHTMLSpace(markup, pos)
+	if pos >= len(markup) {
+		return pos, errors.New("custom head script must not contain malformed attributes")
+	}
+	if markup[pos] == '"' || markup[pos] == '\'' {
+		quote := markup[pos]
+		pos++
+		for pos < len(markup) && markup[pos] != quote {
+			pos++
+		}
+		if pos >= len(markup) {
+			return pos, errors.New("custom head script must not contain malformed attributes")
+		}
+		return pos + 1, nil
+	}
+	for pos < len(markup) && !isHTMLAttributeBoundary(markup[pos]) {
+		pos++
+	}
+	return pos, nil
+}
+
+func skipHTMLSpace(markup string, pos int) int {
+	for pos < len(markup) {
+		switch markup[pos] {
+		case ' ', '\t', '\n', '\f', '\r':
+			pos++
+		default:
+			return pos
+		}
+	}
+	return pos
+}
+
+func isHTMLAttributeBoundary(char byte) bool {
+	switch char {
+	case ' ', '\t', '\n', '\f', '\r', '/', '>':
+		return true
+	default:
+		return false
+	}
 }
 
 func scriptHasNoInlineContent(node *html.Node) bool {

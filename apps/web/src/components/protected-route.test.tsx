@@ -1,7 +1,7 @@
 // ProtectedRoute 测试守住私有页面延迟挂载和 next 参数保留，避免未登录时先打私有 API。
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { ProtectedRoute } from "./protected-route";
 
 const mocks = vi.hoisted(() => ({

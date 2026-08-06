@@ -25,7 +25,7 @@ import {
   type NavLinkProps as RouterNavLinkProps,
   type To,
   useResolvedPath,
-} from "react-router-dom";
+} from "react-router";
 import { QueryClientContext } from "@tanstack/react-query";
 import { preloadRoute, type RoutePreloadMode } from "@/lib/route-resources";
 

@@ -1,7 +1,7 @@
 import { readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
-import { latestStableReleaseVersionFromFileNames } from '../src/lib/release-version'
+import { latestStableReleaseVersionFromFileNames } from '../src/lib/release-version.ts'
 
 const releaseNotesDir = fileURLToPath(new URL('../../../docs/release-notes/', import.meta.url))
 

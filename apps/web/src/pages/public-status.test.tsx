@@ -18,7 +18,7 @@ const mocks = vi.hoisted(() => ({
   })),
 }));
 
-vi.mock("react-router-dom", () => ({
+vi.mock("react-router", () => ({
   useParams: () => ({ token: "status-token" }),
 }));
 

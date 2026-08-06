@@ -268,7 +268,6 @@ describe("Cloudflare AI recognition", () => {
     expect(body.diagnostics.prompt.user.value).toContain("Examples:");
     expect(aiMocks.generateObject).toHaveBeenCalledWith(expect.objectContaining({
       abortSignal: expect.any(AbortSignal),
-      timeout: { totalMs: 90_000 },
     }));
     expect(vi.mocked(createOpenAI).mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({
       apiKey: "sk-test",

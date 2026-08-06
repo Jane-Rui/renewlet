@@ -13,7 +13,7 @@ import {
   TrendingUp,
   type LucideIcon,
 } from "lucide-react";
-import { useParams } from "react-router-dom";
+import { useParams } from "react-router";
 import { SubscriptionLogo } from "@/components/subscription-logo";
 import { SubscriptionStatusBadge } from "@/components/subscription-status-badge";
 import { Badge } from "@/components/ui/badge";
