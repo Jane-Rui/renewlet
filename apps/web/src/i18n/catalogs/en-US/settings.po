@@ -996,11 +996,6 @@ msgid "settings.passkeyHelp"
 msgstr "Sign in with your browser, device biometrics, or a security key. Passkeys are managed separately from your authenticator."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:571
-msgid "settings.subscriptionPriceReferenceUseSuggestion"
-msgstr "Use browser suggestion: {currency}"
-
-#. js-lingui-explicit-id
 #: src/i18n/descriptors/settings.ts:43
 msgid "settings.mfaHelp"
 msgstr "Use an authenticator app to generate 6-digit codes. Recovery codes are shown once."
@@ -2084,6 +2079,11 @@ msgstr "Scan the QR code or enter the secret manually, then type the 6-digit cod
 #: src/i18n/descriptors/settings.ts:555
 msgid "settings.exchangeRateReportBasis"
 msgstr "Report basis"
+
+#. js-lingui-explicit-id
+#: src/i18n/descriptors/settings.ts:571
+msgid "settings.subscriptionPriceReferenceApplyLocalPreference"
+msgstr "Use local preference ({currency})"
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/settings.ts:136

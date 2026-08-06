@@ -75,7 +75,7 @@ describe("SettingsScreen currency selectors", () => {
     expect(controller.handleDefaultCurrencyChange).toHaveBeenCalledWith("PHP");
   });
 
-  it("keeps subscription price reference hidden by default and applies a browser suggestion explicitly", async () => {
+  it("keeps subscription price reference hidden by default and applies a local preference explicitly", async () => {
     const user = userEvent.setup();
     vi.stubGlobal("navigator", {
       languages: ["en-US"],
@@ -105,7 +105,7 @@ describe("SettingsScreen currency selectors", () => {
       expect(screen.getByRole("combobox", { name: "单订阅参考货币" })).toBeDisabled();
       expect(screen.getByRole("combobox", { name: "单订阅参考货币" })).toHaveTextContent("跟随统计货币 (CNY)");
 
-      await user.click(screen.getByRole("button", { name: "使用浏览器建议：USD" }));
+      await user.click(screen.getByRole("button", { name: "按本机偏好设为 USD" }));
 
       expect(controller.updateSetting).toHaveBeenCalledWith("subscriptionPriceReferenceEnabled", true);
       expect(controller.updateSetting).toHaveBeenCalledWith("subscriptionPriceReferenceCurrency", "USD");

@@ -51,7 +51,7 @@ import { createCurrencySelectOptions, createTimeZoneSelectOptions } from '@/lib/
 import { useSettingsFormController } from '../application/use-settings-form-controller';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { Locale } from '@/i18n/locales';
-import { getBrowserSubscriptionPriceReferenceCurrencySuggestion } from '../domain/subscription-price-reference-currency-suggestion';
+import { getLocalSubscriptionPriceReferenceCurrencyPreference } from '../domain/subscription-price-reference-currency-local-preference';
 import { AccountSettingsSection } from './account-settings-section';
 import { NotificationChannelConfigPanel } from './notification-channel-config-panel';
 import { NotificationChannelList } from './notification-channel-list';
@@ -195,11 +195,12 @@ export function SettingsScreen() {
       locale,
     }),
   ];
-  const browserSubscriptionPriceReferenceCurrencySuggestion =
-    getBrowserSubscriptionPriceReferenceCurrencySuggestion()?.currency ?? null;
-  const subscriptionPriceReferenceCurrencySuggestion = browserSubscriptionPriceReferenceCurrencySuggestion
-    && subscriptionPriceReferenceCurrencyOptions.some((option) => option.value === browserSubscriptionPriceReferenceCurrencySuggestion && !option.disabled)
-    ? browserSubscriptionPriceReferenceCurrencySuggestion
+  const localSubscriptionPriceReferenceCurrencyPreference =
+    getLocalSubscriptionPriceReferenceCurrencyPreference()?.currency ?? null;
+  // 本机偏好仍必须经过货币管理选项过滤，不能把用户禁用的币种重新暴露成快捷按钮。
+  const subscriptionPriceReferenceCurrencyLocalPreference = localSubscriptionPriceReferenceCurrencyPreference
+    && subscriptionPriceReferenceCurrencyOptions.some((option) => option.value === localSubscriptionPriceReferenceCurrencyPreference && !option.disabled)
+    ? localSubscriptionPriceReferenceCurrencyPreference
     : null;
   const [selectedNotificationChannel, setSelectedNotificationChannel] = useState<NotificationChannel | null>(null);
   const [notificationReminderDaysInput, setNotificationReminderDaysInput] = useState(String(settings.notificationReminderDays));
@@ -483,7 +484,7 @@ export function SettingsScreen() {
                 defaultCurrencyOptions={defaultCurrencyOptions}
                 subscriptionPriceReferenceCurrencyOptions={subscriptionPriceReferenceCurrencyOptions}
                 effectiveSubscriptionPriceReferenceCurrency={effectiveSubscriptionPriceReferenceCurrency}
-                subscriptionPriceReferenceCurrencySuggestion={subscriptionPriceReferenceCurrencySuggestion}
+                subscriptionPriceReferenceCurrencyLocalPreference={subscriptionPriceReferenceCurrencyLocalPreference}
                 handleRefreshRates={handleRefreshRates}
                 handleDefaultCurrencyChange={handleDefaultCurrencyChange}
                 handleSubscriptionPriceReferenceEnabledChange={(checked) => updateSetting("subscriptionPriceReferenceEnabled", checked)}

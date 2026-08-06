@@ -996,11 +996,6 @@ msgid "settings.passkeyHelp"
 msgstr "使用浏览器、设备生物识别或安全密钥直接登录；通行密钥和身份验证器分开管理。"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:571
-msgid "settings.subscriptionPriceReferenceUseSuggestion"
-msgstr "使用浏览器建议：{currency}"
-
-#. js-lingui-explicit-id
 #: src/i18n/descriptors/settings.ts:43
 msgid "settings.mfaHelp"
 msgstr "使用身份验证器应用生成 6 位验证码；恢复码只会展示一次。"
@@ -2084,6 +2079,11 @@ msgstr "扫描二维码或手动输入密钥，然后填写身份验证器中的
 #: src/i18n/descriptors/settings.ts:555
 msgid "settings.exchangeRateReportBasis"
 msgstr "报表口径"
+
+#. js-lingui-explicit-id
+#: src/i18n/descriptors/settings.ts:571
+msgid "settings.subscriptionPriceReferenceApplyLocalPreference"
+msgstr "按本机偏好设为 {currency}"
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/settings.ts:136

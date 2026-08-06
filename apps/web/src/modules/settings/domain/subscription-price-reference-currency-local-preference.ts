@@ -1,12 +1,12 @@
 import { currencyRegionHints, type CurrencyRegionHints } from "@renewlet/shared/currency-region-hints";
 import { isSupportedExchangeRateCurrency, type SupportedExchangeRateCurrency } from "@/lib/currency-data";
 
-export interface SubscriptionPriceReferenceCurrencySuggestion {
+export interface SubscriptionPriceReferenceCurrencyLocalPreference {
   currency: SupportedExchangeRateCurrency;
   reason: "locale-timezone" | "timezone";
 }
 
-export interface SubscriptionPriceReferenceCurrencySuggestionInput {
+export interface SubscriptionPriceReferenceCurrencyLocalPreferenceInput {
   languages?: readonly string[] | undefined;
   timeZone?: string | null | undefined;
   hints?: CurrencyRegionHints | undefined;
@@ -58,7 +58,8 @@ export function inferSubscriptionPriceReferenceCurrency({
   languages = [],
   timeZone,
   hints = currencyRegionHints,
-}: SubscriptionPriceReferenceCurrencySuggestionInput = {}): SubscriptionPriceReferenceCurrencySuggestion | null {
+}: SubscriptionPriceReferenceCurrencyLocalPreferenceInput = {}): SubscriptionPriceReferenceCurrencyLocalPreference | null {
+  // 语言 region 只用于和时区互证；冲突、缺时区、多币种或 unsupported 都不建议，避免旅行/VPN/浏览器语言偏好误填货币。
   const localeCurrency = firstExplicitLocaleCurrency(languages, hints);
   const timeZoneCurrency = uniqueTimeZoneCurrency(timeZone, hints);
 
@@ -72,7 +73,8 @@ export function inferSubscriptionPriceReferenceCurrency({
   };
 }
 
-export function getBrowserSubscriptionPriceReferenceCurrencySuggestion(): SubscriptionPriceReferenceCurrencySuggestion | null {
+export function getLocalSubscriptionPriceReferenceCurrencyPreference(): SubscriptionPriceReferenceCurrencyLocalPreference | null {
+  // 这里只读本机语言偏好和 IANA 时区做低侵扰推断；不是浏览器官方推荐，也不能引入 IP/GPS/远端定位或自动写 settings。
   const languages = typeof navigator === "undefined"
     ? []
     : navigator.languages.length > 0

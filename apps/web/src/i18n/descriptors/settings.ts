@@ -568,7 +568,7 @@ export const messages = [
   msg({ id: "settings.subscriptionPriceReferenceDisabledHelp", message: "默认隐藏；开启后可选择跟随统计货币或固定参考货币。" }),
   msg({ id: "settings.subscriptionPriceReferenceCurrency", message: "单订阅参考货币" }),
   msg({ id: "settings.subscriptionPriceReferenceCurrencyDefault", message: "跟随统计货币 ({currency})" }),
-  msg({ id: "settings.subscriptionPriceReferenceUseSuggestion", message: "使用浏览器建议：{currency}" }),
+  msg({ id: "settings.subscriptionPriceReferenceApplyLocalPreference", message: "按本机偏好设为 {currency}" }),
   msg({ id: "settings.ratesPreview", message: "常用货币折算为 {currency}" }),
   msg({ id: "settings.ratesInfo", message: "预览按 1 个订阅原币折算为统计货币展示，便于估算外币订阅价格。汇率数据每 24 小时自动更新，也可点击右上角按钮手动刷新；所选来源失败或少量缺失时会自动尝试其他来源补齐。" }),
   msg({ id: "settings.notifications", message: "通知设置" }),

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { currencyRegionHints, type CurrencyRegionHints } from "@renewlet/shared/currency-region-hints";
 import { SUPPORTED_EXCHANGE_RATE_CURRENCIES } from "@/lib/currency-data";
-import { inferSubscriptionPriceReferenceCurrency } from "./subscription-price-reference-currency-suggestion";
+import { inferSubscriptionPriceReferenceCurrency } from "./subscription-price-reference-currency-local-preference";
 
 describe("inferSubscriptionPriceReferenceCurrency", () => {
-  it("suggests a currency only when explicit language region and timezone agree", () => {
+  it("infers a local preference only when explicit language region and timezone agree", () => {
     expect(inferSubscriptionPriceReferenceCurrency({
       languages: ["zh-CN"],
       timeZone: "Asia/Shanghai",
@@ -21,14 +21,18 @@ describe("inferSubscriptionPriceReferenceCurrency", () => {
     })).toEqual({ currency: "GBP", reason: "locale-timezone" });
   });
 
-  it("does not suggest when language region conflicts with timezone", () => {
+  it("does not infer a local preference when language region conflicts with timezone", () => {
     expect(inferSubscriptionPriceReferenceCurrency({
       languages: ["en-US"],
       timeZone: "Europe/London",
     })).toBeNull();
+    expect(inferSubscriptionPriceReferenceCurrency({
+      languages: ["zh-CN"],
+      timeZone: "America/New_York",
+    })).toBeNull();
   });
 
-  it("uses a unique timezone currency when there is no explicit language region", () => {
+  it("uses a unique timezone currency as the local preference when there is no explicit language region", () => {
     expect(inferSubscriptionPriceReferenceCurrency({
       languages: ["en"],
       timeZone: "Europe/London",

@@ -48,7 +48,7 @@ export interface ExchangeRatesSectionProps {
   defaultCurrencyOptions: SearchableSelectOption[];
   subscriptionPriceReferenceCurrencyOptions: SearchableSelectOption[];
   effectiveSubscriptionPriceReferenceCurrency: string;
-  subscriptionPriceReferenceCurrencySuggestion: string | null;
+  subscriptionPriceReferenceCurrencyLocalPreference: string | null;
   handleRefreshRates: () => void | Promise<void>;
   handleDefaultCurrencyChange: (value: string) => void;
   handleSubscriptionPriceReferenceEnabledChange: (checked: boolean) => void;
@@ -73,7 +73,7 @@ export function ExchangeRatesSection({
   defaultCurrencyOptions,
   subscriptionPriceReferenceCurrencyOptions,
   effectiveSubscriptionPriceReferenceCurrency,
-  subscriptionPriceReferenceCurrencySuggestion,
+  subscriptionPriceReferenceCurrencyLocalPreference,
   handleRefreshRates,
   handleDefaultCurrencyChange,
   handleSubscriptionPriceReferenceEnabledChange,
@@ -102,17 +102,18 @@ export function ExchangeRatesSection({
   const warningFillSources = ratesWarning
     ? Array.from(new Set(Object.values(ratesWarning.fillSources))).map(getProviderLabel).join(", ")
     : "";
-  const showSubscriptionPriceReferenceSuggestion = Boolean(
-    subscriptionPriceReferenceCurrencySuggestion
+  const showSubscriptionPriceReferenceLocalPreference = Boolean(
+    subscriptionPriceReferenceCurrencyLocalPreference
     && (!settings.subscriptionPriceReferenceEnabled
-      || effectiveSubscriptionPriceReferenceCurrency !== subscriptionPriceReferenceCurrencySuggestion),
+      || effectiveSubscriptionPriceReferenceCurrency !== subscriptionPriceReferenceCurrencyLocalPreference),
   );
-  const handleUseSubscriptionPriceReferenceSuggestion = () => {
-    if (!subscriptionPriceReferenceCurrencySuggestion) return;
+  const handleApplySubscriptionPriceReferenceLocalPreference = () => {
+    if (!subscriptionPriceReferenceCurrencyLocalPreference) return;
+    // 推断值只是候选；只有用户点击按钮时才同时开启展示并写入目标货币。
     if (!settings.subscriptionPriceReferenceEnabled) {
       handleSubscriptionPriceReferenceEnabledChange(true);
     }
-    handleSubscriptionPriceReferenceCurrencyChange(subscriptionPriceReferenceCurrencySuggestion);
+    handleSubscriptionPriceReferenceCurrencyChange(subscriptionPriceReferenceCurrencyLocalPreference);
   };
 
   return (
@@ -216,15 +217,15 @@ export function ExchangeRatesSection({
                   aria-label={t("settings.subscriptionPriceReferenceCurrency")}
                 />
               </div>
-              {showSubscriptionPriceReferenceSuggestion ? (
+              {showSubscriptionPriceReferenceLocalPreference ? (
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
                   className="w-full border-border sm:w-auto"
-                  onClick={handleUseSubscriptionPriceReferenceSuggestion}
+                  onClick={handleApplySubscriptionPriceReferenceLocalPreference}
                 >
-                  {t("settings.subscriptionPriceReferenceUseSuggestion", { currency: subscriptionPriceReferenceCurrencySuggestion })}
+                  {t("settings.subscriptionPriceReferenceApplyLocalPreference", { currency: subscriptionPriceReferenceCurrencyLocalPreference })}
                 </Button>
               ) : null}
             </div>
