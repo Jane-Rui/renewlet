@@ -40,6 +40,7 @@ const EXCLUDED_PATHS = [
   /^apps\/web\/src\/i18n\/catalog-keys\.ts$/,
   /^apps\/worker\/src\/worker-configuration\.d\.ts$/,
   /^docs\/public-api\.openapi\.json$/,
+  /^packages\/shared\/data\/currency-region-hints\.json$/,
 ];
 
 function trackedAndNewFiles() {

@@ -85,18 +85,28 @@ const baseSubscription: Subscription = {
   publicHidden: false,
 };
 
+function testCurrencyConvert(amount: number | string, fromCurrency: string, toCurrency: string): number {
+  const value = typeof amount === "number" ? amount : Number(amount);
+  if (fromCurrency === toCurrency) return value;
+  if (fromCurrency === "USD" && toCurrency === "CNY") return value * 7;
+  if (fromCurrency === "CNY" && toCurrency === "USD") return value / 7;
+  return value;
+}
+
 function renderDetailDialog({
   subscription = baseSubscription,
   open = true,
   onOpenChange = vi.fn(),
   onEditSubscription,
   onRenewSubscription,
+  priceReferenceCurrency = "CNY",
 }: {
   subscription?: Subscription | null;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   onEditSubscription?: (subscription: Subscription) => void;
   onRenewSubscription?: (id: string) => void;
+  priceReferenceCurrency?: string | null;
 } = {}) {
   return {
     onOpenChange,
@@ -107,6 +117,9 @@ function renderDetailDialog({
           onOpenChange={onOpenChange}
           subscription={subscription}
           today={assertDateOnly("2026-05-18")}
+          currencyConvert={testCurrencyConvert}
+          currencyRatesReady={true}
+          priceReferenceCurrency={priceReferenceCurrency}
           {...(onEditSubscription ? { onEditSubscription } : {})}
           {...(onRenewSubscription ? { onRenewSubscription } : {})}
         />
@@ -143,6 +156,11 @@ describe("SubscriptionDetailDialog", () => {
     const dialog = screen.getByRole("dialog", { name: "Fastmail" });
     expect(dialog).toHaveAccessibleDescription("查看 Fastmail 的价格、周期、日期、标签、网站和备注。");
     expect(within(dialog).getByText("US$159")).toBeInTheDocument();
+    expect(within(dialog).getByText("≈ ¥1,113 CNY")).toHaveClass(
+      "text-xs",
+      "tabular-nums",
+      "text-muted-foreground",
+    );
     expect(within(dialog).getAllByText("开发工具")).toHaveLength(2);
     expect(within(dialog).getByText("信用卡")).toBeInTheDocument();
     expect(within(dialog).getByText("默认提醒：提前 5 天")).toBeInTheDocument();
@@ -169,6 +187,48 @@ describe("SubscriptionDetailDialog", () => {
 
     expect(within(dialog).queryByText("开始日期")).not.toBeInTheDocument();
     expect(within(dialog).getByText("2026年6月15日")).toBeInTheDocument();
+  });
+
+  it("hides the reference for same-currency subscriptions and disabled settings", () => {
+    renderDetailDialog({
+      subscription: {
+        ...baseSubscription,
+        price: "159",
+        currency: "CNY",
+      },
+    });
+
+    const dialog = screen.getByRole("dialog", { name: "Fastmail" });
+
+    expect(within(dialog).getByText("¥159")).toBeInTheDocument();
+    expect(within(dialog).queryByText(/^≈/)).not.toBeInTheDocument();
+
+    renderDetailDialog({ priceReferenceCurrency: null });
+    const dialogs = screen.getAllByRole("dialog");
+    const latestDialog = dialogs[dialogs.length - 1];
+    if (!latestDialog) throw new Error("Missing latest detail dialog");
+    expect(latestDialog).not.toHaveTextContent("≈ ¥1,113 CNY");
+  });
+
+  it("keeps the reference out of cost-sharing detail rows", () => {
+    renderDetailDialog({
+      subscription: {
+        ...baseSubscription,
+        costSharing: {
+          enabled: true,
+          splitMode: "custom",
+          members: [
+            { id: "member-1", name: "Bob", currency: "USD", customAmount: "40" },
+          ],
+        },
+      },
+    });
+
+    const dialog = screen.getByRole("dialog", { name: "Fastmail" });
+
+    expect(within(dialog).getAllByText(/^≈/)).toHaveLength(1);
+    expect(within(dialog).getByText("成员合计")).toBeInTheDocument();
+    expect(within(dialog).getByText("你的份额")).toBeInTheDocument();
   });
 
   it("closes the detail dialog before opening the edit flow", () => {

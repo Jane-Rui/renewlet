@@ -48,6 +48,7 @@ import { useSubscriptionCrud } from '@/modules/subscriptions/application/use-sub
 import { useSubscriptionExport } from '@/modules/subscriptions/application/use-subscription-export';
 import { useSubscriptionFilters } from '@/modules/subscriptions/application/use-subscription-filters';
 import { SUBSCRIPTION_PAYMENT_METHOD_NONE_VALUE, type SubscriptionRenewalFilter, type SubscriptionSortOption } from '@/modules/subscriptions/domain/subscription-filters';
+import { resolveSubscriptionPriceReferenceCurrency } from '@/modules/subscriptions/domain/subscription-price-reference';
 import { useExchangeRates } from '@/hooks/use-exchange-rates';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { MessageKey } from '@/i18n/messages';
@@ -67,8 +68,8 @@ import {
 const EMPTY_SUBSCRIPTIONS: Subscription[] = [];
 // 虚拟列表按“行”估算高度；网格模式一行可能包含 2-3 张卡片，估算值要覆盖最高卡片避免滚动跳动。
 const SUBSCRIPTION_GRID_ROW_GAP = 16;
-const SUBSCRIPTION_GRID_ROW_ESTIMATE = 184;
-const SUBSCRIPTION_LIST_ROW_ESTIMATE = 142;
+const SUBSCRIPTION_GRID_ROW_ESTIMATE = 220;
+const SUBSCRIPTION_LIST_ROW_ESTIMATE = 174;
 
 const SORT_OPTION_LABEL_KEYS: Record<SubscriptionSortOption, MessageKey> = {
   default: "subscriptions.sort.default",
@@ -113,7 +114,9 @@ type SubscriptionGridProps = {
   viewMode: "grid" | "list";
   timeZone: string;
   inheritedReminderDays: number;
-  costSharingCurrencyConvert: (amount: number | string, fromCurrency: string, toCurrency: string) => number;
+  currencyConvert: (amount: number | string, fromCurrency: string, toCurrency: string) => number;
+  currencyRatesReady: boolean;
+  priceReferenceCurrency: string | null;
   categoryByValue: SubscriptionCardLookup;
   paymentMethodByValue: SubscriptionCardLookup;
   onEdit: (id: string) => void;
@@ -130,7 +133,9 @@ function SubscriptionGrid({
   viewMode,
   timeZone,
   inheritedReminderDays,
-  costSharingCurrencyConvert,
+  currencyConvert,
+  currencyRatesReady,
+  priceReferenceCurrency,
   categoryByValue,
   paymentMethodByValue,
   onEdit,
@@ -170,7 +175,9 @@ function SubscriptionGrid({
               viewMode={viewMode}
               timeZone={timeZone}
               inheritedReminderDays={inheritedReminderDays}
-              costSharingCurrencyConvert={costSharingCurrencyConvert}
+              currencyConvert={currencyConvert}
+              currencyRatesReady={currencyRatesReady}
+              priceReferenceCurrency={priceReferenceCurrency}
               categoryByValue={categoryByValue}
               paymentMethodByValue={paymentMethodByValue}
               onEdit={onEdit}
@@ -227,7 +234,8 @@ function SubscriptionGrid({
       .sort()
       .map((currency) => ({ value: currency, label: currency }));
   }, [config.currencies, defaultCurrency, locale, subscriptions]);
-  const { convert } = useExchangeRates(exchangeRateProvider);
+  const { convert, loading: ratesLoading, sourceDate: ratesSourceDate } = useExchangeRates(exchangeRateProvider);
+  const currencyRatesReady = Boolean(ratesSourceDate) && !ratesLoading;
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [aiRecognitionDialogOpen, setAIRecognitionDialogOpen] = useState(false);
@@ -295,6 +303,7 @@ function SubscriptionGrid({
     handleCloneDialogOpenChange,
   } = useSubscriptionCrud(displaySourceSubscriptions);
   const settings = settingsQuery.data ?? DEFAULT_SETTINGS;
+  const priceReferenceCurrency = resolveSubscriptionPriceReferenceCurrency(settings);
   const { exportToJSON, exportToJSONWithSecrets, exportToCSV } =
     useSubscriptionExport(filteredSubscriptions, displaySourceSubscriptions, config, settings, locale, timeZone, convert);
   const selectedDetailSubscription = useMemo(
@@ -683,7 +692,9 @@ function SubscriptionGrid({
               viewMode={viewMode}
               timeZone={timeZone}
               inheritedReminderDays={inheritedReminderDays}
-              costSharingCurrencyConvert={convert}
+              currencyConvert={convert}
+              currencyRatesReady={currencyRatesReady}
+              priceReferenceCurrency={priceReferenceCurrency}
               categoryByValue={categoryByValue}
               paymentMethodByValue={paymentMethodByValue}
               onEdit={handleEditSubscription}
@@ -735,6 +746,9 @@ function SubscriptionGrid({
         onEditSubscription={handleEditFromDetail}
         onRenewSubscription={handleRenewSubscription}
         today={today}
+        currencyConvert={convert}
+        currencyRatesReady={currencyRatesReady}
+        priceReferenceCurrency={priceReferenceCurrency}
       />
       <ImportDataDialog
         open={importDialogOpen}

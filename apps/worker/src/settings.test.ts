@@ -3,7 +3,7 @@ import { createDefaultAppSettings } from "@renewlet/shared/settings-defaults";
 import type { ApiAppSettings } from "@renewlet/shared/schemas/settings";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readSuccessData } from "./api-test-helpers";
-import { ensureSettings } from "./db";
+import { ensureSettings, normalizeSettingsJson } from "./db";
 import { readSettings, updateSettings } from "./settings";
 import type { Env } from "./types";
 
@@ -165,6 +165,42 @@ describe("Cloudflare settings initialization", () => {
     expect(settings.monthlyBudget).toBe("2333");
   });
 
+  it("adds subscription price reference defaults when reading old settings JSON", () => {
+    const settings = normalizeSettingsJson(JSON.stringify({
+      defaultCurrency: "USD",
+      monthlyBudget: "2333",
+    }));
+
+    expect(settings.defaultCurrency).toBe("USD");
+    expect(settings.monthlyBudget).toBe("2333");
+    expect(settings.subscriptionPriceReferenceEnabled).toBe(false);
+    expect(settings.subscriptionPriceReferenceCurrency).toBe("default");
+  });
+
+  it("recovers invalid stored subscription price reference currency without dropping other settings", async () => {
+    const existing = {
+      ...createDefaultAppSettings({ locale: "en-US" }),
+      monthlyBudget: "2333",
+      subscriptionPriceReferenceEnabled: true,
+      subscriptionPriceReferenceCurrency: "usd",
+    };
+    const state: SettingsTestState = {
+      rows: new Map([[USER_ID, JSON.stringify(existing)]]),
+      inserts: [],
+    };
+    const env = {
+      DB: new SettingsTestDB(state) as unknown as D1Database,
+      ASSETS: {} as Fetcher,
+      ASSETS_BUCKET: {} as R2Bucket,
+    } as Env;
+
+    const settings = await ensureSettings(env, USER_ID, "zh-CN");
+
+    expect(settings.subscriptionPriceReferenceEnabled).toBe(true);
+    expect(settings.subscriptionPriceReferenceCurrency).toBe("default");
+    expect(settings.monthlyBudget).toBe("2333");
+  });
+
   it("recovers invalid stored DingTalk template fields without dropping other settings", async () => {
     const existing = {
       ...createDefaultAppSettings({ locale: "en-US" }),
@@ -216,6 +252,15 @@ describe("Cloudflare settings initialization", () => {
       .rejects.toMatchObject({ status: 400, code: "INVALID_PAYLOAD" });
 
     expect(state.rows.has(USER_ID)).toBe(false);
+  });
+
+  it("rejects invalid subscription price reference currency on write", async () => {
+    const { env } = createEnv(createDefaultAppSettings({ locale: "en-US" }));
+
+    await expect(updateSettings(settingsRequest("PUT", "zh-CN", {
+      subscriptionPriceReferenceEnabled: true,
+      subscriptionPriceReferenceCurrency: "usd",
+    }), env)).rejects.toMatchObject({ status: 400, code: "INVALID_PAYLOAD" });
   });
 
   it("accepts only supported Telegram message formats on write", async () => {

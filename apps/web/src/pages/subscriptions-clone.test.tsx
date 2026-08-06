@@ -48,6 +48,8 @@ vi.mock("@/hooks/use-settings", () => ({
 vi.mock("@/hooks/use-exchange-rates", () => ({
   useExchangeRates: () => ({
     convert: (amount: number) => amount,
+    loading: false,
+    sourceDate: "2026-08-01",
   }),
 }));
 

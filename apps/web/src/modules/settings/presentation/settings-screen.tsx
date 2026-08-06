@@ -43,7 +43,7 @@ import { RawErrorResponseDialog } from '@/components/raw-error-response-dialog';
 import { NotificationHistoryPanel } from './notification-history-panel';
 import { Settings2, FolderKanban, Activity, CreditCard, Coins, Palette } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { CURRENCY_OPTIONS, MAX_REMINDER_DAYS, type NotificationChannel, type PublicStatusCurrency } from '@/types/subscription';
+import { CURRENCY_OPTIONS, MAX_REMINDER_DAYS, type NotificationChannel, type PublicStatusCurrency, type SubscriptionPriceReferenceCurrency } from '@/types/subscription';
 import { isBuiltInPaymentMethodValue } from '@/types/config';
 import { assertLocalTime } from '@/lib/time/local-time';
 import { getSupportedTimeZones } from '@/lib/time/time-zone';
@@ -51,6 +51,7 @@ import { createCurrencySelectOptions, createTimeZoneSelectOptions } from '@/lib/
 import { useSettingsFormController } from '../application/use-settings-form-controller';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { Locale } from '@/i18n/locales';
+import { getBrowserSubscriptionPriceReferenceCurrencySuggestion } from '../domain/subscription-price-reference-currency-suggestion';
 import { AccountSettingsSection } from './account-settings-section';
 import { NotificationChannelConfigPanel } from './notification-channel-config-panel';
 import { NotificationChannelList } from './notification-channel-list';
@@ -175,6 +176,31 @@ export function SettingsScreen() {
       locale,
     }),
   ];
+  const effectiveSubscriptionPriceReferenceCurrency = settings.subscriptionPriceReferenceCurrency === "default"
+    ? settings.defaultCurrency
+    : settings.subscriptionPriceReferenceCurrency;
+  const explicitSubscriptionPriceReferenceCurrency = settings.subscriptionPriceReferenceCurrency === "default"
+    ? null
+    : settings.subscriptionPriceReferenceCurrency;
+  const subscriptionPriceReferenceCurrencyOptions: SearchableSelectOption[] = [
+    {
+      value: "default",
+      label: t("settings.subscriptionPriceReferenceCurrencyDefault", { currency: settings.defaultCurrency }),
+      keywords: ["default", settings.defaultCurrency],
+    },
+    ...createCurrencySelectOptions({
+      currencies: customConfig.currencies,
+      currencyOptions: CURRENCY_OPTIONS,
+      ...(explicitSubscriptionPriceReferenceCurrency ? { includeDisabledCurrent: explicitSubscriptionPriceReferenceCurrency } : {}),
+      locale,
+    }),
+  ];
+  const browserSubscriptionPriceReferenceCurrencySuggestion =
+    getBrowserSubscriptionPriceReferenceCurrencySuggestion()?.currency ?? null;
+  const subscriptionPriceReferenceCurrencySuggestion = browserSubscriptionPriceReferenceCurrencySuggestion
+    && subscriptionPriceReferenceCurrencyOptions.some((option) => option.value === browserSubscriptionPriceReferenceCurrencySuggestion && !option.disabled)
+    ? browserSubscriptionPriceReferenceCurrencySuggestion
+    : null;
   const [selectedNotificationChannel, setSelectedNotificationChannel] = useState<NotificationChannel | null>(null);
   const [notificationReminderDaysInput, setNotificationReminderDaysInput] = useState(String(settings.notificationReminderDays));
   const [mobileSectionNavOpen, setMobileSectionNavOpen] = useState(false);
@@ -455,8 +481,13 @@ export function SettingsScreen() {
                 reportBasisStatus={reportBasisStatus}
                 lastUpdated={lastUpdated}
                 defaultCurrencyOptions={defaultCurrencyOptions}
+                subscriptionPriceReferenceCurrencyOptions={subscriptionPriceReferenceCurrencyOptions}
+                effectiveSubscriptionPriceReferenceCurrency={effectiveSubscriptionPriceReferenceCurrency}
+                subscriptionPriceReferenceCurrencySuggestion={subscriptionPriceReferenceCurrencySuggestion}
                 handleRefreshRates={handleRefreshRates}
                 handleDefaultCurrencyChange={handleDefaultCurrencyChange}
+                handleSubscriptionPriceReferenceEnabledChange={(checked) => updateSetting("subscriptionPriceReferenceEnabled", checked)}
+                handleSubscriptionPriceReferenceCurrencyChange={(value) => updateSetting("subscriptionPriceReferenceCurrency", value as SubscriptionPriceReferenceCurrency)}
                 handleExchangeRateProviderChange={handleExchangeRateProviderChange}
                 getCurrencySymbol={getCurrencySymbol}
               />

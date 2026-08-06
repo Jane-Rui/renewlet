@@ -14,22 +14,22 @@ msgstr ""
 "Plural-Forms: \n"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:705
+#: src/i18n/descriptors/settings.ts:711
 msgid "settings.dingtalkTemplateExampleCountTitle"
 msgstr "'{brand}' · '{itemCount}' reminders"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:702
+#: src/i18n/descriptors/settings.ts:708
 msgid "settings.dingtalkTemplateExampleKeywordTitle"
 msgstr "'{brand}' · '{title}'"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:699
+#: src/i18n/descriptors/settings.ts:705
 msgid "settings.dingtalkTemplateExampleDefaultTitle"
 msgstr "'{title}'"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:700
+#: src/i18n/descriptors/settings.ts:706
 msgid "settings.dingtalkTemplateExampleDefaultContent"
 msgstr ""
 "'{title}'\n"
@@ -39,7 +39,7 @@ msgstr ""
 "'{timestamp}'"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:703
+#: src/i18n/descriptors/settings.ts:709
 msgid "settings.dingtalkTemplateExampleKeywordContent"
 msgstr ""
 "'{title}'\n"
@@ -51,7 +51,7 @@ msgstr ""
 "'{brand}' · '{keyword}'"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:576
+#: src/i18n/descriptors/settings.ts:582
 msgid "settings.channelConfig"
 msgstr "{channel} configuration"
 
@@ -71,7 +71,7 @@ msgid "settings.builtInIconIndexProviderIconCount"
 msgstr "{count} icons"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:617
+#: src/i18n/descriptors/settings.ts:623
 msgid "settings.channel.webhookReady"
 msgstr "{method} Webhook URL filled"
 
@@ -91,7 +91,7 @@ msgid "settings.exchangeRateReportBasisLive"
 msgstr "{month} is not locked yet; using live rates"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:593
+#: src/i18n/descriptors/settings.ts:599
 msgid "settings.sectionSaved"
 msgstr "{section} updated"
 
@@ -141,7 +141,7 @@ msgid "settings.uploadedIconsDeleteSuccessDescription"
 msgstr "\"{name}\" was removed from uploaded icons."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:706
+#: src/i18n/descriptors/settings.ts:712
 msgid "settings.dingtalkTemplateExampleCountContent"
 msgstr ""
 "['{title}']\n"
@@ -151,12 +151,12 @@ msgstr ""
 "Sent at: '{timestamp}'"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:719
+#: src/i18n/descriptors/settings.ts:725
 msgid "settings.wechatAtAll"
 msgstr "@ all members"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:717
+#: src/i18n/descriptors/settings.ts:723
 msgid "settings.wechatPhones"
 msgstr "@ phone numbers (optional)"
 
@@ -181,7 +181,7 @@ msgid "aiRecognition.thinking.budget.4096"
 msgstr "4096 tokens"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:723
+#: src/i18n/descriptors/settings.ts:729
 msgid "settings.smtpSecureHelp"
 msgstr "465 is usually enabled; 587/2525 are usually disabled and use STARTTLS. Cloudflare Workers does not support 25."
 
@@ -231,7 +231,7 @@ msgid "aiRecognition.apiKey"
 msgstr "API Key"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:615
+#: src/i18n/descriptors/settings.ts:621
 msgid "settings.channel.notifyxReady"
 msgstr "API Key filled"
 
@@ -266,7 +266,7 @@ msgid "settings.onlineIconSource.appStore.storefronts"
 msgstr "App Store regions"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:637
+#: src/i18n/descriptors/settings.ts:643
 msgid "settings.help.bark"
 msgstr "Bark iOS app"
 
@@ -276,12 +276,12 @@ msgid "aiRecognition.baseUrl"
 msgstr "Base URL"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:613
+#: src/i18n/descriptors/settings.ts:619
 msgid "settings.channel.telegramReady"
 msgstr "Bot Token and Chat ID filled"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:648
+#: src/i18n/descriptors/settings.ts:654
 msgid "settings.telegramBotCommands"
 msgstr "Bot query commands"
 
@@ -336,7 +336,7 @@ msgid "settings.builtInIconSource.dashboardIcons"
 msgstr "Dashboard Icons"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:640
+#: src/i18n/descriptors/settings.ts:646
 msgid "settings.help.discord"
 msgstr "Discord Webhook docs"
 
@@ -401,7 +401,7 @@ msgid "aiRecognition.thinking.gemini.level.minimal.description"
 msgstr "Gemini thinkingLevel=minimal."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:680
+#: src/i18n/descriptors/settings.ts:686
 msgid "settings.webhookGetPostHelp"
 msgstr "GET sends title/content/timestamp as query parameters. POST sends JSON by default, or uses the template below."
 
@@ -421,7 +421,7 @@ msgid "aiRecognition.thinking.anthropic.high"
 msgstr "High"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:682
+#: src/i18n/descriptors/settings.ts:688
 msgid "settings.webhookHeadersHelp"
 msgstr "Custom headers in JSON format. Leave empty to use defaults."
 
@@ -476,7 +476,7 @@ msgid "aiRecognition.thinking.gemini.level.minimal"
 msgstr "Minimal"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:638
+#: src/i18n/descriptors/settings.ts:644
 msgid "settings.help.notifyx"
 msgstr "Notifyx help"
 
@@ -551,12 +551,12 @@ msgid "settings.publicApiTokens"
 msgstr "Public API token list"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:746
+#: src/i18n/descriptors/settings.ts:752
 msgid "settings.pushplusToken"
 msgstr "PushPlus Token"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:641
+#: src/i18n/descriptors/settings.ts:647
 msgid "settings.help.pushplus"
 msgstr "PushPlus message API"
 
@@ -566,7 +566,7 @@ msgid "settings.cloudBackupS3Region"
 msgstr "Region"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:707
+#: src/i18n/descriptors/settings.ts:713
 msgid "settings.dingtalkKeywordPlaceholder"
 msgstr "Renewlet"
 
@@ -576,7 +576,7 @@ msgid "settings.cloudBackupProviderS3"
 msgstr "S3-compatible storage"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:740
+#: src/i18n/descriptors/settings.ts:746
 msgid "settings.serverchanSendKeyPlaceholder"
 msgstr "SCTxxxxxxxxxxxxxxxx or sctp123tabc"
 
@@ -596,77 +596,77 @@ msgid "settings.builtInIconSource.selfhst"
 msgstr "selfh.st icons"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:739
+#: src/i18n/descriptors/settings.ts:745
 msgid "settings.serverchanSendKey"
 msgstr "SendKey"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:627
+#: src/i18n/descriptors/settings.ts:633
 msgid "settings.channel.serverchanReady"
 msgstr "SendKey filled"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:639
+#: src/i18n/descriptors/settings.ts:645
 msgid "settings.help.serverchan"
 msgstr "ServerChan docs"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:725
+#: src/i18n/descriptors/settings.ts:731
 msgid "settings.smtpPassword"
 msgstr "SMTP password"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:720
+#: src/i18n/descriptors/settings.ts:726
 msgid "settings.smtpHost"
 msgstr "SMTP server"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:724
+#: src/i18n/descriptors/settings.ts:730
 msgid "settings.smtpUser"
 msgstr "SMTP username"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:721
+#: src/i18n/descriptors/settings.ts:727
 msgid "settings.smtpPort"
 msgstr "SMTP port"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:666
+#: src/i18n/descriptors/settings.ts:672
 msgid "settings.telegramBotCommandsHttpsRequired"
 msgstr "Telegram Webhooks require an HTTPS public URL."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:665
+#: src/i18n/descriptors/settings.ts:671
 msgid "settings.telegramBotCommandsSaveFirst"
 msgstr "Telegram credentials have unsaved changes. Save settings first."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:676
+#: src/i18n/descriptors/settings.ts:682
 msgid "settings.telegramBotCommandsDeleteFailed"
 msgstr "Failed to delete Telegram query commands"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:672
+#: src/i18n/descriptors/settings.ts:678
 msgid "settings.telegramBotCommandsInstallFailed"
 msgstr "Failed to install Telegram query commands"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:674
+#: src/i18n/descriptors/settings.ts:680
 msgid "settings.telegramBotCommandsDeleted"
 msgstr "Telegram query commands deleted"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:670
+#: src/i18n/descriptors/settings.ts:676
 msgid "settings.telegramBotCommandsInstalled"
 msgstr "Telegram query commands installed"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:643
+#: src/i18n/descriptors/settings.ts:649
 msgid "settings.telegramMessageFormat"
 msgstr "Telegram message style"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:675
+#: src/i18n/descriptors/settings.ts:681
 msgid "settings.telegramBotCommandsDeletedDescription"
 msgstr "Telegram menu commands were deleted. You can reinstall them later."
 
@@ -691,7 +691,7 @@ msgid "settings.publicApiCreateName"
 msgstr "Token name"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:631
+#: src/i18n/descriptors/settings.ts:637
 msgid "settings.channel.pushplusReady"
 msgstr "Token filled"
 
@@ -726,17 +726,17 @@ msgid "settings.cloudBackupWebdavUrl"
 msgstr "WebDAV URL"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:742
+#: src/i18n/descriptors/settings.ts:748
 msgid "settings.discordWebhookUrl"
 msgstr "Webhook URL"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:629
+#: src/i18n/descriptors/settings.ts:635
 msgid "settings.channel.discordReady"
 msgstr "Webhook URL filled"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:634
+#: src/i18n/descriptors/settings.ts:640
 msgid "settings.help.webhook"
 msgstr "Webhook overview"
 
@@ -816,7 +816,7 @@ msgid "aiRecognition.thinking.noExplicitControl"
 msgstr "No explicit control"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:611
+#: src/i18n/descriptors/settings.ts:617
 msgid "settings.currencyPolicy.defaultTitle"
 msgstr "Reporting currency cannot be disabled"
 
@@ -921,22 +921,22 @@ msgid "settings.uploadedIconsDeleteBlockedByBoth"
 msgstr "Still used by {subscriptionCount} subscriptions and {paymentMethodCount} payment methods. Replace the Logo and payment method icon references first."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:736
+#: src/i18n/descriptors/settings.ts:742
 msgid "settings.barkKeyHelp"
 msgstr "Device Key from the Bark iOS app"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:678
+#: src/i18n/descriptors/settings.ts:684
 msgid "settings.notifyxHelp"
 msgstr "API Key from the Notifyx platform"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:747
+#: src/i18n/descriptors/settings.ts:753
 msgid "settings.pushplusHelp"
 msgstr "Message token or user token from PushPlus. Renewlet sends text-template messages."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:653
+#: src/i18n/descriptors/settings.ts:659
 msgid "settings.telegramBotCommandsNever"
 msgstr "Never"
 
@@ -951,17 +951,17 @@ msgid "settings.cloudBackupNeverBackedUp"
 msgstr "Never backed up"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:686
+#: src/i18n/descriptors/settings.ts:692
 msgid "settings.dingtalkWebhookHelp"
 msgstr "Use the custom bot URL from a DingTalk group. Renewlet sends DingTalk's required message structure."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:598
+#: src/i18n/descriptors/settings.ts:604
 msgid "settings.partialSaveFailedDescription"
 msgstr "These changes were not saved: {scope}. Check them and try again."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:636
+#: src/i18n/descriptors/settings.ts:642
 msgid "settings.help.wechat"
 msgstr "WeCom bot docs"
 
@@ -971,7 +971,7 @@ msgid "settings.exchangeRateProviderHelp"
 msgstr "The selected source is tried first. If it fails, other remote sources are tried; small currency gaps are filled with fallback rates."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:671
+#: src/i18n/descriptors/settings.ts:677
 msgid "settings.telegramBotCommandsInstalledDescription"
 msgstr "You can now query Renewlet subscription summaries from the command menu in the target Telegram chat."
 
@@ -986,7 +986,7 @@ msgid "settings.calendarFeedGeneratedDescription"
 msgstr "You can return here anytime to copy the URL or open the system calendar subscription flow."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:722
+#: src/i18n/descriptors/settings.ts:728
 msgid "settings.smtpSecure"
 msgstr "Use direct TLS"
 
@@ -994,6 +994,11 @@ msgstr "Use direct TLS"
 #: src/i18n/descriptors/settings.ts:51
 msgid "settings.passkeyHelp"
 msgstr "Sign in with your browser, device biometrics, or a security key. Passkeys are managed separately from your authenticator."
+
+#. js-lingui-explicit-id
+#: src/i18n/descriptors/settings.ts:571
+msgid "settings.subscriptionPriceReferenceUseSuggestion"
+msgstr "Use browser suggestion: {currency}"
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/settings.ts:43
@@ -1006,12 +1011,12 @@ msgid "aiRecognition.modelPlaceholder"
 msgstr "e.g. gpt-5.1, gemini-3-pro, claude-sonnet-4-5"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:688
+#: src/i18n/descriptors/settings.ts:694
 msgid "settings.dingtalkTitleTemplatePlaceholder"
 msgstr "e.g. '{brand}' · '{title}'"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:690
+#: src/i18n/descriptors/settings.ts:696
 msgid "settings.dingtalkContentTemplatePlaceholder"
 msgstr ""
 "e.g. '{title}'\n"
@@ -1021,7 +1026,7 @@ msgstr ""
 "'{timestamp}'"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:642
+#: src/i18n/descriptors/settings.ts:648
 msgid "settings.telegramChatPlaceholder"
 msgstr "e.g. 123456789 (available from @userinfobot)"
 
@@ -1046,7 +1051,7 @@ msgid "settings.cloudBackupSecretPlaceholder"
 msgstr "Not shown after save"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:594
+#: src/i18n/descriptors/settings.ts:600
 msgid "settings.saveFailed"
 msgstr "Save failed"
 
@@ -1056,7 +1061,7 @@ msgid "settings.mfaRecoveryCodesTitle"
 msgstr "Save recovery codes"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:582
+#: src/i18n/descriptors/settings.ts:588
 msgid "settings.saveAll"
 msgstr "Save all settings"
 
@@ -1066,7 +1071,7 @@ msgid "settings.saveNewPassword"
 msgstr "Save new password"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:585
+#: src/i18n/descriptors/settings.ts:591
 msgid "settings.saveChanges"
 msgstr "Save changes"
 
@@ -1096,7 +1101,7 @@ msgid "settings.passwordDialogTitle"
 msgstr "Change password"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:590
+#: src/i18n/descriptors/settings.ts:596
 msgid "settings.allSettings"
 msgstr "All settings"
 
@@ -1161,7 +1166,7 @@ msgid "settings.publicStatusCurrency"
 msgstr "Public page reporting currency"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:701
+#: src/i18n/descriptors/settings.ts:707
 msgid "settings.dingtalkTemplateExampleKeyword"
 msgstr "Keyword-safe"
 
@@ -1196,7 +1201,7 @@ msgid "settings.mfaDisableTitle"
 msgstr "Turn off authenticator?"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:646
+#: src/i18n/descriptors/settings.ts:652
 msgid "settings.telegramMessageFormatPlainDescription"
 msgstr "Best compatibility. Every Telegram client shows the message as plain text."
 
@@ -1221,7 +1226,7 @@ msgid "settings.publicApiTokenLastUsed"
 msgstr "Last used {time}"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:652
+#: src/i18n/descriptors/settings.ts:658
 msgid "settings.telegramBotCommandsLastUsedAt"
 msgstr "Last used: {time}"
 
@@ -1271,7 +1276,7 @@ msgid "settings.builtInIconSourceToggle"
 msgstr "Toggle {source} source"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:633
+#: src/i18n/descriptors/settings.ts:639
 msgid "settings.help.telegram"
 msgstr "Create Telegram bot"
 
@@ -1321,7 +1326,7 @@ msgid "settings.publicApiDeleteTitle"
 msgstr "Delete API Token?"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:658
+#: src/i18n/descriptors/settings.ts:664
 msgid "settings.telegramBotCommandsDeleteTitle"
 msgstr "Delete Telegram Bot query commands?"
 
@@ -1341,7 +1346,7 @@ msgid "settings.cloudBackupDeleting"
 msgstr "Deleting..."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:669
+#: src/i18n/descriptors/settings.ts:675
 msgid "settings.telegramBotCommandsDeleting"
 msgstr "Deleting..."
 
@@ -1351,7 +1356,7 @@ msgid "settings.cloudBackupDeleteTitle"
 msgstr "Delete cloud snapshot?"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:659
+#: src/i18n/descriptors/settings.ts:665
 msgid "settings.telegramBotCommandsDeleteDescription"
 msgstr "After deletion, Telegram menu commands stop working. You can reinstall them later."
 
@@ -1361,7 +1366,7 @@ msgid "settings.passkeysManageHint"
 msgstr "After deletion, this passkey can no longer sign in. Your authenticator settings stay unchanged."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:657
+#: src/i18n/descriptors/settings.ts:663
 msgid "settings.telegramBotCommandsDelete"
 msgstr "Delete commands"
 
@@ -1406,7 +1411,7 @@ msgid "settings.mfaRecoveryRemaining"
 msgstr "Recovery codes remaining: {count}"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:710
+#: src/i18n/descriptors/settings.ts:716
 msgid "settings.dingtalkSecret"
 msgstr "Signing secret (optional)"
 
@@ -1426,17 +1431,27 @@ msgid "aiRecognition.thinking.gemini.dynamic"
 msgstr "Dynamic budget"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:726
+#: src/i18n/descriptors/settings.ts:566
+msgid "settings.subscriptionPriceReference"
+msgstr "Per-subscription reference price"
+
+#. js-lingui-explicit-id
+#: src/i18n/descriptors/settings.ts:569
+msgid "settings.subscriptionPriceReferenceCurrency"
+msgstr "Per-subscription reference currency"
+
+#. js-lingui-explicit-id
+#: src/i18n/descriptors/settings.ts:732
 msgid "settings.smtpFrom"
 msgstr "From"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:683
+#: src/i18n/descriptors/settings.ts:689
 msgid "settings.webhookPayload"
 msgstr "Payload (optional JSON)"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:691
+#: src/i18n/descriptors/settings.ts:697
 msgid "settings.dingtalkTemplateHelp"
 msgstr "Variables: '{brand}', '{keyword}', '{title}', '{content}', '{timestamp}', '{itemCount}'. This only customizes the title and body, not the JSON body; Renewlet still generates the official DingTalk payload."
 
@@ -1451,12 +1466,12 @@ msgid "settings.cloudBackupPathHelp"
 msgstr "Enter a directory prefix only. Do not include .. or a filename."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:743
+#: src/i18n/descriptors/settings.ts:749
 msgid "settings.discordWebhookHelp"
 msgstr "Only official Discord Webhook URLs are supported. Sending disables @everyone, user, and role mentions."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:578
+#: src/i18n/descriptors/settings.ts:584
 msgid "settings.channelDisabledHelp"
 msgstr "You can fill in configuration first, then enable and save before testing."
 
@@ -1506,7 +1521,7 @@ msgid "settings.currencyManagerDescription"
 msgstr "Enable or disable available currency options. The shared rate-source scope supports 146 currencies."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:738
+#: src/i18n/descriptors/settings.ts:744
 msgid "settings.barkSilentHelp"
 msgstr "When enabled, push notifications will not play a sound."
 
@@ -1521,7 +1536,7 @@ msgid "settings.mfaEnableFailed"
 msgstr "Could not enable authenticator"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:727
+#: src/i18n/descriptors/settings.ts:733
 msgid "settings.smtpReplyTo"
 msgstr "Reply-To"
 
@@ -1561,7 +1576,7 @@ msgid "settings.builtInIconIndexRefreshQueued"
 msgstr "Icon index update queued"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:713
+#: src/i18n/descriptors/settings.ts:719
 msgid "settings.wechatHelp"
 msgstr "Get it after adding a group bot in a WeCom group."
 
@@ -1581,67 +1596,72 @@ msgid "settings.onlineIconSourcesSummary"
 msgstr "Online App icons {enabled}/{total}"
 
 #. js-lingui-explicit-id
+#: src/i18n/descriptors/settings.ts:567
+msgid "settings.subscriptionPriceReferenceHelp"
+msgstr "Show a small reference price converted to {currency} under subscription card and detail prices."
+
+#. js-lingui-explicit-id
 #: src/i18n/descriptors/settings.ts:105
 msgid "settings.showExpired"
 msgstr "Include expired subscriptions in notifications"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:695
+#: src/i18n/descriptors/settings.ts:701
 msgid "settings.dingtalkTemplateExampleApplyNamed"
 msgstr "Use {name} template"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:614
+#: src/i18n/descriptors/settings.ts:620
 msgid "settings.channel.telegramTodo"
 msgstr "Fill in Bot Token and Chat ID"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:630
+#: src/i18n/descriptors/settings.ts:636
 msgid "settings.channel.discordTodo"
 msgstr "Fill Discord Webhook URL"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:616
+#: src/i18n/descriptors/settings.ts:622
 msgid "settings.channel.notifyxTodo"
 msgstr "Fill in Notifyx API Key"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:632
+#: src/i18n/descriptors/settings.ts:638
 msgid "settings.channel.pushplusTodo"
 msgstr "Fill PushPlus Token"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:628
+#: src/i18n/descriptors/settings.ts:634
 msgid "settings.channel.serverchanTodo"
 msgstr "Fill in ServerChan SendKey"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:624
+#: src/i18n/descriptors/settings.ts:630
 msgid "settings.channel.emailTodo"
 msgstr "Fill in SMTP and recipient email"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:618
+#: src/i18n/descriptors/settings.ts:624
 msgid "settings.channel.webhookTodo"
 msgstr "Fill in Webhook URL"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:622
+#: src/i18n/descriptors/settings.ts:628
 msgid "settings.channel.wechatTodo"
 msgstr "Fill in WeCom bot Webhook URL"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:711
+#: src/i18n/descriptors/settings.ts:717
 msgid "settings.dingtalkSecretHelp"
 msgstr "When set, Renewlet generates timestamp/sign before sending and overwrites any existing signature query parameters."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:626
+#: src/i18n/descriptors/settings.ts:632
 msgid "settings.channel.barkTodo"
 msgstr "Fill in server URL and Device Key"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:620
+#: src/i18n/descriptors/settings.ts:626
 msgid "settings.channel.dingtalkTodo"
 msgstr "Fill DingTalk bot Webhook URL"
 
@@ -1701,12 +1721,12 @@ msgid "settings.appearance"
 msgstr "Appearance"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:718
+#: src/i18n/descriptors/settings.ts:724
 msgid "settings.wechatPhonesHelp"
 msgstr "Separate multiple numbers with commas or new lines. Only applies to text messages."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:729
+#: src/i18n/descriptors/settings.ts:735
 msgid "settings.multipleRecipients"
 msgstr "Multiple recipients"
 
@@ -1726,27 +1746,27 @@ msgid "settings.cloudBackupProvider"
 msgstr "Storage"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:662
+#: src/i18n/descriptors/settings.ts:668
 msgid "settings.telegramBotCommandsStatus.installing"
 msgstr "Installing"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:668
+#: src/i18n/descriptors/settings.ts:674
 msgid "settings.telegramBotCommandsInstalling"
 msgstr "Installing..."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:649
+#: src/i18n/descriptors/settings.ts:655
 msgid "settings.telegramBotCommandsHelp"
 msgstr "Install commands to check status, the next renewal, today, this week, this month, and subscription summaries from the Telegram menu."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:655
+#: src/i18n/descriptors/settings.ts:661
 msgid "settings.telegramBotCommandsInstall"
 msgstr "Install commands"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:651
+#: src/i18n/descriptors/settings.ts:657
 msgid "settings.telegramBotCommandsInstalledAt"
 msgstr "Installed: {time}"
 
@@ -1796,7 +1816,7 @@ msgid "settings.cloudBackupCredential"
 msgstr "Secret"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:645
+#: src/i18n/descriptors/settings.ts:651
 msgid "settings.telegramMessageFormatHtml"
 msgstr "Rich text"
 
@@ -1816,7 +1836,7 @@ msgid "settings.publicStatusSummary"
 msgstr "Showing {visible} · Hidden {hidden}"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:606
+#: src/i18n/descriptors/settings.ts:612
 msgid "settings.exchangeRateProviderSwitched"
 msgstr "{provider} is now tried first."
 
@@ -1831,7 +1851,7 @@ msgid "settings.builtInIconIndexBadge.upToDate"
 msgstr "Up to date"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:603
+#: src/i18n/descriptors/settings.ts:609
 msgid "settings.defaultCurrencySwitched"
 msgstr "Switched to {currency}"
 
@@ -1856,7 +1876,7 @@ msgid "settings.builtInIconSourcesSummary"
 msgstr "{enabled} sources enabled · variants {variants}/{total}"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:663
+#: src/i18n/descriptors/settings.ts:669
 msgid "settings.telegramBotCommandsStatus.installed"
 msgstr "Installed"
 
@@ -1886,7 +1906,7 @@ msgid "settings.passkeyCountLabel"
 msgstr "Added"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:601
+#: src/i18n/descriptors/settings.ts:607
 msgid "settings.ratesUpdatedDescription"
 msgstr "Latest exchange-rate data has been fetched."
 
@@ -1896,12 +1916,12 @@ msgid "settings.cloudBackupRestoreReady"
 msgstr "Import preview opened"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:566
+#: src/i18n/descriptors/settings.ts:572
 msgid "settings.ratesPreview"
 msgstr "Common currencies in {currency}"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:574
+#: src/i18n/descriptors/settings.ts:580
 msgid "settings.cronTip"
 msgstr "Cron should still call the endpoint every minute or at least every 5 minutes. The app decides per user time zone whether to send."
 
@@ -1911,12 +1931,12 @@ msgid "aiRecognition.providerType"
 msgstr "Platform type"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:596
+#: src/i18n/descriptors/settings.ts:602
 msgid "settings.appSettingsScope"
 msgstr "App settings"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:730
+#: src/i18n/descriptors/settings.ts:736
 msgid "settings.multipleRecipientsHelp"
 msgstr "When enabled, separate multiple email addresses with commas or new lines."
 
@@ -1971,7 +1991,7 @@ msgid "settings.mfaRecoveryCopyFailedDescription"
 msgstr "This browser does not allow one-click copy. Select the recovery codes manually."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:577
+#: src/i18n/descriptors/settings.ts:583
 msgid "settings.channelEnabledHelp"
 msgstr "This channel is enabled and will send notifications after saving."
 
@@ -1981,7 +2001,7 @@ msgid "settings.builtInIconIndexCurrentVersionLabel"
 msgstr "Current version"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:612
+#: src/i18n/descriptors/settings.ts:618
 msgid "settings.currencyPolicy.defaultDescription"
 msgstr "{currency} is used for app-wide amount conversion. Switch the reporting currency first, then disable it."
 
@@ -2026,7 +2046,7 @@ msgid "settings.mfaRecoveryRegenerated"
 msgstr "Recovery codes regenerated"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:592
+#: src/i18n/descriptors/settings.ts:598
 msgid "settings.savedDescription"
 msgstr "All changes have been synced."
 
@@ -2081,7 +2101,7 @@ msgid "settings.cloudBackupUpstreamDescription"
 msgstr "The raw response returned by the API."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:732
+#: src/i18n/descriptors/settings.ts:738
 msgid "settings.recipientEmailHelp"
 msgstr "Destination email for notifications. Defaults to the current login email."
 
@@ -2091,7 +2111,7 @@ msgid "settings.builtInIconSourcesHelp"
 msgstr "Control built-in SVG icon libraries and the online App icon source used by manual Logo search."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:573
+#: src/i18n/descriptors/settings.ts:579
 msgid "settings.tip"
 msgstr "Tip"
 
@@ -2141,32 +2161,32 @@ msgid "settings.uploadedIconsIconDescription"
 msgstr "Icons uploaded from Payment method management. Icons chosen with Search are not listed here."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:741
+#: src/i18n/descriptors/settings.ts:747
 msgid "settings.serverchanHelp"
 msgstr "Supports ServerChan Turbo and ServerChan 3 SendKeys, using the official push channel by default."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:684
+#: src/i18n/descriptors/settings.ts:690
 msgid "settings.webhookPayloadHelp"
 msgstr "Supports variables: '{title}', '{content}', '{timestamp}'. They are replaced with sent content."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:731
+#: src/i18n/descriptors/settings.ts:737
 msgid "settings.recipientEmail"
 msgstr "Recipient email"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:623
+#: src/i18n/descriptors/settings.ts:629
 msgid "settings.channel.emailReady"
 msgstr "Recipient email filled"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:589
+#: src/i18n/descriptors/settings.ts:595
 msgid "settings.unsavedLeaveConfirm"
 msgstr "Discard and leave"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:584
+#: src/i18n/descriptors/settings.ts:590
 msgid "settings.discardChanges"
 msgstr "Discard changes"
 
@@ -2186,17 +2206,17 @@ msgid "settings.dataConfig"
 msgstr "Data configuration"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:597
+#: src/i18n/descriptors/settings.ts:603
 msgid "settings.customConfigScope"
 msgstr "Data configuration"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:704
+#: src/i18n/descriptors/settings.ts:710
 msgid "settings.dingtalkTemplateExampleCount"
 msgstr "Count summary"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:715
+#: src/i18n/descriptors/settings.ts:721
 msgid "settings.textMessage"
 msgstr "Text message"
 
@@ -2221,22 +2241,22 @@ msgid "settings.cloudBackupSaveFailedDescription"
 msgstr "Could not save cloud sync and backup configuration. Try again later."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:607
+#: src/i18n/descriptors/settings.ts:613
 msgid "settings.exchangeRateProviderSaveFailed"
 msgstr "Could not save rate source. Please try again later."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:608
+#: src/i18n/descriptors/settings.ts:614
 msgid "settings.exchangeRateProviderServerOutdated"
 msgstr "Could not save rate source. The server may not be updated or restarted; restart the server and try again."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:604
+#: src/i18n/descriptors/settings.ts:610
 msgid "settings.defaultCurrencySaveFailed"
 msgstr "Could not save reporting currency. Please try again later."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:595
+#: src/i18n/descriptors/settings.ts:601
 msgid "settings.saveFailedDescription"
 msgstr "Could not save settings. Please try again later."
 
@@ -2251,7 +2271,7 @@ msgid "settings.publicApiDeleteFailedDescription"
 msgstr "Could not delete the API Token. Try again later."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:677
+#: src/i18n/descriptors/settings.ts:683
 msgid "settings.telegramBotCommandsDeleteFailedDescription"
 msgstr "Could not delete the Telegram Bot query commands. Try again later."
 
@@ -2266,7 +2286,7 @@ msgid "settings.cloudBackupDeleteFailedDescription"
 msgstr "Could not delete the remote snapshot. Try again later."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:673
+#: src/i18n/descriptors/settings.ts:679
 msgid "settings.telegramBotCommandsInstallFailedDescription"
 msgstr "Could not install Telegram Bot query commands. Check the Bot Token, Chat ID, and HTTPS public URL."
 
@@ -2551,12 +2571,12 @@ msgid "settings.builtInIconIndexBadge.updateAvailable"
 msgstr "Update"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:583
+#: src/i18n/descriptors/settings.ts:589
 msgid "settings.unsavedChanges"
 msgstr "Unsaved changes"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:733
+#: src/i18n/descriptors/settings.ts:739
 msgid "settings.barkServer"
 msgstr "Server URL"
 
@@ -2566,7 +2586,7 @@ msgid "settings.cloudBackupCredentialMissing"
 msgstr "Secret missing"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:588
+#: src/i18n/descriptors/settings.ts:594
 msgid "settings.unsavedLeaveDescription"
 msgstr "Unsaved changes will be discarded. Confirm to continue to the target page."
 
@@ -2586,7 +2606,7 @@ msgid "settings.uploadedIconsUnnamedAsset"
 msgstr "Unnamed asset"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:661
+#: src/i18n/descriptors/settings.ts:667
 msgid "settings.telegramBotCommandsStatus.notInstalled"
 msgstr "Not installed"
 
@@ -2661,12 +2681,12 @@ msgid "settings.cloudBackupStatusIdle"
 msgstr "Not run"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:654
+#: src/i18n/descriptors/settings.ts:660
 msgid "settings.telegramBotCommandsMissing"
 msgstr "Not configured"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:660
+#: src/i18n/descriptors/settings.ts:666
 msgid "settings.telegramBotCommandsStatus.notConfigured"
 msgstr "Not configured"
 
@@ -2676,27 +2696,27 @@ msgid "aiRecognition.thinkingRunHelp"
 msgstr "This recognition run can temporarily override the default value from Settings."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:685
+#: src/i18n/descriptors/settings.ts:691
 msgid "settings.dingtalkWebhookUrl"
 msgstr "Bot Webhook URL"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:712
+#: src/i18n/descriptors/settings.ts:718
 msgid "settings.wechatUrl"
 msgstr "Bot Webhook URL"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:621
+#: src/i18n/descriptors/settings.ts:627
 msgid "settings.channel.wechatReady"
 msgstr "Bot Webhook URL filled"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:745
+#: src/i18n/descriptors/settings.ts:751
 msgid "settings.discordBotAvatarUrl"
 msgstr "Bot avatar URL (optional)"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:744
+#: src/i18n/descriptors/settings.ts:750
 msgid "settings.discordBotUsername"
 msgstr "Bot username (optional)"
 
@@ -2726,7 +2746,7 @@ msgid "settings.cloudBackupSnapshotsViewAll"
 msgstr "View all ({count})"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:693
+#: src/i18n/descriptors/settings.ts:699
 msgid "settings.dingtalkTemplateExamplesOpen"
 msgstr "View template examples"
 
@@ -2741,17 +2761,17 @@ msgid "settings.cloudBackupUpstreamOpen"
 msgstr "View error details"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:696
+#: src/i18n/descriptors/settings.ts:702
 msgid "settings.dingtalkTemplateExampleTitle"
 msgstr "Title"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:647
+#: src/i18n/descriptors/settings.ts:653
 msgid "settings.telegramMessageFormatHtmlDescription"
 msgstr "Makes titles and key numbers easier to scan."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:687
+#: src/i18n/descriptors/settings.ts:693
 msgid "settings.dingtalkTitleTemplate"
 msgstr "Title template"
 
@@ -2806,7 +2826,7 @@ msgid "aiRecognition.thinking.modelDefault"
 msgstr "Model default"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:692
+#: src/i18n/descriptors/settings.ts:698
 msgid "settings.dingtalkTemplateExamples"
 msgstr "Template examples"
 
@@ -2836,12 +2856,12 @@ msgid "settings.builtInIconIndexLoading"
 msgstr "Reading index status..."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:697
+#: src/i18n/descriptors/settings.ts:703
 msgid "settings.dingtalkTemplateExampleContent"
 msgstr "Body"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:689
+#: src/i18n/descriptors/settings.ts:695
 msgid "settings.dingtalkContentTemplate"
 msgstr "Body template"
 
@@ -2871,7 +2891,7 @@ msgid "settings.exchange"
 msgstr "Exchange rates and reporting currency"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:600
+#: src/i18n/descriptors/settings.ts:606
 msgid "settings.ratesUpdated"
 msgstr "Exchange rates updated"
 
@@ -2886,7 +2906,7 @@ msgid "settings.exchangeRateProvider"
 msgstr "Rate source"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:605
+#: src/i18n/descriptors/settings.ts:611
 msgid "settings.exchangeRateProviderSaved"
 msgstr "Rate source saved"
 
@@ -2901,52 +2921,52 @@ msgid "aiRecognition.modelSelectEmpty"
 msgstr "No selectable models. Check Base URL / API Key, or switch to manual input."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:750
+#: src/i18n/descriptors/settings.ts:756
 msgid "settings.testChannel.webhook"
 msgstr "Test {channel} notification"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:748
+#: src/i18n/descriptors/settings.ts:754
 msgid "settings.testChannel.telegram"
 msgstr "Test {channel} notification"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:749
+#: src/i18n/descriptors/settings.ts:755
 msgid "settings.testChannel.notifyx"
 msgstr "Test {channel} notification"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:751
+#: src/i18n/descriptors/settings.ts:757
 msgid "settings.testChannel.dingtalk"
 msgstr "Test {channel} notification"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:752
+#: src/i18n/descriptors/settings.ts:758
 msgid "settings.testChannel.wechat"
 msgstr "Test {channel} notification"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:754
+#: src/i18n/descriptors/settings.ts:760
 msgid "settings.testChannel.bark"
 msgstr "Test {channel} notification"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:755
+#: src/i18n/descriptors/settings.ts:761
 msgid "settings.testChannel.serverchan"
 msgstr "Test {channel} notification"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:756
+#: src/i18n/descriptors/settings.ts:762
 msgid "settings.testChannel.discord"
 msgstr "Test {channel} notification"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:757
+#: src/i18n/descriptors/settings.ts:763
 msgid "settings.testChannel.pushplus"
 msgstr "Test {channel} notification"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:753
+#: src/i18n/descriptors/settings.ts:759
 msgid "settings.testChannel.email"
 msgstr "Test {channel} notification"
 
@@ -2961,7 +2981,7 @@ msgid "settings.cloudBackupTesting"
 msgstr "Testing..."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:758
+#: src/i18n/descriptors/settings.ts:764
 msgid "settings.testing"
 msgstr "Testing..."
 
@@ -2976,12 +2996,12 @@ msgid "settings.cloudBackupTest"
 msgstr "Test connection"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:716
+#: src/i18n/descriptors/settings.ts:722
 msgid "settings.wechatModeTag"
 msgstr "Prefix messages with a Renewlet marker"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:714
+#: src/i18n/descriptors/settings.ts:720
 msgid "settings.messageType"
 msgstr "Message type"
 
@@ -3011,12 +3031,12 @@ msgid "settings.passkeyAddFailed"
 msgstr "Could not add passkey"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:667
+#: src/i18n/descriptors/settings.ts:673
 msgid "settings.telegramBotCommandsDemoDisabled"
 msgstr "External Telegram commands cannot be installed in demo mode."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:759
+#: src/i18n/descriptors/settings.ts:765
 msgid "settings.accountSecurityDemoDisabled"
 msgstr "Demo mode is view-only. Authenticator and passkey settings cannot be changed."
 
@@ -3116,7 +3136,7 @@ msgid "settings.uploadedIconsDeleteFallback"
 msgstr "Delete this uploaded icon? It cannot be restored through Renewlet after deletion."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:587
+#: src/i18n/descriptors/settings.ts:593
 msgid "settings.unsavedLeaveTitle"
 msgstr "Leave settings?"
 
@@ -3131,7 +3151,7 @@ msgid "settings.cloudBackupCreateNow"
 msgstr "Back up now"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:579
+#: src/i18n/descriptors/settings.ts:585
 msgid "settings.testPhone"
 msgstr "Third-party API test number"
 
@@ -3211,12 +3231,12 @@ msgid "settings.title"
 msgstr "System settings"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:644
+#: src/i18n/descriptors/settings.ts:650
 msgid "settings.telegramMessageFormatPlain"
 msgstr "Plain text"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:650
+#: src/i18n/descriptors/settings.ts:656
 msgid "settings.telegramBotCommandsChat"
 msgstr "Bound Chat ID: {chatId}"
 
@@ -3226,7 +3246,7 @@ msgid "settings.defaultCurrency"
 msgstr "Reporting currency"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:602
+#: src/i18n/descriptors/settings.ts:608
 msgid "settings.defaultCurrencySaved"
 msgstr "Reporting currency saved"
 
@@ -3241,7 +3261,7 @@ msgid "settings.cachePolicy"
 msgstr "Cache policy"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:708
+#: src/i18n/descriptors/settings.ts:714
 msgid "settings.dingtalkKeyword"
 msgstr "Custom keyword (optional)"
 
@@ -3251,7 +3271,7 @@ msgid "settings.dataConfigDescription"
 msgstr "Customize subscription categories, statuses, payment methods, and currencies."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:681
+#: src/i18n/descriptors/settings.ts:687
 msgid "settings.webhookHeaders"
 msgstr "Custom headers (optional JSON)"
 
@@ -3276,7 +3296,7 @@ msgid "settings.builtInIconSourcesRequired"
 msgstr "Keep at least one source enabled so Logo and icon search can return built-in candidates."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:609
+#: src/i18n/descriptors/settings.ts:615
 msgid "settings.currencyPolicy.noneTitle"
 msgstr "Enable at least one currency"
 
@@ -3306,17 +3326,17 @@ msgid "settings.statusManagerDescription"
 msgstr "Subscription statuses affect statistics and only support sorting."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:572
+#: src/i18n/descriptors/settings.ts:578
 msgid "settings.notificationReminderDaysHelp"
 msgstr "Subscriptions set to default from Settings use this number of days before renewal."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:735
+#: src/i18n/descriptors/settings.ts:741
 msgid "settings.barkKey"
 msgstr "Device Key"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:625
+#: src/i18n/descriptors/settings.ts:631
 msgid "settings.channel.barkReady"
 msgstr "Device Key filled"
 
@@ -3326,7 +3346,7 @@ msgid "settings.sectionNavLabel"
 msgstr "Settings sections"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:591
+#: src/i18n/descriptors/settings.ts:597
 msgid "settings.saved"
 msgstr "Settings saved"
 
@@ -3346,7 +3366,7 @@ msgid "settings.mfaSetupTitle"
 msgstr "Set up authenticator"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:586
+#: src/i18n/descriptors/settings.ts:592
 msgid "settings.unsavedLeavePrompt"
 msgstr "You have unsaved settings changes. Leave this page?"
 
@@ -3381,12 +3401,12 @@ msgid "aiRecognition.apiKeyRequired"
 msgstr "Fill in the API Key first."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:664
+#: src/i18n/descriptors/settings.ts:670
 msgid "settings.telegramBotCommandsConfigMissing"
 msgstr "Fill in and save the Bot Token and Chat ID first."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:580
+#: src/i18n/descriptors/settings.ts:586
 msgid "settings.testPhonePlaceholder"
 msgstr "Send a test message and verify, e.g. 86xxxxxx"
 
@@ -3411,7 +3431,7 @@ msgid "settings.mfaEnableFailedDescription"
 msgstr "Check your current password and authenticator code."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:679
+#: src/i18n/descriptors/settings.ts:685
 msgid "settings.webhookMethod"
 msgstr "Request method"
 
@@ -3426,7 +3446,7 @@ msgid "settings.publicApiPlainTokenHelp"
 msgstr "Copy and store it now. After closing this, Renewlet will only show the prefix and cannot display the plain token again."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:610
+#: src/i18n/descriptors/settings.ts:616
 msgid "settings.currencyPolicy.noneDescription"
 msgstr "Keep at least 1 enabled currency, otherwise reporting and new subscription currency selection will be unavailable."
 
@@ -3449,6 +3469,11 @@ msgstr "Account"
 #: src/i18n/descriptors/settings.ts:539
 msgid "settings.currencyManager"
 msgstr "Currencies"
+
+#. js-lingui-explicit-id
+#: src/i18n/descriptors/settings.ts:570
+msgid "settings.subscriptionPriceReferenceCurrencyDefault"
+msgstr "Follow reporting currency ({currency})"
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/settings.ts:42
@@ -3556,7 +3581,7 @@ msgid "settings.builtInIconSourcesDialogDescription"
 msgstr "Choose sources for Logo and payment method icon search; online App icons are only used for manual Logo search."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:694
+#: src/i18n/descriptors/settings.ts:700
 msgid "settings.dingtalkTemplateExamplesDescription"
 msgstr "Choose an example, then keep editing it."
 
@@ -3581,7 +3606,7 @@ msgid "aiRecognition.modelSelectPlaceholder"
 msgstr "Select model"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:570
+#: src/i18n/descriptors/settings.ts:576
 msgid "settings.notificationTimeHelp"
 msgstr "Choose the local time for daily notifications. The server combines it with the time zone above."
 
@@ -3601,17 +3626,17 @@ msgid "settings.sectionNav.notifications"
 msgstr "Notifications"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:575
+#: src/i18n/descriptors/settings.ts:581
 msgid "settings.notificationChannels"
 msgstr "Notification methods (multi-select)"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:569
+#: src/i18n/descriptors/settings.ts:575
 msgid "settings.notificationTime"
 msgstr "Notification time (local)"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:568
+#: src/i18n/descriptors/settings.ts:574
 msgid "settings.notifications"
 msgstr "Notifications"
 
@@ -3646,7 +3671,7 @@ msgid "settings.onlineIconSource.appStore.help"
 msgstr "Queries Apple Search API through the Renewlet backend and returns App icon URLs; US is queried by default, and images are not downloaded or re-hosted."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:728
+#: src/i18n/descriptors/settings.ts:734
 msgid "settings.smtpHelp"
 msgstr "Email notifications use the current account's SMTP. Leaving these fields empty does not use a deployment fallback."
 
@@ -3671,7 +3696,7 @@ msgid "aiRecognition.settingsDescription"
 msgstr "Configure the third-party model used to recognize subscription images, notes, or table text. Recognition content and existing tag names are sent to the AI platform you configure."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:656
+#: src/i18n/descriptors/settings.ts:662
 msgid "settings.telegramBotCommandsReinstall"
 msgstr "Reinstall"
 
@@ -3711,22 +3736,22 @@ msgid "settings.uploadedIconsRetry"
 msgstr "Retry"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:709
+#: src/i18n/descriptors/settings.ts:715
 msgid "settings.dingtalkKeywordHelp"
 msgstr "DingTalk keyword checks require the keyword to appear in the message body. If you enter a random word like Test1, it will also show in notifications. Use natural keywords such as Renewlet, subscription reminder, or renewal; use signing for hidden security checks."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:619
+#: src/i18n/descriptors/settings.ts:625
 msgid "settings.channel.dingtalkReady"
 msgstr "DingTalk bot Webhook URL filled"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:635
+#: src/i18n/descriptors/settings.ts:641
 msgid "settings.help.dingtalk"
 msgstr "DingTalk bot security settings"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:737
+#: src/i18n/descriptors/settings.ts:743
 msgid "settings.barkSilent"
 msgstr "Silent push"
 
@@ -3746,7 +3771,7 @@ msgid "settings.builtInIconSource.selfhst.help"
 msgstr "Icon library focused on self-hosted services and dashboards."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:581
+#: src/i18n/descriptors/settings.ts:587
 msgid "settings.testPhoneHelp"
 msgstr "Reserved field for channels that may need a phone number or recipient ID. It does not affect currently supported channels."
 
@@ -3756,7 +3781,7 @@ msgid "settings.sectionNav.budget"
 msgstr "Budget"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:599
+#: src/i18n/descriptors/settings.ts:605
 msgid "settings.budgetInvalid"
 msgstr "Budget must be a valid number between 0 and 1,000,000,000."
 
@@ -3766,7 +3791,7 @@ msgid "settings.budget"
 msgstr "Budget"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:567
+#: src/i18n/descriptors/settings.ts:573
 msgid "settings.ratesInfo"
 msgstr "The preview shows 1 unit of each subscription currency converted into your reporting currency, so foreign-currency prices are easier to estimate. Rates update automatically every 24 hours, or manually from the button above; if the selected source fails or has small gaps, other sources are tried to fill them."
 
@@ -3781,7 +3806,7 @@ msgid "settings.defaultCurrencyHelp"
 msgstr "Dashboard and statistics amounts are converted to this currency. Individual subscriptions keep their original currency."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:734
+#: src/i18n/descriptors/settings.ts:740
 msgid "settings.barkServerHelp"
 msgstr "Official service is `https://api.day.app` by default. Enter your own Bark server URL if self-hosted."
 
@@ -3801,11 +3826,16 @@ msgid "aiRecognition.defaultThinking"
 msgstr "Default thinking control"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:571
+#: src/i18n/descriptors/settings.ts:577
 msgid "settings.notificationReminderDays"
 msgstr "Default reminder lead time"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:698
+#: src/i18n/descriptors/settings.ts:704
 msgid "settings.dingtalkTemplateExampleDefault"
 msgstr "Default equivalent"
+
+#. js-lingui-explicit-id
+#: src/i18n/descriptors/settings.ts:568
+msgid "settings.subscriptionPriceReferenceDisabledHelp"
+msgstr "Hidden by default. Turn it on to follow the reporting currency or pin a reference currency."

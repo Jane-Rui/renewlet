@@ -239,11 +239,13 @@ vi.mock("@/components/ui/searchable-select", () => ({
     value,
     onValueChange,
     options,
+    disabled = false,
     "aria-label": ariaLabel,
   }: {
     value: string;
     onValueChange: (value: string) => void;
     options: Array<{ value: string; label: string }>;
+    disabled?: boolean;
     "aria-label"?: string;
   }) => {
     const selected = options.find((option) => option.value === value);
@@ -254,6 +256,7 @@ vi.mock("@/components/ui/searchable-select", () => ({
         role="combobox"
         aria-label={ariaLabel}
         data-testid="searchable-select"
+        disabled={disabled}
         onClick={() => {
           if (next) onValueChange(next.value);
         }}

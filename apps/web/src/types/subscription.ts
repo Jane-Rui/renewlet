@@ -254,6 +254,7 @@ export interface SubscriptionStats {
 }
 
 export type PublicStatusCurrency = "inherit" | (string & {});
+export type SubscriptionPriceReferenceCurrency = "default" | (string & {});
 
 export interface AppSettings {
   // 管理员展示信息
@@ -275,6 +276,10 @@ export interface AppSettings {
   defaultCurrency: string;
   /** 公开页金额汇总货币；inherit 表示跟随 defaultCurrency。 */
   publicStatusCurrency: PublicStatusCurrency;
+  /** 是否在单订阅价格下展示参考货币折算。 */
+  subscriptionPriceReferenceEnabled: boolean;
+  /** 单订阅参考货币；default 表示跟随 defaultCurrency。 */
+  subscriptionPriceReferenceCurrency: SubscriptionPriceReferenceCurrency;
   /** 首选汇率来源；其他远端来源和内置快照仍作为兜底。 */
   exchangeRateProvider: ExchangeRateProvider;
   /** 内置 Logo/Icon 来源配置；影响搜索候选和导入自动匹配。 */

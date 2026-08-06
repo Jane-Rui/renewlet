@@ -65,15 +65,17 @@ describe("SubscriptionCard cost sharing", () => {
           subscription={subscription}
           timeZone="Asia/Shanghai"
           categoryByValue={new Map([[category.value, category]])}
-	          paymentMethodByValue={new Map()}
-	          costSharingCurrencyConvert={(amount, from, to) => {
-	            const value = moneyToNumber(amount);
-	            if (to !== "CNY") return value;
-	            if (from === "EUR") return value * 8;
-	            if (from === "USD") return value * 7;
-	            return value;
-	          }}
-	        />
+          paymentMethodByValue={new Map()}
+          currencyRatesReady={true}
+          currencyConvert={(amount, from, to) => {
+            const value = moneyToNumber(amount);
+            if (to !== "CNY") return value;
+            if (from === "EUR") return value * 8;
+            if (from === "USD") return value * 7;
+            return value;
+          }}
+          priceReferenceCurrency={null}
+        />
       </TooltipProvider>,
     );
 

@@ -52,6 +52,9 @@ function renderCard() {
           }],
         ])}
         paymentMethodByValue={new Map()}
+        currencyConvert={(amount) => Number(amount)}
+        currencyRatesReady={true}
+        priceReferenceCurrency={null}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
         onClone={vi.fn()}

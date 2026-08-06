@@ -41,6 +41,8 @@
     "check:ai-recognition-prompt": "node scripts/sync-ai-recognition-prompt.mjs --check",
     "generate:built-in-config-labels": "node scripts/generate-built-in-config-labels.mjs",
     "check:built-in-config-labels": "node scripts/generate-built-in-config-labels.mjs --check",
+    "generate:currency-region-hints": "node scripts/generate-currency-region-hints.mjs",
+    "check:currency-region-hints": "node scripts/generate-currency-region-hints.mjs --check",
     "generate:server-i18n": "node scripts/generate-server-i18n.mjs",
     "check:server-i18n": "node scripts/generate-server-i18n.mjs --check",
     "generate:public-api-docs": "tsx scripts/generate-public-api-docs.mjs",

@@ -151,6 +151,11 @@ func mergeSettingsWithOptions(base appSettings, patch json.RawMessage, rejectUns
 		} else if ok && format != telegramMessageFormatPlain && format != telegramMessageFormatHTML {
 			return base, errors.New("TELEGRAM_MESSAGE_FORMAT_UNSUPPORTED")
 		}
+		if referenceCurrency, ok, err := explicitSettingsStringPatch(patch, "subscriptionPriceReferenceCurrency"); err != nil {
+			return base, err
+		} else if ok && referenceCurrency != "default" && !settingsCurrencyRe.MatchString(referenceCurrency) {
+			return base, errors.New("SUBSCRIPTION_PRICE_REFERENCE_CURRENCY_UNSUPPORTED")
+		}
 		// 钉钉 payload 结构由渠道发送器统一生成；写入边界只接受官方机器人支持的正文类型。
 		if messageType, ok, err := explicitSettingsStringPatch(patch, "dingtalkMessageType"); err != nil {
 			return base, err
@@ -260,6 +265,9 @@ func sanitizeSettings(settings appSettings) appSettings {
 	}
 	if settings.PublicStatusCurrency != "inherit" && !settingsCurrencyRe.MatchString(settings.PublicStatusCurrency) {
 		settings.PublicStatusCurrency = "inherit"
+	}
+	if settings.SubscriptionPriceReferenceCurrency != "default" && !settingsCurrencyRe.MatchString(settings.SubscriptionPriceReferenceCurrency) {
+		settings.SubscriptionPriceReferenceCurrency = "default"
 	}
 	settings.BuiltInIconSources = sanitizeBuiltInIconSources(settings.BuiltInIconSources)
 	settings.OnlineIconSources = sanitizeOnlineIconSources(settings.OnlineIconSources)

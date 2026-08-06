@@ -23,6 +23,8 @@ export function createDefaultAppSettings(options: DefaultSettingsOptions = {}): 
     showExpired: true,
     defaultCurrency: "CNY",
     publicStatusCurrency: "inherit",
+    subscriptionPriceReferenceEnabled: false,
+    subscriptionPriceReferenceCurrency: "default",
     exchangeRateProvider: "frankfurter",
     builtInIconSources: DEFAULT_BUILT_IN_ICON_SOURCES,
     onlineIconSources: DEFAULT_ONLINE_ICON_SOURCES,

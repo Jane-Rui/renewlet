@@ -33,6 +33,7 @@ import { useCustomConfig } from "@/contexts/CustomConfigContext";
 import { useDashboardStats } from "@/modules/subscriptions/application/use-dashboard-stats";
 import { useSubscriptionCrud } from "@/modules/subscriptions/application/use-subscription-crud";
 import { collectSubscriptionTags } from "@/modules/subscriptions/domain/subscription-filters";
+import { resolveSubscriptionPriceReferenceCurrency } from "@/modules/subscriptions/domain/subscription-price-reference";
 import { useI18n } from "@/i18n/I18nProvider";
 import { DEFAULT_NOTIFICATION_REMINDER_DAYS } from "@/types/subscription";
 import { useDeferredDialogCleanup } from "@/hooks/use-deferred-dialog-cleanup";
@@ -50,8 +51,10 @@ export default function Index() {
   const { config } = useCustomConfig();
   const { t, formatCurrency } = useI18n();
   const exchangeRateProvider = settings?.exchangeRateProvider;
-  const { convert, loading: ratesLoading } = useReportExchangeRates(exchangeRateProvider);
+  const { convert, loading: ratesLoading, sourceDate: ratesSourceDate } = useReportExchangeRates(exchangeRateProvider);
+  const currencyRatesReady = Boolean(ratesSourceDate) && !ratesLoading;
   const defaultCurrency = settings?.defaultCurrency ?? "CNY";
+  const priceReferenceCurrency = settings ? resolveSubscriptionPriceReferenceCurrency(settings) : null;
   const timeZone = settings?.timezone ?? "UTC";
   const inheritedReminderDays = settings?.notificationReminderDays ?? DEFAULT_NOTIFICATION_REMINDER_DAYS;
   const categoryByValue = useMemo(() => new Map(config.categories.map((category) => [category.value, category])), [config.categories]);
@@ -186,7 +189,9 @@ export default function Index() {
                     subscription={sub}
                     timeZone={timeZone}
                     inheritedReminderDays={inheritedReminderDays}
-                    costSharingCurrencyConvert={convert}
+                    currencyConvert={convert}
+                    currencyRatesReady={currencyRatesReady}
+                    priceReferenceCurrency={priceReferenceCurrency}
                     categoryByValue={categoryByValue}
                     paymentMethodByValue={paymentMethodByValue}
                     onEdit={handleEditSubscription}
@@ -248,6 +253,9 @@ export default function Index() {
         subscription={selectedDetailSubscription}
         onEditSubscription={handleEditFromDetail}
         today={today}
+        currencyConvert={convert}
+        currencyRatesReady={currencyRatesReady}
+        priceReferenceCurrency={priceReferenceCurrency}
       />
     </div>
   );

@@ -36,6 +36,7 @@ import { useCustomConfig } from '@/contexts/CustomConfigContext';
 import { useStatisticsModel } from '@/modules/subscriptions/application/use-statistics-model';
 import { useSubscriptionCrud } from '@/modules/subscriptions/application/use-subscription-crud';
 import { collectSubscriptionTags } from '@/modules/subscriptions/domain/subscription-filters';
+import { resolveSubscriptionPriceReferenceCurrency } from '@/modules/subscriptions/domain/subscription-price-reference';
 import { useI18n } from '@/i18n/I18nProvider';
 import { useDeferredDialogCleanup } from '@/hooks/use-deferred-dialog-cleanup';
 import { todayDateOnlyInTimeZone } from '@/lib/time/date-only';
@@ -140,13 +141,15 @@ const Statistics = () => {
   const monthlyBudget = settings?.monthlyBudget ?? "0";
   const monthlyBudgetAmount = moneyToNumber(monthlyBudget);
   const defaultCurrency = settings?.defaultCurrency ?? "CNY";
+  const priceReferenceCurrency = settings ? resolveSubscriptionPriceReferenceCurrency(settings) : null;
   const timeZone = settings?.timezone ?? "UTC";
   const { locale, t, formatCurrency, formatDateTime, formatNumber } = useI18n();
   const [personalCostBasis, setPersonalCostBasis] = useState(false);
   const [detailSubscriptionId, setDetailSubscriptionId] = useState<string | null>(null);
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
 
-  const { convert, loading: ratesLoading, refresh: refreshRates, lastUpdated, error: ratesError } = useReportExchangeRates(settings?.exchangeRateProvider);
+  const { convert, loading: ratesLoading, refresh: refreshRates, lastUpdated, error: ratesError, sourceDate: ratesSourceDate } = useReportExchangeRates(settings?.exchangeRateProvider);
+  const currencyRatesReady = Boolean(ratesSourceDate) && !ratesLoading;
   const stats = useStatisticsModel(subscriptions, config, monthlyBudget, defaultCurrency, convert, timeZone, locale, personalCostBasis ? "personal" : "total");
   const {
     editingSubscription,
@@ -460,6 +463,9 @@ const Statistics = () => {
         onEditSubscription={handleEditFromDetail}
         onRenewSubscription={handleRenewSubscription}
         today={today}
+        currencyConvert={convert}
+        currencyRatesReady={currencyRatesReady}
+        priceReferenceCurrency={priceReferenceCurrency}
       />
     </div>
   );

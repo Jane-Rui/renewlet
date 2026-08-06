@@ -51,6 +51,10 @@ export const publicStatusCurrencySchema = z.union([
   z.literal("inherit"),
   z.string().trim().regex(/^[A-Z]{3}$/),
 ]);
+export const subscriptionPriceReferenceCurrencySchema = z.union([
+  z.literal("default"),
+  z.string().trim().regex(/^[A-Z]{3}$/),
+]);
 // Telegram 菜单命令描述不支持富文本；这个枚举只控制 sendMessage 正文，默认值在 shared defaults 固定为 plain。
 export const telegramMessageFormatSchema = z.enum(["plain", "html"]);
 export const dingtalkMessageTypeSchema = z.enum(["markdown", "text"]);
@@ -107,6 +111,8 @@ const appSettingsShape = {
   showExpired: z.boolean(),
   defaultCurrency: z.string().trim().regex(/^[A-Z]{3}$/),
   publicStatusCurrency: publicStatusCurrencySchema,
+  subscriptionPriceReferenceEnabled: z.boolean(),
+  subscriptionPriceReferenceCurrency: subscriptionPriceReferenceCurrencySchema,
   exchangeRateProvider: z.preprocess(normalizeExchangeRateProvider, exchangeRateProviderSchema),
   builtInIconSources: builtInIconSourcesSchema,
   onlineIconSources: onlineIconSourcesSchema,

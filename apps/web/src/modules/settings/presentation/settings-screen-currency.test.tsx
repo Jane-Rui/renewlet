@@ -74,4 +74,82 @@ describe("SettingsScreen currency selectors", () => {
 
     expect(controller.handleDefaultCurrencyChange).toHaveBeenCalledWith("PHP");
   });
+
+  it("keeps subscription price reference hidden by default and applies a browser suggestion explicitly", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("navigator", {
+      languages: ["en-US"],
+      language: "en-US",
+    });
+    const originalResolvedOptions = Intl.DateTimeFormat.prototype.resolvedOptions;
+    const resolvedOptionsSpy = vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockImplementation(function (this: Intl.DateTimeFormat) {
+      return {
+        ...originalResolvedOptions.call(this),
+        timeZone: "America/New_York",
+      };
+    });
+    const controller = createControllerState({
+      settings: {
+        defaultCurrency: "CNY",
+        subscriptionPriceReferenceEnabled: false,
+        subscriptionPriceReferenceCurrency: "default",
+      },
+    });
+    mocks.useSettingsFormController.mockReturnValue(controller);
+
+    try {
+      renderSettingsScreen();
+
+      expect(screen.getByText("默认隐藏；开启后可选择跟随统计货币或固定参考货币。")).toBeInTheDocument();
+      expect(screen.getByRole("switch", { name: "单订阅参考价" })).not.toBeChecked();
+      expect(screen.getByRole("combobox", { name: "单订阅参考货币" })).toBeDisabled();
+      expect(screen.getByRole("combobox", { name: "单订阅参考货币" })).toHaveTextContent("跟随统计货币 (CNY)");
+
+      await user.click(screen.getByRole("button", { name: "使用浏览器建议：USD" }));
+
+      expect(controller.updateSetting).toHaveBeenCalledWith("subscriptionPriceReferenceEnabled", true);
+      expect(controller.updateSetting).toHaveBeenCalledWith("subscriptionPriceReferenceCurrency", "USD");
+    } finally {
+      resolvedOptionsSpy.mockRestore();
+    }
+  });
+
+  it("lets users keep default or explicit subscription reference currency with disabled-current echo", async () => {
+    const user = userEvent.setup();
+    const controller = createControllerState({
+      settings: {
+        defaultCurrency: "CNY",
+        subscriptionPriceReferenceEnabled: true,
+        subscriptionPriceReferenceCurrency: "USD",
+      },
+      customConfig: {
+        ...DEFAULT_CUSTOM_CONFIG,
+        currencies: [
+          {
+            id: "CNY",
+            value: "CNY",
+            labels: { "zh-CN": "¥ 人民币 (CNY)", "en-US": "¥ Chinese Yuan (CNY)" },
+            enabled: true,
+          },
+          {
+            id: "USD",
+            value: "USD",
+            labels: { "zh-CN": "$ 美元 (USD)", "en-US": "$ US Dollar (USD)" },
+            enabled: false,
+          },
+        ],
+      },
+    });
+    mocks.useSettingsFormController.mockReturnValue(controller);
+
+    renderSettingsScreen();
+
+    expect(screen.getByText("在订阅卡片和详情价格下方显示折算到 USD 的小字参考价。")).toBeInTheDocument();
+    const referenceCurrencySelect = screen.getByRole("combobox", { name: "单订阅参考货币" });
+    expect(referenceCurrencySelect).toHaveTextContent("$ 美元 (USD)");
+
+    await user.click(referenceCurrencySelect);
+
+    expect(controller.updateSetting).toHaveBeenCalledWith("subscriptionPriceReferenceCurrency", "default");
+  });
 });

@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import type { SearchableSelectOption } from '@/components/ui/searchable-select';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { useI18n } from '@/i18n/I18nProvider';
 import type {
   ExchangeRateCoverageWarning,
@@ -34,7 +35,7 @@ import {
 export interface ExchangeRatesSectionProps {
   id?: string;
   className?: string;
-  settings: Pick<AppSettings, 'defaultCurrency' | 'exchangeRateProvider'>;
+  settings: Pick<AppSettings, 'defaultCurrency' | 'exchangeRateProvider' | 'subscriptionPriceReferenceEnabled' | 'subscriptionPriceReferenceCurrency'>;
   customConfig: Pick<CustomConfig, 'currencies'>;
   rates: ExchangeRates;
   activeRateProvider: ExchangeRateSource;
@@ -45,8 +46,13 @@ export interface ExchangeRatesSectionProps {
   reportBasisStatus: ReportExchangeRateBasisStatus;
   lastUpdated: Date | null;
   defaultCurrencyOptions: SearchableSelectOption[];
+  subscriptionPriceReferenceCurrencyOptions: SearchableSelectOption[];
+  effectiveSubscriptionPriceReferenceCurrency: string;
+  subscriptionPriceReferenceCurrencySuggestion: string | null;
   handleRefreshRates: () => void | Promise<void>;
   handleDefaultCurrencyChange: (value: string) => void;
+  handleSubscriptionPriceReferenceEnabledChange: (checked: boolean) => void;
+  handleSubscriptionPriceReferenceCurrencyChange: (value: string) => void;
   handleExchangeRateProviderChange: (value: ExchangeRateProvider) => void | Promise<void>;
   getCurrencySymbol: (currency: string) => string;
 }
@@ -65,8 +71,13 @@ export function ExchangeRatesSection({
   reportBasisStatus,
   lastUpdated,
   defaultCurrencyOptions,
+  subscriptionPriceReferenceCurrencyOptions,
+  effectiveSubscriptionPriceReferenceCurrency,
+  subscriptionPriceReferenceCurrencySuggestion,
   handleRefreshRates,
   handleDefaultCurrencyChange,
+  handleSubscriptionPriceReferenceEnabledChange,
+  handleSubscriptionPriceReferenceCurrencyChange,
   handleExchangeRateProviderChange,
   getCurrencySymbol,
 }: ExchangeRatesSectionProps) {
@@ -91,6 +102,18 @@ export function ExchangeRatesSection({
   const warningFillSources = ratesWarning
     ? Array.from(new Set(Object.values(ratesWarning.fillSources))).map(getProviderLabel).join(", ")
     : "";
+  const showSubscriptionPriceReferenceSuggestion = Boolean(
+    subscriptionPriceReferenceCurrencySuggestion
+    && (!settings.subscriptionPriceReferenceEnabled
+      || effectiveSubscriptionPriceReferenceCurrency !== subscriptionPriceReferenceCurrencySuggestion),
+  );
+  const handleUseSubscriptionPriceReferenceSuggestion = () => {
+    if (!subscriptionPriceReferenceCurrencySuggestion) return;
+    if (!settings.subscriptionPriceReferenceEnabled) {
+      handleSubscriptionPriceReferenceEnabledChange(true);
+    }
+    handleSubscriptionPriceReferenceCurrencyChange(subscriptionPriceReferenceCurrencySuggestion);
+  };
 
   return (
     <section id={id} className={getSettingsSectionClassName(className)}>
@@ -157,6 +180,54 @@ export function ExchangeRatesSection({
               className="w-full border-border bg-secondary sm:w-[min(12.5rem,100%)]"
               aria-label={t("settings.defaultCurrency")}
             />
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-border bg-secondary/50 p-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+            <div className="flex-1">
+              <Label htmlFor="subscriptionPriceReferenceEnabled" className="text-base font-medium">
+                {t("settings.subscriptionPriceReference")}
+              </Label>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {settings.subscriptionPriceReferenceEnabled
+                  ? t("settings.subscriptionPriceReferenceHelp", { currency: effectiveSubscriptionPriceReferenceCurrency })
+                  : t("settings.subscriptionPriceReferenceDisabledHelp")}
+              </p>
+            </div>
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
+              <div className="flex w-full items-center gap-3 sm:w-auto">
+                <Switch
+                  id="subscriptionPriceReferenceEnabled"
+                  checked={settings.subscriptionPriceReferenceEnabled}
+                  onCheckedChange={handleSubscriptionPriceReferenceEnabledChange}
+                  aria-label={t("settings.subscriptionPriceReference")}
+                />
+                <SearchableSelect
+                  id="subscriptionPriceReferenceCurrency"
+                  value={settings.subscriptionPriceReferenceCurrency}
+                  onValueChange={handleSubscriptionPriceReferenceCurrencyChange}
+                  options={subscriptionPriceReferenceCurrencyOptions}
+                  placeholder={t("settings.currencyPlaceholder")}
+                  searchPlaceholder={t("settings.currencySearch")}
+                  emptyMessage={t("settings.currencyEmpty")}
+                  disabled={!settings.subscriptionPriceReferenceEnabled}
+                  className="min-w-0 flex-1 border-border bg-secondary sm:w-[min(12.5rem,100%)]"
+                  aria-label={t("settings.subscriptionPriceReferenceCurrency")}
+                />
+              </div>
+              {showSubscriptionPriceReferenceSuggestion ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full border-border sm:w-auto"
+                  onClick={handleUseSubscriptionPriceReferenceSuggestion}
+                >
+                  {t("settings.subscriptionPriceReferenceUseSuggestion", { currency: subscriptionPriceReferenceCurrencySuggestion })}
+                </Button>
+              ) : null}
+            </div>
           </div>
         </div>
 

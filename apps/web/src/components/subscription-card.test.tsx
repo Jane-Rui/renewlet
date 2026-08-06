@@ -349,6 +349,31 @@ describe("SubscriptionCard", () => {
     expect(menuButton.getAttribute("class")).not.toContain("group-hover:opacity-100");
   });
 
+  it("shows the configured reference amount under the billing cycle for foreign-currency subscriptions", () => {
+    renderSubscriptionCard({ price: "10", currency: "USD" }, {}, { priceReferenceCurrency: "CNY" });
+
+    const priceBlock = screen.getByText("US$10").parentElement;
+    if (!priceBlock) throw new Error("Missing subscription price block");
+
+    expect(within(priceBlock).getByText("每月")).toBeInTheDocument();
+    expect(within(priceBlock).getByText("≈ ¥70 CNY")).toHaveClass(
+      "text-xs",
+      "tabular-nums",
+      "text-muted-foreground",
+    );
+  });
+
+  it("hides the reference amount for same-currency subscriptions, disabled settings, and while rates are not ready", () => {
+    renderSubscriptionCard({ price: "10", currency: "CNY" }, {}, { priceReferenceCurrency: "CNY" });
+    expect(screen.queryByText(/^≈/)).not.toBeInTheDocument();
+
+    renderSubscriptionCard({ price: "10", currency: "USD" });
+    expect(screen.queryByText("≈ ¥70 CNY")).not.toBeInTheDocument();
+
+    renderSubscriptionCard({ price: "10", currency: "USD" }, {}, { currencyRatesReady: false, priceReferenceCurrency: "CNY" });
+    expect(screen.queryByText("≈ ¥70 CNY")).not.toBeInTheDocument();
+  });
+
   it("opens subscription details from the card primary action", () => {
     const onViewDetails = vi.fn();
     renderSubscriptionCard({ name: "Fastmail" }, { onViewDetails });

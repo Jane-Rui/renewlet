@@ -39,6 +39,7 @@ import { SubscriptionDetailDialog } from '@/components/subscription-detail-dialo
 import { DaySubscriptionsDialog } from './subscription-calendar-dialogs';
 import type { CalendarDaySubscriptions } from './subscription-calendar-dialogs';
 import { isEffectivelyActiveSubscription } from '@/modules/subscriptions/domain/subscription-status';
+import { resolveSubscriptionPriceReferenceCurrency } from '@/modules/subscriptions/domain/subscription-price-reference';
 
 interface SubscriptionCalendarProps {
   /** 订阅列表（前端 domain 类型）。 */
@@ -65,8 +66,10 @@ export const SubscriptionCalendar = ({ subscriptions, onEditSubscription }: Subs
   // 默认货币来自 Settings（持久化到 SQLite），用于日历底部“预计支出”的换算口径。
   const { data: settings } = useSettings();
   const defaultCurrency = settings?.defaultCurrency ?? 'CNY';
+  const priceReferenceCurrency = settings ? resolveSubscriptionPriceReferenceCurrency(settings) : null;
   const today = todayDateOnlyInTimeZone(new Date(), settings?.timezone ?? "UTC");
-  const { convert, getCurrencySymbol } = useExchangeRates(settings?.exchangeRateProvider);
+  const { convert, getCurrencySymbol, loading: ratesLoading, sourceDate: ratesSourceDate } = useExchangeRates(settings?.exchangeRateProvider);
+  const currencyRatesReady = Boolean(ratesSourceDate) && !ratesLoading;
 
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
@@ -575,6 +578,9 @@ export const SubscriptionCalendar = ({ subscriptions, onEditSubscription }: Subs
         onOpenChange={setDetailOpen}
         subscription={selectedSubscription}
         today={today}
+        currencyConvert={convert}
+        currencyRatesReady={currencyRatesReady}
+        priceReferenceCurrency={priceReferenceCurrency}
         {...(onEditSubscription ? { onEditSubscription } : {})}
       />
 

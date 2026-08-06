@@ -34,6 +34,7 @@
     "./built-in-icon-index-builder": "./src/built-in-icon-index-builder.ts",
     "./calendar-events": "./src/calendar-events.ts",
     "./cost-sharing": "./src/cost-sharing.ts",
+    "./currency-region-hints": "./src/currency-region-hints.ts",
     "./contract-fixtures": "./src/contract-fixtures.ts",
     "./favicon-domains": "./src/favicon-domains.ts",
     "./media-resolver": "./src/media-resolver.ts",

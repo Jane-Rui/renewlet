@@ -73,6 +73,7 @@ export const messages = [
   msg({ id: "subscription.validation.tagTooLong", message: "单个标签不能超过 {count} 个字符" }),
   msg({ id: "subscription.field.name", message: "服务名称" }),
   msg({ id: "subscription.field.price", message: "价格" }),
+  msg({ id: "subscription.priceReference", message: "≈ {amount} {currency}" }),
   msg({ id: "subscription.field.currency", message: "货币" }),
   msg({ id: "subscription.field.status", message: "状态" }),
   msg({ id: "subscription.field.category", message: "分类" }),

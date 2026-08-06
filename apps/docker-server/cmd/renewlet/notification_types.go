@@ -56,60 +56,62 @@ var (
 // appSettings 是 settings JSON 字段的后端强类型表示。
 // 注意： 字段必须与前端 DEFAULT_SETTINGS/settings schema 同步，否则临时测试配置和持久化设置会分叉。
 type appSettings struct {
-	AdminUsername            string                    `json:"adminUsername"`
-	ThemeMode                string                    `json:"themeMode"`
-	ThemeVariant             string                    `json:"themeVariant"`
-	ThemeCustomColor         themeCustomColor          `json:"themeCustomColor"`
-	ShowExpired              bool                      `json:"showExpired"`
-	Locale                   string                    `json:"locale"`
-	DefaultCurrency          string                    `json:"defaultCurrency"`
-	PublicStatusCurrency     string                    `json:"publicStatusCurrency"`
-	ExchangeRateProvider     string                    `json:"exchangeRateProvider"`
-	BuiltInIconSources       builtInIconSourceSettings `json:"builtInIconSources"`
-	OnlineIconSources        onlineIconSourceSettings  `json:"onlineIconSources"`
-	AIRecognition            aiRecognitionSettings     `json:"aiRecognition"`
-	MonthlyBudget            string                    `json:"monthlyBudget"`
-	Timezone                 string                    `json:"timezone"`
-	NotificationTimeLocal    string                    `json:"notificationTimeLocal"`
-	NotificationReminderDays int                       `json:"notificationReminderDays"`
-	EnabledChannels          []string                  `json:"enabledChannels"`
-	TestPhone                string                    `json:"testPhone"`
-	TelegramBotToken         string                    `json:"telegramBotToken"`
-	TelegramChatID           string                    `json:"telegramChatId"`
-	TelegramMessageFormat    string                    `json:"telegramMessageFormat"`
-	NotifyxAPIKey            string                    `json:"notifyxApiKey"`
-	WebhookURL               string                    `json:"webhookUrl"`
-	WebhookMethod            string                    `json:"webhookMethod"`
-	WebhookHeaders           string                    `json:"webhookHeaders"`
-	WebhookPayload           string                    `json:"webhookPayload"`
-	DingTalkWebhookURL       string                    `json:"dingtalkWebhookUrl"`
-	DingTalkSecret           string                    `json:"dingtalkSecret"`
-	DingTalkKeyword          string                    `json:"dingtalkKeyword"`
-	DingTalkMessageType      string                    `json:"dingtalkMessageType"`
-	DingTalkTitleTemplate    string                    `json:"dingtalkTitleTemplate"`
-	DingTalkContentTemplate  string                    `json:"dingtalkContentTemplate"`
-	WechatWebhookURL         string                    `json:"wechatWebhookUrl"`
-	WechatMessageType        string                    `json:"wechatMessageType"`
-	WechatAddModeTag         bool                      `json:"wechatAddModeTag"`
-	WechatAtPhones           string                    `json:"wechatAtPhones"`
-	WechatAtAll              bool                      `json:"wechatAtAll"`
-	SMTPHost                 string                    `json:"smtpHost"`
-	SMTPPort                 string                    `json:"smtpPort"`
-	SMTPSecure               bool                      `json:"smtpSecure"`
-	SMTPUser                 string                    `json:"smtpUser"`
-	SMTPPassword             string                    `json:"smtpPassword"`
-	SMTPFrom                 string                    `json:"smtpFrom"`
-	SMTPReplyTo              string                    `json:"smtpReplyTo"`
-	NotifyMultipleAddresses  bool                      `json:"notifyMultipleAddresses"`
-	RecipientEmail           string                    `json:"recipientEmail"`
-	BarkServerURL            string                    `json:"barkServerUrl"`
-	BarkDeviceKey            string                    `json:"barkDeviceKey"`
-	BarkSilentPush           bool                      `json:"barkSilentPush"`
-	ServerChanSendKey        string                    `json:"serverchanSendKey"`
-	DiscordWebhookURL        string                    `json:"discordWebhookUrl"`
-	DiscordBotUsername       string                    `json:"discordBotUsername"`
-	DiscordBotAvatarURL      string                    `json:"discordBotAvatarUrl"`
-	PushPlusToken            string                    `json:"pushplusToken"`
+	AdminUsername                      string                    `json:"adminUsername"`
+	ThemeMode                          string                    `json:"themeMode"`
+	ThemeVariant                       string                    `json:"themeVariant"`
+	ThemeCustomColor                   themeCustomColor          `json:"themeCustomColor"`
+	ShowExpired                        bool                      `json:"showExpired"`
+	Locale                             string                    `json:"locale"`
+	DefaultCurrency                    string                    `json:"defaultCurrency"`
+	PublicStatusCurrency               string                    `json:"publicStatusCurrency"`
+	SubscriptionPriceReferenceEnabled  bool                      `json:"subscriptionPriceReferenceEnabled"`
+	SubscriptionPriceReferenceCurrency string                    `json:"subscriptionPriceReferenceCurrency"`
+	ExchangeRateProvider               string                    `json:"exchangeRateProvider"`
+	BuiltInIconSources                 builtInIconSourceSettings `json:"builtInIconSources"`
+	OnlineIconSources                  onlineIconSourceSettings  `json:"onlineIconSources"`
+	AIRecognition                      aiRecognitionSettings     `json:"aiRecognition"`
+	MonthlyBudget                      string                    `json:"monthlyBudget"`
+	Timezone                           string                    `json:"timezone"`
+	NotificationTimeLocal              string                    `json:"notificationTimeLocal"`
+	NotificationReminderDays           int                       `json:"notificationReminderDays"`
+	EnabledChannels                    []string                  `json:"enabledChannels"`
+	TestPhone                          string                    `json:"testPhone"`
+	TelegramBotToken                   string                    `json:"telegramBotToken"`
+	TelegramChatID                     string                    `json:"telegramChatId"`
+	TelegramMessageFormat              string                    `json:"telegramMessageFormat"`
+	NotifyxAPIKey                      string                    `json:"notifyxApiKey"`
+	WebhookURL                         string                    `json:"webhookUrl"`
+	WebhookMethod                      string                    `json:"webhookMethod"`
+	WebhookHeaders                     string                    `json:"webhookHeaders"`
+	WebhookPayload                     string                    `json:"webhookPayload"`
+	DingTalkWebhookURL                 string                    `json:"dingtalkWebhookUrl"`
+	DingTalkSecret                     string                    `json:"dingtalkSecret"`
+	DingTalkKeyword                    string                    `json:"dingtalkKeyword"`
+	DingTalkMessageType                string                    `json:"dingtalkMessageType"`
+	DingTalkTitleTemplate              string                    `json:"dingtalkTitleTemplate"`
+	DingTalkContentTemplate            string                    `json:"dingtalkContentTemplate"`
+	WechatWebhookURL                   string                    `json:"wechatWebhookUrl"`
+	WechatMessageType                  string                    `json:"wechatMessageType"`
+	WechatAddModeTag                   bool                      `json:"wechatAddModeTag"`
+	WechatAtPhones                     string                    `json:"wechatAtPhones"`
+	WechatAtAll                        bool                      `json:"wechatAtAll"`
+	SMTPHost                           string                    `json:"smtpHost"`
+	SMTPPort                           string                    `json:"smtpPort"`
+	SMTPSecure                         bool                      `json:"smtpSecure"`
+	SMTPUser                           string                    `json:"smtpUser"`
+	SMTPPassword                       string                    `json:"smtpPassword"`
+	SMTPFrom                           string                    `json:"smtpFrom"`
+	SMTPReplyTo                        string                    `json:"smtpReplyTo"`
+	NotifyMultipleAddresses            bool                      `json:"notifyMultipleAddresses"`
+	RecipientEmail                     string                    `json:"recipientEmail"`
+	BarkServerURL                      string                    `json:"barkServerUrl"`
+	BarkDeviceKey                      string                    `json:"barkDeviceKey"`
+	BarkSilentPush                     bool                      `json:"barkSilentPush"`
+	ServerChanSendKey                  string                    `json:"serverchanSendKey"`
+	DiscordWebhookURL                  string                    `json:"discordWebhookUrl"`
+	DiscordBotUsername                 string                    `json:"discordBotUsername"`
+	DiscordBotAvatarURL                string                    `json:"discordBotAvatarUrl"`
+	PushPlusToken                      string                    `json:"pushplusToken"`
 }
 
 type themeCustomColor struct {
@@ -121,21 +123,21 @@ type themeCustomColor struct {
 // notificationSubscription 是通知计算所需的订阅投影。
 // 它刻意不复用完整订阅模型，减少通知任务对 UI 字段的耦合。
 type notificationSubscription struct {
-	ID                     string  `json:"id"`
-	Name                   string  `json:"name"`
-	LogoURL                string  `json:"-"`
-	Price                  string  `json:"price"`
-	Currency               string  `json:"currency"`
-	Status                 string  `json:"status"`
-	BillingCycle           string  `json:"billingCycle"`
-	OneTimeTermCount       int     `json:"oneTimeTermCount,omitempty"`
-	OneTimeTermUnit        string  `json:"oneTimeTermUnit,omitempty"`
-	NextBillingDate        string  `json:"nextBillingDate"`
-	TrialEndDate           string  `json:"trialEndDate,omitempty"`
-	ReminderDays           int     `json:"reminderDays"`
-	RepeatReminderEnabled  bool    `json:"repeatReminderEnabled"`
-	RepeatReminderInterval string  `json:"repeatReminderInterval"`
-	RepeatReminderWindow   string  `json:"repeatReminderWindow"`
+	ID                     string `json:"id"`
+	Name                   string `json:"name"`
+	LogoURL                string `json:"-"`
+	Price                  string `json:"price"`
+	Currency               string `json:"currency"`
+	Status                 string `json:"status"`
+	BillingCycle           string `json:"billingCycle"`
+	OneTimeTermCount       int    `json:"oneTimeTermCount,omitempty"`
+	OneTimeTermUnit        string `json:"oneTimeTermUnit,omitempty"`
+	NextBillingDate        string `json:"nextBillingDate"`
+	TrialEndDate           string `json:"trialEndDate,omitempty"`
+	ReminderDays           int    `json:"reminderDays"`
+	RepeatReminderEnabled  bool   `json:"repeatReminderEnabled"`
+	RepeatReminderInterval string `json:"repeatReminderInterval"`
+	RepeatReminderWindow   string `json:"repeatReminderWindow"`
 }
 
 type repeatReminderSnapshot struct {
@@ -452,17 +454,19 @@ type pushPlusSendResponse struct {
 
 func defaultAppSettings() appSettings {
 	return appSettings{
-		AdminUsername:        "admin",
-		ThemeMode:            "dark",
-		ThemeVariant:         "emerald",
-		ThemeCustomColor:     themeCustomColor{H: 160, S: 84, L: 39},
-		ShowExpired:          true,
-		Locale:               string(defaultAppLocale),
-		DefaultCurrency:      "CNY",
-		PublicStatusCurrency: "inherit",
-		ExchangeRateProvider: "frankfurter",
-		BuiltInIconSources:   defaultBuiltInIconSourceSettings(),
-		OnlineIconSources:    defaultOnlineIconSourceSettings(),
+		AdminUsername:                      "admin",
+		ThemeMode:                          "dark",
+		ThemeVariant:                       "emerald",
+		ThemeCustomColor:                   themeCustomColor{H: 160, S: 84, L: 39},
+		ShowExpired:                        true,
+		Locale:                             string(defaultAppLocale),
+		DefaultCurrency:                    "CNY",
+		PublicStatusCurrency:               "inherit",
+		SubscriptionPriceReferenceEnabled:  false,
+		SubscriptionPriceReferenceCurrency: "default",
+		ExchangeRateProvider:               "frankfurter",
+		BuiltInIconSources:                 defaultBuiltInIconSourceSettings(),
+		OnlineIconSources:                  defaultOnlineIconSourceSettings(),
 		AIRecognition: aiRecognitionSettings{
 			ProviderType:           aiProviderTypeOpenAI,
 			TransportProtocol:      aiProtocolOpenAIChat,

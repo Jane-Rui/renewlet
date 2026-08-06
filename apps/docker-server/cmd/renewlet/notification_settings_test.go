@@ -31,6 +31,35 @@ func TestTelegramMessageFormatDefaultsAndRecoversPersistedValue(t *testing.T) {
 	}
 }
 
+func TestSubscriptionPriceReferenceSettingsDefaultRecoverAndWriteValidation(t *testing.T) {
+	defaults := defaultAppSettings()
+	if defaults.SubscriptionPriceReferenceEnabled {
+		t.Fatal("expected subscription price reference to be disabled by default")
+	}
+	if defaults.SubscriptionPriceReferenceCurrency != "default" {
+		t.Fatalf("expected default subscription price reference currency, got %q", defaults.SubscriptionPriceReferenceCurrency)
+	}
+
+	settings, err := settingsFromValue(json.RawMessage(`{"subscriptionPriceReferenceEnabled":true,"subscriptionPriceReferenceCurrency":"usd","monthlyBudget":"2333"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !settings.SubscriptionPriceReferenceEnabled || settings.SubscriptionPriceReferenceCurrency != "default" || settings.MonthlyBudget != "2333" {
+		t.Fatalf("expected invalid stored subscription reference currency to recover only that field, got %#v", settings)
+	}
+
+	settings, err = mergeSettingsForWrite(defaultAppSettings(), json.RawMessage(`{"subscriptionPriceReferenceEnabled":true,"subscriptionPriceReferenceCurrency":"USD"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !settings.SubscriptionPriceReferenceEnabled || settings.SubscriptionPriceReferenceCurrency != "USD" {
+		t.Fatalf("expected subscription reference settings write to survive, got %#v", settings)
+	}
+	if _, err := mergeSettingsForWrite(defaultAppSettings(), json.RawMessage(`{"subscriptionPriceReferenceCurrency":"usd"}`)); err == nil {
+		t.Fatal("expected unsupported subscription reference currency write to fail")
+	}
+}
+
 func TestMergeSettingsForWriteRejectsUnsupportedLocale(t *testing.T) {
 	if _, err := mergeSettingsForWrite(defaultAppSettings(), json.RawMessage(`{"locale":"fr-FR"}`)); err == nil {
 		t.Fatal("expected unsupported locale write to fail")

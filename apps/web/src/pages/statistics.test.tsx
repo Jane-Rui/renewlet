@@ -53,18 +53,20 @@ vi.mock("@/components/subscription-detail-dialog", () => ({
   SubscriptionDetailDialog: ({
     open,
     subscription,
+    priceReferenceCurrency,
     onEditSubscription,
     onRenewSubscription,
   }: {
     open: boolean;
     subscription: Subscription | null;
+    priceReferenceCurrency: string | null;
     onEditSubscription?: (subscription: Subscription) => void;
     onRenewSubscription?: (id: string) => void;
   }) => (
     <div data-testid="subscription-detail-dialog">
       {open && subscription ? (
         <>
-          <span>{subscription.name} 详情</span>
+          <span>{subscription.name} 详情 {priceReferenceCurrency ?? "off"}</span>
           <button type="button" onClick={() => onEditSubscription?.(subscription)}>
             编辑详情 {subscription.name}
           </button>
@@ -150,6 +152,7 @@ vi.mock("@/hooks/use-report-exchange-rates", () => ({
     getCurrencySymbol: () => "¥",
     lastUpdated: null,
     loading: false,
+    sourceDate: "2026-08-01",
     reportBasisStatus: { month: "2026-08", locked: true, sourceDate: "2026-08-01", capturedAt: "2026-08-06T00:00:00Z" },
     refresh: mocks.refreshRates,
   }),
@@ -271,6 +274,8 @@ describe("Statistics page", () => {
       data: {
         defaultCurrency: "CNY",
         monthlyBudget: "500",
+        subscriptionPriceReferenceEnabled: true,
+        subscriptionPriceReferenceCurrency: "USD",
         timezone: "UTC",
       },
       isPending: false,
@@ -560,7 +565,7 @@ describe("Statistics page", () => {
 
       fireEvent.click(annualAction);
 
-      expect(screen.getByTestId("subscription-detail-dialog")).toHaveTextContent("Annual 详情");
+      expect(screen.getByTestId("subscription-detail-dialog")).toHaveTextContent("Annual 详情 USD");
 
       fireEvent.click(screen.getByRole("button", { name: "编辑详情 Annual" }));
       expect(mocks.handleEditSubscription).toHaveBeenCalledWith("annual");

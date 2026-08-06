@@ -41,6 +41,8 @@ vi.mock("@/hooks/use-exchange-rates", () => ({
   useExchangeRates: () => ({
     convert: (amount: number) => amount,
     getCurrencySymbol: (currency: string) => (currency === "USD" ? "$" : currency),
+    loading: false,
+    sourceDate: "2026-08-01",
   }),
 }));
 
