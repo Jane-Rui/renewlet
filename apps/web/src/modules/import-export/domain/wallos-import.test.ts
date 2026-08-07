@@ -33,7 +33,7 @@ describe("wallos import", () => {
     const subscription = {
       name: "Bulk",
       logo: null,
-      price: 1,
+      price: "1",
       currency: "USD",
       billingCycle: "monthly",
       customDays: null,
@@ -94,7 +94,7 @@ describe("wallos import", () => {
         id: 12,
         user_id: 7,
         name: "GitHub",
-        price: 4,
+        price: "4",
         currency_id: 1,
         start_date: "2026-01-01",
         next_payment: "2026-06-01",
@@ -129,7 +129,7 @@ describe("wallos import", () => {
         id: 44,
         user_id: 7,
         name: "Missing Auto Renew",
-        price: 4,
+        price: "4",
         currency_id: 1,
         start_date: "2026-01-01",
         next_payment: "2026-06-01",
@@ -149,7 +149,7 @@ describe("wallos import", () => {
         id: 45,
         user_id: 7,
         name: "Unknown Start",
-        price: 4,
+        price: "4",
         currency_id: 1,
         next_payment: "2026-06-01",
         cycle: 3,
@@ -170,7 +170,7 @@ describe("wallos import", () => {
         id: 12,
         user_id: 7,
         name: "Large Wallos Row",
-        price: 4,
+        price: "4",
         currency_id: 1,
         start_date: "2026-01-01",
         next_payment: "2026-06-01",
@@ -216,7 +216,7 @@ describe("wallos import", () => {
           id: 31,
           user_id: 7,
           name: "Inherited",
-          price: 4,
+          price: "4",
           currency_id: 1,
           next_payment: "2026-06-01",
           cycle: 3,
@@ -229,7 +229,7 @@ describe("wallos import", () => {
           id: 32,
           user_id: 7,
           name: "Explicit",
-          price: 8,
+          price: "8",
           currency_id: 1,
           next_payment: "2026-06-01",
           cycle: 3,
@@ -251,7 +251,7 @@ describe("wallos import", () => {
         id: 13,
         user_id: 7,
         name: "Spotify",
-        price: 10,
+        price: "10",
         next_payment: "2026-06-01",
         cycle: 3,
         frequency: 1,
@@ -345,7 +345,7 @@ describe("wallos import", () => {
         id: 20,
         user_id: 1,
         name: "RMB Service",
-        price: 12,
+        price: "12",
         currency_id: 20,
         next_payment: "2026-07-01",
         cycle: 3,
@@ -369,7 +369,7 @@ describe("wallos import", () => {
         id: 21,
         user_id: 2,
         name: "Apple",
-        price: 10,
+        price: "10",
         currency_id: 54,
         category_id: 77,
         payment_method_id: 88,
@@ -435,7 +435,7 @@ describe("wallos import", () => {
         id: 21,
         user_id: 1,
         name: "Lifetime Tool",
-        price: 199,
+        price: "199",
         currency_id: 2,
         start_date: "2026-07-01",
         next_payment: "2026-07-01",
@@ -460,7 +460,7 @@ describe("wallos import", () => {
         id: 22,
         user_id: 1,
         name: "Lifetime Tool",
-        price: 199,
+        price: "199",
         currency_id: 2,
         start_date: "2026-07-01",
         next_payment: "2026-07-01",
@@ -543,7 +543,7 @@ describe("wallos import", () => {
       subscriptions: [{
         id: 9,
         name: "Custom Service",
-        price: 8,
+        price: "8",
         next_payment: "2026-06-01",
         cycle: 3,
         frequency: 1,
@@ -570,8 +570,8 @@ describe("wallos import", () => {
     const resolved = await resolveImportAssets({
       payload,
       assets: [
-        { subscriptionIndex: 0, filename: "skipped.png", blob: new Blob(["skip"], { type: "image/png" }) },
-        { subscriptionIndex: 1, filename: "writable.png", blob: new Blob(["write"], { type: "image/png" }) },
+        { target: { type: "subscriptionLogo", subscriptionIndex: 0 }, kind: "logo", filename: "skipped.png", blob: new Blob(["skip"], { type: "image/png" }) },
+        { target: { type: "subscriptionLogo", subscriptionIndex: 1 }, kind: "logo", filename: "writable.png", blob: new Blob(["write"], { type: "image/png" }) },
       ],
       warnings: [],
     }, [
@@ -584,6 +584,40 @@ describe("wallos import", () => {
     expect(resolved.uploadedLogoCount).toBe(1);
     expect(resolved.payload.subscriptions[0]?.logo).toBeNull();
     expect(resolved.payload.subscriptions[1]?.logo).toBe("/api/app/assets/uploaded_logo");
+  });
+
+  it("uploads payment method icons as icon assets and rewrites custom config before apply", async () => {
+    const payload = importPayloadSchema.parse({
+      source: "renewlet",
+      subscriptions: [
+        importSubscriptionFixture("Icon Import", "icon"),
+      ],
+      customConfig: {
+        ...DEFAULT_CUSTOM_CONFIG,
+        paymentMethods: [{
+          id: "pm_card",
+          value: "card",
+          labels: { "zh-CN": "Card", "en-US": "Card" },
+        }],
+      },
+    });
+    assetMocks.create.mockResolvedValue({ url: "/api/app/assets/uploaded_icon" });
+
+    const resolved = await resolveImportAssets({
+      payload,
+      assets: [
+        { target: { type: "paymentMethodIcon", paymentMethodIndex: 0 }, kind: "icon", filename: "card.svg", blob: new Blob(["svg"], { type: "image/svg+xml" }) },
+      ],
+      warnings: [],
+    }, [
+      { index: 0, name: "Icon Import", source: "renewlet", sourceId: "icon", action: "create", warnings: [], errors: [] },
+    ]);
+
+    expect(assetMocks.create).toHaveBeenCalledWith(expect.any(Blob), "icon", "card.svg");
+    expect(resolved.uploadedLogoCount).toBe(0);
+    expect(resolved.uploadedIconCount).toBe(1);
+    expect(resolved.payload.customConfig?.paymentMethods[0]?.icon).toBe("/api/app/assets/uploaded_icon");
+    expect(resolved.payload.subscriptions[0]?.logo).toBeNull();
   });
 
   it("reports zero uploaded logos when import apply has no writable staged assets", async () => {
@@ -603,7 +637,7 @@ describe("wallos import", () => {
     ]);
 
     expect(assetMocks.create).not.toHaveBeenCalled();
-    expect(resolved).toEqual({ payload, uploadedLogoCount: 0 });
+    expect(resolved).toEqual({ payload, uploadedLogoCount: 0, uploadedIconCount: 0 });
   });
 });
 
@@ -611,7 +645,7 @@ function importSubscriptionFixture(name: string, sourceId: string) {
   return {
     name,
     logo: null,
-    price: 1,
+    price: "1",
     currency: "USD",
     billingCycle: "monthly",
     customDays: null,

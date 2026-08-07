@@ -156,7 +156,7 @@ msgstr "Availability, rate limits, and data accuracy of third-party services are
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/legal.ts:9
 msgid "legal.privacy.data.account"
-msgstr "Account data: managed by PocketBase authentication, such as email and local tokens."
+msgstr "Account data: managed by PocketBase authentication, such as email and HttpOnly browser session cookies."
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/legal.ts:11

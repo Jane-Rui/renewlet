@@ -1,15 +1,10 @@
 import { expect, type Page } from "@playwright/test";
 
-type ProductSessionRecord = {
-  value?: {
-    session?: { id?: string };
-    user?: { id?: string };
-  };
-};
+type JsonObject = Record<string, unknown>;
 
 export type ProductSubscriptionSeed = {
   name: string;
-  price: number;
+  price: string;
   currency?: string;
   billingCycle?: "monthly" | "yearly";
   category?: string;
@@ -23,71 +18,147 @@ export type ProductSubscriptionSeed = {
   tags?: string[];
 };
 
-async function getProductAuthHeader(page: Page) {
-  return page.evaluate(() => {
-    const raw = window.localStorage.getItem("renewlet_app_session");
-    if (!raw) {
-      throw new Error("Missing Renewlet product session");
+function isRecord(value: unknown): value is JsonObject {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+export async function productApiFetch(
+  page: Page,
+  path: string,
+  options: { method?: string; body?: unknown } = {},
+) {
+  // Seed/helper 请求必须穿过真实浏览器边界：HttpOnly session 随 cookie 发出，unsafe method 仍要证明同站 CSRF。
+  const result = await page.evaluate(async ({ requestPath, requestOptions }) => {
+    const method = requestOptions.method ?? "GET";
+    const headers: Record<string, string> = {};
+    if (requestOptions.body !== undefined) headers["Content-Type"] = "application/json";
+
+    if (!["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase())) {
+      const csrfToken = document.cookie
+        .split(";")
+        .map((part) => part.trim())
+        .find((part) => part.startsWith("renewlet_csrf="))
+        ?.slice("renewlet_csrf=".length);
+      if (!csrfToken) throw new Error("Missing Renewlet CSRF cookie");
+      headers["X-Renewlet-CSRF"] = decodeURIComponent(csrfToken);
     }
 
-    const record = JSON.parse(raw) as ProductSessionRecord;
-    const token = record.value?.session?.id;
-    const userId = record.value?.user?.id;
-    if (!token || !userId) {
-      throw new Error("Renewlet product session is missing token or user id");
+    const response = await window.fetch(requestPath, {
+      method,
+      credentials: "include",
+      headers,
+      body: requestOptions.body === undefined ? undefined : JSON.stringify(requestOptions.body),
+    });
+    const text = await response.text();
+    let json: unknown = null;
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch {
+      json = null;
     }
+    return { body: text, json, ok: response.ok, status: response.status };
+  }, { requestPath: path, requestOptions: options });
 
-    return `Bearer ${token}`;
+  return result;
+}
+
+export async function createAdminManagedUser(
+  page: Page,
+  input: { name: string; email: string; password: string; role?: "user" | "admin" },
+) {
+  const result = await productApiFetch(page, "/api/app/admin/users", {
+    method: "POST",
+    body: { ...input, role: input.role ?? "user" },
   });
+  expect(result.ok, `create managed user ${input.email}: ${result.status} ${result.body}`).toBe(true);
+  return result.json;
+}
+
+export async function deleteProductSubscriptionsByName(page: Page, names: readonly string[]) {
+  if (names.length === 0 || page.isClosed()) return;
+  const expectedNames = new Set(names);
+  const listResult = await productApiFetch(page, "/api/app/subscriptions?limit=100");
+  expect(listResult.ok, `list subscriptions for cleanup: ${listResult.status} ${listResult.body}`).toBe(true);
+
+  const responseData = isRecord(listResult.json) && isRecord(listResult.json.data)
+    ? listResult.json.data
+    : null;
+  const rows = responseData && Array.isArray(responseData["subscriptions"]) ? responseData["subscriptions"] : [];
+
+  // Release smoke 和完整 E2E 共享同一空库；清理必须走产品 API 删除真实记录，不能只把卡片从 UI 藏掉。
+  for (const row of rows) {
+    if (!isRecord(row) || typeof row["id"] !== "string" || typeof row["name"] !== "string") continue;
+    if (!expectedNames.has(row["name"])) continue;
+    const deleteResult = await productApiFetch(page, `/api/app/subscriptions/${encodeURIComponent(row["id"])}`, {
+      method: "DELETE",
+    });
+    expect(deleteResult.ok, `delete release smoke subscription ${row["name"]}: ${deleteResult.status} ${deleteResult.body}`).toBe(true);
+  }
+}
+
+export async function updateProductSettings(page: Page, patch: JsonObject) {
+  const currentResult = await productApiFetch(page, "/api/app/settings");
+  expect(currentResult.ok, `read settings before update: ${currentResult.status} ${currentResult.body}`).toBe(true);
+
+  const responseData = isRecord(currentResult.json) && isRecord(currentResult.json.data)
+    ? currentResult.json.data
+    : null;
+  const currentSettings = responseData && isRecord(responseData.settings) ? responseData.settings : null;
+  if (!currentSettings) {
+    throw new Error(`Invalid settings response: ${currentResult.body}`);
+  }
+
+  const aiRecognitionPatch = isRecord(patch.aiRecognition) && isRecord(currentSettings.aiRecognition)
+    ? { ...currentSettings.aiRecognition, ...patch.aiRecognition }
+    : patch.aiRecognition;
+  // 设置接口是严格 PUT 全量契约；E2E 只覆盖目标字段时也要先合并远端当前值，避免把其它设置误清空。
+  const nextSettings = {
+    ...currentSettings,
+    ...patch,
+    ...(aiRecognitionPatch === undefined ? {} : { aiRecognition: aiRecognitionPatch }),
+  };
+
+  const updateResult = await productApiFetch(page, "/api/app/settings", {
+    method: "PUT",
+    body: nextSettings,
+  });
+  expect(updateResult.ok, `update settings: ${updateResult.status} ${updateResult.body}`).toBe(true);
 }
 
 export async function createProductSubscriptionSeed(page: Page, seed: ProductSubscriptionSeed) {
-  const authorization = await getProductAuthHeader(page);
-  const result = await page.evaluate(async ({ authorization: authHeader, seed: payload }) => {
-    const response = await window.fetch("/api/app/subscriptions", {
-      method: "POST",
-      headers: {
-        Authorization: authHeader,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        name: payload.name,
-        logo: null,
-        price: payload.price,
-        currency: payload.currency ?? "CNY",
-        billingCycle: payload.billingCycle ?? "monthly",
-        customDays: null,
-        customCycleUnit: null,
-        oneTimeTermCount: null,
-        oneTimeTermUnit: null,
-        category: payload.category ?? "productivity",
-        status: payload.status ?? "active",
-        paymentMethod: payload.paymentMethod ?? null,
-        startDate: payload.startDate,
-        nextBillingDate: payload.nextBillingDate,
-        autoRenew: payload.autoRenew ?? false,
-        autoCalculateNextBillingDate: payload.autoCalculateNextBillingDate ?? false,
-        pinned: false,
-        publicHidden: false,
-        trialEndDate: null,
-        website: null,
-        notes: null,
-        tags: payload.tags ?? [],
-        reminderDays: payload.reminderDays ?? 3,
-        repeatReminderEnabled: false,
-        repeatReminderInterval: "1h",
-        repeatReminderWindow: "72h",
-        costSharing: null,
-        extra: {},
-      }),
-    });
-
-    return {
-      body: await response.text(),
-      ok: response.ok,
-      status: response.status,
-    };
-  }, { authorization, seed });
+  const result = await productApiFetch(page, "/api/app/subscriptions", {
+    method: "POST",
+    body: {
+      name: seed.name,
+      logo: null,
+      price: seed.price,
+      currency: seed.currency ?? "CNY",
+      billingCycle: seed.billingCycle ?? "monthly",
+      customDays: null,
+      customCycleUnit: null,
+      oneTimeTermCount: null,
+      oneTimeTermUnit: null,
+      category: seed.category ?? "productivity",
+      status: seed.status ?? "active",
+      paymentMethod: seed.paymentMethod ?? null,
+      startDate: seed.startDate,
+      nextBillingDate: seed.nextBillingDate,
+      autoRenew: seed.autoRenew ?? false,
+      autoCalculateNextBillingDate: seed.autoCalculateNextBillingDate ?? false,
+      pinned: false,
+      publicHidden: false,
+      trialEndDate: null,
+      website: null,
+      notes: null,
+      tags: seed.tags ?? [],
+      reminderDays: seed.reminderDays ?? 3,
+      repeatReminderEnabled: false,
+      repeatReminderInterval: "1h",
+      repeatReminderWindow: "72h",
+      costSharing: null,
+      extra: {},
+    },
+  });
 
   expect(result.ok, `create subscription seed ${seed.name}: ${result.status} ${result.body}`).toBe(true);
 }

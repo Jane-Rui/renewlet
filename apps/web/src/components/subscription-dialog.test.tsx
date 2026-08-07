@@ -71,7 +71,7 @@ function makeSubscription(overrides: Partial<Subscription> = {}): Subscription {
     id: "sub-1",
     name: "Critical SaaS",
     logo: undefined,
-    price: 99,
+    price: "99",
     currency: "USD",
     billingCycle: "monthly",
     customDays: undefined,
@@ -181,14 +181,14 @@ describe("SubscriptionDialog", () => {
           onOpenChange={onOpenChange}
           onSubmit={onSubmit}
           subscription={makeSubscription({
-            price: 50,
+            price: "50",
             currency: "CNY",
             costSharing: {
               enabled: true,
               splitMode: "custom",
               members: [
-                { id: "partner", name: "伴侣", currency: "CNY", customAmount: 10 },
-                { id: "friend", name: "朋友", currency: "CNY", customAmount: 10 },
+                { id: "partner", name: "伴侣", currency: "CNY", customAmount: "10" },
+                { id: "friend", name: "朋友", currency: "CNY", customAmount: "10" },
               ],
             },
           })}
@@ -259,8 +259,8 @@ describe("SubscriptionDialog", () => {
 
     await user.click(screen.getByRole("button", { name: "保存修改" }));
     expect(submittedMembers).toEqual([
-      expect.objectContaining({ id: "partner", customAmount: 10 }),
-      expect.objectContaining({ id: "friend", name: "队友", customAmount: 15 }),
+      expect.objectContaining({ id: "partner", customAmount: "10" }),
+      expect.objectContaining({ id: "friend", name: "队友", customAmount: "15" }),
     ]);
   });
 
@@ -483,7 +483,7 @@ describe("SubscriptionDialog", () => {
       id: "sub-1",
       name: "OpenAI",
       logo: undefined,
-      price: 20,
+      price: "20",
       currency: "USD",
       billingCycle: "monthly",
       customDays: undefined,
@@ -722,7 +722,7 @@ describe("SubscriptionDialog", () => {
       id: "sub-1",
       name: "Critical SaaS",
       logo: undefined,
-      price: 99,
+      price: "99",
       currency: "USD",
       billingCycle: "monthly",
       customDays: undefined,

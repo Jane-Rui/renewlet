@@ -44,27 +44,6 @@ var (
 	telegramSecretHashRe   = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
 )
 
-type customConfigLabels struct {
-	ZhCN string `json:"zh-CN"`
-	EnUS string `json:"en-US"`
-}
-
-type customConfigItem struct {
-	ID      string             `json:"id"`
-	Value   string             `json:"value"`
-	Labels  customConfigLabels `json:"labels"`
-	Color   string             `json:"color,omitempty"`
-	Icon    string             `json:"icon,omitempty"`
-	Enabled *bool              `json:"enabled,omitempty"`
-}
-
-type customConfigPayload struct {
-	Categories     []customConfigItem `json:"categories"`
-	Statuses       []customConfigItem `json:"statuses"`
-	PaymentMethods []customConfigItem `json:"paymentMethods"`
-	Currencies     []customConfigItem `json:"currencies"`
-}
-
 // registerRecordHooks 注册所有 collection 的写入前规范化逻辑。
 // 为什么放在 RecordValidate：同一规则可以覆盖自定义 API、PocketBase SDK 和管理后台写入。
 func registerRecordHooks(app core.App) {
@@ -83,6 +62,10 @@ func registerRecordHooks(app core.App) {
 			}
 		case "custom_configs":
 			if err := normalizeCustomConfigRecord(e.Record); err != nil {
+				return err
+			}
+		case "exchange_rate_snapshots":
+			if err := normalizeExchangeRateSnapshotRecord(e.Record); err != nil {
 				return err
 			}
 		case "assets":
@@ -126,25 +109,24 @@ func registerRecordHooks(app core.App) {
 		if err := e.Next(); err != nil {
 			return err
 		}
-		return refreshSubscriptionSchedulerStateAfterWrite(app, e.Record)
+		return refreshSubscriptionDerivedStateAfterWrite(app, e.Record)
 	})
 	app.OnRecordAfterUpdateSuccess("subscriptions").BindFunc(func(e *core.RecordEvent) error {
 		if err := e.Next(); err != nil {
 			return err
 		}
-		return refreshSubscriptionSchedulerStateAfterWrite(app, e.Record)
+		return refreshSubscriptionDerivedStateAfterWrite(app, e.Record)
 	})
 	app.OnRecordAfterDeleteSuccess("subscriptions").BindFunc(func(e *core.RecordEvent) error {
 		if err := e.Next(); err != nil {
 			return err
 		}
-		return refreshSubscriptionSchedulerStateAfterWrite(app, e.Record)
+		return refreshSubscriptionDerivedStateAfterWrite(app, e.Record)
 	})
 }
 
-func refreshSubscriptionSchedulerStateAfterWrite(app core.App, record *core.Record) error {
-	_, err := refreshSubscriptionSchedulerState(app, record.GetString("user"), true)
-	return err
+func refreshSubscriptionDerivedStateAfterWrite(app core.App, record *core.Record) error {
+	return refreshSubscriptionDerivedState(app, record.GetString("user"), true)
 }
 
 func normalizeCloudBackupTargetRecord(record *core.Record) error {
@@ -256,13 +238,16 @@ func normalizeSubscriptionRecord(record *core.Record) error {
 	}
 	record.Set("currency", currency)
 
-	price := record.GetFloat("price")
-	if price < 0 {
-		return errors.New("SUBSCRIPTION_PRICE_NEGATIVE")
+	rawPrice, ok := record.Get("price").(string)
+	if !ok {
+		return errors.New("SUBSCRIPTION_PRICE_INVALID")
 	}
-	if price > maxSubscriptionPrice {
-		return errors.New("SUBSCRIPTION_PRICE_TOO_HIGH")
+	// 旧 numeric 只允许 migrateMoneyStrings 处理；持久层写入边界必须保持 decimal string 单一事实源。
+	price, err := canonicalMoneyString(rawPrice)
+	if err != nil {
+		return errors.New("SUBSCRIPTION_PRICE_INVALID")
 	}
+	record.Set("price", price)
 
 	billingCycle := record.GetString("billingCycle")
 	customDays := record.GetInt("customDays")

@@ -3,6 +3,7 @@ import { getIntlCurrencySymbol, SUPPORTED_EXCHANGE_RATE_CURRENCIES } from "@/lib
 import type { CustomConfig } from "@/types/config";
 import { DISABLED_REMINDER_DAYS, INHERIT_REMINDER_DAYS, MAX_REMINDER_DAYS, type AppSettings } from "@/types/subscription";
 import type { DateOnly } from "@/lib/time/date-only";
+import { moneyFromNumber } from "@renewlet/shared/money";
 import {
   WALLOS_DEFAULT_CURRENCIES,
   WALLOS_DEFAULT_CURRENCY_BY_ID,
@@ -105,11 +106,11 @@ export function buildFromRenewletExport(
     const logo = typeof subscription.logo === "string" ? subscription.logo : undefined;
     const asset = logo ? assetFiles.get(logo) : undefined;
     if (logo && asset) {
-      assets.push(makeAssetRef(index, logo.split("/").pop() ?? "renewlet-logo", asset));
+      assets.push(makeSubscriptionLogoAssetRef(index, logo.split("/").pop() ?? "renewlet-logo", asset));
     }
     return {
       name: subscription.name,
-      logo: asset ? null : logo ?? null,
+      logo: asset || isExportAssetPath(logo) ? null : logo ?? null,
       price: subscription.price,
       currency: subscription.currency,
       billingCycle: subscription.billingCycle,
@@ -143,10 +144,35 @@ export function buildFromRenewletExport(
       source: "renewlet",
       subscriptions,
       settings: data.data.settings,
-      customConfig: data.data.customConfig,
+      customConfig: prepareRenewletExportCustomConfig(data.data.customConfig, assetFiles, assets),
+      exchangeRateSnapshots: data.data.exchangeRateSnapshots,
     }),
     assets,
     warnings,
+  };
+}
+
+function prepareRenewletExportCustomConfig(
+  config: RenewletExportV1["data"]["customConfig"],
+  assetFiles: Map<string, ImportAssetSource>,
+  assets: ImportAssetRef[],
+): RenewletExportV1["data"]["customConfig"] {
+  if (!config) return undefined;
+  return {
+    ...config,
+    paymentMethods: config.paymentMethods.map((item, index) => {
+      const icon = item.icon?.trim();
+      if (!icon) return item;
+      const asset = assetFiles.get(icon);
+      if (asset) {
+        assets.push(makePaymentMethodIconAssetRef(index, icon.split("/").pop() ?? "renewlet-icon", asset));
+      }
+      if (asset || isExportAssetPath(icon)) {
+        const { icon: _icon, ...rest } = item;
+        return rest;
+      }
+      return item;
+    }),
   };
 }
 
@@ -295,7 +321,7 @@ function mapWallosRow(
   const logoAsset = logo ? context.logoFiles.get(logo) : undefined;
   const logoExternal = /^https?:\/\//i.test(logo) ? logo : undefined;
   if (logo && logoAsset) {
-    context.assets.push(makeAssetRef(related.subscriptionIndex, logo, logoAsset));
+    context.assets.push(makeSubscriptionLogoAssetRef(related.subscriptionIndex, logo, logoAsset));
   } else if (logoExternal) {
     localWarnings.push(IMPORT_MESSAGE_CODES.externalLogo);
   } else if (logo) {
@@ -360,7 +386,7 @@ function makeImportSubscription(input: {
   return {
     name: input.name,
     logo: input.logo ?? null,
-    price: Math.max(0, input.price),
+    price: moneyFromNumber(Math.max(0, input.price)),
     currency: input.currency,
     billingCycle: input.billing.billingCycle,
     customDays: input.billing.billingCycle === "custom" ? input.billing.customDays ?? 1 : null,
@@ -407,10 +433,20 @@ function truncateImportNotes(value: string | undefined): string | null {
   return text.length > MAX_IMPORT_NOTES_LENGTH ? text.slice(0, MAX_IMPORT_NOTES_LENGTH) : text;
 }
 
-function makeAssetRef(subscriptionIndex: number, filename: string, source: ImportAssetSource): ImportAssetRef {
+function makeSubscriptionLogoAssetRef(subscriptionIndex: number, filename: string, source: ImportAssetSource): ImportAssetRef {
   return typeof source === "string"
-    ? { subscriptionIndex, filename, zipEntryName: source }
-    : { subscriptionIndex, filename, blob: source };
+    ? { target: { type: "subscriptionLogo", subscriptionIndex }, kind: "logo", filename, zipEntryName: source }
+    : { target: { type: "subscriptionLogo", subscriptionIndex }, kind: "logo", filename, blob: source };
+}
+
+function makePaymentMethodIconAssetRef(paymentMethodIndex: number, filename: string, source: ImportAssetSource): ImportAssetRef {
+  return typeof source === "string"
+    ? { target: { type: "paymentMethodIcon", paymentMethodIndex }, kind: "icon", filename, zipEntryName: source }
+    : { target: { type: "paymentMethodIcon", paymentMethodIndex }, kind: "icon", filename, blob: source };
+}
+
+function isExportAssetPath(value: string | undefined): boolean {
+  return Boolean(value && /^assets\/[^/][A-Za-z0-9._/-]*$/.test(value) && !value.includes(".."));
 }
 
 function wallosBilling(row: WallosTableRow, warnings: string[]): ImportBillingCycle {

@@ -26,7 +26,7 @@ export function configuredSettings(): AppSettings {
 export function makeDraft(overrides: Partial<AiRecognizedSubscriptionDraft> = {}): AiRecognizedSubscriptionDraft {
   return {
     name: "Apple Music",
-    price: 50,
+    price: "50",
     currency: "USD",
     billingCycle: "annual",
     customDays: null,
@@ -114,6 +114,8 @@ export function makePreview(): ImportPreviewResponse {
     ],
     includesSettings: false,
     includesCustomConfig: false,
+    includesExchangeRateSnapshots: false,
+    exchangeRateSnapshotsCount: 0,
   };
 }
 

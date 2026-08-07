@@ -38,17 +38,20 @@ vi.mock("@/components/subscription-card", () => ({
   SubscriptionCard: ({
     subscription,
     inheritedReminderDays,
+    priceReferenceCurrency,
     onTogglePublicHidden,
     onViewDetails,
   }: {
     subscription: Subscription;
     inheritedReminderDays: number;
+    priceReferenceCurrency: string | null;
     onTogglePublicHidden?: (id: string) => void;
     onViewDetails?: (id: string) => void;
   }) => (
     <article data-testid="subscription-card">
       {subscription.name}
       <span data-testid="subscription-card-reminder">{inheritedReminderDays}</span>
+      <span data-testid="subscription-card-reference">{priceReferenceCurrency ?? "off"}</span>
       <button type="button" onClick={() => onViewDetails?.(subscription.id)}>
         查看 {subscription.name} 的详情
       </button>
@@ -60,9 +63,9 @@ vi.mock("@/components/subscription-card", () => ({
 }));
 
 vi.mock("@/components/subscription-detail-dialog", () => ({
-  SubscriptionDetailDialog: ({ open, subscription }: { open: boolean; subscription: Subscription | null }) => (
+  SubscriptionDetailDialog: ({ open, subscription, priceReferenceCurrency }: { open: boolean; subscription: Subscription | null; priceReferenceCurrency: string | null }) => (
     <div data-testid="subscription-detail-dialog">
-      {open && subscription ? <span>{subscription.name} 详情</span> : null}
+      {open && subscription ? <span>{subscription.name} 详情 {priceReferenceCurrency ?? "off"}</span> : null}
     </div>
   ),
 }));
@@ -72,15 +75,15 @@ vi.mock("@/components/spending-chart", () => ({
     subscriptions,
     defaultCurrency,
     timeZone,
-    exchangeRateProvider,
+    convert,
   }: {
     subscriptions: Subscription[];
     defaultCurrency: string;
     timeZone: string;
-    exchangeRateProvider: string | undefined;
+    convert: (amount: number | string, fromCurrency: string, toCurrency: string) => number;
   }) => (
     <div data-testid="spending-chart">
-      {subscriptions.length}:{defaultCurrency}:{timeZone}:{exchangeRateProvider}
+      {subscriptions.length}:{defaultCurrency}:{timeZone}:{convert("1", "USD", "CNY")}
     </div>
   ),
 }));
@@ -104,14 +107,17 @@ vi.mock("@/components/edit-subscription-dialog", () => ({
   EditSubscriptionDialog: () => null,
 }));
 
-vi.mock("@/hooks/use-exchange-rates", () => ({
-  useExchangeRates: () => ({
-    convert: (amount: number, from: string, to: string) => {
-      if (from === to) return amount;
-      if (from === "USD" && to === "CNY") return amount * 7;
-      return amount;
+vi.mock("@/hooks/use-report-exchange-rates", () => ({
+  useReportExchangeRates: () => ({
+    convert: (amount: number | string, from: string, to: string) => {
+      const value = typeof amount === "number" ? amount : Number(amount);
+      if (from === to) return value;
+      if (from === "USD" && to === "CNY") return value * 7;
+      return value;
     },
     loading: mocks.ratesLoading,
+    sourceDate: "2026-08-01",
+    reportBasisStatus: { month: "2026-08", locked: true, sourceDate: "2026-08-01", capturedAt: "2026-08-06T00:00:00Z" },
   }),
 }));
 
@@ -147,7 +153,7 @@ function subscription(overrides: Partial<RecurringCycleSubscription> = {}): Recu
     id: "codex-pro",
     name: "Codex Pro",
     logo: undefined,
-    price: 200,
+    price: "200",
     currency: "USD",
     billingCycle: "monthly",
     customDays: undefined,
@@ -185,6 +191,8 @@ function mockResolvedDashboardData() {
       defaultCurrency: "CNY",
       exchangeRateProvider: "exchange-api",
       notificationReminderDays: 5,
+      subscriptionPriceReferenceEnabled: true,
+      subscriptionPriceReferenceCurrency: "USD",
       timezone: "Asia/Shanghai",
     },
     isPending: false,
@@ -207,12 +215,13 @@ describe("Dashboard page loading state", () => {
     expect(screen.getByText("近期订阅")).toBeInTheDocument();
     expect(screen.getByText("Codex Pro")).toBeInTheDocument();
     expect(screen.getByTestId("subscription-card-reminder")).toHaveTextContent("5");
+    expect(screen.getByTestId("subscription-card-reference")).toHaveTextContent("USD");
     expect(mocks.upcomingRenewalsCalls[mocks.upcomingRenewalsCalls.length - 1]).toEqual({
       count: 1,
       timeZone: "Asia/Shanghai",
       notificationReminderDays: 5,
     });
-    expect(screen.getByTestId("spending-chart")).toHaveTextContent("1:CNY:Asia/Shanghai:exchange-api");
+    expect(screen.getByTestId("spending-chart")).toHaveTextContent("1:CNY:Asia/Shanghai:7");
     expect(screen.getByText("汇率加载中...")).toBeInTheDocument();
   });
 
@@ -239,7 +248,7 @@ describe("Dashboard page loading state", () => {
 
     await user.click(screen.getByRole("button", { name: "查看 Codex Pro 的详情" }));
 
-    expect(screen.getByText("Codex Pro 详情")).toBeInTheDocument();
+    expect(screen.getByText("Codex Pro 详情 USD")).toBeInTheDocument();
   });
 
   it("wires public visibility toggles from recent subscription cards", async () => {
@@ -267,6 +276,8 @@ describe("Dashboard page loading state", () => {
             defaultCurrency: "CNY",
             exchangeRateProvider: "exchange-api",
             notificationReminderDays: 5,
+            subscriptionPriceReferenceEnabled: true,
+            subscriptionPriceReferenceCurrency: "USD",
             timezone: "Asia/Shanghai",
           },
       isPending: state.settingsPending,

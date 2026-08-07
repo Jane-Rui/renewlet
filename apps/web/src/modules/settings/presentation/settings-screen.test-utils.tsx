@@ -2,15 +2,17 @@
 import { useState } from "react";
 import { act, render } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, useLocation } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router";
 import { vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { DEFAULT_CUSTOM_CONFIG, type CustomConfig } from "@/types/config";
+import { canonicalizeMoneyString } from "@renewlet/shared/money";
 import type {
   ExchangeRateCoverageWarning,
   ExchangeRates,
   ExchangeRateSource,
 } from "@/lib/api/schemas/exchange-rates";
+import type { ReportExchangeRateBasisStatus } from "@/hooks/use-report-exchange-rates";
 import type { BuiltInIconIndexStatus } from "@/lib/api/schemas/media";
 import { DEFAULT_SETTINGS, type AppSettings, type NotificationChannel } from "@/types/subscription";
 import type { ThemeMode } from "@/types/theme";
@@ -71,9 +73,9 @@ export function StatefulEmailNotificationPanel({ initialPort = "" }: { initialPo
   );
 }
 
-export function useStatefulMonthlyBudgetController(initialBudget = 10000) {
+export function useStatefulMonthlyBudgetController(initialBudget = "10000") {
   const [monthlyBudgetInput, setMonthlyBudgetInput] = useState(String(initialBudget));
-  const [monthlyBudget, setMonthlyBudget] = useState(initialBudget);
+  const [monthlyBudget, setMonthlyBudget] = useState(String(initialBudget));
   const [monthlyBudgetError, setMonthlyBudgetError] = useState<string | null>(null);
 
   return {
@@ -89,8 +91,8 @@ export function useStatefulMonthlyBudgetController(initialBudget = 10000) {
         setMonthlyBudgetError("预算金额无效");
         return;
       }
-      const parsed = Number(value);
-      if (!Number.isFinite(parsed) || parsed < 0) {
+      const parsed = canonicalizeMoneyString(value);
+      if (parsed === null) {
         setMonthlyBudgetError("预算金额无效");
         return;
       }
@@ -237,11 +239,13 @@ vi.mock("@/components/ui/searchable-select", () => ({
     value,
     onValueChange,
     options,
+    disabled = false,
     "aria-label": ariaLabel,
   }: {
     value: string;
     onValueChange: (value: string) => void;
     options: Array<{ value: string; label: string }>;
+    disabled?: boolean;
     "aria-label"?: string;
   }) => {
     const selected = options.find((option) => option.value === value);
@@ -252,6 +256,7 @@ vi.mock("@/components/ui/searchable-select", () => ({
         role="combobox"
         aria-label={ariaLabel}
         data-testid="searchable-select"
+        disabled={disabled}
         onClick={() => {
           if (next) onValueChange(next.value);
         }}
@@ -413,11 +418,12 @@ export function createControllerState(overrides: {
     }>;
     createdPlainToken?: string | null;
   };
-	  telegramBotCommands?: Partial<SettingsTelegramBotCommandsController>;
-	  rates?: ExchangeRates;
-	  activeRateProvider?: ExchangeRateSource;
-	  ratesWarning?: ExchangeRateCoverageWarning | null;
-	  externalIntegrationsDisabled?: boolean;
+  telegramBotCommands?: Partial<SettingsTelegramBotCommandsController>;
+  rates?: ExchangeRates;
+  activeRateProvider?: ExchangeRateSource;
+  ratesWarning?: ExchangeRateCoverageWarning | null;
+  reportBasisStatus?: ReportExchangeRateBasisStatus;
+  externalIntegrationsDisabled?: boolean;
   sensitiveAccountActionsDisabled?: boolean;
   sensitiveAccountActionsDemoDisabled?: boolean;
   customConfig?: CustomConfig;
@@ -461,6 +467,12 @@ export function createControllerState(overrides: {
     ratesError: null,
     ratesErrorDetails: null,
     ratesWarning: overrides.ratesWarning ?? null,
+    reportBasisStatus: overrides.reportBasisStatus ?? {
+      month: "2026-08",
+      locked: true,
+      sourceDate: "2026-08-01",
+      capturedAt: "2026-08-06T00:00:00.000Z",
+    },
     getCurrencySymbol: (currency: string) => currencySymbols[currency] ?? currency,
     updateCategories: fn,
     updateStatuses: fn,

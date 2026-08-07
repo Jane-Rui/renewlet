@@ -3,7 +3,7 @@
  *
  * 架构位置：
  * - React hooks/application 层通过这里调用 Go/PocketBase 自定义 API。
- * - Renewlet 产品 session token 通过 Authorization header 发送给登录后 API。
+ * - Renewlet 产品 session 由 HttpOnly cookie 承载，unsafe 请求自动附带 CSRF header。
  *
  * 请求/校验流转：
  * ```mermaid
@@ -22,10 +22,14 @@
  * 注意： 无 body 请求不声明 JSON content-type；FormData 请求也不能手动设置，否则浏览器不会自动补 multipart boundary。
  * 注意： 不要恢复 `apiFetch<T>` 式的纯类型断言；本文件是前端拒绝异常 API 响应的唯一运行时边界。
  */
-import { getAuthHeader } from "@/lib/pocketbase";
 import { clearAuthSession } from "@/lib/auth-session";
 import { getApiLocale, getLocaleHeaders } from "@/i18n/api-locale";
 import { translate } from "@/i18n/messages";
+import {
+  getProductCsrfHeader,
+  readProductSessionSnapshot,
+  type ProductSessionSnapshot,
+} from "@/services/product-session";
 import type { ApiSuccessResponse } from "@renewlet/shared/schemas/api";
 import { apiErrorResponseSchema } from "@renewlet/shared/schemas/errors";
 import { z } from "zod";
@@ -278,8 +282,8 @@ function getErrorDetails(payload: unknown): unknown {
   return parseApiErrorPayload(payload)?.details;
 }
 
-function shouldClearAuthSession(status: number, payload: unknown, authMode: ApiAuthMode, tokenSnapshot: string | null): tokenSnapshot is string {
-  if (authMode !== "required" || !tokenSnapshot) return false;
+function shouldClearAuthSession(status: number, payload: unknown, authMode: ApiAuthMode, sessionSnapshot: ProductSessionSnapshot | null): boolean {
+  if (authMode !== "required" || !sessionSnapshot) return false;
   if (status !== 401) return false;
   const code = getErrorCode(payload);
   // 模型列表代理会透传 provider 401；它是业务错误，只展示，不应清 Renewlet 登录态。
@@ -295,15 +299,13 @@ function getClientTimeZoneHeader(): string | null {
   }
 }
 
-function bearerTokenFromHeaders(headers: Headers): string | null {
-  const value = headers.get("authorization")?.trim() ?? "";
-  const match = /^Bearer\s+(.+)$/i.exec(value);
-  return match?.[1]?.trim() || null;
+function isUnsafeMethod(method: string | undefined): boolean {
+  return !["GET", "HEAD", "OPTIONS"].includes((method ?? "GET").toUpperCase());
 }
 
-function buildApiHeaders(headersInit: HeadersInit | undefined, body: BodyInit | null | undefined, authMode: ApiAuthMode): {
+function buildApiHeaders(headersInit: HeadersInit | undefined, body: BodyInit | null | undefined, method: string | undefined, authMode: ApiAuthMode): {
   headers: Headers;
-  tokenSnapshot: string | null;
+  sessionSnapshot: ProductSessionSnapshot | null;
 } {
   const headers = new Headers(headersInit);
   const isFormDataBody = typeof FormData !== "undefined" && body instanceof FormData;
@@ -319,21 +321,27 @@ function buildApiHeaders(headersInit: HeadersInit | undefined, body: BodyInit | 
   for (const [key, value] of Object.entries(getLocaleHeaders())) {
     if (!headers.has(key)) headers.set(key, value);
   }
+  headers.delete("authorization");
   if (authMode === "none") {
-    headers.delete("authorization");
-    return { headers, tokenSnapshot: null };
+    if (isUnsafeMethod(method)) {
+      for (const [key, value] of Object.entries(getProductCsrfHeader())) {
+        if (!headers.has(key)) headers.set(key, value);
+      }
+    }
+    return { headers, sessionSnapshot: null };
   }
-  // 清 session 必须绑定“请求发出时实际携带的 token”；认证前/旧请求不能清掉刚写入的新会话。
-  for (const [key, value] of Object.entries(getAuthHeader())) {
-    if (!headers.has(key)) headers.set(key, value);
+  if (isUnsafeMethod(method)) {
+    for (const [key, value] of Object.entries(getProductCsrfHeader())) {
+      if (!headers.has(key)) headers.set(key, value);
+    }
   }
-  return { headers, tokenSnapshot: bearerTokenFromHeaders(headers) };
+  return { headers, sessionSnapshot: readProductSessionSnapshot() };
 }
 
 async function fetchWithApiBoundary(input: RequestInfo, init?: ApiFetchInit): Promise<{
   abort: ReturnType<typeof createAbortSignal>;
   authMode: ApiAuthMode;
-  tokenSnapshot: string | null;
+  sessionSnapshot: ProductSessionSnapshot | null;
   response: Response;
 }> {
   const {
@@ -343,7 +351,7 @@ async function fetchWithApiBoundary(input: RequestInfo, init?: ApiFetchInit): Pr
     authMode = "required",
     ...fetchInit
   } = init ?? {};
-  const { headers, tokenSnapshot } = buildApiHeaders(fetchInit.headers, fetchInit.body ?? null, authMode);
+  const { headers, sessionSnapshot } = buildApiHeaders(fetchInit.headers, fetchInit.body ?? null, fetchInit.method, authMode);
   const abort = createAbortSignal(externalSignal, timeoutMs);
   try {
     const requestInit: RequestInit = {
@@ -353,7 +361,7 @@ async function fetchWithApiBoundary(input: RequestInfo, init?: ApiFetchInit): Pr
       ...(abort.signal ? { signal: abort.signal } : {}),
     };
     const response = await fetch(input, requestInit);
-    return { abort, authMode, tokenSnapshot, response };
+    return { abort, authMode, sessionSnapshot, response };
   } catch (e: unknown) {
     abort.cleanup();
     if (abort.didTimeout()) {
@@ -371,7 +379,7 @@ async function fetchWithApiBoundary(input: RequestInfo, init?: ApiFetchInit): Pr
  *
  * 约定：
  * - 有普通 body 时自动加 JSON content-type；无 body 和 FormData 保持浏览器默认边界
- * - 自动携带 Cookie 和当前运行面的 Bearer token
+ * - 自动携带 Cookie，unsafe 请求附带 CSRF header
  * - 非 2xx 时抛出 `ApiError`
  * - 2xx 响应必须通过调用方传入的 Zod schema，否则抛出 `ApiError`
  */
@@ -380,15 +388,15 @@ export async function apiFetch<Schema extends ApiSuccessResponseSchema>(
   responseSchema: Schema,
   init?: ApiFetchInit,
 ): Promise<ApiSuccessData<Schema>> {
-  const { abort, authMode, tokenSnapshot, response: res } = await fetchWithApiBoundary(input, init);
+  const { abort, authMode, sessionSnapshot, response: res } = await fetchWithApiBoundary(input, init);
   try {
     const payload = await readResponsePayload(res);
     const json = payload.json;
 
     if (!res.ok) {
       const message = getErrorMessage(json) || res.statusText || "Request failed";
-      if (shouldClearAuthSession(res.status, json, authMode, tokenSnapshot)) {
-        clearAuthSession(tokenSnapshot);
+      if (shouldClearAuthSession(res.status, json, authMode, sessionSnapshot)) {
+        clearAuthSession(sessionSnapshot);
       }
       throw new ApiError(message, res.status, getErrorDetails(json), getErrorCode(json), payload.text);
     }
@@ -415,14 +423,14 @@ export async function apiFetch<Schema extends ApiSuccessResponseSchema>(
 
 /** 二进制下载也复用 API 认证/错误边界；调用方只接收已经通过 HTTP ok 校验的 Blob。 */
 export async function apiFetchBlob(input: RequestInfo, init?: ApiFetchInit): Promise<Blob> {
-  const { abort, authMode, tokenSnapshot, response } = await fetchWithApiBoundary(input, init);
+  const { abort, authMode, sessionSnapshot, response } = await fetchWithApiBoundary(input, init);
   try {
     if (!response.ok) {
       const payload = await readResponsePayload(response);
       const json = payload.json;
       const message = getErrorMessage(json) || response.statusText || "Request failed";
-      if (shouldClearAuthSession(response.status, json, authMode, tokenSnapshot)) {
-        clearAuthSession(tokenSnapshot);
+      if (shouldClearAuthSession(response.status, json, authMode, sessionSnapshot)) {
+        clearAuthSession(sessionSnapshot);
       }
       throw new ApiError(message, response.status, getErrorDetails(json), getErrorCode(json), payload.text);
     }
@@ -437,7 +445,7 @@ export async function apiFetchStream<T>(
   init: ApiFetchInit,
   consume: (response: Response) => Promise<T>,
 ): Promise<T> {
-  const { abort, authMode, tokenSnapshot, response } = await fetchWithApiBoundary(input, init);
+  const { abort, authMode, sessionSnapshot, response } = await fetchWithApiBoundary(input, init);
   abort.clearTimeout();
   // 流式 API 的首包和后续 chunk 是两类风险：拿到响应头后只保留 idle watchdog，避免真实 SSE 仍在推进时被总时长计时器误杀。
   const idleWatchdog = createStreamIdleWatchdog(abort, init.streamIdleTimeoutMs);
@@ -446,8 +454,8 @@ export async function apiFetchStream<T>(
       const payload = await readResponsePayload(response);
       const json = payload.json;
       const message = getErrorMessage(json) || response.statusText || "Request failed";
-      if (shouldClearAuthSession(response.status, json, authMode, tokenSnapshot)) {
-        clearAuthSession(tokenSnapshot);
+      if (shouldClearAuthSession(response.status, json, authMode, sessionSnapshot)) {
+        clearAuthSession(sessionSnapshot);
       }
       throw new ApiError(message, response.status, getErrorDetails(json), getErrorCode(json), payload.text);
     }

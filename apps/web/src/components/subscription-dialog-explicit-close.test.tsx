@@ -57,7 +57,7 @@ function makeSubscription(overrides: Partial<Subscription> = {}): Subscription {
     id: "sub-1",
     name: "Critical SaaS",
     logo: undefined,
-    price: 50,
+    price: "50",
     currency: "CNY",
     billingCycle: "monthly",
     customDays: undefined,
@@ -125,8 +125,8 @@ describe("SubscriptionDialog explicit close", () => {
               enabled: true,
               splitMode: "custom",
               members: [
-                { id: "partner", name: "伴侣", currency: "CNY", customAmount: 10 },
-                { id: "friend", name: "朋友", currency: "CNY", customAmount: 10 },
+                { id: "partner", name: "伴侣", currency: "CNY", customAmount: "10" },
+                { id: "friend", name: "朋友", currency: "CNY", customAmount: "10" },
               ],
             },
           })}

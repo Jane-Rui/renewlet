@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  exchangeRateSnapshotV1Schema,
   exchangeRateProviderSchema,
   floatRatesResponseSchema,
   frankfurterRatesResponseSchema,
@@ -45,6 +46,52 @@ describe("exchange-rate schemas", () => {
           date: "Thu, 30 Jul 2026 07:55:15 GMT",
         },
       }).success).toBe(false);
+    }
+  });
+
+  it("accepts locked report exchange-rate snapshots", () => {
+    const parsed = exchangeRateSnapshotV1Schema.parse({
+      schemaVersion: 1,
+      month: "2026-08",
+      base: "USD",
+      rates: { USD: 1, CNY: 7.12, EUR: 0.91 },
+      requestedProvider: "frankfurter",
+      provider: "floatrates",
+      sourceDate: "2026-08-05",
+      capturedAt: "2026-08-06T01:02:03.000Z",
+      warning: {
+        kind: "partial",
+        provider: "floatrates",
+        missingCurrencies: ["CNY"],
+        fillSources: { CNY: "exchange-api" },
+      },
+    });
+
+    expect(parsed.month).toBe("2026-08");
+    expect(parsed.rates["USD"]).toBe(1);
+  });
+
+  it("rejects unsafe report exchange-rate snapshots", () => {
+    const base = {
+      schemaVersion: 1,
+      month: "2026-08",
+      base: "USD",
+      rates: { USD: 1, CNY: 7.12 },
+      requestedProvider: "frankfurter",
+      provider: "frankfurter",
+      sourceDate: "2026-08-05",
+      capturedAt: "2026-08-06T01:02:03.000Z",
+    };
+
+    for (const patch of [
+      { month: "2026-13" },
+      { base: "EUR" },
+      { rates: { USD: 0.99, CNY: 7.12 } },
+      { rates: { USD: 1, CNY: 0 } },
+      { provider: "builtin" },
+      { requestedProvider: "builtin" },
+    ]) {
+      expect(exchangeRateSnapshotV1Schema.safeParse({ ...base, ...patch }).success).toBe(false);
     }
   });
 });

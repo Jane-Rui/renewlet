@@ -97,8 +97,8 @@ func TestImportApplyReplacesCurrentUserRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 1 || rows[0].GetFloat("price") != 99 {
-		t.Fatalf("expected one replaced record with price 99, got rows=%d price=%v", len(rows), rows[0].GetFloat("price"))
+	if len(rows) != 1 || rows[0].GetString("price") != "99" {
+		t.Fatalf("expected one replaced record with price 99, got rows=%d price=%q", len(rows), rows[0].GetString("price"))
 	}
 }
 
@@ -158,8 +158,8 @@ func TestImportApplyMatchesRenewletSourceIdToCurrentRecordId(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 1 || rows[0].Id != existing.Id || rows[0].GetFloat("price") != 88 {
-		t.Fatalf("expected existing record replaced by id, got rows=%d id=%q price=%v", len(rows), rows[0].Id, rows[0].GetFloat("price"))
+	if len(rows) != 1 || rows[0].Id != existing.Id || rows[0].GetString("price") != "88" {
+		t.Fatalf("expected existing record replaced by id, got rows=%d id=%q price=%q", len(rows), rows[0].Id, rows[0].GetString("price"))
 	}
 }
 
@@ -238,7 +238,7 @@ func TestImportApplyDefaultsMissingAutoRenewToManualButPreservesExplicitTrue(t *
 	}
 	foundExplicitAuto := false
 	for _, row := range rows {
-		if row.GetFloat("price") == 13 {
+		if row.GetString("price") == "13" {
 			foundExplicitAuto = row.GetBool("autoRenew")
 		}
 	}
@@ -561,7 +561,7 @@ func importSubscriptionBody(source string, sourceID string, confidence string, p
 	return map[string]interface{}{
 		"name":                         "GitHub",
 		"logo":                         nil,
-		"price":                        price,
+		"price":                        fmt.Sprintf("%d", price),
 		"currency":                     "USD",
 		"billingCycle":                 "monthly",
 		"customDays":                   nil,

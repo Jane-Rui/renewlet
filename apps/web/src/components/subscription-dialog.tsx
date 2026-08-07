@@ -27,7 +27,7 @@ import {
   getTagsValidationError,
   normalizeTagsArray,
   parseTagsInput,
-  parseNonNegativeFiniteNumberInput,
+  parseMoneyInput,
   parseNonNegativeIntegerInput,
   parseReminderDaysInput,
   parsePositiveIntegerInput,
@@ -200,7 +200,7 @@ export function SubscriptionDialog(props: SubscriptionDialogProps) {
     const errors: SubscriptionFormErrors = {};
 
     if (!nextFormData.name.trim()) errors.name = t("subscription.validation.nameRequired");
-    if (parseNonNegativeFiniteNumberInput(nextFormData.price) === null) {
+    if (parseMoneyInput(nextFormData.price) === null) {
       errors.price = t("subscription.validation.amountInvalid");
     }
     const dateValidationKind = getSubscriptionDateValidationKind(nextFormData);
@@ -229,7 +229,7 @@ export function SubscriptionDialog(props: SubscriptionDialogProps) {
       errors.website = t("subscription.validation.websiteInvalid");
     }
     if (nextFormData.costSharing?.enabled) {
-      const price = parseNonNegativeFiniteNumberInput(nextFormData.price);
+      const price = parseMoneyInput(nextFormData.price);
       if (
         price === null ||
         nextFormData.costSharing.members.length === 0 ||
@@ -448,7 +448,7 @@ type CostSharingMemberDialogProps = {
   formData: SubscriptionFormState;
   update: <K extends keyof SubscriptionFormState>(key: K, value: SubscriptionFormState[K]) => void;
   currencyOptions: ReturnType<typeof createCurrencySelectOptions>;
-  currencyConvert?: ((amount: number, fromCurrency: string, toCurrency: string) => number) | undefined;
+  currencyConvert?: ((amount: number | string, fromCurrency: string, toCurrency: string) => number) | undefined;
   manageMembersButtonRef: RefObject<HTMLButtonElement | null>;
   initialMemberNameInputRef: RefObject<HTMLInputElement | null>;
   title: string;

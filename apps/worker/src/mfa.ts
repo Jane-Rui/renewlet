@@ -16,13 +16,24 @@ import {
   type PasskeyWebAuthnOptionsResponse,
   type SessionResponse,
 } from "@renewlet/shared/schemas/auth";
-import { successJson, type AppLocale } from "./http";
+import { type AppLocale } from "./http";
 import { serverText } from "./server-i18n";
 import { newId, nowIso } from "./db";
 import { randomToken, sha256 } from "./crypto";
 import { requestOrigin } from "./request-origin";
-import { accountSecurityKeyRing } from "./account-security-key";
 import { withAccountSecuritySchema } from "./account-security-schema";
+import {
+  base64Url,
+  decryptMfaSecret,
+  encryptMfaSecret,
+  fromBase64Url,
+  mfaTextEncoder,
+  mfaTicketHash,
+  passkeyChallengeHash,
+  recoveryCodeHash,
+  sessionTtlDays,
+  timingSafeEqual,
+} from "./mfa-crypto";
 import type {
   Env,
   MfaAuthTicketRow,
@@ -41,11 +52,24 @@ const MFA_TICKET_MAX_ATTEMPTS = 5;
 const MFA_TOTP_PERIOD_SECONDS = 30;
 const MFA_TOTP_ALLOWED_SKEW = 1;
 const MFA_RECOVERY_CODE_COUNT = 10;
-const DEFAULT_SESSION_TTL_DAYS = 30;
 
 interface AccountSecuritySessionRenewal {
-  response: SessionResponse;
+  session: IssuedSessionResponse;
   statements: D1PreparedStatement[];
+}
+
+export interface IssuedSessionResponse {
+  response: SessionResponse;
+  sessionToken: string;
+  csrfToken: string;
+  expiresAt: string;
+}
+
+export interface IssuedMfaRecoveryCodesResponse {
+  response: MfaRecoveryCodesResponse;
+  sessionToken: string;
+  csrfToken: string;
+  expiresAt: string;
 }
 
 export async function authenticatorMfaMethodsForUser(env: Env, userId: string): Promise<AuthenticatorMfaMethod[]> {
@@ -151,11 +175,11 @@ async function startTotpSetupUnsafe(env: Env, user: UserRow) {
   };
 }
 
-export async function enableTotp(env: Env, user: UserRow, setupId: string, code: string): Promise<MfaRecoveryCodesResponse> {
+export async function enableTotp(env: Env, user: UserRow, setupId: string, code: string): Promise<IssuedMfaRecoveryCodesResponse> {
   return await withAccountSecuritySchema(env, async () => await enableTotpUnsafe(env, user, setupId, code));
 }
 
-async function enableTotpUnsafe(env: Env, user: UserRow, setupId: string, code: string): Promise<MfaRecoveryCodesResponse> {
+async function enableTotpUnsafe(env: Env, user: UserRow, setupId: string, code: string): Promise<IssuedMfaRecoveryCodesResponse> {
   const ticket = await mfaTicketByToken(env, setupId);
   if (!ticket || ticket.user_id !== user.id || !ticketMethods(ticket).includes("totp_setup")) {
     throw new Error("invalid MFA setup");
@@ -164,7 +188,7 @@ async function enableTotpUnsafe(env: Env, user: UserRow, setupId: string, code: 
   if (!(await validateTotp(secret, code, -1)).ok) {
     throw new Error("invalid MFA setup code");
   }
-  // 启用 TOTP 是账号安全边界切换：替换 seed/恢复码后续签当前浏览器 session，旧 bearer 和其它设备一起失效。
+  // 启用 TOTP 是账号安全边界切换：替换 seed/恢复码后续签当前浏览器 session，旧 cookie session 和其它设备一起失效。
   const timestamp = nowIso();
   const recoveryCodes = newRecoveryCodes();
   const renewal = await prepareAccountSecuritySessionRenewal(env, user);
@@ -184,14 +208,14 @@ async function enableTotpUnsafe(env: Env, user: UserRow, setupId: string, code: 
     ...recoveryStatements,
     ...renewal.statements,
   ]);
-  return { ...renewal.response, recoveryCodes };
+  return issuedRecoveryCodesResponse(renewal.session, recoveryCodes);
 }
 
-export async function regenerateRecoveryCodes(env: Env, user: UserRow): Promise<MfaRecoveryCodesResponse> {
+export async function regenerateRecoveryCodes(env: Env, user: UserRow): Promise<IssuedMfaRecoveryCodesResponse> {
   return await withAccountSecuritySchema(env, async () => await regenerateRecoveryCodesUnsafe(env, user));
 }
 
-async function regenerateRecoveryCodesUnsafe(env: Env, user: UserRow): Promise<MfaRecoveryCodesResponse> {
+async function regenerateRecoveryCodesUnsafe(env: Env, user: UserRow): Promise<IssuedMfaRecoveryCodesResponse> {
   const timestamp = nowIso();
   const recoveryCodes = newRecoveryCodes();
   const renewal = await prepareAccountSecuritySessionRenewal(env, user);
@@ -207,14 +231,14 @@ async function regenerateRecoveryCodesUnsafe(env: Env, user: UserRow): Promise<M
     ...statements,
     ...renewal.statements,
   ]);
-  return { ...renewal.response, recoveryCodes };
+  return issuedRecoveryCodesResponse(renewal.session, recoveryCodes);
 }
 
-export async function disableAuthenticatorMfaForCurrentUser(env: Env, user: UserRow): Promise<SessionResponse> {
+export async function disableAuthenticatorMfaForCurrentUser(env: Env, user: UserRow): Promise<IssuedSessionResponse> {
   return await withAccountSecuritySchema(env, async () => await disableAuthenticatorMfaForCurrentUserUnsafe(env, user));
 }
 
-async function disableAuthenticatorMfaForCurrentUserUnsafe(env: Env, user: UserRow): Promise<SessionResponse> {
+async function disableAuthenticatorMfaForCurrentUserUnsafe(env: Env, user: UserRow): Promise<IssuedSessionResponse> {
   const renewal = await prepareAccountSecuritySessionRenewal(env, user);
   // 自助关闭认证器只移除 TOTP/恢复码；通行密钥仍是独立登录方式，但旧 session 必须被新 session 取代。
   await env.DB.batch([
@@ -222,7 +246,7 @@ async function disableAuthenticatorMfaForCurrentUserUnsafe(env: Env, user: UserR
     env.DB.prepare("DELETE FROM mfa_recovery_codes WHERE user_id = ?").bind(user.id),
     ...renewal.statements,
   ]);
-  return renewal.response;
+  return renewal.session;
 }
 
 export async function disableAuthenticatorMfaForUser(env: Env, userId: string): Promise<void> {
@@ -269,7 +293,7 @@ async function startPasskeyRegistrationUnsafe(env: Env, request: Request, user: 
   const options = await generateRegistrationOptions({
     rpName: "Renewlet",
     rpID,
-    userID: textEncoder.encode(user.id),
+    userID: mfaTextEncoder.encode(user.id),
     userName: user.email,
     userDisplayName: user.name || user.email,
     attestationType: "none",
@@ -302,7 +326,7 @@ export async function finishPasskeyRegistration(
   challengeId: string,
   name: string,
   response: unknown,
-): Promise<SessionResponse> {
+): Promise<IssuedSessionResponse> {
   return await withAccountSecuritySchema(env, async () => await finishPasskeyRegistrationUnsafe(env, request, user, challengeId, name, response));
 }
 
@@ -313,7 +337,7 @@ async function finishPasskeyRegistrationUnsafe(
   challengeId: string,
   name: string,
   response: unknown,
-): Promise<SessionResponse> {
+): Promise<IssuedSessionResponse> {
   const challenge = await webAuthnChallengeByToken(env, challengeId, "registration");
   if (!challenge || challenge.user_id !== user.id) throw new Error("invalid WebAuthn challenge");
   const { origin, rpID } = webAuthnRuntime(request);
@@ -349,7 +373,7 @@ async function finishPasskeyRegistrationUnsafe(
     env.DB.prepare("DELETE FROM passkey_challenges WHERE id = ?").bind(challenge.id),
     ...renewal.statements,
   ]);
-  return renewal.response;
+  return renewal.session;
 }
 
 export async function startPasskeyAuthentication(env: Env, request: Request): Promise<PasskeyWebAuthnOptionsResponse> {
@@ -381,7 +405,7 @@ export async function finishPasskeyAuthentication(
   request: Request,
   challengeId: string,
   response: unknown,
-): Promise<SessionResponse> {
+): Promise<IssuedSessionResponse> {
   return await withAccountSecuritySchema(env, async () => await finishPasskeyAuthenticationUnsafe(env, request, challengeId, response));
 }
 
@@ -390,7 +414,7 @@ async function finishPasskeyAuthenticationUnsafe(
   request: Request,
   challengeId: string,
   response: unknown,
-): Promise<SessionResponse> {
+): Promise<IssuedSessionResponse> {
   const challenge = await webAuthnChallengeByToken(env, challengeId, "authentication");
   if (!challenge) throw new Error("invalid WebAuthn challenge");
   const { origin, rpID } = webAuthnRuntime(request);
@@ -432,11 +456,11 @@ async function finishPasskeyAuthenticationUnsafe(
   return await createSessionResponse(env, user);
 }
 
-export async function deletePasskeyForCurrentUser(env: Env, user: UserRow, passkeyId: string): Promise<SessionResponse> {
+export async function deletePasskeyForCurrentUser(env: Env, user: UserRow, passkeyId: string): Promise<IssuedSessionResponse> {
   return await withAccountSecuritySchema(env, async () => await deletePasskeyForCurrentUserUnsafe(env, user, passkeyId));
 }
 
-async function deletePasskeyForCurrentUserUnsafe(env: Env, user: UserRow, passkeyId: string): Promise<SessionResponse> {
+async function deletePasskeyForCurrentUserUnsafe(env: Env, user: UserRow, passkeyId: string): Promise<IssuedSessionResponse> {
   const credential = await env.DB.prepare("SELECT id FROM passkey_credentials WHERE id = ? AND user_id = ? LIMIT 1")
     .bind(passkeyId, user.id)
     .first<{ id: string }>();
@@ -448,14 +472,14 @@ async function deletePasskeyForCurrentUserUnsafe(env: Env, user: UserRow, passke
     env.DB.prepare("DELETE FROM passkey_challenges WHERE user_id = ?").bind(user.id),
     ...renewal.statements,
   ]);
-  return renewal.response;
+  return renewal.session;
 }
 
-export async function verifyMfaLogin(env: Env, body: MfaVerifyBody, locale: AppLocale): Promise<Response> {
+export async function verifyMfaLogin(env: Env, body: MfaVerifyBody, locale: AppLocale): Promise<IssuedSessionResponse> {
   return await withAccountSecuritySchema(env, async () => await verifyMfaLoginUnsafe(env, body, locale));
 }
 
-async function verifyMfaLoginUnsafe(env: Env, body: MfaVerifyBody, locale: AppLocale): Promise<Response> {
+async function verifyMfaLoginUnsafe(env: Env, body: MfaVerifyBody, locale: AppLocale): Promise<IssuedSessionResponse> {
   const ticket = await mfaTicketByToken(env, body.ticketId);
   if (!ticket || ticket.attempts >= MFA_TICKET_MAX_ATTEMPTS || !ticketMethods(ticket).includes(body.method)) {
     if (ticket) await registerFailedMfaAttempt(env, ticket);
@@ -479,7 +503,7 @@ async function verifyMfaLoginUnsafe(env: Env, body: MfaVerifyBody, locale: AppLo
   }
   // MFA ticket 成功后单次消费；session 重新签发，前端只持有新的产品 token。
   await env.DB.prepare("DELETE FROM mfa_auth_tickets WHERE id = ?").bind(ticket.id).run();
-  return successJson(await createSessionResponse(env, user));
+  return await createSessionResponse(env, user);
 }
 
 async function consumeTotp(env: Env, userId: string, code: string): Promise<boolean> {
@@ -542,37 +566,57 @@ async function registerFailedMfaAttempt(env: Env, ticket: MfaAuthTicketRow): Pro
 
 async function prepareAccountSecuritySessionRenewal(env: Env, user: UserRow): Promise<AccountSecuritySessionRenewal> {
   const token = randomToken();
+  const csrfToken = randomToken();
   const timestamp = nowIso();
   const expiresAt = new Date(Date.now() + sessionTtlDays(env) * 24 * 60 * 60 * 1000).toISOString();
   const sessionId = newId("ses");
-  const response = sessionResponsePayload(token, user, expiresAt);
-  // D1 batch 会按事务执行：先插入新 session，再用 id<>new 删除旧 bearer，避免成功响应拿到已失效 token。
+  const session = issuedSessionResponse(token, csrfToken, user, expiresAt);
+  // D1 batch 会按事务执行：先插入新 session，再用 id<>new 删除旧 cookie session，避免成功响应拿到已失效 token。
   const statements = [
     env.DB.prepare(`
-      INSERT INTO sessions (id, token_hash, user_id, expires_at, created_at, last_seen_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).bind(sessionId, await sha256(token), user.id, expiresAt, timestamp, timestamp),
+      INSERT INTO sessions (id, token_hash, csrf_token_hash, user_id, expires_at, created_at, last_seen_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).bind(sessionId, await sha256(token), await sha256(csrfToken), user.id, expiresAt, timestamp, timestamp),
     env.DB.prepare("DELETE FROM sessions WHERE user_id = ? AND id <> ?").bind(user.id, sessionId),
     env.DB.prepare("DELETE FROM mfa_auth_tickets WHERE user_id = ?").bind(user.id),
   ];
-  return { response, statements };
+  return { session, statements };
 }
 
-async function createSessionResponse(env: Env, user: UserRow): Promise<SessionResponse> {
+async function createSessionResponse(env: Env, user: UserRow): Promise<IssuedSessionResponse> {
   const token = randomToken();
+  const csrfToken = randomToken();
   const timestamp = nowIso();
   const expiresAt = new Date(Date.now() + sessionTtlDays(env) * 24 * 60 * 60 * 1000).toISOString();
   await env.DB.prepare(`
-    INSERT INTO sessions (id, token_hash, user_id, expires_at, created_at, last_seen_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).bind(newId("ses"), await sha256(token), user.id, expiresAt, timestamp, timestamp).run();
-  return sessionResponsePayload(token, user, expiresAt);
+    INSERT INTO sessions (id, token_hash, csrf_token_hash, user_id, expires_at, created_at, last_seen_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).bind(newId("ses"), await sha256(token), await sha256(csrfToken), user.id, expiresAt, timestamp, timestamp).run();
+  return issuedSessionResponse(token, csrfToken, user, expiresAt);
 }
 
-function sessionResponsePayload(token: string, user: UserRow, expiresAt: string): SessionResponse {
+function issuedSessionResponse(token: string, csrfToken: string, user: UserRow, expiresAt: string): IssuedSessionResponse {
+  return {
+    response: sessionResponsePayload(user, expiresAt),
+    sessionToken: token,
+    csrfToken,
+    expiresAt,
+  };
+}
+
+function issuedRecoveryCodesResponse(session: IssuedSessionResponse, recoveryCodes: string[]): IssuedMfaRecoveryCodesResponse {
+  return {
+    response: { ...session.response, recoveryCodes },
+    sessionToken: session.sessionToken,
+    csrfToken: session.csrfToken,
+    expiresAt: session.expiresAt,
+  };
+}
+
+function sessionResponsePayload(user: UserRow, expiresAt: string): SessionResponse {
   return {
     type: "session",
-    session: { id: token, expiresAt },
+    session: { expiresAt },
     user: {
       id: user.id,
       email: user.email,
@@ -703,80 +747,3 @@ function newRecoveryCodes(): string[] {
     return `${secret.slice(0, 4)}-${secret.slice(4, 8)}-${secret.slice(8, 12)}`;
   });
 }
-
-async function encryptMfaSecret(env: Env, plaintext: string): Promise<string> {
-  const key = await aesGcmKey(env);
-  const nonce = crypto.getRandomValues(new Uint8Array(12));
-  const ciphertext = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce }, key, textEncoder.encode(plaintext)));
-  return `v1.${base64Url(nonce)}.${base64Url(ciphertext)}`;
-}
-
-async function decryptMfaSecret(env: Env, value: string): Promise<string> {
-  const [version, nonceText, ciphertextText] = value.split(".");
-  if (version !== "v1" || !nonceText || !ciphertextText) throw new Error("invalid MFA ciphertext");
-  const key = await aesGcmKey(env);
-  const plaintext = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: fromBase64Url(nonceText) },
-    key,
-    fromBase64Url(ciphertextText),
-  );
-  return textDecoder.decode(plaintext);
-}
-
-async function aesGcmKey(env: Env): Promise<CryptoKey> {
-  return (await accountSecurityKeyRing(env)).totpSeed;
-}
-
-async function recoveryCodeHash(env: Env, code: string): Promise<string> {
-  return hmacSha256((await accountSecurityKeyRing(env)).recoveryCode, "renewlet:mfa:recovery:v1:", normalizeRecoveryCode(code));
-}
-
-async function mfaTicketHash(env: Env, token: string): Promise<string> {
-  return hmacSha256((await accountSecurityKeyRing(env)).mfaTicket, "renewlet:mfa:ticket:v1:", token);
-}
-
-async function passkeyChallengeHash(env: Env, token: string): Promise<string> {
-  return hmacSha256((await accountSecurityKeyRing(env)).passkeyChallenge, "renewlet:passkey:challenge:v1:", token);
-}
-
-async function hmacSha256(key: CryptoKey, prefix: string, input: string): Promise<string> {
-  const signature = await crypto.subtle.sign("HMAC", key, textEncoder.encode(prefix + input));
-  return base64Url(new Uint8Array(signature));
-}
-
-function normalizeRecoveryCode(code: string): string {
-  return code.trim().toUpperCase().replaceAll("-", "").replaceAll(" ", "");
-}
-
-function timingSafeEqual(left: string, right: string): boolean {
-  const leftBytes = textEncoder.encode(left);
-  const rightBytes = textEncoder.encode(right);
-  if (leftBytes.length !== rightBytes.length) return false;
-  let diff = 0;
-  for (let index = 0; index < leftBytes.length; index += 1) {
-    diff |= (leftBytes[index] ?? 0) ^ (rightBytes[index] ?? 0);
-  }
-  return diff === 0;
-}
-
-function sessionTtlDays(env: Env): number {
-  const value = Number.parseInt(env.SESSION_TTL_DAYS ?? "", 10);
-  return Number.isInteger(value) && value > 0 ? value : DEFAULT_SESSION_TTL_DAYS;
-}
-
-function base64Url(data: Uint8Array): string {
-  let binary = "";
-  for (const byte of data) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
-}
-
-function fromBase64Url(input: string): ArrayBuffer {
-  const normalized = input.replaceAll("-", "+").replaceAll("_", "/").padEnd(Math.ceil(input.length / 4) * 4, "=");
-  const binary = atob(normalized);
-  const data = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) data[index] = binary.charCodeAt(index);
-  return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
-}
-
-const textEncoder = new TextEncoder();
-const textDecoder = new TextDecoder();

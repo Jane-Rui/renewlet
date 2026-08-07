@@ -2,7 +2,7 @@
  * 统计分析页（/statistics）。
  *
  * 功能：
- * - 月度/年度支出汇总（使用实时汇率换算到默认币种）
+ * - 月度/年度支出汇总（使用当前月报表汇率口径换算到默认币种）
  * - 预算使用情况（与 Settings 中 monthlyBudget 对齐）
  * - 分类分布 / 支付方式分布图表
  *
@@ -10,7 +10,7 @@
  * - 统计聚合由 `useStatisticsModel` 完成。
  * - 页面只负责图表/卡片渲染和汇率刷新入口。
  *
- * 注意： 统计口径依赖订阅 domain 类型、Settings.defaultCurrency 和 USD base 汇率；
+ * 注意： 统计口径依赖订阅 domain 类型、Settings.defaultCurrency 和 USD base 月度快照；
  * 修改其中任一处都要同步首页统计、SpendingChart 和导出逻辑。
  */
 
@@ -25,7 +25,8 @@ import { StatisticsTrendChart } from '@/components/statistics-trend-chart';
 import { PieChart, Pie, Cell, Tooltip as RechartsTooltip } from 'recharts';
 import { CircleHelp, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useExchangeRates } from '@/hooks/use-exchange-rates';
+import { useReportExchangeRates } from '@/hooks/use-report-exchange-rates';
+import { moneyToNumber } from "@renewlet/shared/money";
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -35,6 +36,7 @@ import { useCustomConfig } from '@/contexts/CustomConfigContext';
 import { useStatisticsModel } from '@/modules/subscriptions/application/use-statistics-model';
 import { useSubscriptionCrud } from '@/modules/subscriptions/application/use-subscription-crud';
 import { collectSubscriptionTags } from '@/modules/subscriptions/domain/subscription-filters';
+import { resolveSubscriptionPriceReferenceCurrency } from '@/modules/subscriptions/domain/subscription-price-reference';
 import { useI18n } from '@/i18n/I18nProvider';
 import { useDeferredDialogCleanup } from '@/hooks/use-deferred-dialog-cleanup';
 import { todayDateOnlyInTimeZone } from '@/lib/time/date-only';
@@ -136,15 +138,18 @@ const Statistics = () => {
   const settingsQuery = useSettings();
   const settings = settingsQuery.data;
   const { config } = useCustomConfig();
-  const monthlyBudget = settings?.monthlyBudget ?? 0;
+  const monthlyBudget = settings?.monthlyBudget ?? "0";
+  const monthlyBudgetAmount = moneyToNumber(monthlyBudget);
   const defaultCurrency = settings?.defaultCurrency ?? "CNY";
+  const priceReferenceCurrency = settings ? resolveSubscriptionPriceReferenceCurrency(settings) : null;
   const timeZone = settings?.timezone ?? "UTC";
   const { locale, t, formatCurrency, formatDateTime, formatNumber } = useI18n();
   const [personalCostBasis, setPersonalCostBasis] = useState(false);
   const [detailSubscriptionId, setDetailSubscriptionId] = useState<string | null>(null);
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
 
-  const { convert, loading: ratesLoading, refresh: refreshRates, lastUpdated, error: ratesError } = useExchangeRates(settings?.exchangeRateProvider);
+  const { convert, loading: ratesLoading, refresh: refreshRates, lastUpdated, error: ratesError, sourceDate: ratesSourceDate } = useReportExchangeRates(settings?.exchangeRateProvider);
+  const currencyRatesReady = Boolean(ratesSourceDate) && !ratesLoading;
   const stats = useStatisticsModel(subscriptions, config, monthlyBudget, defaultCurrency, convert, timeZone, locale, personalCostBasis ? "personal" : "total");
   const {
     editingSubscription,
@@ -431,7 +436,7 @@ const Statistics = () => {
               {renderDonutChart(stats.budgetChartData, "currency", t("statistics.costBudget"))}
               <div className="mt-4 flex flex-col justify-center gap-4 min-[380px]:flex-row min-[380px]:gap-8">
                 <div className="text-center">
-                  <p className="text-2xl font-bold text-foreground">{formatCurrency(Math.min(stats.totalMonthly, monthlyBudget), defaultCurrency)}</p>
+                  <p className="text-2xl font-bold text-foreground">{formatCurrency(Math.min(stats.totalMonthly, monthlyBudgetAmount), defaultCurrency)}</p>
                   <p className="text-xs text-muted-foreground">{t("statistics.budgetUsed")}</p>
                 </div>
                 <div className="text-center">
@@ -458,6 +463,9 @@ const Statistics = () => {
         onEditSubscription={handleEditFromDetail}
         onRenewSubscription={handleRenewSubscription}
         today={today}
+        currencyConvert={convert}
+        currencyRatesReady={currencyRatesReady}
+        priceReferenceCurrency={priceReferenceCurrency}
       />
     </div>
   );

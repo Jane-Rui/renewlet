@@ -8,7 +8,7 @@ describe("buildRenewalCalendarEvent", () => {
       subscription: {
         id: "sub_1",
         name: "Fastmail",
-        price: 5,
+        price: "5",
         currency: "USD",
         billingCycle: "monthly",
         category: "Productivity",

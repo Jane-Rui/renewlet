@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { COST_SHARING_SPLIT_MODES, costSharingCustomAmountsAreValid } from "../cost-sharing";
+import { moneyStringSchema } from "../money";
 import { apiSuccessResponseSchema } from "./api";
 import { okResponseSchema } from "./common";
 import {
@@ -89,7 +90,7 @@ const costSharingMemberSchema = z.object({
   name: z.string().trim().min(1).max(80),
   note: z.string().trim().max(500).optional(),
   currency: z.string().trim().regex(/^[A-Z]{3}$/).optional(),
-  customAmount: z.number().finite().nonnegative().max(1_000_000_000).optional(),
+  customAmount: moneyStringSchema.optional(),
 }).strict();
 export const costSharingSchema = z.object({
   enabled: z.boolean(),
@@ -147,7 +148,7 @@ function startDateRequirementIsSatisfied(value: {
 const subscriptionWriteBodyShape = {
   name: z.string().trim().min(1).max(120),
   logo: optionalLogoReferenceSchema,
-  price: z.number().finite().nonnegative().max(1_000_000_000),
+  price: moneyStringSchema,
   currency: z.string().trim().regex(/^[A-Z]{3}$/),
   billingCycle: z.enum(BILLING_CYCLES),
   customDays: z.number().int().positive().nullable().optional(),
@@ -214,7 +215,7 @@ export const apiSubscriptionSchema = z.object({
   id: z.string(),
   name: z.string(),
   logo: logoReferenceSchema.optional(),
-  price: z.number(),
+  price: moneyStringSchema,
   currency: z.string(),
   billingCycle: z.enum(BILLING_CYCLES),
   customDays: z.number().int().optional(),

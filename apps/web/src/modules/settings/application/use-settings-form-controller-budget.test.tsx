@@ -61,14 +61,15 @@ vi.mock("@/hooks/use-setup-status", () => ({
   useSetupStatus: () => mocks.appStatus,
 }));
 
-vi.mock("@/hooks/use-exchange-rates", () => ({
-  useExchangeRates: () => ({
+vi.mock("@/hooks/use-report-exchange-rates", () => ({
+  useReportExchangeRates: () => ({
     rates: {},
     activeProvider: "floatrates",
     loading: false,
     lastUpdated: null,
     refresh: mocks.refreshRates,
     error: null,
+    reportBasisStatus: { month: "2026-08", locked: true, sourceDate: "2026-08-01", capturedAt: "2026-08-06T00:00:00Z" },
     getCurrencySymbol: () => "¥",
   }),
 }));
@@ -255,14 +256,14 @@ describe("useSettingsFormController monthly budget input", () => {
       result.current.handleMonthlyBudgetInputChange("0");
     });
     expect(result.current.monthlyBudgetInput).toBe("0");
-    expect(result.current.settings.monthlyBudget).toBe(0);
+    expect(result.current.settings.monthlyBudget).toBe("0");
     expect(result.current.monthlyBudgetError).toBeNull();
 
     act(() => {
       result.current.handleMonthlyBudgetInputChange("1000.5");
     });
     expect(result.current.monthlyBudgetInput).toBe("1000.5");
-    expect(result.current.settings.monthlyBudget).toBe(1000.5);
+    expect(result.current.settings.monthlyBudget).toBe("1000.5");
     expect(result.current.monthlyBudgetError).toBeNull();
   });
 
@@ -302,11 +303,11 @@ describe("useSettingsFormController monthly budget input", () => {
   it("syncs monthly budget input from remote settings while the form is clean", async () => {
     const { result, rerender } = renderHook(() => useSettingsFormController());
 
-    mocks.remoteSettings = { ...BASE_SETTINGS, monthlyBudget: 2500 };
+    mocks.remoteSettings = { ...BASE_SETTINGS, monthlyBudget: "2500" };
     rerender();
 
     await waitFor(() => {
-      expect(result.current.settings.monthlyBudget).toBe(2500);
+      expect(result.current.settings.monthlyBudget).toBe("2500");
     });
     expect(result.current.monthlyBudgetInput).toBe("2500");
     expect(result.current.hasUnsavedChanges).toBe(false);

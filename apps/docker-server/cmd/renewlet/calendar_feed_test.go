@@ -27,7 +27,7 @@ func TestCalendarFeedLifecycleAndICSRoute(t *testing.T) {
 	createCalendarFeedTestCustomConfig(t, app, user.Id)
 	createCalendarFeedTestSubscription(t, app, user.Id, calendarFeedTestSubscription{
 		Name:            "Active Plan",
-		Price:           12.5,
+		Price:           "12.5",
 		BillingCycle:    "monthly",
 		Category:        "developer_tools",
 		Status:          "active",
@@ -164,7 +164,7 @@ func TestSubscriptionCalendarFeedLifecycleAndICSRoute(t *testing.T) {
 	})
 	paused := createCalendarFeedTestSubscription(t, app, user.Id, calendarFeedTestSubscription{
 		Name:            "Paused Plan",
-		Price:           9,
+		Price:           "9",
 		BillingCycle:    "monthly",
 		Category:        "developer_tools",
 		Status:          "paused",
@@ -272,7 +272,7 @@ func TestSubscriptionCalendarICSDownload(t *testing.T) {
 	createCalendarFeedTestCustomConfig(t, app, user.Id)
 	paused := createCalendarFeedTestSubscription(t, app, user.Id, calendarFeedTestSubscription{
 		Name:            "Paused Plan",
-		Price:           9,
+		Price:           "9",
 		BillingCycle:    "monthly",
 		Category:        "developer_tools",
 		Status:          "paused",
@@ -400,7 +400,7 @@ func TestCalendarFeedUsesBuiltInLabelsWhenCustomConfigIsMissing(t *testing.T) {
 	createCalendarFeedTestSettings(t, app, user, settings)
 	createCalendarFeedTestSubscription(t, app, user.Id, calendarFeedTestSubscription{
 		Name:            "Sentry Team",
-		Price:           26,
+		Price:           "26",
 		BillingCycle:    "monthly",
 		Category:        "developer_tools",
 		Status:          "active",
@@ -446,7 +446,7 @@ func TestCalendarFeedDescribesCustomCycleUnit(t *testing.T) {
 	createCalendarFeedTestSettings(t, app, user, settings)
 	createCalendarFeedTestSubscription(t, app, user.Id, calendarFeedTestSubscription{
 		Name:            "Three Year Plan",
-		Price:           360,
+		Price:           "360",
 		BillingCycle:    "custom",
 		CustomDays:      3,
 		CustomCycleUnit: "year",
@@ -487,7 +487,7 @@ func TestCalendarFeedUsesBuiltInLabelsWhenCustomConfigMissesEntry(t *testing.T) 
 	})
 	createCalendarFeedTestSubscription(t, app, user.Id, calendarFeedTestSubscription{
 		Name:            "Missing Config Plan",
-		Price:           26,
+		Price:           "26",
 		BillingCycle:    "monthly",
 		Category:        "developer_tools",
 		Status:          "active",
@@ -534,7 +534,7 @@ func TestCalendarFeedPreservesUnknownConfigValues(t *testing.T) {
 	createCalendarFeedTestSettings(t, app, user, settings)
 	createCalendarFeedTestSubscription(t, app, user.Id, calendarFeedTestSubscription{
 		Name:            "Unknown Plan",
-		Price:           7,
+		Price:           "7",
 		BillingCycle:    "monthly",
 		Category:        "internal_ops",
 		Status:          "active",
@@ -586,7 +586,7 @@ func TestCalendarFeedLabelResolverIgnoresEmptyCustomLabels(t *testing.T) {
 
 type calendarFeedTestSubscription struct {
 	Name             string
-	Price            float64
+	Price            string
 	Currency         string
 	BillingCycle     string
 	CustomDays       int
@@ -663,7 +663,7 @@ func createCalendarFeedTestSubscription(t *testing.T, app core.App, userID strin
 	record := core.NewRecord(collection)
 	record.Set("user", userID)
 	record.Set("name", fallbackString(input.Name, "Calendar Plan"))
-	record.Set("price", input.Price)
+	record.Set("price", fallbackString(input.Price, "12"))
 	record.Set("currency", fallbackString(input.Currency, "USD"))
 	record.Set("billingCycle", fallbackString(input.BillingCycle, "monthly"))
 	record.Set("customDays", input.CustomDays)

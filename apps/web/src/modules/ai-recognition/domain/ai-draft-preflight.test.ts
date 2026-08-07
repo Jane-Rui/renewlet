@@ -5,7 +5,7 @@ import { getAIDraftBlockingIssues, hasAIDraftBlockingIssues } from "./ai-draft-p
 function draft(overrides: Partial<AiRecognizedSubscriptionDraft> = {}): AiRecognizedSubscriptionDraft {
   return {
     name: "Service",
-    price: 12,
+    price: "12",
     currency: "USD",
     billingCycle: "monthly",
     customDays: null,

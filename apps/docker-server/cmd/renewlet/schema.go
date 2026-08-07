@@ -8,14 +8,12 @@ package main
 //
 // 注意： 字段重命名、索引唯一性和枚举收窄都会影响既有数据，必须按破坏性迁移处理。
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/mail"
-	"os"
 	"strings"
-	"time"
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
@@ -31,9 +29,38 @@ const (
 	subscriptionCleanupPageSize  = 500
 )
 
-// ensureSchema 创建/修正 PocketBase collection schema。
-// 注意： 修改字段名会影响前端 schema、record hooks 和历史数据迁移，必须作为破坏性迁移处理。
+var schemaAutodateCollections = []string{
+	"subscriptions",
+	"subscription_scheduler_states",
+	"settings",
+	"custom_configs",
+	"exchange_rate_snapshots",
+	"assets",
+	"notification_jobs",
+	"calendar_feeds",
+	"public_status_pages",
+	"api_tokens",
+	"app_sessions",
+	"mfa_totp_credentials",
+	"mfa_recovery_codes",
+	"mfa_auth_tickets",
+	"passkey_credentials",
+	"passkey_challenges",
+	"telegram_bot_bindings",
+	"cloud_backup_targets",
+	"media_icon_indexes",
+}
+
+// ensureSchema 收敛 PocketBase schema，并只通过内部迁移账本执行一次性历史数据修复。
+// 启动热路径可以反复调用它；全表 backfill 必须挂在 runSchemaDataMigrations 后面，不能混进 collection 保存逻辑。
 func ensureSchema(app core.App) error {
+	if err := ensureCollectionsSchema(app); err != nil {
+		return err
+	}
+	return runSchemaDataMigrations(app)
+}
+
+func ensureCollectionsSchema(app core.App) error {
 	users, err := app.FindCollectionByNameOrId("users")
 	if err != nil {
 		return err
@@ -41,35 +68,29 @@ func ensureSchema(app core.App) error {
 	if err := configureAppSettings(app); err != nil {
 		return err
 	}
-	users.CreateRule = nil
-	ownerRule := "id = @request.auth.id && @request.auth.banned = false"
-	users.ListRule = types.Pointer(ownerRule)
-	users.ViewRule = types.Pointer(ownerRule)
-	users.UpdateRule = types.Pointer(ownerRule)
-	users.DeleteRule = types.Pointer(ownerRule)
-	if err := upsertField(users, &core.TextField{Name: "role", Max: 32}); err != nil {
-		return err
-	}
-	if err := upsertField(users, &core.BoolField{Name: "banned"}); err != nil {
-		return err
-	}
-	if err := upsertField(users, &core.TextField{Name: "banReason", Max: 500}); err != nil {
-		return err
-	}
-	if err := app.Save(users); err != nil {
+	if err := ensureUsersCollectionSchema(app, users); err != nil {
 		return err
 	}
 
+	if err := migrateLegacySubscriptionPriceNumberField(app); err != nil {
+		return err
+	}
 	if err := ensureSubscriptionsCollection(app, users); err != nil {
 		return err
 	}
 	if err := ensureSubscriptionSchedulerStatesCollection(app, users); err != nil {
 		return err
 	}
+	if err := ensureSubscriptionDerivedTables(app); err != nil {
+		return err
+	}
 	if err := ensureSettingsCollection(app, users); err != nil {
 		return err
 	}
 	if err := ensureCustomConfigsCollection(app, users); err != nil {
+		return err
+	}
+	if err := ensureExchangeRateSnapshotsCollection(app, users); err != nil {
 		return err
 	}
 	if err := ensureAssetsCollection(app, users); err != nil {
@@ -96,64 +117,30 @@ func ensureSchema(app core.App) error {
 	if err := ensureCloudBackupTargetsCollection(app, users); err != nil {
 		return err
 	}
-	if err := ensureMediaIconIndexesCollection(app); err != nil {
-		return err
-	}
-	if err := migrateLegacyCloudBackupConfigs(app); err != nil {
-		return err
-	}
-	if err := backfillAutodates(app, "subscriptions", "subscription_scheduler_states", "settings", "custom_configs", "assets", "notification_jobs", "calendar_feeds", "public_status_pages", "api_tokens", "app_sessions", "mfa_totp_credentials", "mfa_recovery_codes", "mfa_auth_tickets", "passkey_credentials", "passkey_challenges", "telegram_bot_bindings", "cloud_backup_targets", "media_icon_indexes"); err != nil {
-		return err
-	}
-	if err := backfillSubscriptionSchedulerStates(app); err != nil {
-		return err
-	}
-	if err := deleteLegacyHashOnlyCalendarFeeds(app); err != nil {
-		return err
-	}
-	if err := migrateCostSharingCurrentUserPayerShape(app); err != nil {
-		return err
-	}
-	return cleanupInvalidSubscriptionLogos(app)
+	return ensureMediaIconIndexesCollection(app)
 }
 
-func configureAppSettings(app core.App) error {
-	settings := app.Settings()
-	settings.Meta.AppName = envString("APP_NAME", "Renewlet")
-	if appURL := strings.TrimSpace(os.Getenv("APP_URL")); appURL != "" {
-		settings.Meta.AppURL = appURL
+func ensureUsersCollectionSchema(app core.App, users *core.Collection) error {
+	before, err := collectionSchemaSnapshot(users)
+	if err != nil {
+		return err
 	}
-
-	if from := strings.TrimSpace(os.Getenv("SMTP_FROM")); from != "" {
-		if address, err := mail.ParseAddress(from); err == nil {
-			if address.Name != "" {
-				settings.Meta.SenderName = address.Name
-			}
-			settings.Meta.SenderAddress = address.Address
-		}
+	users.CreateRule = nil
+	ownerRule := "id = @request.auth.id && @request.auth.banned = false"
+	users.ListRule = types.Pointer(ownerRule)
+	users.ViewRule = types.Pointer(ownerRule)
+	users.UpdateRule = types.Pointer(ownerRule)
+	users.DeleteRule = types.Pointer(ownerRule)
+	if err := upsertField(users, &core.TextField{Name: "role", Max: 32}); err != nil {
+		return err
 	}
-
-	if smtpHost := strings.TrimSpace(os.Getenv("SMTP_HOST")); smtpHost != "" {
-		settings.SMTP.Enabled = true
-		settings.SMTP.Host = smtpHost
-		settings.SMTP.Port = envInt("SMTP_PORT", 587)
-		settings.SMTP.Username = strings.TrimSpace(os.Getenv("SMTP_USER"))
-		settings.SMTP.Password = os.Getenv("SMTP_PASSWORD")
-		settings.SMTP.TLS = envBool("SMTP_TLS", envBool("SMTP_SECURE", false))
-		settings.SMTP.AuthMethod = strings.TrimSpace(os.Getenv("SMTP_AUTH_METHOD"))
-		if settings.SMTP.AuthMethod == "" {
-			settings.SMTP.AuthMethod = "PLAIN"
-		}
+	if err := upsertField(users, &core.BoolField{Name: "banned"}); err != nil {
+		return err
 	}
-
-	settings.RateLimits.Enabled = true
-
-	if backupCron := strings.TrimSpace(os.Getenv("BACKUPS_CRON")); backupCron != "" {
-		settings.Backups.Cron = backupCron
-		settings.Backups.CronMaxKeep = envInt("BACKUPS_CRON_MAX_KEEP", 3)
+	if err := upsertField(users, &core.TextField{Name: "banReason", Max: 500}); err != nil {
+		return err
 	}
-
-	return app.Save(settings)
+	return saveCollectionIfChanged(app, users, before, false)
 }
 
 func ensureField(collection *core.Collection, field core.Field) error {
@@ -176,12 +163,13 @@ func upsertField(collection *core.Collection, field core.Field) error {
 	return nil
 }
 
-func upsertFieldAllowingTypeReplace(collection *core.Collection, field core.Field, allowedExistingType string) error {
+func upsertTextFieldReplacingLegacyURL(collection *core.Collection, field *core.TextField) error {
 	existing := collection.Fields.GetByName(field.GetName())
 	if existing != nil && existing.Type() != field.Type() {
-		if existing.Type() != allowedExistingType {
+		if existing.Type() != core.FieldTypeURL {
 			return fmt.Errorf("collection %q field %q type mismatch: existing %q, expected %q", collection.Name, field.GetName(), existing.Type(), field.Type())
 		}
+		// URLField 和 TextField 底层同为 TEXT；只允许历史 logo URL 字段走这一条，不把它泛化成任意 type replace。
 		field.SetId(existing.GetId())
 		if existing.GetSystem() {
 			field.SetSystem(true)
@@ -207,63 +195,41 @@ func ensureCollection(app core.App, name string, configure func(*core.Collection
 
 func ensureCollectionWithSave(app core.App, name string, configure func(*core.Collection) (bool, error)) error {
 	collection, err := app.FindCollectionByNameOrId(name)
+	var before []byte
 	if err != nil {
 		collection = core.NewBaseCollection(name)
+	} else {
+		before, err = collectionSchemaSnapshot(collection)
+		if err != nil {
+			return err
+		}
 	}
 	saveWithoutValidation, err := configure(collection)
 	if err != nil {
 		return err
+	}
+	return saveCollectionIfChanged(app, collection, before, saveWithoutValidation)
+}
+
+func collectionSchemaSnapshot(collection *core.Collection) ([]byte, error) {
+	return json.Marshal(collection)
+}
+
+func saveCollectionIfChanged(app core.App, collection *core.Collection, before []byte, saveWithoutValidation bool) error {
+	if before != nil {
+		after, err := collectionSchemaSnapshot(collection)
+		if err != nil {
+			return err
+		}
+		if bytes.Equal(before, after) {
+			return nil
+		}
 	}
 	if saveWithoutValidation {
 		// 少数兼容迁移需要先保存字段形态，再由 hooks/backfill 修复数据，因此允许跳过 collection validation。
 		return app.SaveNoValidate(collection)
 	}
 	return app.Save(collection)
-}
-
-func backfillAutodates(app core.App, names ...string) error {
-	now := time.Now().UTC().Format(time.RFC3339Nano)
-	for _, name := range names {
-		// names 只来自内部常量列表，不接受用户输入；这里用 SQL 是为了一次性补齐旧库的系统时间字段。
-		_, err := app.DB().NewQuery(fmt.Sprintf(
-			"UPDATE `%s` SET `created` = CASE WHEN `created` = '' THEN {:now} ELSE `created` END, `updated` = CASE WHEN `updated` = '' THEN {:now} ELSE `updated` END",
-			name,
-		)).Bind(dbx.Params{"now": now}).Execute()
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func backfillSubscriptionAutoRenew(app core.App) error {
-	// autoRenew 默认关闭；迁移只修正 one-time 约束，不把历史缺省周期订阅解释成自动续订授权。
-	_, err := app.DB().NewQuery(
-		"UPDATE `subscriptions` SET `autoRenew` = 0 WHERE `billingCycle` = 'one-time'",
-	).Execute()
-	return err
-}
-
-func cleanupInvalidSubscriptionLogos(app core.App) error {
-	for offset := 0; ; offset += subscriptionCleanupPageSize {
-		rows, err := app.FindRecordsByFilter("subscriptions", "id != ''", "created", subscriptionCleanupPageSize, offset)
-		if err != nil {
-			return err
-		}
-		for _, record := range rows {
-			if validateOptionalLogoReference(record.GetString("logo")) == nil {
-				continue
-			}
-			// 破坏性切换只清空不再支持的持久化 Logo 形态；HTTP 外链仍是自托管 HTTP 场景的合法值。
-			record.Set("logo", "")
-			if err := app.SaveNoValidate(record); err != nil {
-				return err
-			}
-		}
-		if len(rows) < subscriptionCleanupPageSize {
-			return nil
-		}
-	}
 }
 
 func ownerRules(collection *core.Collection) {
@@ -292,7 +258,6 @@ func ensureSubscriptionsCollection(app core.App, users *core.Collection) error {
 	return ensureCollectionWithSave(app, "subscriptions", func(c *core.Collection) (bool, error) {
 		ownerRules(c)
 		minZero := 0.0
-		maxPrice := float64(maxSubscriptionPrice)
 		maxReminder := float64(maxReminderDays)
 		replaceLegacyLogoURLField := false
 		if existingLogo := c.Fields.GetByName("logo"); existingLogo != nil && existingLogo.Type() == core.FieldTypeURL {
@@ -302,7 +267,7 @@ func ensureSubscriptionsCollection(app core.App, users *core.Collection) error {
 			userRelation(users),
 			&core.TextField{Name: "name", Required: true, Max: 120},
 			&core.TextField{Name: "logo", Max: maxLogoReferenceLength},
-			&core.NumberField{Name: "price", Min: &minZero, Max: &maxPrice},
+			subscriptionPriceTextField(),
 			&core.TextField{Name: "currency", Required: true, Max: 8, Pattern: `^[A-Z]{3}$`},
 			&core.SelectField{Name: "billingCycle", Required: true, Values: []string{"weekly", "monthly", "quarterly", "semi-annual", "annual", "custom", "one-time"}},
 			&core.NumberField{Name: "customDays", OnlyInt: true, Min: &minZero},
@@ -331,7 +296,11 @@ func ensureSubscriptionsCollection(app core.App, users *core.Collection) error {
 		}
 		for _, field := range fields {
 			if field.GetName() == "logo" {
-				if err := upsertFieldAllowingTypeReplace(c, field, core.FieldTypeURL); err != nil {
+				logoField, ok := field.(*core.TextField)
+				if !ok {
+					return false, fmt.Errorf("subscriptions.logo field must be text")
+				}
+				if err := upsertTextFieldReplacingLegacyURL(c, logoField); err != nil {
 					return false, err
 				}
 				continue
@@ -387,10 +356,19 @@ func ensureSubscriptionSchedulerStatesCollection(app core.App, users *core.Colle
 		if err := upsertField(c, &core.TextField{Name: "lastAutoRenewLocalDate", Max: 10, Pattern: `^$|^\d{4}-\d{2}-\d{2}$`}); err != nil {
 			return err
 		}
+		// next* 字段只是 Cron 热路径索引；提醒幂等仍由单用户逻辑和 notification_jobs 唯一键承担。
+		for _, name := range []string{"nextAutoRenewCheckAtUTC", "nextDailyNotificationDueAtUTC", "nextRepeatNotificationDueAtUTC"} {
+			if err := upsertField(c, &core.TextField{Name: name, Max: 40}); err != nil {
+				return err
+			}
+		}
 		if err := ensureAutodates(c); err != nil {
 			return err
 		}
 		c.AddIndex("idx_subscription_scheduler_states_user_unique", true, "user", "")
+		c.AddIndex("idx_subscription_scheduler_states_auto_due", false, "nextAutoRenewCheckAtUTC, user", "")
+		c.AddIndex("idx_subscription_scheduler_states_daily_due", false, "nextDailyNotificationDueAtUTC, user", "")
+		c.AddIndex("idx_subscription_scheduler_states_repeat_due", false, "nextRepeatNotificationDueAtUTC, user", "")
 		return nil
 	})
 }
@@ -427,6 +405,34 @@ func ensureCustomConfigsCollection(app core.App, users *core.Collection) error {
 		}
 		// 自定义配置与 settings 分开存储，避免大 JSON 配置保存失败时污染通知/主题等核心设置。
 		c.AddIndex("idx_custom_configs_user_unique", true, "user", "")
+		return nil
+	})
+}
+
+func ensureExchangeRateSnapshotsCollection(app core.App, users *core.Collection) error {
+	return ensureCollection(app, "exchange_rate_snapshots", func(c *core.Collection) error {
+		ownerRules(c)
+		fields := []core.Field{
+			userRelation(users),
+			&core.TextField{Name: "reportMonth", Required: true, Max: 7, Pattern: `^\d{4}-(0[1-9]|1[0-2])$`},
+			&core.TextField{Name: "base", Required: true, Max: 3, Pattern: `^USD$`},
+			&core.JSONField{Name: "rates", Required: true, MaxSize: 65536},
+			&core.SelectField{Name: "requestedProvider", Required: true, Values: []string{"frankfurter", "floatrates", "exchange-api"}},
+			&core.SelectField{Name: "provider", Required: true, Values: []string{"frankfurter", "floatrates", "exchange-api"}},
+			&core.TextField{Name: "sourceDate", Required: true, Max: 64},
+			&core.TextField{Name: "capturedAt", Required: true, Max: 40},
+			&core.JSONField{Name: "warning", MaxSize: 16384},
+		}
+		for _, field := range fields {
+			if err := upsertField(c, field); err != nil {
+				return err
+			}
+		}
+		if err := ensureAutodates(c); err != nil {
+			return err
+		}
+		// 月度快照是报表折算事实源；唯一键禁止同一用户同一月份出现两套口径。
+		c.AddIndex("idx_exchange_rate_snapshots_user_month_unique", true, "user, reportMonth", "")
 		return nil
 	})
 }
@@ -718,76 +724,4 @@ func deleteLegacyHashOnlyCalendarFeeds(app core.App) error {
 		}
 	}
 	return nil
-}
-
-func migrateCostSharingCurrentUserPayerShape(app core.App) error {
-	for offset := 0; ; offset += subscriptionCleanupPageSize {
-		rows, err := app.FindRecordsByFilter("subscriptions", "id != ''", "created", subscriptionCleanupPageSize, offset)
-		if err != nil {
-			return err
-		}
-		for _, record := range rows {
-			if err := migrateCostSharingCurrentUserPayerRecord(app, record); err != nil {
-				return err
-			}
-		}
-		if len(rows) < subscriptionCleanupPageSize {
-			return nil
-		}
-	}
-}
-
-func migrateCostSharingCurrentUserPayerRecord(app core.App, record *core.Record) error {
-	data, err := jsonBytesFromValue(record.Get("costSharing"))
-	if err != nil {
-		return err
-	}
-	trimmed := strings.TrimSpace(string(data))
-	if trimmed == "" || trimmed == "{}" {
-		return nil
-	}
-	var payload map[string]interface{}
-	if err := json.Unmarshal(data, &payload); err != nil {
-		return nil
-	}
-	changed := false
-	selfMemberID, _ := payload["selfMemberId"].(string)
-	// 旧 PR 形状把“我/付款人/是否参与”写进成员 JSON；新契约固定当前账户付款，成员数组只表示其他人的应收金额。
-	for _, key := range []string{"payerMemberId", "selfMemberId"} {
-		if _, ok := payload[key]; ok {
-			delete(payload, key)
-			changed = true
-		}
-	}
-	if members, ok := payload["members"].([]interface{}); ok {
-		nextMembers := members[:0]
-		for _, item := range members {
-			member, ok := item.(map[string]interface{})
-			if !ok {
-				nextMembers = append(nextMembers, item)
-				continue
-			}
-			if strings.TrimSpace(selfMemberID) != "" && strings.TrimSpace(fmt.Sprint(member["id"])) == strings.TrimSpace(selfMemberID) {
-				changed = true
-				continue
-			}
-			if _, ok := member["included"]; ok {
-				delete(member, "included")
-				changed = true
-			}
-			nextMembers = append(nextMembers, member)
-		}
-		if len(nextMembers) != len(members) {
-			payload["members"] = nextMembers
-		}
-		if len(nextMembers) == 0 {
-			record.Set("costSharing", emptyJSONPayload{})
-			return app.SaveNoValidate(record)
-		}
-	}
-	if !changed {
-		return nil
-	}
-	record.Set("costSharing", payload)
-	return app.SaveNoValidate(record)
 }

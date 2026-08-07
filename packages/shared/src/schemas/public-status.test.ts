@@ -69,7 +69,7 @@ describe("public status schemas", () => {
         startDate: "2026-01-01",
         nextBillingDate: "2026-07-01",
         updatedAt: "2026-06-07T00:00:00.000Z",
-        price: 9.99,
+        price: "9.99",
       }],
     })).success).toBe(false);
   });
@@ -80,6 +80,14 @@ describe("public status schemas", () => {
         title: "Renewlet",
         showPrices: true,
         currency: "USD",
+        exchangeRateBasis: {
+          status: "locked",
+          month: "2026-06",
+          base: "USD",
+          rates: { USD: 1, CNY: 7.1 },
+          sourceDate: "2026-06-06",
+          capturedAt: "2026-06-07T00:00:00.000Z",
+        },
         generatedAt: "2026-06-07T00:00:00.000Z",
         truncated: false,
       },
@@ -90,7 +98,7 @@ describe("public status schemas", () => {
         startDate: "2026-01-01",
         nextBillingDate: "2026-07-01",
         updatedAt: "2026-06-07T00:00:00.000Z",
-        price: 120,
+        price: "120",
         currency: "USD",
         billingCycle: "annual",
       }],
@@ -101,6 +109,17 @@ describe("public status schemas", () => {
         title: "Renewlet",
         showPrices: false,
         currency: "USD",
+        generatedAt: "2026-06-07T00:00:00.000Z",
+        truncated: false,
+      },
+      subscriptions: [],
+    })).success).toBe(false);
+
+    expect(publicStatusResponseSchema.safeParse(success({
+      page: {
+        title: "Renewlet",
+        showPrices: false,
+        exchangeRateBasis: { status: "live", month: "2026-06" },
         generatedAt: "2026-06-07T00:00:00.000Z",
         truncated: false,
       },

@@ -7,7 +7,7 @@ const success = <T>(data: T) => ({ ok: true, data });
 const validSubscriptionCreateBody = {
   name: "Logo Test",
   logo: null,
-  price: 0.83,
+  price: "0.83",
   currency: "CNY",
   billingCycle: "monthly",
   customDays: null,
@@ -192,8 +192,8 @@ describe("subscription API schemas", () => {
       ...equalSharing,
       splitMode: "custom",
       members: [
-        { id: "partner", name: "Partner", customAmount: 0.33 },
-        { id: "child", name: "Child", customAmount: 0.5 },
+        { id: "partner", name: "Partner", customAmount: "0.33" },
+        { id: "child", name: "Child", customAmount: "0.5" },
       ],
     };
 
@@ -246,7 +246,7 @@ describe("subscription API schemas", () => {
         splitMode: "custom",
         members: [
           { id: "partner", name: "Partner" },
-          { id: "child", name: "Child", customAmount: 0.1 },
+          { id: "child", name: "Child", customAmount: "0.1" },
         ],
       },
     }).success).toBe(false);
@@ -256,8 +256,8 @@ describe("subscription API schemas", () => {
         ...baseSharing,
         splitMode: "custom",
         members: [
-          { id: "partner", name: "Partner", customAmount: 0.1 },
-          { id: "child", name: "Child", customAmount: 0.1 },
+          { id: "partner", name: "Partner", customAmount: "0.1" },
+          { id: "child", name: "Child", customAmount: "0.1" },
         ],
       },
     }).success).toBe(true);

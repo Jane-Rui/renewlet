@@ -17,8 +17,8 @@ const costSharing: CostSharing = {
   enabled: true,
   splitMode: "custom",
   members: [
-    { id: "partner", name: "伴侣", currency: "CNY", customAmount: 50 },
-    { id: "friend", name: "朋友", currency: "CNY", customAmount: 30 },
+    { id: "partner", name: "伴侣", currency: "CNY", customAmount: "50" },
+    { id: "friend", name: "朋友", currency: "CNY", customAmount: "30" },
   ],
 };
 

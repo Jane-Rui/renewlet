@@ -1,4 +1,5 @@
 // Worker 云备份工具只处理导出 ZIP 内部形状和 fetch body 兼容，不接触 provider credential。
+// 历史函数名保留为 Logo，但私有资产代理路径同时服务订阅 Logo 和支付方式 Icon。
 export function privateAssetIdFromLogo(value: string | null): string {
   const prefix = "/api/app/assets/";
   return value?.startsWith(prefix) ? value.slice(prefix.length).trim() : "";

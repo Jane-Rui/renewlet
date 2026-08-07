@@ -40,6 +40,7 @@ import {
   readSubscriptionCalendarFeed,
 } from "./calendar-feed";
 import { readCustomConfig, readSettings, updateCustomConfig, updateSettings } from "./settings";
+import { putExchangeRateSnapshot, readExchangeRateSnapshots } from "./exchange-rate-snapshots";
 import { createSubscription, deleteSubscription, readSubscriptions, renewSubscription, updateSubscription } from "./subscriptions";
 import { applyImport, previewImport } from "./import-export";
 import {
@@ -88,7 +89,7 @@ import {
   telegramWebhook,
 } from "./telegram-bot";
 import { systemRestart, systemUpdate, systemVersion } from "./system";
-import { errorResponse, methodNotAllowed, requestLocale, successJson, toResponse, type AppLocale } from "./http";
+import { errorResponse, methodNotAllowed, requestLocale, requireSameOriginUnsafe, successJson, toResponse, type AppLocale } from "./http";
 import { serverText } from "./server-i18n";
 import type { Env } from "./types";
 
@@ -115,6 +116,10 @@ const app = newAppRouter();
 app.use("*", async (context, next) => {
   // locale 必须在全局 middleware 设置，404/405/onError 这类未进入业务 handler 的响应也依赖它。
   context.set("locale", requestLocale(context.req.raw));
+  // CSRF 的同源检查只约束浏览器产品 API；Public API、Telegram、ICS 和 Cron 都有自己的 bearer/secret 边界。
+  if (context.req.path.startsWith("/api/app/")) {
+    requireSameOriginUnsafe(context.req.raw, context.get("locale"));
+  }
   await next();
 });
 
@@ -202,6 +207,13 @@ defineRoute(app, "/api/app/settings", {
 defineRoute(app, "/api/app/custom-config", {
   GET: (context) => readCustomConfig(context.req.raw, context.env),
   PUT: (context) => updateCustomConfig(context.req.raw, context.env),
+});
+
+defineRoute(app, "/api/app/exchange-rate-snapshots", {
+  GET: (context) => readExchangeRateSnapshots(context.req.raw, context.env),
+});
+defineRoute(app, "/api/app/exchange-rate-snapshots/:month", {
+  PUT: (context) => putExchangeRateSnapshot(context.req.raw, context.env, routeParam(context, "month")),
 });
 
 const apiTokenRoutes = newAppRouter();

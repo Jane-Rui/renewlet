@@ -10,7 +10,7 @@ const subscription: Subscription = {
   id: "sub-1",
   name: "Supabase Pro",
   logo: undefined,
-  price: 25,
+  price: "25",
   currency: "USD",
   billingCycle: "monthly",
   customDays: undefined,
@@ -52,6 +52,9 @@ function renderCard() {
           }],
         ])}
         paymentMethodByValue={new Map()}
+        currencyConvert={(amount) => Number(amount)}
+        currencyRatesReady={true}
+        priceReferenceCurrency={null}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
         onClone={vi.fn()}

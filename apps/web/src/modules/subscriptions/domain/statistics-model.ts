@@ -20,6 +20,7 @@ import type { CustomConfig } from "@/types/config";
 import type { Subscription } from "@/types/subscription";
 import { addBillingCycles } from "@renewlet/shared/subscription-renewal";
 import { calculateCostSharingSummary } from "@renewlet/shared/cost-sharing";
+import { moneyToNumber } from "@renewlet/shared/money";
 import { isEffectivelyActiveSubscription, isEffectivelyInactiveSubscription } from "./subscription-status";
 
 /** 统计图表固定色板；保持跨图表颜色稳定，避免同一分类在不同渲染中频繁换色。 */
@@ -67,9 +68,9 @@ interface StatisticsTrendBucket extends StatisticsTrendDatum {
 interface BuildStatisticsModelInput {
   subscriptions: readonly Subscription[];
   config: CustomConfig;
-  monthlyBudget: number;
+  monthlyBudget: string;
   defaultCurrency: string;
-  convert: (amount: number, from: string, to: string) => number;
+  convert: (amount: number | string, from: string, to: string) => number;
   now?: Date;
   timeZone?: string;
   locale?: Locale;
@@ -210,8 +211,8 @@ function buildTrendData(
   activeSubscriptions: readonly Subscription[],
   today: DateOnly,
   locale: Locale,
-  convertToDefault: (price: number, currency: string) => number,
-  amountForStats: (subscription: Subscription) => number,
+  convertToDefault: (amount: number | string, currency: string) => number,
+  amountForStats: (subscription: Subscription) => number | string,
   calculateMonthlyAmount: (subscription: Subscription) => number,
 ): StatisticsTrendDatum[] {
   const buckets = buildTrendBuckets(today, locale);
@@ -252,16 +253,17 @@ export function buildStatisticsModel({
   // 统计页是成本口径入口，必须用有效状态统一 active/trial/expired 的兼容语义，避免图表和列表筛选结果对不上。
   const activeSubscriptions = subscriptions.filter((subscription) => isEffectivelyActiveSubscription(subscription, today));
   const inactiveSubscriptions = subscriptions.filter((subscription) => isEffectivelyInactiveSubscription(subscription, today));
+  const monthlyBudgetAmount = moneyToNumber(monthlyBudget);
 
   // costBasis 是统计页的金额口径开关；一旦选 personal，月均、当月现金流、分类和趋势都必须使用个人份额。
-  const amountForStats = (subscription: Subscription): number =>
+  const amountForStats = (subscription: Subscription): number | string =>
     costBasis === "personal"
       ? calculateCostSharingSummary(subscription.costSharing, subscription.price, {
           baseCurrency: subscription.currency,
           convert,
         }).yourShare
       : subscription.price;
-  const convertToDefault = (price: number, currency: string) => convert(price, currency, defaultCurrency);
+  const convertToDefault = (amount: number | string, currency: string) => convert(amount, currency, defaultCurrency);
   const calculateMonthlyAmount = (subscription: Subscription): number => {
     // 先换算币种再折算周期，保证所有图表都以用户当前统计货币为唯一口径。
     const amountInDefault = convertToDefault(amountForStats(subscription), subscription.currency);
@@ -287,8 +289,8 @@ export function buildStatisticsModel({
   const thisMonthDue = activeSubscriptions
     .filter((subscription) => subscription.billingCycle !== "one-time" && isSameMonthDateOnly(subscription.nextBillingDate, today))
     .reduce((sum, subscription) => sum + convertToDefault(amountForStats(subscription), subscription.currency), 0);
-  const budgetUsedPercent = monthlyBudget > 0 ? (totalMonthly / monthlyBudget) * 100 : 0;
-  const budgetRemaining = monthlyBudget - totalMonthly;
+  const budgetUsedPercent = monthlyBudgetAmount > 0 ? (totalMonthly / monthlyBudgetAmount) * 100 : 0;
+  const budgetRemaining = monthlyBudgetAmount - totalMonthly;
   const inactiveSavings = inactiveSubscriptions.reduce(
     (sum, subscription) => sum + calculateMonthlyAmount(subscription),
     0,
@@ -323,7 +325,7 @@ export function buildStatisticsModel({
   }));
 
   const budgetChartData = [
-    { name: translate(locale, "statistics.budgetUsed"), value: Math.min(totalMonthly, monthlyBudget), color: "hsl(350 75% 55%)" },
+    { name: translate(locale, "statistics.budgetUsed"), value: Math.min(totalMonthly, monthlyBudgetAmount), color: "hsl(350 75% 55%)" },
     { name: translate(locale, "statistics.budgetRemaining"), value: Math.max(budgetRemaining, 0), color: "hsl(200 80% 50%)" },
   ];
   const trendData = buildTrendData(activeSubscriptions, today, locale, convertToDefault, amountForStats, calculateMonthlyAmount);

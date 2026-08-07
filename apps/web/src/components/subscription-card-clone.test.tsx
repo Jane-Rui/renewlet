@@ -10,7 +10,7 @@ const subscription: Subscription = {
   id: "sub-1",
   name: "Fastmail",
   logo: undefined,
-  price: 5,
+  price: "5",
   currency: "USD",
   billingCycle: "monthly",
   customDays: undefined,
@@ -52,6 +52,9 @@ function renderCard(onClone = vi.fn(), onViewDetails = vi.fn()) {
           }],
         ])}
         paymentMethodByValue={new Map()}
+        currencyConvert={(amount) => Number(amount)}
+        currencyRatesReady={true}
+        priceReferenceCurrency={null}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
         onClone={onClone}

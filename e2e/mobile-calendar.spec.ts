@@ -6,7 +6,7 @@ import { uniqueE2EName } from "./support/subscriptions";
 
 type CalendarSubscriptionSeed = {
   name: string;
-  price: number;
+  price: string;
   startDate: string;
   nextBillingDate: string;
   currency?: string;
@@ -42,12 +42,12 @@ test("calendar H5 agenda items stay inside the card container", async ({ page },
 
   await createCalendarSubscriptionRecord(page, {
     name: longName,
-    price: 999_999_999.99,
+    price: "999999999.99",
     ...dates,
   });
   await createCalendarSubscriptionRecord(page, {
     name: uniqueE2EName(testInfo, "CalendarMobileNormal"),
-    price: 16,
+    price: "16",
     currency: "USD",
     ...dates,
   });
@@ -100,13 +100,13 @@ test("calendar H5 day drawer items stay inside the drawer container", async ({ p
 
   await createCalendarSubscriptionRecord(page, {
     name: longName,
-    price: 999_999_999.99,
+    price: "999999999.99",
     currency: "USD",
     ...dates,
   });
   await createCalendarSubscriptionRecord(page, {
     name: uniqueE2EName(testInfo, "CalendarDayDrawerNormal"),
-    price: 16,
+    price: "16",
     currency: "USD",
     ...dates,
   });

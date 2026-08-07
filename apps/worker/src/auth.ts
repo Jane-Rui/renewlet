@@ -21,7 +21,19 @@ import {
 } from "@renewlet/shared/schemas/auth";
 import { appStatusPayloadSchema, passwordResetStatusPayloadSchema, setupStatusPayloadSchema } from "@renewlet/shared/schemas/app";
 import { adminCreateUserBodySchema, adminPatchUserBodySchema, adminUserPayloadSchema, adminUsersPayloadSchema } from "@renewlet/shared/schemas/admin";
-import { bearerToken, HttpError, ok, readJson, requestLocale, successJson, type AppLocale } from "./http";
+import {
+  clearSessionCookies,
+  csrfHeaderToken,
+  HttpError,
+  isUnsafeMethod,
+  ok,
+  readJson,
+  requestLocale,
+  sessionCookieToken,
+  setSessionCookies,
+  successJson,
+  type AppLocale,
+} from "./http";
 import { serverText } from "./server-i18n";
 import {
   enabledAdminCount,
@@ -55,6 +67,8 @@ import {
   startTotpSetup,
   verifyMfaLogin,
   authenticatorMfaMethodsForUser,
+  type IssuedMfaRecoveryCodesResponse,
+  type IssuedSessionResponse,
 } from "./mfa";
 import { isAccountSecuritySchemaError } from "./account-security-schema";
 import { refreshSubscriptionSchedulerState } from "./subscription-scheduler-state";
@@ -115,11 +129,7 @@ export async function createInitialAdmin(request: Request, env: Env): Promise<Re
   return ok(201);
 }
 
-/**
- * login 创建浏览器会话并返回一次性可见的 bearer token。
- *
- * D1 只保存 token hash，后续所有 Worker API 都通过 requireAuth 复核 session、用户状态和过期时间。
- */
+/** login 创建 HttpOnly session cookie；响应体只返回过期时间和用户安全视图。 */
 export async function login(request: Request, env: Env): Promise<Response> {
   const locale = requestLocale(request);
   const body = await readJson(request, loginBodySchema, locale);
@@ -142,49 +152,47 @@ export async function login(request: Request, env: Env): Promise<Response> {
       methods: ticket.methods,
     }));
   }
-  const token = randomToken();
-  const timestamp = nowIso();
-  const expires = new Date(Date.now() + sessionTtlDays(env) * 24 * 60 * 60 * 1000).toISOString();
-  // 明文 token 只返回给浏览器；D1 只保存 hash，数据库泄漏时不能直接接管会话。
-  await env.DB.prepare(`
-    INSERT INTO sessions (id, token_hash, user_id, expires_at, created_at, last_seen_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).bind(newId("ses"), await sha256(token), user.id, expires, timestamp, timestamp).run();
-  return successJson(sessionPayloadSchema.parse(toSessionResponse(token, user, expires)));
+  return sessionSuccessResponse(request, await createIssuedSession(env, user));
 }
 
 /**
  * session 复用 requireAuth 的完整认证检查恢复当前用户。
  *
- * 前端刷新时依赖该端点把本地 token 重新提升为可信用户状态，不能只读 localStorage 里的用户快照。
+ * 前端刷新时依赖该端点用 HttpOnly cookie 恢复可信用户状态，不能只信 localStorage 非密快照。
  */
 export async function session(request: Request, env: Env): Promise<Response> {
   const auth = await requireAuth(request, env);
-  return successJson(sessionPayloadSchema.parse(toSessionResponse(auth.token, auth.user, auth.session.expires_at)));
+  return successJson(sessionPayloadSchema.parse(toSessionResponse(auth.user, auth.session.expires_at)));
 }
 
 /**
- * logout 删除当前 bearer 对应的 D1 session。
+ * logout 删除当前 cookie 对应的 D1 session。
  *
- * 登出保持幂等，便于前端在 token 已失效、跨标签清理或网络重试时统一走同一个清理路径。
+ * 登出保持幂等；有效 session 的 unsafe 请求仍要过 CSRF，避免第三方页面强制用户退出。
  */
 export async function logout(request: Request, env: Env): Promise<Response> {
-  const token = bearerToken(request);
+  const token = sessionCookieToken(request);
   if (token) {
-    // 登出只按 hash 清当前 bearer；没有 token 也保持幂等，避免前端清缓存时被 401 卡住。
-    await env.DB.prepare("DELETE FROM sessions WHERE token_hash = ?").bind(await sha256(token)).run();
+    try {
+      const auth = await requireAuth(request, env);
+      await env.DB.prepare("DELETE FROM sessions WHERE id = ?").bind(auth.session.id).run();
+    } catch (error) {
+      if (!(error instanceof HttpError) || error.status !== 401) throw error;
+      await env.DB.prepare("DELETE FROM sessions WHERE token_hash = ?").bind(await sha256(token)).run();
+    }
   }
-  return ok();
+  return clearSessionCookies(ok(), request);
 }
 
 export async function mfaVerify(request: Request, env: Env): Promise<Response> {
   const locale = requestLocale(request);
   const body = await readJson(request, mfaVerifyBodySchema, locale);
-  return await verifyMfaLogin(env, body, locale).catch((error: unknown) => {
+  const issued = await verifyMfaLogin(env, body, locale).catch((error: unknown) => {
     if (isAccountSecuritySchemaError(error)) throw error;
     // ticket 过期、方法不匹配和 OTP/恢复码错误统一成 401，避免暴露可枚举的认证器状态。
     throw new HttpError(401, serverText(locale, "auth.sessionExpired"));
   });
+  return sessionSuccessResponse(request, issued);
 }
 
 export async function mfaStatus(request: Request, env: Env): Promise<Response> {
@@ -205,11 +213,11 @@ export async function mfaTotpEnable(request: Request, env: Env): Promise<Respons
   if (!(await verifyPassword(body.currentPassword, auth.user.password_hash))) {
     throw new HttpError(400, serverText(locale, "auth.currentPasswordIncorrect"));
   }
-  // 敏感账号安全操作成功后会续签产品 session；前端必须写入新 bearer 后再刷新设置页状态。
+  // 敏感账号安全操作成功后会续签 cookie session；前端只缓存新的非密 session 视图。
   const response = await enableTotp(env, auth.user, body.setupId, body.code).catch(() => {
     throw new HttpError(400, serverText(locale, "common.invalidRequestParameters"));
   });
-  return successJson(mfaRecoveryCodesPayloadSchema.parse(response));
+  return recoveryCodesSuccessResponse(request, response);
 }
 
 export async function mfaRecoveryRegenerate(request: Request, env: Env): Promise<Response> {
@@ -222,9 +230,9 @@ export async function mfaRecoveryRegenerate(request: Request, env: Env): Promise
   if ((await authenticatorMfaMethodsForUser(env, auth.user.id)).length === 0) {
     throw new HttpError(400, serverText(locale, "common.invalidRequestParameters"));
   }
-  // 恢复码明文只在这次响应出现；重新生成同时续签 session，让旧 bearer 和旧恢复码一起失效。
+  // 恢复码明文只在这次响应出现；重新生成同时续签 cookie session，让旧 session 和旧恢复码一起失效。
   const response = await regenerateRecoveryCodes(env, auth.user);
-  return successJson(mfaRecoveryCodesPayloadSchema.parse(response));
+  return recoveryCodesSuccessResponse(request, response);
 }
 
 export async function passkeys(request: Request, env: Env): Promise<Response> {
@@ -253,7 +261,7 @@ export async function passkeyRegisterVerify(request: Request, env: Env): Promise
   const response = await finishPasskeyRegistration(env, request, auth.user, body.challengeId, body.name, body.response).catch(() => {
     throw new HttpError(400, serverText(locale, "common.invalidRequestParameters"));
   });
-  return successJson(sessionPayloadSchema.parse(response));
+  return sessionSuccessResponse(request, response);
 }
 
 export async function passkeyAuthenticateOptions(request: Request, env: Env): Promise<Response> {
@@ -273,7 +281,7 @@ export async function passkeyAuthenticateVerify(request: Request, env: Env): Pro
     if (isAccountSecuritySchemaError(error)) throw error;
     throw new HttpError(401, serverText(locale, "auth.sessionExpired"));
   });
-  return successJson(sessionPayloadSchema.parse(response));
+  return sessionSuccessResponse(request, response);
 }
 
 export async function passkeyDelete(request: Request, env: Env, passkeyId: string): Promise<Response> {
@@ -286,7 +294,7 @@ export async function passkeyDelete(request: Request, env: Env, passkeyId: strin
   const response = await deletePasskeyForCurrentUser(env, auth.user, passkeyId).catch(() => {
     throw new HttpError(400, serverText(locale, "common.invalidRequestParameters"));
   });
-  return successJson(sessionPayloadSchema.parse(response));
+  return sessionSuccessResponse(request, response);
 }
 
 export async function mfaDisable(request: Request, env: Env): Promise<Response> {
@@ -298,7 +306,7 @@ export async function mfaDisable(request: Request, env: Env): Promise<Response> 
   }
   // 关闭 MFA 是敏感账号生命周期操作；自助路径续签当前 session，管理员 reset 才全量踢下线。
   const response = await disableAuthenticatorMfaForCurrentUser(env, auth.user);
-  return successJson(sessionPayloadSchema.parse(response));
+  return sessionSuccessResponse(request, response);
 }
 
 /**
@@ -388,7 +396,7 @@ export async function adminCreateUser(request: Request, env: Env): Promise<Respo
 /**
  * adminPatchUser 更新角色、禁用状态或重置密码。
  *
- * 角色/禁用变更会经过最后管理员保护；禁用账号时同步清 session，避免旧 bearer 在 TTL 内继续可用。
+ * 角色/禁用变更会经过最后管理员保护；禁用账号时同步清 session，避免旧 cookie session 在 TTL 内继续可用。
  */
 export async function adminPatchUser(request: Request, env: Env, userId: string): Promise<Response> {
   const locale = requestLocale(request);
@@ -470,34 +478,37 @@ export async function adminDeleteUser(request: Request, env: Env, userId: string
 /**
  * requireAuth 是 Cloudflare Worker API 的统一认证边界。
  *
- * 它把 bearer token、D1 session、用户启用状态和过期时间收敛在一次检查里，调用方不能自行拼接用户查询。
+ * 它把 cookie token、D1 session、用户启用状态、过期时间和 unsafe CSRF 收敛在一次检查里。
  */
 export async function requireAuth(request: Request, env: Env): Promise<AuthContext> {
   const locale = requestLocale(request);
-  const token = bearerToken(request);
+  const token = sessionCookieToken(request);
   if (!token) throw new HttpError(401, serverText(locale, "auth.loginRequired"));
   // session 与 user 联查是认证边界：过期、被禁用、用户被删都会在同一次检查里失效。
   const tokenHash = await sha256(token);
   const row = await env.DB.prepare(`
     SELECT sessions.id AS session_id, sessions.token_hash AS session_token_hash, sessions.user_id AS session_user_id,
            sessions.expires_at AS session_expires_at, sessions.created_at AS session_created_at,
-           sessions.last_seen_at AS session_last_seen_at, ${USER_COLUMNS_FROM_USERS}
+           sessions.last_seen_at AS session_last_seen_at, sessions.csrf_token_hash AS session_csrf_token_hash, ${USER_COLUMNS_FROM_USERS}
     FROM sessions JOIN users ON users.id = sessions.user_id
     WHERE sessions.token_hash = ? AND sessions.expires_at > ?
     LIMIT 1
   `).bind(tokenHash, nowIso()).first<SessionAuthRow>();
   if (!row || row.banned === 1) throw new HttpError(401, serverText(locale, "auth.sessionExpired"));
+  if (!row.session_csrf_token_hash) throw new HttpError(401, serverText(locale, "auth.sessionExpired"));
+  await validateSessionCsrf(request, row.session_csrf_token_hash, locale);
   const user = rowToUser(row);
   const session = {
     id: row.session_id,
     token_hash: row.session_token_hash,
+    csrf_token_hash: row.session_csrf_token_hash,
     user_id: row.session_user_id,
     expires_at: row.session_expires_at,
     created_at: row.session_created_at,
     last_seen_at: row.session_last_seen_at,
   };
   await touchSessionLastSeenIfStale(env, session.id, session.last_seen_at);
-  return { token, user, session };
+  return { user, session };
 }
 
 /**
@@ -512,11 +523,45 @@ export async function requireAdmin(request: Request, env: Env): Promise<AuthCont
   return auth;
 }
 
-function toSessionResponse(token: string, user: UserRow, expiresAt: string): SessionResponse {
+async function createIssuedSession(env: Env, user: UserRow): Promise<IssuedSessionResponse> {
+  const token = randomToken();
+  const csrfToken = randomToken();
+  const timestamp = nowIso();
+  const expiresAt = new Date(Date.now() + sessionTtlDays(env) * 24 * 60 * 60 * 1000).toISOString();
+  // session token 与 CSRF token 分开保存 hash：前者只在 HttpOnly cookie，后者只证明同站脚本上下文。
+  await env.DB.prepare(`
+    INSERT INTO sessions (id, token_hash, csrf_token_hash, user_id, expires_at, created_at, last_seen_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).bind(newId("ses"), await sha256(token), await sha256(csrfToken), user.id, expiresAt, timestamp, timestamp).run();
+  return {
+    response: toSessionResponse(user, expiresAt),
+    sessionToken: token,
+    csrfToken,
+    expiresAt,
+  };
+}
+
+function sessionSuccessResponse(request: Request, issued: IssuedSessionResponse): Response {
+  return setSessionCookies(successJson(sessionPayloadSchema.parse(issued.response)), request, issued.sessionToken, issued.csrfToken, issued.expiresAt);
+}
+
+function recoveryCodesSuccessResponse(request: Request, issued: IssuedMfaRecoveryCodesResponse): Response {
+  return setSessionCookies(successJson(mfaRecoveryCodesPayloadSchema.parse(issued.response)), request, issued.sessionToken, issued.csrfToken, issued.expiresAt);
+}
+
+async function validateSessionCsrf(request: Request, csrfTokenHash: string, locale: AppLocale): Promise<void> {
+  if (!isUnsafeMethod(request.method)) return;
+  // CSRF header 与非 HttpOnly cookie 同值，只有同站脚本能读取；D1 仍只保存 hash，避免泄漏后直接伪造。
+  const token = csrfHeaderToken(request);
+  if (!token || await sha256(token) !== csrfTokenHash) {
+    throw new HttpError(403, serverText(locale, "auth.sessionExpired"), "CSRF_TOKEN_INVALID");
+  }
+}
+
+function toSessionResponse(user: UserRow, expiresAt: string): SessionResponse {
   return {
     type: "session",
-    // 前端把 session.id 当 Bearer token 保存；不要替换成 D1 session row id。
-    session: { id: token, expiresAt },
+    session: { expiresAt },
     user: {
       id: user.id,
       email: user.email,

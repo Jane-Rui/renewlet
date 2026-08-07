@@ -2,6 +2,7 @@ import { createDefaultAppSettings } from "@renewlet/shared/settings-defaults";
 import type { ApiAppSettings } from "@renewlet/shared/schemas/settings";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runScheduledNotifications } from "./notifications";
+import { listNotificationDueUsers } from "./subscription-scheduler-state";
 import type { Env } from "./types";
 
 vi.mock("./smtp", () => ({
@@ -77,6 +78,23 @@ afterEach(() => {
 });
 
 describe("Cloudflare notification scheduler gate", () => {
+  it("pages past retained due users by excluding users already handled in the same tick", async () => {
+    const queries: FakeD1Query[] = [];
+    const env = fakeEnv((query) => {
+      queries.push(query);
+      if (query.method === "all" && query.sql.includes("FROM subscription_scheduler_state AS scheduler")) {
+        return d1All([{ user_id: "usr_later" }]);
+      }
+      throw new Error(`unexpected ${query.method} query: ${query.sql}`);
+    });
+
+    const users = await listNotificationDueUsers(env, new Date("2026-01-09T08:00:00.000Z"), 1, ["usr_retained"]);
+
+    expect(users).toEqual([{ user_id: "usr_later" }]);
+    expect(queries[0]?.sql).toContain("scheduler.user_id NOT IN (?)");
+    expect(queries[0]?.params).toEqual(["2026-01-09T08:00:00Z", "2026-01-09T08:00:00Z", "usr_retained", 1]);
+  });
+
   it("skips non-due scheduled ticks without subscription candidate scans when repeat gate is empty", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-09T07:00:00.000Z"));

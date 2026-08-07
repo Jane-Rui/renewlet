@@ -2,7 +2,7 @@
  * 支出分布饼图组件（按分类）。
  *
  * 说明：
- * - 使用 `useExchangeRates()` 做实时汇率换算，统一换算到“统计货币”（Settings → defaultCurrency）
+ * - 使用父级传入的报表口径 converter，统一换算到“统计货币”（Settings → defaultCurrency）
  * - 再按扣费周期折算为“月度支出”，用于分类占比展示
  *
  * PERF： Recharts tooltip payload 来自第三方库，保持 unknown 入口并做窄化，避免为了图表库内部结构扩宽全局类型。
@@ -10,10 +10,9 @@
 
 import { PieChart, Pie, Cell, Tooltip } from 'recharts';
 import type { ConfigItem } from '@/types/config';
-import type { AppSettings, Subscription } from '@/types/subscription';
+import type { Subscription } from '@/types/subscription';
 import { RechartsFrame } from '@/components/recharts-frame';
 import { toMonthlyAmount } from '@/lib/subscription-billing';
-import { useExchangeRates } from '@/hooks/use-exchange-rates';
 import { useMemo } from 'react';
 import { useI18n } from '@/i18n/I18nProvider';
 import { todayDateOnlyInTimeZone } from '@/lib/time/date-only';
@@ -25,7 +24,7 @@ interface SpendingChartProps {
   categories: readonly ConfigItem[];
   defaultCurrency: string;
   timeZone: string;
-  exchangeRateProvider: AppSettings["exchangeRateProvider"] | undefined;
+  convert: (amount: number | string, fromCurrency: string, toCurrency: string) => number;
 }
 
 /** 图表回退色板：当某个分类未配置颜色时使用。 */
@@ -72,10 +71,9 @@ function readChartTooltipProps(value: unknown): ChartTooltipProps {
 }
 
 /** 支出分布图（按分类）。 */
-export function SpendingChart({ subscriptions, categories, defaultCurrency, timeZone, exchangeRateProvider }: SpendingChartProps) {
+export function SpendingChart({ subscriptions, categories, defaultCurrency, timeZone, convert }: SpendingChartProps) {
   const { t, label, formatCurrency } = useI18n();
   const today = todayDateOnlyInTimeZone(new Date(), timeZone);
-  const { convert } = useExchangeRates(exchangeRateProvider);
 
   const categoryByValue = useMemo(() => {
     return new Map(categories.map((c) => [c.value, c]));

@@ -149,17 +149,16 @@ export async function runScheduledNotifications(env: Env): Promise<void> {
   for (;;) {
     let users: Array<{ user_id: string }>;
     try {
-      users = await listNotificationDueUsers(env, now, CRON_USER_PAGE_SIZE);
+      // failed/fresh sending 会故意留在 due-index 内；查询时排除本 tick 已处理用户，避免第一页失败用户饿住后续 due 用户。
+      users = await listNotificationDueUsers(env, now, CRON_USER_PAGE_SIZE, [...seenUserIds]);
     } catch (error) {
       logScheduledNotificationError({ phase: "list_due_users", error });
       throw scheduledRuntimeError(error);
     }
-    // 失败/锁竞争会让 due 行保留到下一分钟；本 tick 内去重即可避免同一 Worker 事件反复处理同一用户。
-    const runnable = users.filter((user) => !seenUserIds.has(user.user_id));
-    if (runnable.length === 0) break;
-    for (const user of runnable) seenUserIds.add(user.user_id);
+    if (users.length === 0) break;
+    for (const user of users) seenUserIds.add(user.user_id);
     // Cron 运行在 Worker 平台限额内；分页加固定并发避免一次 tick 把 D1/通知 provider 打满。
-    await runBounded(runnable, CRON_USER_CONCURRENCY, async (user) => {
+    await runBounded(users, CRON_USER_CONCURRENCY, async (user) => {
       try {
         await runScheduledForUser(env, user.user_id, now);
       } catch (error) {
@@ -481,10 +480,8 @@ function repeatReminderHours(interval: string): number {
   return match?.[1] ? Number.parseInt(match[1], 10) : 1;
 }
 
-function formatAmount(amount: number): string {
-  if (!Number.isFinite(amount)) return String(amount);
-  const fixed = amount.toFixed(2);
-  return fixed.replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
+function formatAmount(amount: string): string {
+  return amount;
 }
 
 export function collectNotificationItemsForLocalDate(

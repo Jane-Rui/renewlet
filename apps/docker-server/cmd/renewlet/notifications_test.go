@@ -34,9 +34,9 @@ func TestBuildDueNotificationForLocalDate(t *testing.T) {
 	settings.Timezone = "Asia/Shanghai"
 
 	message := buildDueNotificationForLocalDate("2026-05-14", time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC), settings, []notificationSubscription{
-		{ID: "renewal", Name: "Renewal", Price: 18, Currency: "CNY", Status: "active", NextBillingDate: "2026-05-17", ReminderDays: 3},
-		{ID: "trial", Name: "Trial", Price: 9.9, Currency: "USD", Status: "trial", NextBillingDate: "2026-06-01", TrialEndDate: "2026-05-15", ReminderDays: 1},
-		{ID: "expired", Name: "Expired", Price: 12, Currency: "EUR", Status: "active", NextBillingDate: "2026-05-01", ReminderDays: 7},
+		{ID: "renewal", Name: "Renewal", Price: "18", Currency: "CNY", Status: "active", NextBillingDate: "2026-05-17", ReminderDays: 3},
+		{ID: "trial", Name: "Trial", Price: "9.9", Currency: "USD", Status: "trial", NextBillingDate: "2026-06-01", TrialEndDate: "2026-05-15", ReminderDays: 1},
+		{ID: "expired", Name: "Expired", Price: "12", Currency: "EUR", Status: "active", NextBillingDate: "2026-05-01", ReminderDays: 7},
 	}, true)
 
 	if !message.HasPayload {
@@ -56,7 +56,7 @@ func TestBuildDueNotificationSkipsOneTimePurchases(t *testing.T) {
 	settings.Timezone = "Asia/Shanghai"
 
 	message := buildDueNotificationForLocalDate("2026-05-14", time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC), settings, []notificationSubscription{
-		{ID: "one-time", Name: "Lifetime", Price: 199, Currency: "USD", Status: "active", BillingCycle: "one-time", NextBillingDate: "2026-05-14", TrialEndDate: "2026-05-14", ReminderDays: 0},
+		{ID: "one-time", Name: "Lifetime", Price: "199", Currency: "USD", Status: "active", BillingCycle: "one-time", NextBillingDate: "2026-05-14", TrialEndDate: "2026-05-14", ReminderDays: 0},
 	}, true)
 
 	if message.HasPayload || len(message.Items) != 0 {
@@ -71,7 +71,7 @@ func TestBuildDueNotificationCreatesOneTimeFixedTermExpiry(t *testing.T) {
 	settings.Timezone = "Asia/Shanghai"
 
 	message := buildDueNotificationForLocalDate("2026-05-14", time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC), settings, []notificationSubscription{
-		{ID: "fixed-term", Name: "Fixed Term", Price: 120, Currency: "USD", Status: "active", BillingCycle: "one-time", OneTimeTermCount: 6, OneTimeTermUnit: "month", NextBillingDate: "2026-05-17", ReminderDays: 3},
+		{ID: "fixed-term", Name: "Fixed Term", Price: "120", Currency: "USD", Status: "active", BillingCycle: "one-time", OneTimeTermCount: 6, OneTimeTermUnit: "month", NextBillingDate: "2026-05-17", ReminderDays: 3},
 	}, true)
 
 	if !message.HasPayload || len(message.Items) != 1 {
@@ -91,7 +91,7 @@ func TestBuildDueNotificationUsesEnglishLocale(t *testing.T) {
 	settings.Timezone = "UTC"
 
 	message := buildDueNotificationForLocalDate("2026-05-14", time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC), settings, []notificationSubscription{
-		{ID: "renewal", Name: "Renewal", Price: 18, Currency: "USD", Status: "active", NextBillingDate: "2026-05-17", ReminderDays: 3},
+		{ID: "renewal", Name: "Renewal", Price: "18", Currency: "USD", Status: "active", NextBillingDate: "2026-05-17", ReminderDays: 3},
 	}, true)
 
 	if message.Title != "Renewlet subscription reminder" {
@@ -108,7 +108,7 @@ func TestBuildDueNotificationUsesGlobalReminderForInheritedSubscription(t *testi
 	settings.NotificationReminderDays = 5
 
 	message := buildDueNotificationForLocalDate("2026-05-12", time.Date(2026, 5, 12, 1, 2, 3, 0, time.UTC), settings, []notificationSubscription{
-		{ID: "inherit", Name: "Inherited", Price: 18, Currency: "USD", Status: "active", NextBillingDate: "2026-05-17", ReminderDays: inheritReminderDays},
+		{ID: "inherit", Name: "Inherited", Price: "18", Currency: "USD", Status: "active", NextBillingDate: "2026-05-17", ReminderDays: inheritReminderDays},
 	}, true)
 
 	if !message.HasPayload || len(message.Items) != 1 {
@@ -124,7 +124,7 @@ func TestBuildDueNotificationSkipsDisabledReminderSubscription(t *testing.T) {
 	settings.Timezone = "UTC"
 
 	message := buildDueNotificationForLocalDate("2026-05-14", time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC), settings, []notificationSubscription{
-		{ID: "quiet", Name: "Quiet", Price: 18, Currency: "USD", Status: "active", NextBillingDate: "2026-05-14", ReminderDays: disabledReminderDays},
+		{ID: "quiet", Name: "Quiet", Price: "18", Currency: "USD", Status: "active", NextBillingDate: "2026-05-14", ReminderDays: disabledReminderDays},
 	}, true)
 
 	if message.HasPayload || len(message.Items) != 0 {
@@ -140,7 +140,7 @@ func TestRepeatReminderScheduleBuildsRepeatItem(t *testing.T) {
 	subscriptions := []notificationSubscription{{
 		ID:                     "critical",
 		Name:                   "Critical SaaS",
-		Price:                  99,
+		Price:                  "99",
 		Currency:               "USD",
 		Status:                 "active",
 		NextBillingDate:        "2026-05-17",
@@ -178,7 +178,7 @@ func TestRepeatReminderScheduleSkipsDisabledReminderSubscription(t *testing.T) {
 	subscriptions := []notificationSubscription{{
 		ID:                     "quiet",
 		Name:                   "Quiet SaaS",
-		Price:                  99,
+		Price:                  "99",
 		Currency:               "USD",
 		Status:                 "active",
 		NextBillingDate:        "2026-05-17",
@@ -214,7 +214,7 @@ func TestRepeatReminderScheduleUsesGlobalReminderForInheritedSubscription(t *tes
 	subscriptions := []notificationSubscription{{
 		ID:                     "critical",
 		Name:                   "Critical SaaS",
-		Price:                  99,
+		Price:                  "99",
 		Currency:               "USD",
 		Status:                 "active",
 		NextBillingDate:        "2026-05-17",
@@ -283,7 +283,7 @@ func TestRegularAndRepeatReminderItemsShareOneSchedule(t *testing.T) {
 		{
 			ID:                     "repeat",
 			Name:                   "Repeat",
-			Price:                  10,
+			Price:                  "10",
 			Currency:               "USD",
 			Status:                 "active",
 			NextBillingDate:        "2026-05-17",
@@ -295,7 +295,7 @@ func TestRegularAndRepeatReminderItemsShareOneSchedule(t *testing.T) {
 		{
 			ID:              "regular",
 			Name:            "Regular",
-			Price:           20,
+			Price:           "20",
 			Currency:        "USD",
 			Status:          "active",
 			NextBillingDate: "2026-05-18",
@@ -410,15 +410,17 @@ func TestNotificationCronNonDueDoesNotCreateJobOrRenewSubscriptions(t *testing.T
 	for i := 0; i < 20; i++ {
 		createRouteTestSubscription(t, app, user.Id, map[string]interface{}{"name": "Unrelated " + strconv.Itoa(i), "nextBillingDate": "2026-08-01", "repeatReminderEnabled": false})
 	}
+	now := time.Date(2026, 5, 14, 7, 0, 0, 0, time.UTC)
+	refreshNotificationSchedulerForTest(t, app, user.Id, now)
 
 	result, err := runNotificationCron(app, notificationCronOptions{
-		Now:           time.Date(2026, 5, 14, 7, 0, 0, 0, time.UTC),
+		Now:           now,
 		WindowMinutes: 2,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Processed != 1 || result.Skipped != 1 || result.Results[0].Action != "skipped" {
+	if result.Processed != 0 || result.Skipped != 0 || len(result.Results) != 0 {
 		t.Fatalf("unexpected non-due cron result: %#v", result)
 	}
 	jobs, err := app.FindAllRecords("notification_jobs")
@@ -472,8 +474,10 @@ func TestRepeatReminderCronCreatesOneIdempotentJob(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	now := time.Date(2026, 5, 14, 9, 0, 0, 0, time.UTC)
+	refreshNotificationSchedulerForTest(t, app, user.Id, now)
 	options := notificationCronOptions{
-		Now:           time.Date(2026, 5, 14, 9, 0, 0, 0, time.UTC),
+		Now:           now,
 		WindowMinutes: 2,
 	}
 	first, err := runNotificationCron(app, options)

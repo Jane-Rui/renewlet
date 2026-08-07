@@ -2,10 +2,10 @@
   "name": "renewlet",
   "private": true,
   "license": "MIT",
-  "version": "0.2.95",
-  "packageManager": "pnpm@11.1.2",
+  "version": "0.2.96",
+  "packageManager": "pnpm@11.20.0",
   "engines": {
-    "node": ">=22.13.0"
+    "node": ">=24.19.0"
   },
   "cloudflare": {
     "bindings": {
@@ -41,8 +41,12 @@
     "check:ai-recognition-prompt": "node scripts/sync-ai-recognition-prompt.mjs --check",
     "generate:built-in-config-labels": "node scripts/generate-built-in-config-labels.mjs",
     "check:built-in-config-labels": "node scripts/generate-built-in-config-labels.mjs --check",
+    "generate:currency-region-hints": "node scripts/generate-currency-region-hints.mjs",
+    "check:currency-region-hints": "node scripts/generate-currency-region-hints.mjs --check",
     "generate:server-i18n": "node scripts/generate-server-i18n.mjs",
     "check:server-i18n": "node scripts/generate-server-i18n.mjs --check",
+    "generate:public-api-docs": "tsx scripts/generate-public-api-docs.mjs",
+    "check:public-api-docs": "tsx scripts/generate-public-api-docs.mjs --check && redocly lint docs/public-api.openapi.json",
     "generate:worker-types": "wrangler types apps/worker/src/worker-configuration.d.ts --env-file /dev/null --include-runtime false",
     "check:worker-types": "wrangler types apps/worker/src/worker-configuration.d.ts --env-file /dev/null --include-runtime false --check",
     "start": "pnpm run build:client && pnpm run sync:static && pnpm --dir apps/docker-server start",
@@ -72,17 +76,20 @@
     "test:e2e:debug": "pnpm typecheck:e2e && playwright test --debug",
     "test:e2e:report": "playwright show-report",
     "test:e2e:cloudflare:report": "playwright show-report playwright-report/cloudflare-check",
-    "test:all": "pnpm check:file-lines && pnpm check:deploy && pnpm --filter @renewlet/client test:run && pnpm typecheck && pnpm --dir apps/docker-server test && pnpm test:e2e",
+    "test:all": "pnpm check:file-lines && pnpm check:deploy && pnpm check:public-api-docs && pnpm --filter @renewlet/client test:run && pnpm typecheck && pnpm --dir apps/docker-server test && pnpm test:e2e",
     "typecheck": "pnpm --filter @renewlet/client typecheck && pnpm --filter @renewlet/client typecheck:all && pnpm typecheck:e2e",
     "typecheck:e2e": "tsc --noEmit --project tsconfig.playwright.json",
     "update:built-in-icons-index": "node scripts/update-built-in-icons-index.mjs"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20260728.1",
-    "@lingui/format-po": "6.1.0",
-    "@playwright/test": "^1.60.0",
-    "@types/node": "^25.8.0",
-    "typescript": "^6.0.3",
-    "wrangler": "^4.115.0"
+    "@cloudflare/workers-types": "^5.20260804.1",
+    "@lingui/format-po": "6.6.0",
+    "@playwright/test": "^1.62.1",
+    "@redocly/cli": "2.45.0",
+    "@types/node": "24.13.3",
+    "tsx": "4.23.9",
+    "typescript": "6.0.3",
+    "wrangler": "^4.119.0",
+    "zod": "4.4.3"
   }
 }

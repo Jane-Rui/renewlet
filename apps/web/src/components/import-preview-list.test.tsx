@@ -17,7 +17,7 @@ const payload = {
     {
       name: "ngrok",
       logo: "https://example.com/ngrok.svg",
-      price: 12,
+      price: "12",
       currency: "USD",
       category: "developer_tools",
       status: "active",
@@ -78,6 +78,8 @@ const preview = {
   ],
   includesSettings: false,
   includesCustomConfig: false,
+  includesExchangeRateSnapshots: false,
+  exchangeRateSnapshotsCount: 0,
 } satisfies ImportPreviewResponse;
 
 describe("ImportPreviewList", () => {

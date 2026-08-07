@@ -5,7 +5,7 @@
  *
  * 注意： token 只能在提交时由后端验证；前端不要尝试解析或缓存 token。
  */
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 import { ResetPasswordClient } from "./reset-password-client";
 
 export default function ResetPasswordPage() {

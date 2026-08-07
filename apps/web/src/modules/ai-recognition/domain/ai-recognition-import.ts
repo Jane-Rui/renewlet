@@ -125,10 +125,10 @@ function normalizeBillingCycle(draft: AiRecognizedSubscriptionDraft, warnings: s
   return billingCycle;
 }
 
-function normalizePrice(price: number | null, warnings: string[]): number {
+function normalizePrice(price: string | null, warnings: string[]): string {
   if (price === null) {
     warnings.push(IMPORT_MESSAGE_CODES.aiPriceDefaulted);
-    return 0;
+    return "0";
   }
   return price;
 }

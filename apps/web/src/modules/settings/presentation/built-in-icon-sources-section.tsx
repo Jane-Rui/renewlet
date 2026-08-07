@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { TruncatedTooltipText } from '@/components/ui/truncated-tooltip-text';
 import { BUILT_IN_ICON_PROVIDERS, type BuiltInIconProvider } from '@renewlet/shared/built-in-icons';
 import { APP_STORE_STOREFRONTS, type AppStoreStorefront } from '@renewlet/shared/online-icon-sources';
 import type { AppSettings } from '@/types/subscription';
@@ -634,7 +635,9 @@ function BuiltInIconProviderInfoList({ items }: { items: Array<{ label: string; 
       {items.map((item) => (
         <div key={item.label} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2">
           <dt className="truncate text-muted-foreground">{item.label}</dt>
-          <dd className="max-w-40 truncate text-right font-medium text-foreground">{item.value}</dd>
+          <dd className="max-w-40 text-right font-medium text-foreground">
+            <TruncatedTooltipText text={item.value} className="max-w-full text-right" />
+          </dd>
         </div>
       ))}
     </dl>

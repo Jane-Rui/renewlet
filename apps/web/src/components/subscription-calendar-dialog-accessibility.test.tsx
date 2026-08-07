@@ -41,6 +41,8 @@ vi.mock("@/hooks/use-exchange-rates", () => ({
   useExchangeRates: () => ({
     convert: (amount: number) => amount,
     getCurrencySymbol: (currency: string) => (currency === "USD" ? "$" : currency),
+    loading: false,
+    sourceDate: "2026-08-01",
   }),
 }));
 
@@ -70,7 +72,7 @@ function subscription(overrides: SubscriptionOverrides = {}): Subscription {
     id: "sub-1",
     name: "Aws",
     logo: undefined,
-    price: 15,
+    price: "15",
     currency: "USD",
     category: "productivity",
     status: "active",
@@ -309,7 +311,7 @@ describe("SubscriptionCalendar dialogs", () => {
 
     renderCalendar([
       subscription({ id: "sub-1", name: "Aws", status: "active", nextBillingDate: assertDateOnly("2026-05-14") }),
-      subscription({ id: "sub-2", name: "Netflix", status: "trial", nextBillingDate: assertDateOnly("2026-05-16"), billingCycle: "annual", price: 120 }),
+      subscription({ id: "sub-2", name: "Netflix", status: "trial", nextBillingDate: assertDateOnly("2026-05-16"), billingCycle: "annual", price: "120" }),
       subscription({ id: "sub-3", name: "Paused Cloud", status: "paused", nextBillingDate: assertDateOnly("2026-05-14") }),
       subscription({ id: "sub-4", name: "Cancelled Tool", status: "cancelled", nextBillingDate: assertDateOnly("2026-05-16") }),
     ]);

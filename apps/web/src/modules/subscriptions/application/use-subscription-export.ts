@@ -15,8 +15,19 @@ import { downloadFile } from "@/shared/browser/download-file";
 import type { CustomConfig } from "@/types/config";
 import type { AppSettings, Subscription } from "@/types/subscription";
 import { exportRenewletBackup } from "@/modules/import-export/domain/renewlet-export";
+import { exchangeRateSnapshotService } from "@/services/exchange-rate-snapshot-service";
 import { buildSubscriptionsCsv } from "../domain/subscription-export";
 import type { CostSharingCurrencyConverter } from "@renewlet/shared/cost-sharing";
+
+async function loadExchangeRateSnapshotsForExport() {
+  try {
+    return await exchangeRateSnapshotService.list();
+  } catch (error) {
+    // 汇率快照是报表口径增强，不能因为读取失败阻断订阅/设置这份基础可恢复导出。
+    console.warn("Failed to include exchange-rate snapshots in Renewlet export:", error);
+    return [];
+  }
+}
 
 /** 订阅导出控制器。 */
 export function useSubscriptionExport(
@@ -38,11 +49,17 @@ export function useSubscriptionExport(
   );
 
   const exportToJSON = () => {
-    void exportRenewletBackup({ subscriptions: backupSubscriptions, settings, customConfig: config, includeSecrets: false });
+    void (async () => {
+      const exchangeRateSnapshots = await loadExchangeRateSnapshotsForExport();
+      await exportRenewletBackup({ subscriptions: backupSubscriptions, settings, customConfig: config, includeSecrets: false, exchangeRateSnapshots });
+    })();
   };
 
   const exportToJSONWithSecrets = () => {
-    void exportRenewletBackup({ subscriptions: backupSubscriptions, settings, customConfig: config, includeSecrets: true });
+    void (async () => {
+      const exchangeRateSnapshots = await loadExchangeRateSnapshotsForExport();
+      await exportRenewletBackup({ subscriptions: backupSubscriptions, settings, customConfig: config, includeSecrets: true, exchangeRateSnapshots });
+    })();
   };
 
   const exportToCSV = () => {

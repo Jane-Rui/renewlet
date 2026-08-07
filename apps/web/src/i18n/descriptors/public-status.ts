@@ -7,6 +7,8 @@ export const messages = [
   msg({ id: "publicStatus.monthlyTotal", message: "月均总价" }),
   msg({ id: "publicStatus.annualTotal", message: "年化总价" }),
   msg({ id: "publicStatus.moneySubtitle", message: "按 {currency} 汇总" }),
+  msg({ id: "publicStatus.moneySubtitleLocked", message: "使用 {month} 锁定汇率" }),
+  msg({ id: "publicStatus.moneySubtitleLive", message: "按 {currency} 实时汇率汇总" }),
   msg({ id: "publicStatus.ratesLoading", message: "汇率更新中" }),
   msg({ id: "publicStatus.visibleCount", message: "展示订阅" }),
   msg({ id: "publicStatus.visibleSubtitle", message: "当前公开可见" }),

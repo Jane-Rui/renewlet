@@ -5,6 +5,7 @@ import { expect, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { assertDateOnly } from "@/lib/time/date-only";
 import type { Subscription } from "@/types/subscription";
+import { moneyToNumber } from "@renewlet/shared/money";
 import { SubscriptionCard } from "./subscription-card";
 
 export const originalWindowOpen = window.open;
@@ -38,6 +39,9 @@ type SubscriptionCardHandlers = {
 };
 type SubscriptionCardRenderOptions = {
   viewMode?: "grid" | "list";
+  currencyRatesReady?: boolean;
+  priceReferenceCurrency?: string | null;
+  currencyConvert?: (amount: number | string, fromCurrency: string, toCurrency: string) => number;
 };
 type SubscriptionCardTestMocks = {
   categories: Array<{
@@ -71,7 +75,7 @@ export const baseSubscription: Subscription = {
   id: "sub-1",
   name: "dmit",
   logo: undefined,
-  price: 159,
+  price: "159",
   currency: "USD",
   billingCycle: "monthly",
   customDays: undefined,
@@ -146,6 +150,15 @@ export function renderSubscriptionCard(
         {...(options.viewMode ? { viewMode: options.viewMode } : {})}
         timeZone="Asia/Shanghai"
         inheritedReminderDays={5}
+        currencyConvert={options.currencyConvert ?? ((amount, from, to) => {
+          const value = moneyToNumber(amount);
+          if (from === to) return value;
+          if (from === "USD" && to === "CNY") return value * 7;
+          if (from === "CNY" && to === "USD") return value / 7;
+          return value;
+        })}
+        currencyRatesReady={options.currencyRatesReady ?? true}
+        priceReferenceCurrency={options.priceReferenceCurrency ?? null}
         categoryByValue={new Map(mocks.categories.map((category) => [category.value, category]))}
         paymentMethodByValue={new Map(mocks.paymentMethods.map((method) => [method.value, method]))}
         onEdit={handlers.onEdit ?? vi.fn()}

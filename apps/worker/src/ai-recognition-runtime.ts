@@ -102,7 +102,7 @@ export async function runAIRecognitionConnectionTest(settings: AiRecognitionSett
 function createAIRecognitionUpstreamFetch(settings: AiRecognitionSettings): typeof fetch {
   const secrets = settings.apiKey ? [settings.apiKey] : [];
   const provider = aiRecognitionProviderLabel(settings);
-  // AI SDK provider 内部隐藏实际 fetch；custom fetch 只接管网络边界，不改变 prompt、schema 或 provider 协议。
+  // AI SDK 7 的 generateObject 不再接收 timeout；provider 网络总时限统一落在 custom fetch，避免非流式识别无界等待。
   return async (input, init) => await sendUpstreamRequest(input, init ?? {}, {
     provider,
     secrets,

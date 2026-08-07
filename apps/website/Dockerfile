@@ -1,4 +1,4 @@
-FROM node:24-alpine AS build
+FROM node:24.19.0-alpine3.24 AS build
 
 WORKDIR /repo
 
@@ -16,7 +16,7 @@ COPY apps/website apps/website
 
 RUN pnpm --filter @renewlet/website build
 
-FROM nginx:1.29-alpine
+FROM nginx:1.30.4-alpine3.24
 
 # Nginx 运行态降到固定 UID，方便容器平台用只读根文件系统或外部安全策略约束官网静态站。
 RUN addgroup -S -g 1000 renewlet \

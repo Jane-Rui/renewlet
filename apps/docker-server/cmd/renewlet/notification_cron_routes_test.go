@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pocketbase/pocketbase/core"
 )
@@ -23,6 +24,14 @@ func createNotificationCronRouteTestSettings(t *testing.T, app core.App, user *c
 		t.Fatal(err)
 	}
 	return record
+}
+
+func refreshNotificationSchedulerForTest(t *testing.T, app core.App, userID string, now time.Time) {
+	t.Helper()
+	// due-index 不再全量扫 settings；测试用 fake now 建立同一时间轴，才能覆盖真实 cron 热路径。
+	if _, err := refreshSubscriptionSchedulerStateWithOptions(app, userID, subscriptionSchedulerRefreshOptions{Now: now, ResetAutoRenewCheck: true}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestNotificationCronRouteRequiresConfiguredSecret(t *testing.T) {

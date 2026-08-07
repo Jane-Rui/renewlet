@@ -62,19 +62,12 @@ vi.mock("recharts", () => ({
   },
 }));
 
-vi.mock("@/hooks/use-exchange-rates", () => ({
-  useExchangeRates: () => ({
-    convert: (amount: number) => amount,
-    getCurrencySymbol: () => "¥",
-  }),
-}));
-
 function subscription(overrides: SubscriptionOverrides = {}): Subscription {
   const base: SubscriptionBaseFixture = {
     id: "sub",
     name: "Service",
     logo: undefined,
-    price: 20,
+    price: "20",
     currency: "CNY",
     category: "productivity",
     status: "active",
@@ -147,7 +140,7 @@ describe("SpendingChart", () => {
         categories={DEFAULT_CUSTOM_CONFIG.categories}
         defaultCurrency="CNY"
         timeZone="Asia/Shanghai"
-        exchangeRateProvider="exchange-api"
+        convert={(amount) => (typeof amount === "number" ? amount : Number(amount))}
       />,
     );
   }

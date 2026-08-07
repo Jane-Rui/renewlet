@@ -1,7 +1,7 @@
 import type { AiRecognizedSubscriptionDraft } from "@/lib/api/schemas/ai-recognition";
 import {
   normalizeTagsArray,
-  parseNonNegativeFiniteNumberInput,
+  parseMoneyInput,
   parseNonNegativeIntegerInput,
   parsePositiveIntegerInput,
   parseReminderDaysInput,
@@ -74,7 +74,7 @@ export function subscriptionFormStateToAIDraftPatch(
   const oneTimeTermEnabled = formData.billingCycle === "one-time" && formData.oneTimeMode === "term";
   return {
     name: formData.name,
-    price: parseNonNegativeFiniteNumberInput(formData.price),
+    price: parseMoneyInput(formData.price),
     currency: formData.currency.trim() || null,
     billingCycle: formData.billingCycle,
     customDays: formData.billingCycle === "custom" ? parsePositiveIntegerInput(formData.customDays) : null,

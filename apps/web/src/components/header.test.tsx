@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { SystemVersionResponse } from "@/lib/api/schemas/app";
@@ -138,7 +138,7 @@ function versionFixture(overrides: Partial<SystemVersionResponse> = {}): SystemV
 function adminSession(role: "admin" | "user") {
   return {
     data: {
-      session: { id: "session-1" },
+      session: { expiresAt: "2026-07-01T00:00:00.000Z" },
       user: { id: "user-1", email: "alice@example.com", name: "Alice", role, banned: false },
     },
     isPending: false,

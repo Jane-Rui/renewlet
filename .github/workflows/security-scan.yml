@@ -1,0 +1,126 @@
+name: Security Scan
+
+# 安全扫描独立于功能质量门：PR 能看到依赖/镜像风险，release 前也不会被普通构建冒烟吞掉信号。
+on:
+  pull_request:
+    branches:
+      - dev
+      - main
+      - "release/**"
+  push:
+    branches:
+      - dev
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GRYPE_VERSION: "0.116.1"
+
+jobs:
+  govulncheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/docker-server
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version: 1.26.5
+          cache-dependency-path: apps/docker-server/go.sum
+
+      - name: Install govulncheck
+        # Go 官方漏洞库按代码可达性分析；固定 Go 版本，工具本身随官方 vuln DB 更新。
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Run govulncheck
+        run: |
+          "$(go env GOPATH)/bin/govulncheck" ./...
+
+  pnpm-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 24
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run pnpm audit
+        run: pnpm audit --audit-level high
+
+  image-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 24
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Resolve build time
+        run: echo "RENEWLET_BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4.2.0
+
+      - name: Build scan image
+        uses: docker/build-push-action@v7.3.0
+        with:
+          context: .
+          file: ./Dockerfile
+          build-args: |
+            VERSION=0.0.0-dev
+            COMMIT=${{ github.sha }}
+            BUILD_TIME=${{ env.RENEWLET_BUILD_TIME }}
+          load: true
+          push: false
+          tags: renewlet:security-scan
+
+      - name: Install Grype
+        # 不使用远程 install.sh；固定 release asset 并校验官方 checksums，避免扫描器安装链路变成新供应链入口。
+        run: |
+          set -euo pipefail
+          base_url="https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}"
+          archive="grype_${GRYPE_VERSION}_linux_amd64.tar.gz"
+          checksums="grype_${GRYPE_VERSION}_checksums.txt"
+          curl -fsSLO "${base_url}/${archive}"
+          curl -fsSLO "${base_url}/${checksums}"
+          grep " ${archive}$" "${checksums}" | sha256sum -c -
+          tar -xzf "${archive}" grype
+          sudo install -m 0755 grype /usr/local/bin/grype
+          grype version
+
+      - name: Scan Docker image
+        # high 及以上直接失败，低等级 CVE 保留在 job 输出中供版本升级时评估，避免个人自托管镜像被噪音阻断。
+        run: grype renewlet:security-scan --fail-on high --scope all-layers

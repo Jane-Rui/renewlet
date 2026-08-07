@@ -11,7 +11,9 @@ const AUTO_LOGO_RESOLVE_BATCH_SIZE = 100;
  * favicon/domain 候选仍留在“修改 Logo”里手动选择，避免 AI/导入批量预览把弱推断 URL 写进 payload。
  */
 export async function resolveAutoLogosForPreparedImport(nextPrepared: PreparedImport): Promise<PreparedImport> {
-  const assetIndexes = new Set(nextPrepared.assets.map((asset) => asset.subscriptionIndex));
+  const assetIndexes = new Set(nextPrepared.assets.flatMap((asset) => (
+    asset.target.type === "subscriptionLogo" ? [asset.target.subscriptionIndex] : []
+  )));
   const items = nextPrepared.payload.subscriptions.flatMap((subscription, index) => {
     if (subscription.logo || assetIndexes.has(index)) return [];
     return [{ id: String(index), name: subscription.name, ...(subscription.website ? { website: subscription.website } : {}) }];

@@ -20,9 +20,9 @@ func TestBuildEmailHTMLMessageRendersModernLightOnlyReminderTemplate(t *testing.
 
 	// 邮件 HTML 需要兼容保守客户端，table 布局和内联样式比普通 Web CSS 更重要。
 	message := buildDueNotificationForLocalDate("2026-05-14", time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC), settings, []notificationSubscription{
-		{ID: "renewal", Name: "Renewal", Price: 18, Currency: "CNY", Status: "active", NextBillingDate: "2026-05-17", ReminderDays: 3},
-		{ID: "trial", Name: "Trial", Price: 9.9, Currency: "USD", Status: "trial", NextBillingDate: "2026-06-01", TrialEndDate: "2026-05-15", ReminderDays: 1},
-		{ID: "expired", Name: "Expired", Price: 12, Currency: "EUR", Status: "active", NextBillingDate: "2026-05-01", ReminderDays: 7},
+		{ID: "renewal", Name: "Renewal", Price: "18", Currency: "CNY", Status: "active", NextBillingDate: "2026-05-17", ReminderDays: 3},
+		{ID: "trial", Name: "Trial", Price: "9.9", Currency: "USD", Status: "trial", NextBillingDate: "2026-06-01", TrialEndDate: "2026-05-15", ReminderDays: 1},
+		{ID: "expired", Name: "Expired", Price: "12", Currency: "EUR", Status: "active", NextBillingDate: "2026-05-01", ReminderDays: 7},
 	}, true)
 
 	body := mustBuildEmailHTML(t, settings, message)
@@ -105,7 +105,7 @@ func TestBuildEmailHTMLMessageRendersLongReminderListAsCompactLedgerRows(t *test
 		items = append(items, notificationContentItem{
 			Type:         "renewal",
 			Name:         fmt.Sprintf("Ledger Subscription %d", i),
-			Price:        float64(i),
+			Price:        fmt.Sprintf("%d", i),
 			Currency:     "CNY",
 			TargetDate:   "2026-05-17",
 			ReminderDays: 3,
@@ -188,7 +188,7 @@ func TestBuildEmailHTMLMessageRendersReminderCTAFromAppURL(t *testing.T) {
 	settings := defaultAppSettings()
 	settings.Locale = string(localeZhCN)
 	message := buildDueNotificationForLocalDate("2026-05-14", time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC), settings, []notificationSubscription{
-		{ID: "renewal", Name: "Renewal", Price: 18, Currency: "CNY", Status: "active", NextBillingDate: "2026-05-17", ReminderDays: 3},
+		{ID: "renewal", Name: "Renewal", Price: "18", Currency: "CNY", Status: "active", NextBillingDate: "2026-05-17", ReminderDays: 3},
 	}, true)
 
 	body := mustBuildEmailHTML(t, settings, message)
@@ -240,7 +240,7 @@ func TestBuildEmailHTMLMessageEscapesUserContentAndOmitsLogoURL(t *testing.T) {
 			Type:         "renewal",
 			Name:         `<img src=x onerror=alert(1)>`,
 			LogoURL:      "https://cdn.example.com/private-logo.png",
-			Price:        8,
+			Price:        "8",
 			Currency:     `<USD>`,
 			TargetDate:   `2026-05-17`,
 			ReminderDays: 3,
@@ -310,7 +310,7 @@ func TestBuildEmailHTMLMessageCapsLargeHTMLBody(t *testing.T) {
 		items = append(items, notificationContentItem{
 			Type:         "renewal",
 			Name:         "Very Long Subscription Name",
-			Price:        18,
+			Price:        "18",
 			Currency:     "CNY",
 			TargetDate:   "2026-05-17",
 			ReminderDays: 3,

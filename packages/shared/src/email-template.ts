@@ -2,6 +2,7 @@ import zhCatalog from "../data/server-i18n/active.zh-CN.json";
 import enCatalog from "../data/server-i18n/active.en-US.json";
 import type { Locale, RepeatReminderInterval, RepeatReminderWindow } from "./runtime";
 import { renderEmailTemplate } from "./email-template-render";
+import { moneyToNumber, type MoneyString } from "./money";
 
 export const EMAIL_MAX_HTML_BYTES = 100 * 1024;
 const EMAIL_COMPACT_TEXT_RUNES = 12_000;
@@ -29,7 +30,7 @@ export interface NotificationEmailItem {
   subscriptionId?: string;
   name: string;
   logoUrl?: string;
-  price: number;
+  price: MoneyString;
   currency: string;
   status: string;
   targetDate: string;
@@ -483,9 +484,10 @@ function formatCatalogCopy(message: string, params: Record<string, string | numb
   });
 }
 
-function formatAmount(amount: number): string {
-  if (!Number.isFinite(amount)) return String(amount);
-  return amount.toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
+function formatAmount(amount: MoneyString | number): string {
+  const numericAmount = moneyToNumber(amount);
+  if (!Number.isFinite(numericAmount)) return String(amount);
+  return numericAmount.toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
 }
 
 function normalizeEmailLocale(value: string): Locale {

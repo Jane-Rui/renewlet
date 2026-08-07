@@ -31,7 +31,7 @@ async function createSubscriptionLayoutRecord(
   // 直接走产品 API 种记录，让用例只覆盖真实卡片排版；认证态仍来自 setup project。
   await createProductSubscriptionSeed(page, {
     ...seed,
-    price: 20,
+    price: "20",
     currency: "USD",
     reminderDays: 7,
   });
@@ -101,18 +101,28 @@ test("mobile subscription tag drawer and tag input layout", async ({ page }, tes
     tags: manyTags,
   });
 
-  const mobileSortTagRow = page.getByTestId("mobile-sort-tag-row");
-  await expect(mobileSortTagRow).toBeVisible();
-  const mobileSortControl = mobileSortTagRow.getByRole("combobox", { name: "排序" });
-  const mobileTagButton = mobileSortTagRow.getByRole("button", { name: "标签" });
+  const mobileRenewalSortRow = page.getByTestId("mobile-renewal-sort-row");
+  const mobileAdvancedTagRow = page.getByTestId("mobile-advanced-tag-row");
+  await expect(mobileRenewalSortRow).toBeVisible();
+  await expect(mobileAdvancedTagRow).toBeVisible();
+  const mobileRenewalControl = mobileRenewalSortRow.getByRole("combobox").filter({ hasText: "所有续订" });
+  const mobileSortControl = mobileRenewalSortRow.getByRole("combobox", { name: "排序" });
+  const mobileAdvancedControl = mobileAdvancedTagRow.getByRole("button", { name: "更多筛选" });
+  const mobileTagButton = mobileAdvancedTagRow.getByRole("button", { name: "标签" });
   await expect(page.getByTestId("mobile-selected-tags")).toHaveCount(0);
-  const [mobileSortBox, mobileTagBox] = await Promise.all([
+  const [mobileRenewalBox, mobileSortBox, mobileAdvancedBox, mobileTagBox] = await Promise.all([
+    getRequiredLocatorBoundingBox(mobileRenewalControl, "mobile renewal filter"),
     getRequiredLocatorBoundingBox(mobileSortControl, "mobile sort filter"),
+    getRequiredLocatorBoundingBox(mobileAdvancedControl, "mobile advanced filter"),
     getRequiredLocatorBoundingBox(mobileTagButton, "mobile tag filter"),
   ]);
-  expect(Math.abs(mobileSortBox.y - mobileTagBox.y), "mobile sort and tag controls should share a row").toBeLessThan(8);
-  expect(mobileTagBox.x, "mobile tag button should sit to the right of sort").toBeGreaterThan(
-    mobileSortBox.x + mobileSortBox.width - 1,
+  expect(Math.abs(mobileRenewalBox.y - mobileSortBox.y), "mobile renewal and sort controls should share a row").toBeLessThan(8);
+  expect(mobileSortBox.x, "mobile sort filter should sit to the right of renewal").toBeGreaterThan(
+    mobileRenewalBox.x + mobileRenewalBox.width - 1,
+  );
+  expect(Math.abs(mobileAdvancedBox.y - mobileTagBox.y), "mobile advanced and tag controls should share a row").toBeLessThan(8);
+  expect(mobileTagBox.x, "mobile tag button should sit to the right of advanced filters").toBeGreaterThan(
+    mobileAdvancedBox.x + mobileAdvancedBox.width - 1,
   );
 
   await mobileTagButton.click();
@@ -133,7 +143,7 @@ test("mobile subscription tag drawer and tag input layout", async ({ page }, tes
   await expect(subscriptionCard(page, plainName)).toBeHidden();
   await expect(subscriptionCard(page, taggedName)).toBeInViewport();
 
-  await mobileSortTagRow.getByRole("button", { name: "标签(1)" }).click();
+  await mobileAdvancedTagRow.getByRole("button", { name: "标签(1)" }).click();
   await expect(tagDrawer).toBeVisible();
   await tagDrawer.getByRole("button", { name: "清空标签" }).click();
   await expect(tagDrawer).toBeHidden();

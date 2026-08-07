@@ -10,9 +10,9 @@
  *
  * 状态链路：
  * ```
- * PocketBase authStore 恢复中 -> 不做跳转
+ * 产品 session 恢复中 -> 不做跳转
  * 会话已解析 -> 已登录访问 /login -> sanitize(next)
- * session id 变化 -> invalidate 用户相关 query
+ * 非密 session key 变化 -> invalidate 用户相关 query
  * ```
  *
  * 注意： 必须等待 `isPending=false` 再判断未登录，否则刷新首帧可能误判。
@@ -33,7 +33,7 @@ export function AuthSync() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { data: sessionData, isPending } = authClient.useSession();
-  const previousSessionIdRef = useRef<string | null | undefined>(undefined);
+  const previousSessionKeyRef = useRef<string | null | undefined>(undefined);
 
   useEffect(() => {
     // 等待首轮 session 加载完成；pending 阶段不能把空 data 当成未登录。
@@ -46,20 +46,22 @@ export function AuthSync() {
   }, [isPending, pathname, router, searchParams, sessionData?.session]);
 
   useEffect(() => {
-    // 认证态变化后刷新用户私有数据，避免退出/切换账号后残留旧用户缓存。
+    // HttpOnly session token 不出站；用 user+expiresAt 这类非密快照识别登录、退出和续签后的缓存边界。
     if (isPending) return;
-    const sessionId = sessionData?.session?.id ?? null;
-    if (previousSessionIdRef.current === undefined) {
-      previousSessionIdRef.current = sessionId;
+    const sessionKey = sessionData
+      ? `${sessionData.user.id}:${sessionData.session.expiresAt}`
+      : null;
+    if (previousSessionKeyRef.current === undefined) {
+      previousSessionKeyRef.current = sessionKey;
       return;
     }
-    if (previousSessionIdRef.current === sessionId) return;
-    previousSessionIdRef.current = sessionId;
+    if (previousSessionKeyRef.current === sessionKey) return;
+    previousSessionKeyRef.current = sessionKey;
 
     invalidateSubscriptionsQueries(queryClient);
     queryClient.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY });
     queryClient.invalidateQueries({ queryKey: ["custom-config"] });
-  }, [isPending, queryClient, sessionData?.session?.id]);
+  }, [isPending, queryClient, sessionData]);
 
   return null;
 }

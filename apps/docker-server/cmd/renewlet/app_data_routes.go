@@ -61,6 +61,9 @@ type uploadAssetResponse struct {
 	URL string `json:"url"`
 }
 
+// 与 Cloudflare Worker 的上传 envelope 口径一致：multipart 头部最多放宽 64KiB，不能把 2MiB 文件限额变成大 body 入口。
+const maxAssetUploadBodyBytes = maxImageBytes + 64*1024
+
 type assetInUseDetails struct {
 	UsageCount             int64 `json:"usageCount"`
 	SubscriptionLogoCount  int64 `json:"subscriptionLogoCount"`
@@ -70,7 +73,7 @@ type assetInUseDetails struct {
 type subscriptionWriteRequest struct {
 	Name                         optionalJSONField[string]                 `json:"name"`
 	Logo                         optionalJSONField[string]                 `json:"logo"`
-	Price                        optionalJSONField[float64]                `json:"price"`
+	Price                        optionalJSONField[string]                 `json:"price"`
 	Currency                     optionalJSONField[string]                 `json:"currency"`
 	BillingCycle                 optionalJSONField[string]                 `json:"billingCycle"`
 	CustomDays                   optionalJSONField[int]                    `json:"customDays"`
@@ -156,11 +159,17 @@ func handleSettingsUpdate(app core.App, e *core.RequestEvent) error {
 		if err != nil {
 			return e.InternalServerError(serverText(locale, "common.internalError"), err)
 		}
+		if _, err := refreshSubscriptionSchedulerState(app, e.Auth.Id, false); err != nil {
+			return e.InternalServerError(serverText(locale, "common.internalError"), err)
+		}
 		return apiSuccessJSON(e, http.StatusOK, settingsResponse{Settings: settingsFromRecord(record)})
 	}
 	record.Set("settings", next)
 	if err := app.Save(record); err != nil {
 		return e.BadRequestError(validationErrorMessage(locale, "common.invalidRequestBody", err), err)
+	}
+	if _, err := refreshSubscriptionSchedulerState(app, e.Auth.Id, false); err != nil {
+		return e.InternalServerError(serverText(locale, "common.internalError"), err)
 	}
 	return apiSuccessJSON(e, http.StatusOK, settingsResponse{Settings: settingsFromRecord(record)})
 }
@@ -294,6 +303,8 @@ func handleSubscriptionDelete(app core.App, e *core.RequestEvent) error {
 
 func handleAssetUpload(app core.App, e *core.RequestEvent) error {
 	locale := requestLocale(e.Request)
+	// multipart envelope 只放宽表单头部开销；真实文件大小仍由 maxImageBytes 和持久层 MIME 白名单兜底。
+	e.Request.Body = http.MaxBytesReader(e.Response, e.Request.Body, maxAssetUploadBodyBytes)
 	if err := e.Request.ParseMultipartForm(maxImageBytes + 1024); err != nil {
 		return e.BadRequestError(serverText(locale, "asset.uploadChooseImage"), err)
 	}
@@ -468,7 +479,7 @@ func applySubscriptionWriteRequest(record *core.Record, body subscriptionWriteRe
 	if err := setStringRecordField(record, "logo", body.Logo, false, true, true); err != nil {
 		return err
 	}
-	if err := setFloatRecordField(record, "price", body.Price, create); err != nil {
+	if err := setMoneyRecordField(record, "price", body.Price, create); err != nil {
 		return err
 	}
 	if err := setStringRecordField(record, "currency", body.Currency, create, false, true); err != nil {
@@ -582,7 +593,7 @@ func setStringRecordField(record *core.Record, name string, field optionalJSONFi
 	return nil
 }
 
-func setFloatRecordField(record *core.Record, name string, field optionalJSONField[float64], required bool) error {
+func setMoneyRecordField(record *core.Record, name string, field optionalJSONField[string], required bool) error {
 	if !field.Set {
 		if required {
 			return fmt.Errorf("%s_REQUIRED", strings.ToUpper(name))
@@ -592,7 +603,11 @@ func setFloatRecordField(record *core.Record, name string, field optionalJSONFie
 	if field.Null {
 		return fmt.Errorf("%s_REQUIRED", strings.ToUpper(name))
 	}
-	record.Set(name, field.Value)
+	value, err := canonicalMoneyString(field.Value)
+	if err != nil {
+		return fmt.Errorf("%s_INVALID", strings.ToUpper(name))
+	}
+	record.Set(name, value)
 	return nil
 }
 

@@ -26,7 +26,7 @@ function subscription(): Subscription {
     id: "sub-1",
     name: "Codex Pro",
     logo: undefined,
-    price: 20,
+    price: "20",
     currency: "USD",
     billingCycle: "monthly",
     customDays: undefined,

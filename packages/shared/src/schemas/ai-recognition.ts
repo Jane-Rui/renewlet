@@ -20,6 +20,7 @@ import {
   upstreamErrorDetailsSchema,
 } from "./upstream";
 import { apiSuccessResponseSchema } from "./api";
+import { moneyStringSchema } from "../money";
 
 export const AI_RECOGNITION_MAX_TEXT_CHARS = 30_000;
 export const AI_RECOGNITION_MAX_IMAGES = 5;
@@ -230,7 +231,7 @@ const generatedWarningsSchema = z.array(z.string().trim().min(1).max(240))
 
 export const aiRecognizedSubscriptionDraftSchema = z.object({
   name: z.string().trim().min(1).max(120),
-  price: z.number().finite().nonnegative().max(1_000_000_000).nullable(),
+  price: moneyStringSchema.nullable(),
   currency: z.string().trim().regex(/^[A-Z]{3}$/).nullable(),
   billingCycle: z.enum(BILLING_CYCLES).nullable(),
   customDays: z.number().int().positive().nullable(),

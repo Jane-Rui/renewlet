@@ -10,7 +10,7 @@ import (
 )
 
 func TestNormalizeAIRecognizeResponse(t *testing.T) {
-	price := -1.0
+	price := "-1"
 	currency := "usd"
 	billingCycle := "bad"
 	date := "2026-99-99"
@@ -90,7 +90,7 @@ func TestNormalizeAIGeneratedRecognizeResponse(t *testing.T) {
 	if response.ProviderType != aiProviderTypeOpenAI || response.TransportProtocol != aiProtocolOpenAIChat || response.Model != "gpt-5.1" {
 		t.Fatalf("provider/protocol/model not attached: %#v", response)
 	}
-	if draft.Name != "dmit" || draft.Price == nil || *draft.Price != 15 {
+	if draft.Name != "dmit" || draft.Price == nil || *draft.Price != "15" {
 		t.Fatalf("generated draft price not normalized: %#v", draft)
 	}
 	if draft.Currency == nil || *draft.Currency != "CNY" {

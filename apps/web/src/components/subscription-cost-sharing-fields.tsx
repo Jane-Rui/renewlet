@@ -10,9 +10,11 @@ import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/i18n/I18nProvider";
 import type { MessageKey, MessageParams } from "@/i18n/messages";
 import type { SearchableSelectOption } from "@/lib/searchable-options";
+import { parseMoneyInput } from "@/lib/subscription-form";
 import type { CostSharing, CostSharingMember } from "@/types/subscription";
 import type { SubscriptionFormState } from "@/types/subscription-form";
 import { calculateCostSharingMemberAmount, calculateCostSharingSummary } from "@renewlet/shared/cost-sharing";
+import { moneyToNumber } from "@renewlet/shared/money";
 import { Plus, Trash2, Users } from "lucide-react";
 
 type CostSharingFieldUpdater = <K extends keyof SubscriptionFormState>(
@@ -49,7 +51,7 @@ function costSharingMemberInitial(name: string): string {
 }
 
 function costSharingTotal(formData: SubscriptionFormState): number {
-  const price = Number(formData.price);
+  const price = moneyToNumber(formData.price);
   return Number.isFinite(price) && price >= 0 ? price : 0;
 }
 
@@ -106,7 +108,7 @@ export function CostSharingFields({
   update: CostSharingFieldUpdater;
   error?: string | undefined;
   currencyOptions: SearchableSelectOption[];
-  currencyConvert?: ((amount: number, fromCurrency: string, toCurrency: string) => number) | undefined;
+  currencyConvert?: ((amount: number | string, fromCurrency: string, toCurrency: string) => number) | undefined;
   onManageMembers?: (() => void) | undefined;
   manageMembersButtonRef?: Ref<HTMLButtonElement> | undefined;
 }) {
@@ -202,7 +204,7 @@ export function CostSharingMemberManagerView({
   formData: SubscriptionFormState;
   update: CostSharingFieldUpdater;
   currencyOptions: SearchableSelectOption[];
-  currencyConvert?: ((amount: number, fromCurrency: string, toCurrency: string) => number) | undefined;
+  currencyConvert?: ((amount: number | string, fromCurrency: string, toCurrency: string) => number) | undefined;
   initialMemberNameInputRef?: Ref<HTMLInputElement> | undefined;
 }) {
   const { t, formatCurrency } = useI18n();
@@ -315,7 +317,7 @@ export function CostSharingMemberManagerView({
                       inputMode="decimal"
                       placeholder="0.00"
                       value={member.customAmount?.toString() ?? ""}
-                      onRawValueChange={(value) => updateMember(member.id, { customAmount: value.trim() === "" ? undefined : Number(value) })}
+                      onRawValueChange={(value) => updateMember(member.id, { customAmount: value.trim() === "" ? undefined : parseMoneyInput(value) ?? undefined })}
                       className="h-9 border-border bg-secondary px-2 font-semibold sm:text-right"
                       aria-label={t("subscription.costSharing.customAmount")}
                     />

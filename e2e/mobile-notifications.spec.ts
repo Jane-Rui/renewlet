@@ -68,7 +68,7 @@ async function createNotificationHistoryRecords(page: Page, seed: NotificationHi
                 subscriptionId: `sub-${index}`,
                 name: `Notification Drawer Seed ${index}`,
                 type: "renewal",
-                price: 19,
+                price: "19",
                 currency: "USD",
                 status: "active",
                 targetDate: "2026-05-20",

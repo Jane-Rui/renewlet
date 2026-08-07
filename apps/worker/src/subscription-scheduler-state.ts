@@ -43,7 +43,9 @@ export async function refreshSubscriptionSchedulerState(
   const now = options.now ?? new Date();
   const current = options.resetAutoRenewCheck === true ? null : await readSubscriptionSchedulerState(env, userId);
   // 订阅写入会改变“今天是否已检查自动续订”的含义；重算 gate 时清空日期，让下一次 due-index 能重新判定新数据。
-  const lastAutoRenewLocalDate = options.resetAutoRenewCheck === true ? "" : normalizeSchedulerState(current ?? { user_id: userId, ...emptySchedulerState }).last_auto_renew_local_date;
+  const lastAutoRenewLocalDate = options.resetAutoRenewCheck === true
+    ? ""
+    : normalizeSchedulerState(current ?? { user_id: userId, ...emptySchedulerState }).last_auto_renew_local_date;
   const counts = await env.DB.prepare(`
     SELECT
       COALESCE(SUM(CASE WHEN auto_renew = 1 THEN 1 ELSE 0 END), 0) AS auto_renew_count,
@@ -128,8 +130,13 @@ export async function listAutoRenewDueUsers(env: Env, now: Date, limit: number):
   return result.results;
 }
 
-export async function listNotificationDueUsers(env: Env, now: Date, limit: number): Promise<Array<{ user_id: string }>> {
+export async function listNotificationDueUsers(env: Env, now: Date, limit: number, excludeUserIds: readonly string[] = []): Promise<Array<{ user_id: string }>> {
   const nowUtc = toRfc3339Seconds(now);
+  const uniqueExcludeUserIds = [...new Set(excludeUserIds.map((id) => id.trim()).filter(Boolean))].sort();
+  // exclude 来自本 tick 已处理集合，仍必须绑定为 SQL 参数，不能拼接到查询文本里当作可信 id。
+  const excludeClause = uniqueExcludeUserIds.length > 0
+    ? `AND scheduler.user_id NOT IN (${uniqueExcludeUserIds.map(() => "?").join(", ")})`
+    : "";
   // daily/repeat 共用一个用户队列；单用户内仍以日常提醒优先，保持旧调度语义不因索引拆分而变成双发送。
   const result = await env.DB.prepare(`
     SELECT scheduler.user_id
@@ -144,6 +151,7 @@ export async function listNotificationDueUsers(env: Env, now: Date, limit: numbe
           AND (scheduler.next_repeat_notification_due_at_utc IS NULL OR scheduler.next_repeat_notification_due_at_utc <= ?)
         )
       )
+      ${excludeClause}
     ORDER BY
       min(
         COALESCE(scheduler.next_daily_notification_due_at_utc, '0000-01-01T00:00:00Z'),
@@ -151,7 +159,7 @@ export async function listNotificationDueUsers(env: Env, now: Date, limit: numbe
       ) ASC,
       scheduler.user_id ASC
     LIMIT ?
-  `).bind(nowUtc, nowUtc, limit).all<{ user_id: string }>();
+  `).bind(nowUtc, nowUtc, ...uniqueExcludeUserIds, limit).all<{ user_id: string }>();
   return result.results;
 }
 

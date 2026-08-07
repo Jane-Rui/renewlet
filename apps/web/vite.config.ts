@@ -12,8 +12,8 @@ import {
   parseCustomHeadScript,
   updateCustomHeadScriptStaticHeaders,
   type CustomHeadScript,
-} from "./vite/custom-head-script";
-import { resolveClientBuildVersion } from "./vite/build-version";
+} from "./vite/custom-head-script.js";
+import { resolveClientBuildVersion } from "./vite/build-version.js";
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(rootDir, "../..");
@@ -63,7 +63,7 @@ function contentSecurityPolicy(script: CustomHeadScript | undefined): string {
 const vendorChunkGroups = [
   {
     name: "react-vendor",
-    test: /node_modules[\\/](react|react-dom|react-router|react-router-dom|@tanstack)[\\/]/,
+    test: /node_modules[\\/](react|react-dom|react-router|@tanstack)[\\/]/,
     priority: 50,
   },
   {

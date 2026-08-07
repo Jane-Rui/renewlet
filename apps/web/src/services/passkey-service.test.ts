@@ -27,7 +27,7 @@ vi.mock("@/services/product-session", () => ({
 
 const sessionResponse = {
   type: "session" as const,
-  session: { id: "token-1", expiresAt: "2026-07-03T00:00:00.000Z" },
+  session: { expiresAt: "2026-07-03T00:00:00.000Z" },
   user: {
     id: "user-1",
     email: "passkey@example.com",

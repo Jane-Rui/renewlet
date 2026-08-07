@@ -11,7 +11,7 @@
       {
         "id": "sub_daily",
         "name": "Daily SaaS",
-        "price": 10,
+        "price": "10",
         "currency": "USD",
         "status": "active",
         "billingCycle": "monthly",
@@ -46,7 +46,7 @@
       {
         "id": "sub_late",
         "name": "Late SaaS",
-        "price": 12,
+        "price": "12",
         "currency": "USD",
         "status": "active",
         "billingCycle": "monthly",
@@ -81,7 +81,7 @@
       {
         "id": "sub_late_outside",
         "name": "Outside SaaS",
-        "price": 12,
+        "price": "12",
         "currency": "USD",
         "status": "active",
         "billingCycle": "monthly",
@@ -112,7 +112,7 @@
       {
         "id": "sub_cross_day",
         "name": "Cross Day SaaS",
-        "price": 15,
+        "price": "15",
         "currency": "USD",
         "status": "active",
         "billingCycle": "monthly",
@@ -147,7 +147,7 @@
       {
         "id": "sub_repeat",
         "name": "Repeat SaaS",
-        "price": 20,
+        "price": "20",
         "currency": "USD",
         "status": "active",
         "billingCycle": "monthly",

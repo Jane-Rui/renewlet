@@ -43,6 +43,7 @@ Sign in with `demo@renewlet.local` / `renewlet-demo`. The demo resets regularly,
 - AI recognition for bill screenshots, notes, CSV/TSV, and pasted table text; drafts are reviewed before import.
 - Global private ICS feed and per-subscription calendar feeds.
 - Public subscription status pages with per-subscription visibility and optional price display.
+- Read-only [Public API](docs/public-api.md) with an OpenAPI 3.1 document for CLI tools, Shortcuts, and automation.
 - Import and export Renewlet data, plus Wallos file imports.
 - Uploaded logos, image URLs, built-in icon sources, and favicon fallback suggestions.
 - Docker deployment with React, Go/PocketBase, SQLite, and static assets in one container.
@@ -70,7 +71,7 @@ The deploy script creates `docker-compose.yml`, `.env`, and `data/`, then writes
 For production, pin a stable image tag:
 
 ```bash
-sed -i.bak 's#RENEWLET_IMAGE=.*#RENEWLET_IMAGE="zhiyingzzhou/renewlet:0.2.95"#' .env
+sed -i.bak 's#RENEWLET_IMAGE=.*#RENEWLET_IMAGE="zhiyingzzhou/renewlet:0.2.96"#' .env
 docker compose pull
 docker compose up -d
 ```
@@ -78,7 +79,7 @@ docker compose up -d
 If Docker Hub is unavailable, use GHCR:
 
 ```env
-RENEWLET_IMAGE="ghcr.io/zhiyingzzhou/renewlet:0.2.95"
+RENEWLET_IMAGE="ghcr.io/zhiyingzzhou/renewlet:0.2.96"
 ```
 
 ## Cloudflare Workers
@@ -100,7 +101,7 @@ tar -czf renewlet-backup-$(date +%F).tgz .env docker-compose.yml data
 Upgrade with Docker Compose:
 
 ```bash
-sed -i.bak 's#RENEWLET_IMAGE=.*#RENEWLET_IMAGE="zhiyingzzhou/renewlet:0.2.95"#' .env
+sed -i.bak 's#RENEWLET_IMAGE=.*#RENEWLET_IMAGE="zhiyingzzhou/renewlet:0.2.96"#' .env
 docker compose pull
 docker compose up -d
 docker compose logs -f
@@ -126,7 +127,7 @@ Common `.env` values:
 | `PB_ENCRYPTION_KEY` | Encryption key for sensitive PocketBase settings. Do not rotate it casually after deployment. |
 | `CRON_SECRET` | Bearer secret for external Cron calls to `/api/cron/notifications`. |
 | `RENEWLET_DEMO_MODE` | Docker Demo Mode switch, `false` by default. |
-| `RENEWLET_CUSTOM_HEAD_SCRIPT` | Optional deployer-provided external `<script>` injection. Empty by default; leave unset to inject no external script. |
+| `RENEWLET_CUSTOM_HEAD_SCRIPT` | Optional deployer-provided external `<script>` injection. Empty by default; only use trusted self-hosted HTTPS scripts because they run inside the Renewlet page. |
 | `NOTIFICATION_SCHEDULER_ENABLED` | Built-in notification scheduler switch, `true` by default. |
 | `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` | Optional Docker/Go upstream HTTP proxy; lowercase variable names are also supported. |
 
@@ -159,6 +160,8 @@ RENEWLET_CUSTOM_HEAD_SCRIPT='<script defer src="https://cdn.example.com/widget.j
 ```
 
 Renewlet accepts only a single external script tag with `src` and no inline content. The script origin is automatically added to `script-src` and `connect-src`; when `data-host-url` is present, its origin is also added to `connect-src`.
+
+Treat this as a high-trust deployment boundary. The injected script runs in the same browser page as Renewlet. It cannot read the HttpOnly session cookie, but same-origin script can still read the CSRF cookie and send credentialed requests as the current browser session. Prefer a self-hosted HTTPS script that you fully control, and leave `RENEWLET_CUSTOM_HEAD_SCRIPT` empty if you do not need it.
 
 Docker/Go deployments inject this at runtime, so changing the environment variable only requires restarting Renewlet. Cloudflare Static Assets reads the variable at build time, so changes require rebuilding and redeploying.
 

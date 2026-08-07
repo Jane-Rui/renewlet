@@ -233,10 +233,10 @@ func clientIP(req *http.Request) string {
 }
 
 // setPrivateShortCache 设置用户私有短缓存。
-// Vary: Authorization 防止共享缓存把某个用户的搜索结果复用给其他会话。
+// 浏览器 session 只走 cookie；短私有缓存必须按 Cookie 隔离，Public API bearer 不进入这里。
 func setPrivateShortCache(e *core.RequestEvent) {
 	e.Response.Header().Set("Cache-Control", "private, max-age=300")
-	e.Response.Header().Set("Vary", "Authorization")
+	e.Response.Header().Set("Vary", "Cookie")
 }
 
 func uniqueStrings(values []string) []string {

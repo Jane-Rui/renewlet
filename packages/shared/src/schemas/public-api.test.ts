@@ -18,7 +18,7 @@ function subscription(overrides: Record<string, unknown> = {}) {
   return {
     id: "sub_public_api",
     name: "Public API Plan",
-    price: 12,
+    price: "12",
     currency: "USD",
     billingCycle: "monthly",
     category: "developer_tools",

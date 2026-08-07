@@ -3,7 +3,7 @@
  *
  * 架构位置：
  * - Settings 页只展示登录邮箱，不允许通过 AppSettings 修改账号身份。
- * - PocketBase authStore 是唯一可信来源，避免把邮箱复制到业务设置后产生跨设备不一致。
+ * - 产品 session 的 user 视图是当前页面身份来源，避免把邮箱复制到业务设置后产生跨设备不一致。
  */
 import { authClient } from "@/lib/auth-client";
 

@@ -27,7 +27,7 @@ interface I18nContextValue {
   formatDateOnly: (date: DateOnly | string, style?: "short" | "monthDay" | "full") => string;
   formatDateTime: (date: Date | string | number, options?: Intl.DateTimeFormatOptions) => string;
   formatNumber: (value: number, options?: Intl.NumberFormatOptions) => string;
-  formatCurrency: (amount: number, currency: string) => string;
+  formatCurrency: (amount: number | string, currency: string) => string;
   label: (labels: LocalizedLabels) => string;
 }
 

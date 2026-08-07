@@ -96,7 +96,7 @@ jobs:
 
       - name: Create release bot token
         id: release-bot
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@v3.2.0
         with:
           client-id: ${{ vars.RENEWLET_RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RENEWLET_RELEASE_APP_PRIVATE_KEY }}
@@ -119,7 +119,7 @@ jobs:
           fi
 
       - name: Checkout
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@v7.0.1
         with:
           ref: ${{ steps.release-input.outputs.checkout_ref }}
           fetch-depth: 0
@@ -127,7 +127,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6.0.0
+        uses: actions/setup-node@v7.0.0
         with:
           node-version: 24
 

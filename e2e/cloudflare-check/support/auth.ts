@@ -21,16 +21,16 @@ export async function loginThroughCloudflareUI(page: Page, nextPath = "/") {
   await page.getByRole("button", { name: "登录", exact: true }).click();
   const loginResponse = await loginResponsePromise;
   expect(loginResponse.ok(), await loginResponse.text()).toBe(true);
-  // Cloudflare check 后续请求从 v2 session record 取 Bearer token；只等 URL 跳转会让慢 localStorage 写入触发偶发 401。
+  // Cloudflare check 后续请求依赖 cookie session；localStorage 只保存非密用户快照，用来确认前端完成登录落盘。
   await expect.poll(async () => page.evaluate(() => {
-    const raw = localStorage.getItem("renewlet_cloudflare_session");
+    const raw = localStorage.getItem("renewlet_app_session");
     if (!raw) return false;
     try {
       const parsed = JSON.parse(raw) as unknown;
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;
       const record = parsed as Record<string, unknown>;
       const value = record["value"];
-      return record["version"] === 2 && Boolean(value && typeof value === "object" && "session" in value);
+      return record["version"] === 1 && Boolean(value && typeof value === "object" && "session" in value);
     } catch {
       return false;
     }

@@ -3,7 +3,7 @@ import { createDefaultAppSettings } from "@renewlet/shared/settings-defaults";
 import type { ApiAppSettings } from "@renewlet/shared/schemas/settings";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readSuccessData } from "./api-test-helpers";
-import { ensureSettings } from "./db";
+import { ensureSettings, normalizeSettingsJson } from "./db";
 import { readSettings, updateSettings } from "./settings";
 import type { Env } from "./types";
 
@@ -98,12 +98,14 @@ class SettingsTestStatement {
 }
 
 function settingsRequest(method: string, locale: string, body?: unknown): Request {
+  const unsafe = !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
   const init: RequestInit = {
     method,
     headers: {
-      authorization: "Bearer session-token",
+      cookie: "renewlet_session=session-token; renewlet_csrf=csrf-token",
       "content-type": "application/json",
       "x-renewlet-locale": locale,
+      ...(unsafe ? { origin: "https://renewlet.example", "x-renewlet-csrf": "csrf-token" } : {}),
     },
   };
   if (body !== undefined) {
@@ -115,7 +117,6 @@ function settingsRequest(method: string, locale: string, body?: unknown): Reques
 describe("Cloudflare settings initialization", () => {
   beforeEach(() => {
     authMocks.requireAuth.mockReset().mockResolvedValue({
-      token: "session-token",
       user: { id: USER_ID },
       session: { id: "ses" },
     });
@@ -145,7 +146,7 @@ describe("Cloudflare settings initialization", () => {
     expect(createDefaultAppSettings().telegramMessageFormat).toBe("plain");
     const existing = {
       ...createDefaultAppSettings({ locale: "en-US" }),
-      monthlyBudget: 2333,
+      monthlyBudget: "2333",
       telegramMessageFormat: "markdown",
     };
     const state: SettingsTestState = {
@@ -161,13 +162,49 @@ describe("Cloudflare settings initialization", () => {
     const settings = await ensureSettings(env, USER_ID, "zh-CN");
 
     expect(settings.telegramMessageFormat).toBe("plain");
-    expect(settings.monthlyBudget).toBe(2333);
+    expect(settings.monthlyBudget).toBe("2333");
+  });
+
+  it("adds subscription price reference defaults when reading old settings JSON", () => {
+    const settings = normalizeSettingsJson(JSON.stringify({
+      defaultCurrency: "USD",
+      monthlyBudget: "2333",
+    }));
+
+    expect(settings.defaultCurrency).toBe("USD");
+    expect(settings.monthlyBudget).toBe("2333");
+    expect(settings.subscriptionPriceReferenceEnabled).toBe(false);
+    expect(settings.subscriptionPriceReferenceCurrency).toBe("default");
+  });
+
+  it("recovers invalid stored subscription price reference currency without dropping other settings", async () => {
+    const existing = {
+      ...createDefaultAppSettings({ locale: "en-US" }),
+      monthlyBudget: "2333",
+      subscriptionPriceReferenceEnabled: true,
+      subscriptionPriceReferenceCurrency: "usd",
+    };
+    const state: SettingsTestState = {
+      rows: new Map([[USER_ID, JSON.stringify(existing)]]),
+      inserts: [],
+    };
+    const env = {
+      DB: new SettingsTestDB(state) as unknown as D1Database,
+      ASSETS: {} as Fetcher,
+      ASSETS_BUCKET: {} as R2Bucket,
+    } as Env;
+
+    const settings = await ensureSettings(env, USER_ID, "zh-CN");
+
+    expect(settings.subscriptionPriceReferenceEnabled).toBe(true);
+    expect(settings.subscriptionPriceReferenceCurrency).toBe("default");
+    expect(settings.monthlyBudget).toBe("2333");
   });
 
   it("recovers invalid stored DingTalk template fields without dropping other settings", async () => {
     const existing = {
       ...createDefaultAppSettings({ locale: "en-US" }),
-      monthlyBudget: 2333,
+      monthlyBudget: "2333",
       dingtalkTitleTemplate: "x".repeat(501),
       dingtalkContentTemplate: 42,
     };
@@ -185,7 +222,7 @@ describe("Cloudflare settings initialization", () => {
 
     expect(settings.dingtalkTitleTemplate).toBe("");
     expect(settings.dingtalkContentTemplate).toBe("");
-    expect(settings.monthlyBudget).toBe(2333);
+    expect(settings.monthlyBudget).toBe("2333");
   });
 
   it("readSettings ensures a settings row from the request locale", async () => {
@@ -201,11 +238,11 @@ describe("Cloudflare settings initialization", () => {
   it("updateSettings uses the request locale when creating the first row", async () => {
     const { env, state } = createEnv();
 
-    const response = await updateSettings(settingsRequest("PUT", "zh-CN", { monthlyBudget: 2333 }), env);
+    const response = await updateSettings(settingsRequest("PUT", "zh-CN", { monthlyBudget: "2333" }), env);
 
     expect(response.status).toBe(200);
-    await expect(readSuccessData(response)).resolves.toMatchObject({ settings: { locale: "zh-CN", monthlyBudget: 2333 } });
-    expect(JSON.parse(state.rows.get(USER_ID) ?? "{}")).toMatchObject({ locale: "zh-CN", monthlyBudget: 2333 });
+    await expect(readSuccessData(response)).resolves.toMatchObject({ settings: { locale: "zh-CN", monthlyBudget: "2333" } });
+    expect(JSON.parse(state.rows.get(USER_ID) ?? "{}")).toMatchObject({ locale: "zh-CN", monthlyBudget: "2333" });
   });
 
   it("does not create settings when the PATCH payload is invalid", async () => {
@@ -215,6 +252,15 @@ describe("Cloudflare settings initialization", () => {
       .rejects.toMatchObject({ status: 400, code: "INVALID_PAYLOAD" });
 
     expect(state.rows.has(USER_ID)).toBe(false);
+  });
+
+  it("rejects invalid subscription price reference currency on write", async () => {
+    const { env } = createEnv(createDefaultAppSettings({ locale: "en-US" }));
+
+    await expect(updateSettings(settingsRequest("PUT", "zh-CN", {
+      subscriptionPriceReferenceEnabled: true,
+      subscriptionPriceReferenceCurrency: "usd",
+    }), env)).rejects.toMatchObject({ status: 400, code: "INVALID_PAYLOAD" });
   });
 
   it("accepts only supported Telegram message formats on write", async () => {

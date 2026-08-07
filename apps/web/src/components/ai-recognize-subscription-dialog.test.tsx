@@ -775,7 +775,7 @@ describe("AIRecognizeSubscriptionDialog", () => {
 
     await waitFor(() => expect(mocks.previewPrepared).toHaveBeenCalledTimes(1));
     const prepared = mocks.previewPrepared.mock.calls[0]?.[0] as PreparedImport;
-    expect(prepared.payload.subscriptions[0]?.price).toBe(66);
+    expect(prepared.payload.subscriptions[0]?.price).toBe("66");
     expect(prepared.payload.customConfig?.categories.some((item) => item.labels["zh-CN"] === "Cloud lab")).toBe(true);
     expect(prepared.payload.customConfig?.paymentMethods.some((item) => item.labels["zh-CN"] === "Personal card")).toBe(true);
   });

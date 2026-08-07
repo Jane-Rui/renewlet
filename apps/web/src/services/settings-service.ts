@@ -60,8 +60,16 @@ function normalizeStoredSettingsPatch(value: unknown): unknown {
   const dingtalkMessageType = value["dingtalkMessageType"];
   const dingtalkTitleTemplate = value["dingtalkTitleTemplate"];
   const dingtalkContentTemplate = value["dingtalkContentTemplate"];
+  const subscriptionPriceReferenceCurrency = value["subscriptionPriceReferenceCurrency"];
   return {
     ...value,
+    ...(
+      subscriptionPriceReferenceCurrency === undefined
+      || subscriptionPriceReferenceCurrency === "default"
+      || (typeof subscriptionPriceReferenceCurrency === "string" && /^[A-Z]{3}$/.test(subscriptionPriceReferenceCurrency))
+        ? {}
+        : { subscriptionPriceReferenceCurrency: "default" }
+    ),
     ...(
       telegramMessageFormat === undefined || telegramMessageFormat === "plain" || telegramMessageFormat === "html"
         ? {}

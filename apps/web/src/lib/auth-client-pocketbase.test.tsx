@@ -36,7 +36,7 @@ vi.mock("@/lib/pocketbase", () => ({
 
 const sessionFixture: SessionData = {
   type: "session",
-  session: { id: "product-token", expiresAt: "2026-07-03T00:00:00.000Z" },
+  session: { expiresAt: "2026-07-03T00:00:00.000Z" },
   user: {
     id: "user-1",
     email: "alice@example.com",
@@ -90,7 +90,7 @@ describe("authClient in PocketBase runtime", () => {
     expect(mocks.fetch.mock.calls[0]?.[0]).toBe("/api/app/auth/session");
     expect(mocks.authRefresh).not.toHaveBeenCalled();
     await waitFor(() => {
-      expect(result.current.data?.session.id).toBe("product-token");
+      expect(result.current.data?.session.expiresAt).toBe("2026-07-03T00:00:00.000Z");
       expect(result.current.isPending).toBe(false);
     });
   });
@@ -101,13 +101,13 @@ describe("authClient in PocketBase runtime", () => {
 
     const result = await authClient.signIn.email({ email: "alice@example.com", password: "password123" });
 
-    expect(result).toMatchObject({ error: null, data: { type: "session", session: { id: "product-token" } } });
+    expect(result).toMatchObject({ error: null, data: { type: "session", session: { expiresAt: "2026-07-03T00:00:00.000Z" } } });
     expect(mocks.fetch).toHaveBeenCalledWith("/api/app/auth/login", expect.objectContaining({
       method: "POST",
       body: JSON.stringify({ email: "alice@example.com", password: "password123" }),
     }));
     expect(mocks.authWithPassword).not.toHaveBeenCalled();
-    expect(readProductSession()?.session.id).toBe("product-token");
+    expect(readProductSession()?.session.expiresAt).toBe("2026-07-03T00:00:00.000Z");
   });
 
   it("keeps MFA tickets in memory by not writing mfa_required responses to product session storage", async () => {
@@ -134,12 +134,12 @@ describe("authClient in PocketBase runtime", () => {
 
     const result = await authClient.verifyMfa({ method: "totp", ticketId: "ticket-1", code: "123456" });
 
-    expect(result).toMatchObject({ error: null, data: { session: { id: "product-token" } } });
+    expect(result).toMatchObject({ error: null, data: { session: { expiresAt: "2026-07-03T00:00:00.000Z" } } });
     expect(mocks.fetch).toHaveBeenCalledWith("/api/app/auth/mfa/verify", expect.objectContaining({
       method: "POST",
       body: JSON.stringify({ method: "totp", ticketId: "ticket-1", code: "123456" }),
     }));
-    expect(readProductSession()?.session.id).toBe("product-token");
+    expect(readProductSession()?.session.expiresAt).toBe("2026-07-03T00:00:00.000Z");
   });
 
   it("logs out through the product API and clears product session storage", async () => {
@@ -151,7 +151,8 @@ describe("authClient in PocketBase runtime", () => {
 
     expect(mocks.fetch).toHaveBeenCalledWith("/api/app/auth/logout", {
       method: "POST",
-      headers: { Authorization: "Bearer product-token" },
+      headers: {},
+      credentials: "include",
     });
     expect(readProductSession()).toBeNull();
   });

@@ -87,6 +87,7 @@ function fakeEnvForRows(rows: CloudBackupTargetRow[], onQuery?: (query: FakeD1Qu
     if (method === "all" && sql.includes("FROM cloud_backup_targets") && sql.includes("WHERE user_id = ?")) {
       return d1All(rows.filter((row) => row.user_id === String(params[0])).sort((left, right) => right.updated_at.localeCompare(left.updated_at)));
     }
+    if (method === "all" && sql.includes("FROM exchange_rate_snapshots")) return d1All([]);
     if (method === "first" && sql.includes("FROM cloud_backup_targets")) {
       return rows.find((row) => row.user_id === String(params[0]) && row.provider === params[1]) ?? null;
     }
@@ -281,7 +282,7 @@ function emptyWebDAVMultiStatus(): string {
 }
 
 beforeEach(() => {
-  authMocks.requireAuth.mockReset().mockResolvedValue({ user: authUser, session: { id: "ses" }, token: "test" });
+  authMocks.requireAuth.mockReset().mockResolvedValue({ user: authUser, session: { id: "ses" } });
   dbMocks.getAsset.mockReset().mockResolvedValue(null);
   dbMocks.getCustomConfig.mockReset().mockResolvedValue({ categories: [], statuses: [], paymentMethods: [], currencies: [] });
   dbMocks.getSettings.mockReset().mockResolvedValue(createDefaultAppSettings());

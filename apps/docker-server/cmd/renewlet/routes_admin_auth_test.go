@@ -124,7 +124,7 @@ func TestBannedUserCannotRefreshOrUseExistingPocketBaseToken(t *testing.T) {
 	subscription := core.NewRecord(subscriptions)
 	subscription.Set("user", user.Id)
 	subscription.Set("name", "Banned token test")
-	subscription.Set("price", 12)
+	subscription.Set("price", "12")
 	subscription.Set("currency", "USD")
 	subscription.Set("billingCycle", "monthly")
 	subscription.Set("category", "Software")

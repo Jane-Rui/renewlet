@@ -6,7 +6,7 @@ export const messages = [
   msg({ id: "legal.privacy.subtitle", message: "最后更新：2026-01-12" }),
   msg({ id: "legal.privacy.intro", message: "Renewlet 默认不注入任何外部脚本。部署者可以通过环境变量提供一个外链 script；你在使用某个部署实例时，该脚本及其数据处理由实例运营者（可能是你自己）负责。" }),
   msg({ id: "legal.privacy.data.title", message: "1. 我们会处理哪些数据" }),
-  msg({ id: "legal.privacy.data.account", message: "账号信息：由 PocketBase 认证管理（例如邮箱、本地 token）。" }),
+  msg({ id: "legal.privacy.data.account", message: "账号信息：由 PocketBase 认证管理（例如邮箱、HttpOnly 浏览器会话 Cookie）。" }),
   msg({ id: "legal.privacy.data.business", message: "业务数据：订阅信息、分类/支付方式/货币配置、用户设置等（SQLite）。" }),
   msg({ id: "legal.privacy.data.files", message: "资源文件：你上传的 Logo/Icon 等图片（本地文件存储）。" }),
   msg({ id: "legal.privacy.usage.title", message: "2. 数据如何被使用" }),

@@ -19,6 +19,7 @@ import {
 } from "@renewlet/shared/ai-recognition-prompt";
 import { normalizeAIRecognitionUsefulNotes } from "@renewlet/shared/ai-recognition-notes";
 import { customConfigSchema, type ApiCustomConfig } from "@renewlet/shared/schemas/custom-config";
+import { moneyFromNumber } from "@renewlet/shared/money";
 import {
   BILLING_CYCLES,
   CUSTOM_CYCLE_UNITS,
@@ -184,14 +185,14 @@ function hostnameFromUrl(value: string): string | null {
   }
 }
 
-function normalizeGeneratedPrice(value: AiGeneratedSubscriptionDraft["price"], warnings: string[]): number | null {
+function normalizeGeneratedPrice(value: AiGeneratedSubscriptionDraft["price"], warnings: string[]): string | null {
   const parsed = parseGeneratedNumber(value);
   if (parsed === null) return null;
   if (parsed < 0 || parsed > 1_000_000_000) {
     warnings.push("AI_WARNING_PRICE_INVALID");
     return null;
   }
-  return parsed;
+  return moneyFromNumber(parsed);
 }
 
 function normalizeGeneratedCurrency(value: string | null | undefined, warnings: string[]): string | null {

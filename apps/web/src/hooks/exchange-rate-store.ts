@@ -72,6 +72,7 @@ export type ExchangeRateSnapshot = {
   baseRate: string;
   activeProvider: ExchangeRateSource;
   warning: ExchangeRateCoverageWarning | null;
+  sourceDate: string;
   lastUpdated: Date;
 };
 
@@ -255,6 +256,7 @@ function applyCachedRates(data: CachedExchangeRateData): ExchangeRateSnapshot {
     baseRate: data.base,
     activeProvider: data.provider,
     warning: data.warning ?? null,
+    sourceDate: data.date,
     lastUpdated: new Date(data.cachedAt),
   };
 }

@@ -25,6 +25,7 @@ type ImportSubscription = ImportPayload["subscriptions"][number];
 export interface ResolvedImportAssets {
   payload: ImportPayload;
   uploadedLogoCount: number;
+  uploadedIconCount: number;
 }
 
 type WorkerResponse =
@@ -106,11 +107,11 @@ export function updatePreparedSubscriptionLogo(
   prepared: PreparedImport,
   index: number,
   value: string | null,
-  asset?: Omit<ImportAssetRef, "subscriptionIndex">,
+  asset?: Omit<ImportAssetRef, "target" | "kind">,
 ): PreparedImport {
   if (!prepared.payload.subscriptions[index]) return prepared;
-  const nextAssets = prepared.assets.filter((item) => item.subscriptionIndex !== index);
-  if (asset) nextAssets.push({ ...asset, subscriptionIndex: index });
+  const nextAssets = prepared.assets.filter((item) => item.target.type !== "subscriptionLogo" || item.target.subscriptionIndex !== index);
+  if (asset) nextAssets.push({ ...asset, target: { type: "subscriptionLogo", subscriptionIndex: index }, kind: "logo" });
   const logoOverrides: ReadonlyMap<number, string | null> = new Map<number, string | null>([[index, value]]);
   const nextPrepared = updatePreparedSubscriptionLogos(prepared, logoOverrides);
   return {
@@ -152,9 +153,9 @@ export function updatePreparedSubscriptionLogos(
 }
 
 /**
- * loadImportAssetBlob 从导入文件中延迟读取待上传资产。
+ * loadImportAssetBlob 从导入文件中延迟读取待上传私有资产。
  *
- * ZIP 解压结果按 File 弱缓存，避免用户批量导入 Logo 时为每个订阅重复解析同一个备份包。
+ * ZIP 解压结果按 File 弱缓存，避免用户批量导入 Logo/Icon 时为每个引用重复解析同一个备份包。
  */
 export async function loadImportAssetBlob(asset: ImportAssetRef): Promise<Blob> {
   if (asset.blob) return asset.blob;
@@ -166,9 +167,9 @@ export async function loadImportAssetBlob(asset: ImportAssetRef): Promise<Blob> 
 }
 
 /**
- * resolveImportAssets 上传预览中最终会写入的 Logo，并把 payload 改写为受控资产 URL。
+ * resolveImportAssets 上传预览中最终会写入的私有资产，并把 payload 改写为受控资产 URL。
  *
- * 服务端 apply 只接受已经解析好的 `/api/app/assets/{id}` 或外链；这里必须在提交前完成私有资产落库。
+ * 服务端 apply 只能恢复受控代理路径；ZIP 内 `assets/...` 不能裸写入订阅或自定义配置。
  */
 export async function resolveImportAssets(
   prepared: PreparedImport,
@@ -176,24 +177,36 @@ export async function resolveImportAssets(
   onProgress?: (done: number, total: number) => void,
 ): Promise<ResolvedImportAssets> {
   const writableIndexes = new Set(previewItems.filter((item) => item.action === "create" || item.action === "replace").map((item) => item.index));
-  const assets = prepared.assets.filter((asset) => writableIndexes.has(asset.subscriptionIndex));
-  if (assets.length === 0) return { payload: prepared.payload, uploadedLogoCount: 0 };
+  const assets = prepared.assets.filter((asset) => importAssetWillBeWritten(prepared, writableIndexes, asset));
+  if (assets.length === 0) return { payload: prepared.payload, uploadedLogoCount: 0, uploadedIconCount: 0 };
   const logoOverrides = new Map<number, string | null>();
+  const iconOverrides = new Map<number, string>();
   let done = 0;
   onProgress?.(done, assets.length);
-  // 上传并发限制保护 Cloudflare R2/D1 与 PocketBase collection；导入几百个 Logo 时不能无界占满浏览器连接。
+  // 上传并发限制保护 Cloudflare R2/D1 与 PocketBase collection；导入几百个私有图标时不能无界占满浏览器连接。
   await runWithConcurrency(assets, 3, async (asset) => {
-    if (!prepared.payload.subscriptions[asset.subscriptionIndex]) return;
     const blob = await loadImportAssetBlob(asset);
-    const uploaded = await assetService.create(blob, "logo", asset.filename);
-    logoOverrides.set(asset.subscriptionIndex, uploaded.url);
+    const uploaded = await assetService.create(blob, asset.kind, asset.filename);
+    if (asset.target.type === "subscriptionLogo") {
+      logoOverrides.set(asset.target.subscriptionIndex, uploaded.url);
+    } else {
+      iconOverrides.set(asset.target.paymentMethodIndex, uploaded.url);
+    }
     done += 1;
     onProgress?.(done, assets.length);
   });
   return {
-    payload: buildPayloadWithLogoOverrides(prepared.payload, logoOverrides),
+    payload: buildPayloadWithAssetOverrides(prepared.payload, logoOverrides, iconOverrides),
     uploadedLogoCount: logoOverrides.size,
+    uploadedIconCount: iconOverrides.size,
   };
+}
+
+function importAssetWillBeWritten(prepared: PreparedImport, writableIndexes: ReadonlySet<number>, asset: ImportAssetRef): boolean {
+  if (asset.target.type === "subscriptionLogo") {
+    return writableIndexes.has(asset.target.subscriptionIndex) && Boolean(prepared.payload.subscriptions[asset.target.subscriptionIndex]);
+  }
+  return Boolean(prepared.payload.customConfig?.paymentMethods[asset.target.paymentMethodIndex]);
 }
 
 async function parseHeavyFileInWorker(
@@ -242,6 +255,22 @@ function buildPayloadWithLogoOverrides(payload: ImportPayload, logoOverrides: Re
       : subscription
   ));
   return importPayloadSchema.parse({ ...payload, subscriptions });
+}
+
+function buildPayloadWithAssetOverrides(
+  payload: ImportPayload,
+  logoOverrides: ReadonlyMap<number, string | null>,
+  iconOverrides: ReadonlyMap<number, string>,
+): ImportPayload {
+  const nextPayload = buildPayloadWithLogoOverrides(payload, logoOverrides);
+  if (iconOverrides.size === 0 || !nextPayload.customConfig) return nextPayload;
+  const customConfig = {
+    ...nextPayload.customConfig,
+    paymentMethods: nextPayload.customConfig.paymentMethods.map((item, index) => (
+      iconOverrides.has(index) ? { ...item, icon: iconOverrides.get(index)! } : item
+    )),
+  };
+  return importPayloadSchema.parse({ ...nextPayload, customConfig });
 }
 
 function optionalRows(value: unknown): WallosTableRow[] {

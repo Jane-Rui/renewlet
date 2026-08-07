@@ -25,6 +25,7 @@ import {
 import { aiRecognitionSettingsSchema } from "./ai-recognition";
 import { apiSuccessResponseSchema } from "./api";
 import { exchangeRateProviderSchema } from "./exchange-rates";
+import { moneyStringSchema } from "../money";
 
 const hhmmSchema = z.string().refine(isValidLocalTime, "时间格式必须为 HH:mm").transform((value) => value as LocalTime);
 
@@ -48,6 +49,10 @@ const timezoneSchema = z.string().trim().min(1).max(80).refine(isValidTimeZone, 
 const globalReminderDaysSchema = z.number().int().nonnegative().max(MAX_REMINDER_DAYS);
 export const publicStatusCurrencySchema = z.union([
   z.literal("inherit"),
+  z.string().trim().regex(/^[A-Z]{3}$/),
+]);
+export const subscriptionPriceReferenceCurrencySchema = z.union([
+  z.literal("default"),
   z.string().trim().regex(/^[A-Z]{3}$/),
 ]);
 // Telegram 菜单命令描述不支持富文本；这个枚举只控制 sendMessage 正文，默认值在 shared defaults 固定为 plain。
@@ -106,10 +111,13 @@ const appSettingsShape = {
   showExpired: z.boolean(),
   defaultCurrency: z.string().trim().regex(/^[A-Z]{3}$/),
   publicStatusCurrency: publicStatusCurrencySchema,
+  // 单订阅参考价由 enabled 控制展示；currency 只保存跟随统计货币或 ISO 代码，是否支持/启用由前端选项和汇率 helper 再收敛。
+  subscriptionPriceReferenceEnabled: z.boolean(),
+  subscriptionPriceReferenceCurrency: subscriptionPriceReferenceCurrencySchema,
   exchangeRateProvider: z.preprocess(normalizeExchangeRateProvider, exchangeRateProviderSchema),
   builtInIconSources: builtInIconSourcesSchema,
   onlineIconSources: onlineIconSourcesSchema,
-  monthlyBudget: z.number().finite().nonnegative().max(1_000_000_000),
+  monthlyBudget: moneyStringSchema,
   timezone: timezoneSchema,
   notificationTimeLocal: hhmmSchema,
   notificationReminderDays: globalReminderDaysSchema,

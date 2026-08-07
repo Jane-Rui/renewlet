@@ -387,10 +387,13 @@ func authenticatePublicAPIRequest(app core.App, e *core.RequestEvent) (publicAPI
 	if err != nil || user.GetBool("banned") {
 		return publicAPIAuthContext{}, sql.ErrNoRows
 	}
-	// Public API token 是独立 bearer：成功鉴权后只更新 lastUsedAt，不创建或复用登录 session。
-	record.Set("lastUsedAt", time.Now().UTC().Format(time.RFC3339Nano))
-	if err := app.Save(record); err != nil {
-		return publicAPIAuthContext{}, err
+	now := time.Now().UTC()
+	if shouldTouchAuditTimestamp(record.GetString("lastUsedAt"), now) {
+		// lastUsedAt 只服务 token 使用审计；Public API 鉴权仍只看 hash、scope、owner 和用户状态。
+		record.Set("lastUsedAt", now.Format(time.RFC3339Nano))
+		if err := app.Save(record); err != nil {
+			return publicAPIAuthContext{}, err
+		}
 	}
 	return publicAPIAuthContext{UserID: userID, Scopes: []string{"read"}}, nil
 }

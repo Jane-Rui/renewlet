@@ -163,8 +163,8 @@ interface SubscriptionBase {
   name: string;
   /** Logo（可选）。 */
   logo: string | undefined;
-  /** 单次扣费金额。 */
-  price: number;
+  /** 单次扣费金额；API/storage 使用 canonical decimal string，展示前再按需要转 number。 */
+  price: string;
   /** 货币代码（如：CNY、USD）。 */
   currency: string;
   /** 分类。 */
@@ -254,6 +254,7 @@ export interface SubscriptionStats {
 }
 
 export type PublicStatusCurrency = "inherit" | (string & {});
+export type SubscriptionPriceReferenceCurrency = "default" | (string & {});
 
 export interface AppSettings {
   // 管理员展示信息
@@ -275,6 +276,10 @@ export interface AppSettings {
   defaultCurrency: string;
   /** 公开页金额汇总货币；inherit 表示跟随 defaultCurrency。 */
   publicStatusCurrency: PublicStatusCurrency;
+  /** 是否在单订阅价格下展示参考货币折算。 */
+  subscriptionPriceReferenceEnabled: boolean;
+  /** 单订阅参考货币；default 表示跟随 defaultCurrency。 */
+  subscriptionPriceReferenceCurrency: SubscriptionPriceReferenceCurrency;
   /** 首选汇率来源；其他远端来源和内置快照仍作为兜底。 */
   exchangeRateProvider: ExchangeRateProvider;
   /** 内置 Logo/Icon 来源配置；影响搜索候选和导入自动匹配。 */
@@ -285,8 +290,8 @@ export interface AppSettings {
   aiRecognition: AiRecognitionSettings;
   
   // 预算
-  /** 月度预算（用于统计页预算占比）。 */
-  monthlyBudget: number;
+  /** 月度预算；和订阅金额一样使用 canonical decimal string。 */
+  monthlyBudget: string;
   
   // 时区
   /** 用户时区（用于后续定时任务/通知展示）。 */

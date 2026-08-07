@@ -2,7 +2,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import Login from "./login";
 
 const mocks = vi.hoisted(() => ({
@@ -98,7 +98,7 @@ describe("Login page", () => {
     mocks.signInPasskey.mockResolvedValue({
       data: {
         type: "session",
-        session: { id: "passkey-session", expiresAt: "2026-07-01T00:00:00.000Z" },
+        session: { expiresAt: "2026-07-01T00:00:00.000Z" },
         user: { id: "user-1", email: "passkey@example.com", name: "Passkey", role: "user", banned: false },
       },
       error: null,
@@ -268,7 +268,7 @@ describe("Login page", () => {
     passkey.resolve({
       data: {
         type: "session",
-        session: { id: "passkey-session", expiresAt: "2026-07-01T00:00:00.000Z" },
+        session: { expiresAt: "2026-07-01T00:00:00.000Z" },
         user: { id: "user-1", email: "passkey@example.com", name: "Passkey", role: "user", banned: false },
       },
       error: null,

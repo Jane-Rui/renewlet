@@ -12,7 +12,7 @@ import {
   cloudBackupScheduleWeekdaySchema,
   cloudBackupSnapshotManifestSchema,
 } from "./cloud-backup";
-import { renewletExportV1Schema } from "./import-export";
+import { importPayloadSchema, renewletExportManifestV1Schema, renewletExportV1Schema } from "./import-export";
 
 const success = <T>(data: T) => ({ ok: true, data });
 
@@ -331,6 +331,37 @@ describe("cloud backup schemas", () => {
 });
 
 describe("renewlet export schema", () => {
+  it("validates export manifests with missing private asset audit entries", () => {
+    const manifest = {
+      kind: "renewlet-export",
+      schemaVersion: 1,
+      exportedAt: "2026-06-09T00:00:00.000Z",
+      subscriptions: 2,
+      assets: 1,
+      missingAssets: [{
+        assetId: "asset_missing",
+        path: "/api/app/assets/asset_missing",
+        reference: "subscription.logo",
+        referenceId: "sub_1",
+        reason: "file_missing",
+      }],
+    };
+
+    expect(renewletExportManifestV1Schema.parse(manifest).missingAssets[0]?.reason).toBe("file_missing");
+    expect(renewletExportManifestV1Schema.safeParse({
+      ...manifest,
+      missingAssets: [{ ...manifest.missingAssets[0], reason: "permission_denied" }],
+    }).success).toBe(false);
+    expect(renewletExportManifestV1Schema.safeParse({
+      ...manifest,
+      missingAssets: [{ ...manifest.missingAssets[0], reference: "settings.logo" }],
+    }).success).toBe(false);
+    expect(renewletExportManifestV1Schema.safeParse({
+      ...manifest,
+      missingAssets: [{ ...manifest.missingAssets[0], path: "assets/asset_missing.svg" }],
+    }).success).toBe(false);
+  });
+
   it("allows ZIP-internal asset logo paths without loosening subscription API paths", () => {
     expect(renewletExportV1Schema.safeParse({
       kind: "renewlet-export",
@@ -341,7 +372,7 @@ describe("renewlet export schema", () => {
           id: "sub_1",
           name: "Renewlet",
           logo: "assets/logo.svg",
-          price: 9,
+          price: "9",
           currency: "USD",
           billingCycle: "monthly",
           category: "tools",
@@ -372,7 +403,7 @@ describe("renewlet export schema", () => {
           id: "sub_1",
           name: "Renewlet",
           logo: "../logo.svg",
-          price: 9,
+          price: "9",
           currency: "USD",
           billingCycle: "monthly",
           category: "tools",
@@ -390,6 +421,43 @@ describe("renewlet export schema", () => {
           repeatReminderWindow: "full",
           extra: {},
         }],
+      },
+    }).success).toBe(false);
+  });
+
+  it("accepts exchange-rate snapshots only when they match the export and import schema", () => {
+    const snapshot = {
+      schemaVersion: 1,
+      month: "2026-08",
+      base: "USD",
+      rates: { USD: 1, CNY: 7 },
+      requestedProvider: "frankfurter",
+      provider: "frankfurter",
+      sourceDate: "2026-08-01",
+      capturedAt: "2026-08-06T00:00:00.000Z",
+    };
+
+    expect(renewletExportV1Schema.safeParse({
+      kind: "renewlet-export",
+      schemaVersion: 1,
+      exportedAt: "2026-08-06T00:00:00.000Z",
+      data: {
+        subscriptions: [],
+        exchangeRateSnapshots: [snapshot],
+      },
+    }).success).toBe(true);
+    expect(importPayloadSchema.safeParse({
+      source: "renewlet",
+      subscriptions: [],
+      exchangeRateSnapshots: [snapshot],
+    }).success).toBe(true);
+    expect(renewletExportV1Schema.safeParse({
+      kind: "renewlet-export",
+      schemaVersion: 1,
+      exportedAt: "2026-08-06T00:00:00.000Z",
+      data: {
+        subscriptions: [],
+        exchangeRateSnapshots: [{ ...snapshot, provider: "builtin" }],
       },
     }).success).toBe(false);
   });

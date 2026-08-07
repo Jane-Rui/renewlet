@@ -156,7 +156,7 @@ msgstr "第三方服务的可用性、限流策略与数据准确性由其自身
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/legal.ts:9
 msgid "legal.privacy.data.account"
-msgstr "账号信息：由 PocketBase 认证管理（例如邮箱、本地 token）。"
+msgstr "账号信息：由 PocketBase 认证管理（例如邮箱、HttpOnly 浏览器会话 Cookie）。"
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/legal.ts:11

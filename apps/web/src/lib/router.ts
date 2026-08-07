@@ -10,7 +10,7 @@ import {
   useLocation,
   useNavigate,
   useSearchParams as useReactRouterSearchParams,
-} from "react-router-dom";
+} from "react-router";
 import { useCallback, useMemo } from "react";
 
 export function usePathname(): string {

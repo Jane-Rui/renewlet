@@ -5,6 +5,7 @@ import {
   costSharingCustomAmountsAreValid,
   type CostSharing,
 } from "./cost-sharing";
+import { moneyToNumber } from "./money";
 
 const equalSharing: CostSharing = {
   enabled: true,
@@ -35,8 +36,8 @@ describe("cost sharing calculation", () => {
       enabled: true,
       splitMode: "custom",
       members: [
-        { id: "partner", name: "Partner", currency: "CNY", customAmount: 10 },
-        { id: "child", name: "Child", currency: "CNY", customAmount: 10 },
+        { id: "partner", name: "Partner", currency: "CNY", customAmount: "10" },
+        { id: "child", name: "Child", currency: "CNY", customAmount: "10" },
       ],
     };
 
@@ -53,8 +54,8 @@ describe("cost sharing calculation", () => {
       enabled: true,
       splitMode: "custom",
       members: [
-        { id: "partner", name: "Partner", currency: "CNY", customAmount: 20 },
-        { id: "child", name: "Child", currency: "CNY", customAmount: 30 },
+        { id: "partner", name: "Partner", currency: "CNY", customAmount: "20" },
+        { id: "child", name: "Child", currency: "CNY", customAmount: "30" },
       ],
     };
 
@@ -70,8 +71,8 @@ describe("cost sharing calculation", () => {
       enabled: true,
       splitMode: "custom",
       members: [
-        { id: "partner", name: "Partner", currency: "CNY", customAmount: 50 },
-        { id: "child", name: "Child", currency: "CNY", customAmount: 30 },
+        { id: "partner", name: "Partner", currency: "CNY", customAmount: "50" },
+        { id: "child", name: "Child", currency: "CNY", customAmount: "30" },
       ],
     };
 
@@ -87,14 +88,15 @@ describe("cost sharing calculation", () => {
       enabled: true,
       splitMode: "custom",
       members: [
-        { id: "eur", name: "EUR member", currency: "EUR", customAmount: 10 },
-        { id: "usd", name: "USD member", currency: "USD", customAmount: 10 },
-        { id: "gbp", name: "GBP member", currency: "GBP", customAmount: 10 },
-        { id: "jpy", name: "JPY member", currency: "JPY", customAmount: 10 },
+        { id: "eur", name: "EUR member", currency: "EUR", customAmount: "10" },
+        { id: "usd", name: "USD member", currency: "USD", customAmount: "10" },
+        { id: "gbp", name: "GBP member", currency: "GBP", customAmount: "10" },
+        { id: "jpy", name: "JPY member", currency: "JPY", customAmount: "10" },
       ],
     };
-    const convert = (amount: number, from: string, to: string) => {
-      if (to !== "CNY") return amount;
+    const convert = (amount: number | string, from: string, to: string) => {
+      const value = moneyToNumber(amount);
+      if (to !== "CNY") return value;
       const rates: Record<string, number> = {
         CNY: 1,
         EUR: 8,
@@ -102,7 +104,7 @@ describe("cost sharing calculation", () => {
         GBP: 9,
         JPY: 0.05,
       };
-      return amount * (rates[from] ?? 1);
+      return value * (rates[from] ?? 1);
     };
 
     expect(calculateCostSharingSummary(customSharing, 50, { baseCurrency: "CNY", convert })).toMatchObject({
@@ -118,7 +120,7 @@ describe("cost sharing calculation", () => {
       enabled: true,
       splitMode: "custom",
       members: [
-        { id: "partner", name: "Partner", currency: "USD", customAmount: 40 },
+        { id: "partner", name: "Partner", currency: "USD", customAmount: "40" },
         { id: "child", name: "Child", currency: "CNY" },
       ],
     })).toBe(false);

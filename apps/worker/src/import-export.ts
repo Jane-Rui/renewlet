@@ -19,6 +19,7 @@ import { requireAuth } from "./auth";
 import { normalizeSubscriptionBodyForStorage, subscriptionRowValues, toSubscriptionRow, type SubscriptionBody } from "./subscriptions";
 import { refreshSubscriptionDerivedState } from "./subscription-derived-state";
 import { refreshSubscriptionSchedulerState } from "./subscription-scheduler-state";
+import { exchangeRateSnapshotUpsertStatement } from "./exchange-rate-snapshots";
 import type { Env, SubscriptionRow } from "./types";
 
 const INSERT_SUBSCRIPTION_SQL = `
@@ -50,6 +51,7 @@ export async function previewImport(request: Request, env: Env): Promise<Respons
   const auth = await requireAuth(request, env);
   const body = await readJsonWithLimit(request, importPreviewRequestSchema, locale, IMPORT_JSON_LIMIT_BYTES);
   assertValidSkipIndexes(body.skipIndexes, body.payload.subscriptions.length, locale);
+  assertExchangeRateSnapshotSource(body.payload, locale);
   const existing = await listSubscriptions(env, auth.user.id);
   return successJson(importPreviewPayloadSchema.parse(publicPreview(buildPreview(body.payload, body.conflictMode, existing, body.skipIndexes))));
 }
@@ -63,6 +65,7 @@ export async function applyImport(request: Request, env: Env): Promise<Response>
   assertApplyPayloadSize(body.payload.subscriptions.length, locale);
   // 导入只在当前登录用户范围内查重；payload 里的来源用户仅用于 extra.import 幂等键，不能变成 owner。
   assertValidSkipIndexes(body.skipIndexes, body.payload.subscriptions.length, locale);
+  assertExchangeRateSnapshotSource(body.payload, locale);
   const existing = await listSubscriptions(env, auth.user.id);
   const preview = buildPreview(body.payload, body.conflictMode, existing, body.skipIndexes);
   if (preview.summary.errors > 0) {
@@ -148,6 +151,10 @@ export async function applyImport(request: Request, env: Env): Promise<Response>
       ON CONFLICT(user_id) DO UPDATE SET config_json = excluded.config_json, updated_at = excluded.updated_at
     `).bind(auth.user.id, JSON.stringify(nextConfig), timestamp, timestamp));
   }
+  for (const snapshot of body.payload.exchangeRateSnapshots ?? []) {
+    // ZIP 恢复是唯一允许写历史汇率月份的路径；只 upsert shared schema 规范化后的快照。
+    statements.push(exchangeRateSnapshotUpsertStatement(env, auth.user.id, snapshot, timestamp));
+  }
 
   if (statements.length > 0) {
     // D1 batch 在同一事务里执行；导入要么整体写入，要么让调用方看到明确失败。
@@ -172,6 +179,8 @@ type PreviewResult = {
   items: ImportPreviewItem[];
   includesSettings: boolean;
   includesCustomConfig: boolean;
+  includesExchangeRateSnapshots: boolean;
+  exchangeRateSnapshotsCount: number;
   normalizedByIndex: Map<number, NormalizedImportSubscription>;
 };
 
@@ -239,6 +248,8 @@ function buildPreview(payload: ImportPayload, conflictMode: ImportConflictMode, 
     items,
     includesSettings: Boolean(payload.settings),
     includesCustomConfig: Boolean(payload.customConfig),
+    includesExchangeRateSnapshots: Boolean(payload.exchangeRateSnapshots?.length),
+    exchangeRateSnapshotsCount: payload.exchangeRateSnapshots?.length ?? 0,
     normalizedByIndex,
   };
 }
@@ -327,6 +338,12 @@ function isImportKey(value: unknown): value is ImportSubscription["extra"]["impo
 function assertValidSkipIndexes(indexes: number[], subscriptionCount: number, locale: ReturnType<typeof requestLocale>): void {
   if (indexes.some((index) => index < 0 || index >= subscriptionCount)) {
     throw new HttpError(400, serverText(locale, "import.skipIndexInvalid"), "IMPORT_SKIP_INDEX_INVALID");
+  }
+}
+
+function assertExchangeRateSnapshotSource(payload: ImportPayload, locale: AppLocale): void {
+  if ((payload.exchangeRateSnapshots?.length ?? 0) > 0 && payload.source !== "renewlet") {
+    throw new HttpError(400, serverText(locale, "import.invalid"), "IMPORT_EXCHANGE_RATE_SNAPSHOTS_SOURCE_INVALID");
   }
 }
 

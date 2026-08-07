@@ -41,16 +41,17 @@ type importApplyRequest struct {
 }
 
 type importPayload struct {
-	Source        string               `json:"source"`
-	Subscriptions []importSubscription `json:"subscriptions"`
-	Settings      json.RawMessage      `json:"settings,omitempty"`
-	CustomConfig  *customConfigPayload `json:"customConfig,omitempty"`
+	Source                string                    `json:"source"`
+	Subscriptions         []importSubscription      `json:"subscriptions"`
+	Settings              json.RawMessage           `json:"settings,omitempty"`
+	CustomConfig          *customConfigPayload      `json:"customConfig,omitempty"`
+	ExchangeRateSnapshots []exchangeRateSnapshotDTO `json:"exchangeRateSnapshots,omitempty"`
 }
 
 type importSubscription struct {
 	Name                         string                 `json:"name"`
 	Logo                         *string                `json:"logo,omitempty"`
-	Price                        float64                `json:"price"`
+	Price                        string                 `json:"price"`
 	Currency                     string                 `json:"currency"`
 	BillingCycle                 string                 `json:"billingCycle"`
 	CustomDays                   *int                   `json:"customDays,omitempty"`
@@ -74,14 +75,17 @@ type importSubscription struct {
 	RepeatReminderEnabled        bool                   `json:"repeatReminderEnabled"`
 	RepeatReminderInterval       string                 `json:"repeatReminderInterval"`
 	RepeatReminderWindow         string                 `json:"repeatReminderWindow"`
+	CostSharing                  map[string]interface{} `json:"costSharing,omitempty"`
 	Extra                        map[string]interface{} `json:"extra"`
 }
 
 type importPreviewResponse struct {
-	Summary              importSummary       `json:"summary"`
-	Items                []importPreviewItem `json:"items"`
-	IncludesSettings     bool                `json:"includesSettings"`
-	IncludesCustomConfig bool                `json:"includesCustomConfig"`
+	Summary                       importSummary       `json:"summary"`
+	Items                         []importPreviewItem `json:"items"`
+	IncludesSettings              bool                `json:"includesSettings"`
+	IncludesCustomConfig          bool                `json:"includesCustomConfig"`
+	IncludesExchangeRateSnapshots bool                `json:"includesExchangeRateSnapshots"`
+	ExchangeRateSnapshotsCount    int                 `json:"exchangeRateSnapshotsCount"`
 }
 
 type importApplyResponse struct {
@@ -172,6 +176,12 @@ func validateImportPayload(payload importPayload, conflictMode string, skipIndex
 	if len(payload.Subscriptions) > maxSubscriptions {
 		return errors.New("IMPORT_TOO_MANY_SUBSCRIPTIONS")
 	}
+	if len(payload.ExchangeRateSnapshots) > maxExchangeRateSnapshotsPerUser {
+		return errors.New("IMPORT_TOO_MANY_EXCHANGE_RATE_SNAPSHOTS")
+	}
+	if len(payload.ExchangeRateSnapshots) > 0 && payload.Source != "renewlet" {
+		return errors.New("IMPORT_EXCHANGE_RATE_SNAPSHOTS_SOURCE_INVALID")
+	}
 	if _, err := importSkippedIndexSet(skipIndexes, len(payload.Subscriptions)); err != nil {
 		return err
 	}
@@ -190,6 +200,11 @@ func validateImportPayload(payload importPayload, conflictMode string, skipIndex
 	if payload.CustomConfig != nil {
 		if err := normalizeCustomConfigPayload(payload.CustomConfig); err != nil {
 			return err
+		}
+	}
+	for index := range payload.ExchangeRateSnapshots {
+		if err := normalizeExchangeRateSnapshotDTO(&payload.ExchangeRateSnapshots[index]); err != nil {
+			return fmt.Errorf("exchangeRateSnapshots %d: %w", index+1, err)
 		}
 	}
 	return nil
@@ -264,10 +279,12 @@ func previewImportPayload(app core.App, user *core.Record, payload importPayload
 		items = append(items, item)
 	}
 	return importPreviewResponse{
-		Summary:              summarizeImportItems(items),
-		Items:                items,
-		IncludesSettings:     len(strings.TrimSpace(string(payload.Settings))) > 0,
-		IncludesCustomConfig: payload.CustomConfig != nil,
+		Summary:                       summarizeImportItems(items),
+		Items:                         items,
+		IncludesSettings:              len(strings.TrimSpace(string(payload.Settings))) > 0,
+		IncludesCustomConfig:          payload.CustomConfig != nil,
+		IncludesExchangeRateSnapshots: len(payload.ExchangeRateSnapshots) > 0,
+		ExchangeRateSnapshotsCount:    len(payload.ExchangeRateSnapshots),
 	}, nil
 }
 
@@ -312,6 +329,9 @@ func applyImportPayload(app core.App, user *core.Record, payload importPayload, 
 			return err
 		}
 		if err := applyImportedCustomConfig(txApp, user, payload.CustomConfig); err != nil {
+			return err
+		}
+		if err := applyImportedExchangeRateSnapshots(txApp, user, payload.ExchangeRateSnapshots); err != nil {
 			return err
 		}
 		return nil
@@ -393,6 +413,11 @@ func setImportSubscriptionRecord(record *core.Record, userID string, subscriptio
 	record.Set("repeatReminderEnabled", subscription.RepeatReminderEnabled)
 	record.Set("repeatReminderInterval", subscription.RepeatReminderInterval)
 	record.Set("repeatReminderWindow", subscription.RepeatReminderWindow)
+	if subscription.CostSharing != nil {
+		record.Set("costSharing", subscription.CostSharing)
+	} else {
+		record.Set("costSharing", emptyJSONPayload{})
+	}
 	// extra.import 是导入唯一同源键；只写 allowlist 字段后再整体存入 JSON，避免用户 payload 扩权。
 	record.Set("extra", subscription.Extra)
 }

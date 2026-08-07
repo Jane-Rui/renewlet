@@ -94,7 +94,7 @@ function importSubscription(overrides: Record<string, unknown> = {}) {
   return {
     name: "Imported",
     logo: null,
-    price: 12,
+    price: "12",
     currency: "USD",
     billingCycle: "monthly",
     customDays: null,
@@ -132,6 +132,27 @@ function importPayload(subscriptions: unknown[]) {
   };
 }
 
+function exchangeRateSnapshotPayload(source: "renewlet" | "wallos") {
+  return {
+    payload: {
+      source,
+      subscriptions: [],
+      exchangeRateSnapshots: [{
+        schemaVersion: 1,
+        month: "2000-01",
+        base: "USD",
+        rates: { USD: 1, CNY: 7 },
+        requestedProvider: "floatrates",
+        provider: "floatrates",
+        sourceDate: "2000-01-31",
+        capturedAt: "2000-02-01T00:00:00.000Z",
+      }],
+    },
+    conflictMode: "skip",
+    skipIndexes: [],
+  };
+}
+
 describe("Cloudflare import", () => {
   beforeEach(() => {
     authMocks.requireAuth.mockReset();
@@ -139,7 +160,7 @@ describe("Cloudflare import", () => {
     dbMocks.getSettings.mockReset();
     dbMocks.nowIso.mockReset();
     dbMocks.newId.mockReset();
-    authMocks.requireAuth.mockResolvedValue({ user: authUser, session: { id: "ses" }, token: "test" });
+    authMocks.requireAuth.mockResolvedValue({ user: authUser, session: { id: "ses" } });
     dbMocks.listSubscriptions.mockResolvedValue([]);
     dbMocks.getSettings.mockResolvedValue({});
     dbMocks.nowIso.mockReturnValue("2026-06-05T00:00:00.000Z");
@@ -213,6 +234,32 @@ describe("Cloudflare import", () => {
     expect(insert?.values[19]).toBe(0);
   });
 
+  it("restores historical exchange rate snapshots only from Renewlet ZIP payloads", async () => {
+    const { env, db, statements } = envFixture();
+
+    const response = await applyImport(requestFor("/api/app/import/apply", exchangeRateSnapshotPayload("renewlet")), env);
+    const data = await readSuccessData<{ includesExchangeRateSnapshots: boolean; exchangeRateSnapshotsCount: number }>(response);
+
+    expect(response.status).toBe(200);
+    expect(data).toMatchObject({ includesExchangeRateSnapshots: true, exchangeRateSnapshotsCount: 1 });
+    expect(db.batch).toHaveBeenCalledTimes(1);
+    const snapshot = statements.find((statement) => statement.sql.includes("INSERT INTO exchange_rate_snapshots"));
+    expect(snapshot?.values.slice(0, 8)).toEqual([
+      authUser.id,
+      "2000-01",
+      "USD",
+      JSON.stringify({ USD: 1, CNY: 7 }),
+      "floatrates",
+      "floatrates",
+      "2000-01-31",
+      "2000-02-01T00:00:00.000Z",
+    ]);
+
+    await expect(previewImport(requestFor("/api/app/import/preview", exchangeRateSnapshotPayload("wallos")), env))
+      .rejects
+      .toMatchObject({ status: 400, code: "IMPORT_EXCHANGE_RATE_SNAPSHOTS_SOURCE_INVALID" });
+  });
+
   it("preserves one-time fixed term fields before binding D1 statements", async () => {
     const { env, db, statements } = envFixture();
     const response = await applyImport(requestFor("/api/app/import/apply", importPayload([
@@ -258,8 +305,8 @@ describe("Cloudflare import", () => {
       enabled: true,
       splitMode: "custom",
       members: [
-        { id: "partner", name: "Partner", customAmount: 7 },
-        { id: "child", name: "Child", customAmount: 5 },
+        { id: "partner", name: "Partner", customAmount: "7" },
+        { id: "child", name: "Child", customAmount: "5" },
       ],
     };
     const response = await applyImport(requestFor("/api/app/import/apply", importPayload([
@@ -303,7 +350,7 @@ describe("Cloudflare import", () => {
         user_id: "usr_import",
         name: "Imported",
         logo: null,
-        price: 12,
+        price: "12",
         currency: "USD",
         billing_cycle: "monthly",
         custom_days: null,

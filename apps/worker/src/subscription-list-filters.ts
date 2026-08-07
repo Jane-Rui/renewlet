@@ -8,7 +8,7 @@ import {
   listSubscriptionsPage,
   parseSubscriptionCursor,
 } from "./db";
-import { getSubscriptionTotal } from "./subscription-derived-state";
+import { ensureSubscriptionListStateFresh, getSubscriptionTotal } from "./subscription-derived-state";
 import type { Env, SubscriptionListIndexRow, SubscriptionRow } from "./types";
 
 const subscriptionListScanPageSize = 500;
@@ -30,6 +30,7 @@ export async function listSubscriptionsForQuery(
       total: await getSubscriptionTotal(env, userId),
     };
   }
+  await ensureSubscriptionListStateFresh(env, userId);
   return await collectFilteredSubscriptions(env, userId, query, today);
 }
 

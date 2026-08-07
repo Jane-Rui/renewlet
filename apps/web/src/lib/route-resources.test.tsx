@@ -74,7 +74,10 @@ describe("route resources", () => {
   });
 
   it("dedupes concurrent route preloads and prefetches route data once", async () => {
-    mocks.readProductSession.mockReturnValue({ session: { id: "token-1" }, user: { id: "user-1" } });
+    mocks.readProductSession.mockReturnValue({
+      session: { expiresAt: "2026-07-01T00:00:00.000Z" },
+      user: { id: "user-1", email: "alice@example.com", name: "Alice", role: "admin", banned: false },
+    });
     const queryClient = createQueryClient();
 
     await Promise.all([

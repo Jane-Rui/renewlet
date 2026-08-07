@@ -54,8 +54,12 @@ import { AddToCalendarDialog } from '@/components/add-to-calendar-dialog';
 import { SubscriptionLogo } from '@/components/subscription-logo';
 import { SubscriptionStatusBadge } from '@/components/subscription-status-badge';
 import { formatBillingCycleLabel, isOneTimeBuyout, isOneTimeFixedTerm } from '@/lib/subscription-billing';
+import {
+  getSubscriptionPriceReference,
+  type SubscriptionCurrencyConverter,
+} from '@/modules/subscriptions/domain/subscription-price-reference';
 import { isManualRenewEligible } from '@renewlet/shared/subscription-renewal';
-import { calculateCostSharingSummary, type CostSharingCurrencyConverter } from '@renewlet/shared/cost-sharing';
+import { calculateCostSharingSummary } from '@renewlet/shared/cost-sharing';
 
 export type SubscriptionCardLookup = ReadonlyMap<string, ConfigItem>;
 
@@ -86,8 +90,12 @@ interface SubscriptionCardProps {
   paymentMethodByValue: SubscriptionCardLookup;
   /** 订阅选择“继承”时展示的全局提醒天数。 */
   inheritedReminderDays?: number | undefined;
-  /** 分账摘要使用订阅原币种展示；跨币种成员金额由页面级汇率源统一换算。 */
-  costSharingCurrencyConvert?: CostSharingCurrencyConverter | undefined;
+  /** 分账摘要和参考价使用同一页面级汇率口径，避免卡片入口和统计口径分叉。 */
+  currencyConvert: SubscriptionCurrencyConverter;
+  /** 只有拿到真实远端/快照 sourceDate 后才展示参考价。 */
+  currencyRatesReady: boolean;
+  /** settings 解析后的目标参考货币；null 表示关闭。 */
+  priceReferenceCurrency: string | null;
 }
 
 const DEFAULT_BADGE_COLOR = "hsl(var(--primary))";
@@ -157,7 +165,9 @@ function SubscriptionCardComponent({
   categoryByValue,
   paymentMethodByValue,
   inheritedReminderDays = DEFAULT_NOTIFICATION_REMINDER_DAYS,
-  costSharingCurrencyConvert,
+  currencyConvert,
+  currencyRatesReady,
+  priceReferenceCurrency,
 }: SubscriptionCardProps) {
   const { t, locale, label, formatCurrency, formatDateOnly } = useI18n();
   const categoryConfig = categoryByValue.get(subscription.category);
@@ -180,9 +190,22 @@ function SubscriptionCardComponent({
   const hasCalendarEvent = !isBuyout;
   const canManualRenew = Boolean(onRenew) && isManualRenewEligible(subscription);
   const billingCycleLabel = formatBillingCycleLabel(subscription, locale);
+  const priceReference = getSubscriptionPriceReference({
+    price: subscription.price,
+    currency: subscription.currency,
+    targetCurrency: priceReferenceCurrency,
+    currencyRatesReady,
+    currencyConvert,
+  });
+  const priceReferenceLabel = priceReference === null
+    ? null
+    : t("subscription.priceReference", {
+        amount: formatCurrency(priceReference.amount, priceReference.currency),
+        currency: priceReference.currency,
+      });
   const costSharingSummary = calculateCostSharingSummary(subscription.costSharing, subscription.price, {
     baseCurrency: subscription.currency,
-    convert: costSharingCurrencyConvert,
+    convert: currencyConvert,
   });
   const renewalBadgeLabel = isOneTime
     ? localizedLabel(CYCLE_LABELS["one-time"], locale)
@@ -328,13 +351,18 @@ function SubscriptionCardComponent({
               />
             </div>
 
-            <div className="shrink-0 text-right">
-              <p className="whitespace-nowrap text-xl font-bold text-foreground">
+            <div className="min-w-0 max-w-[8.75rem] shrink-0 text-right sm:max-w-[10rem]">
+              <p className="truncate text-xl font-bold text-foreground">
                 {formatCurrency(subscription.price, subscription.currency)}
               </p>
               <p className="text-xs text-muted-foreground">
                 {billingCycleLabel}
               </p>
+              {priceReferenceLabel ? (
+                <p className="truncate text-xs tabular-nums text-muted-foreground">
+                  {priceReferenceLabel}
+                </p>
+              ) : null}
             </div>
 
             <DropdownMenu>
@@ -487,7 +515,9 @@ function areSubscriptionCardPropsEqual(prev: SubscriptionCardProps, next: Subscr
     prev.inheritedReminderDays === next.inheritedReminderDays &&
     prev.categoryByValue === next.categoryByValue &&
     prev.paymentMethodByValue === next.paymentMethodByValue &&
-    prev.costSharingCurrencyConvert === next.costSharingCurrencyConvert &&
+    prev.currencyConvert === next.currencyConvert &&
+    prev.currencyRatesReady === next.currencyRatesReady &&
+    prev.priceReferenceCurrency === next.priceReferenceCurrency &&
     prev.onEdit === next.onEdit &&
     prev.onDelete === next.onDelete &&
     prev.onClone === next.onClone &&

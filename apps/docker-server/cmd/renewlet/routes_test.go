@@ -17,6 +17,12 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
+const routeTestProductSessionPrefix = "product-session:"
+
+func routeTestProductSessionAuth(token string, csrfToken string) string {
+	return routeTestProductSessionPrefix + token + ":" + csrfToken
+}
+
 func servePocketBaseTestRequest(t *testing.T, app core.App, method string, target string, body string, token string) *httptest.ResponseRecorder {
 	t.Helper()
 	router, err := apis.NewRouter(app)
@@ -57,12 +63,10 @@ func serveTestRequestWithHeaders(t *testing.T, app core.App, method string, targ
 
 	req := httptest.NewRequest(method, target, bytes.NewBufferString(body))
 	req.Header.Set("content-type", "application/json")
-	if token != "" {
-		req.Header.Set("Authorization", token)
-	}
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
+	applyRouteTestAuth(req, token)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	return rec
@@ -100,9 +104,7 @@ func serveMultipartTestRequest(t *testing.T, app core.App, target string, token 
 
 	req := httptest.NewRequest(http.MethodPost, target, &body)
 	req.Header.Set("content-type", writer.FormDataContentType())
-	if token != "" {
-		req.Header.Set("Authorization", token)
-	}
+	applyRouteTestAuth(req, token)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	return rec
@@ -114,11 +116,11 @@ func createRouteTestUser(t *testing.T, app core.App, role string) (*core.Record,
 	if err != nil {
 		t.Fatal(err)
 	}
-	token, _, err := createAppSession(app, user.Id)
+	token, csrfToken, _, err := createAppSession(app, user.Id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return user, "Bearer " + token
+	return user, routeTestProductSessionAuth(token, csrfToken)
 }
 
 func createRouteTestUserWithPocketBaseToken(t *testing.T, app core.App, role string) (*core.Record, string) {
@@ -144,7 +146,7 @@ func createRouteTestSubscription(t *testing.T, app core.App, userID string, over
 	record.Load(map[string]interface{}{
 		"user":                         userID,
 		"name":                         "Route Subscription",
-		"price":                        12,
+		"price":                        "12",
 		"currency":                     "USD",
 		"billingCycle":                 "monthly",
 		"category":                     "productivity",
@@ -169,6 +171,37 @@ func createRouteTestSubscription(t *testing.T, app core.App, userID string, over
 		t.Fatal(err)
 	}
 	return record
+}
+
+func applyRouteTestAuth(req *http.Request, token string) {
+	if token == "" {
+		if strings.HasPrefix(req.URL.Path, "/api/app/") && isUnsafeHTTPMethod(req.Method) {
+			applyRouteTestSameOrigin(req)
+		}
+		return
+	}
+	if strings.HasPrefix(token, routeTestProductSessionPrefix) {
+		parts := strings.SplitN(strings.TrimPrefix(token, routeTestProductSessionPrefix), ":", 2)
+		req.AddCookie(&http.Cookie{Name: appSessionCookieName, Value: parts[0]})
+		if len(parts) == 2 {
+			req.AddCookie(&http.Cookie{Name: appCSRFCookieName, Value: parts[1]})
+			if isUnsafeHTTPMethod(req.Method) {
+				req.Header.Set(appCSRFHeaderName, parts[1])
+			}
+		}
+		if strings.HasPrefix(req.URL.Path, "/api/app/") && isUnsafeHTTPMethod(req.Method) {
+			applyRouteTestSameOrigin(req)
+		}
+		return
+	}
+	req.Header.Set("Authorization", token)
+}
+
+func applyRouteTestSameOrigin(req *http.Request) {
+	// 测试请求要模拟浏览器最终到达服务端后的 Origin；先应用 X-Forwarded-Proto，再生成同源头。
+	if origin := requestOrigin(req); origin != "" {
+		req.Header.Set("Origin", origin)
+	}
 }
 
 func createRouteTestSuperuser(t *testing.T, app core.App, email string, password string) *core.Record {
@@ -516,7 +549,7 @@ func TestSubscriptionsCollectionCreateAcceptsPrivateAssetLogoPath(t *testing.T) 
 			"user":%q,
 			"name":"test",
 			"logo":%q,
-			"price":0,
+			"price":"0",
 			"currency":"CNY",
 			"billingCycle":"monthly",
 			"customDays":null,
@@ -561,7 +594,7 @@ func TestSubscriptionsCollectionCreateValidatesLogoURLContract(t *testing.T) {
 			"user":%q,
 			"name":"logo-url-test",
 			"logo":%q,
-			"price":0,
+			"price":"0",
 			"currency":"CNY",
 			"billingCycle":"monthly",
 			"customDays":null,

@@ -9,7 +9,7 @@ describe("buildRenewalCalendarIcs", () => {
       subscription: {
         id: "sub_1",
         name: "Fastmail",
-        price: 5,
+        price: "5",
         currency: "USD",
         billingCycle: "monthly",
         category: "Productivity",
@@ -51,7 +51,7 @@ describe("buildRenewalCalendarIcs", () => {
       subscription: {
         id: "sub_fixed_term",
         name: "Discounted membership",
-        price: 120,
+        price: "120",
         currency: "USD",
         billingCycle: "one-time",
         oneTimeTermCount: 6,
@@ -131,7 +131,7 @@ describe("buildRenewalCalendarIcs", () => {
       subscription: {
         id: "sub_quiet",
         name: "Quiet renewal",
-        price: 5,
+        price: "5",
         currency: "USD",
         billingCycle: "monthly",
         category: "Productivity",

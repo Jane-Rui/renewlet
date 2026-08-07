@@ -16,7 +16,7 @@ vi.mock("@/services/product-session", () => ({
 
 const renewedSession = {
   type: "session" as const,
-  session: { id: "renewed-token", expiresAt: "2026-07-03T00:00:00.000Z" },
+  session: { expiresAt: "2026-07-03T00:00:00.000Z" },
   user: {
     id: "user-1",
     email: "mfa@example.com",
@@ -46,7 +46,7 @@ describe("mfaService", () => {
 
     expect(mocks.apiFetch.mock.calls[0]?.[0]).toBe("/api/app/auth/mfa/totp/enable");
     expect(mocks.writeProductSession).toHaveBeenCalledWith(expect.objectContaining({
-      session: { id: "renewed-token", expiresAt: "2026-07-03T00:00:00.000Z" },
+      session: { expiresAt: "2026-07-03T00:00:00.000Z" },
     }));
   });
 

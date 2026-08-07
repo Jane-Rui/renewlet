@@ -28,7 +28,7 @@ func TestPublicStatusPageLifecycleAndPublicRoute(t *testing.T) {
 	assetID := createPublicStatusTestAsset(t, app, token, "visible.svg")
 	visible := createCalendarFeedTestSubscription(t, app, user.Id, calendarFeedTestSubscription{
 		Name:            "Visible Plan",
-		Price:           12,
+		Price:           "12",
 		BillingCycle:    "monthly",
 		Category:        "developer_tools",
 		Status:          "active",
@@ -44,7 +44,7 @@ func TestPublicStatusPageLifecycleAndPublicRoute(t *testing.T) {
 	time.Sleep(2 * time.Millisecond)
 	pinned := createCalendarFeedTestSubscription(t, app, user.Id, calendarFeedTestSubscription{
 		Name:            "Pinned Plan",
-		Price:           20,
+		Price:           "20",
 		BillingCycle:    "monthly",
 		Status:          "active",
 		NextBillingDate: "2099-12-01",
@@ -55,7 +55,7 @@ func TestPublicStatusPageLifecycleAndPublicRoute(t *testing.T) {
 	}
 	hidden := createCalendarFeedTestSubscription(t, app, user.Id, calendarFeedTestSubscription{
 		Name:            "Hidden Plan",
-		Price:           99,
+		Price:           "99",
 		BillingCycle:    "monthly",
 		Status:          "active",
 		NextBillingDate: "2099-06-01",
@@ -67,7 +67,7 @@ func TestPublicStatusPageLifecycleAndPublicRoute(t *testing.T) {
 	time.Sleep(2 * time.Millisecond)
 	createCalendarFeedTestSubscription(t, app, user.Id, calendarFeedTestSubscription{
 		Name:            "Legacy Overdue",
-		Price:           10,
+		Price:           "10",
 		BillingCycle:    "monthly",
 		Status:          "active",
 		NextBillingDate: "2000-01-01",
@@ -134,13 +134,28 @@ func TestPublicStatusPageLifecycleAndPublicRoute(t *testing.T) {
 	if patchRes.Code != http.StatusOK {
 		t.Fatalf("expected public status patch 200, got %d: %s", patchRes.Code, patchRes.Body.String())
 	}
+	currentMonth := time.Now().UTC().Format("2006-01")
+	if err := upsertExchangeRateSnapshot(app, user.Id, exchangeRateSnapshotDTO{
+		SchemaVersion:     1,
+		Month:             currentMonth,
+		Base:              "USD",
+		Rates:             map[string]float64{"USD": 1, "CNY": 7},
+		RequestedProvider: "frankfurter",
+		Provider:          "frankfurter",
+		SourceDate:        currentMonth + "-01",
+		CapturedAt:        time.Now().UTC().Format(time.RFC3339),
+	}); err != nil {
+		t.Fatal(err)
+	}
 	pricedRes := serveTestRequest(t, app, http.MethodGet, publicTarget, "", "")
-	if !strings.Contains(pricedRes.Body.String(), `"price":12`) || !strings.Contains(pricedRes.Body.String(), `"currency":"USD"`) {
+	if !strings.Contains(pricedRes.Body.String(), `"price":"12"`) || !strings.Contains(pricedRes.Body.String(), `"currency":"USD"`) {
 		t.Fatalf("expected showPrices to expose amount fields, got %s", pricedRes.Body.String())
 	}
 	pricedBody := decodeAPISuccessDataForTest[map[string]any](t, pricedRes.Body.Bytes())
 	if page, ok := pricedBody["page"].(map[string]any); !ok || page["currency"] != "USD" {
 		t.Fatalf("expected explicit public status currency, got %#v", pricedBody["page"])
+	} else if basis, ok := page["exchangeRateBasis"].(map[string]any); !ok || basis["status"] != "locked" || basis["month"] != currentMonth || basis["base"] != "USD" {
+		t.Fatalf("expected locked public exchange rate basis, got %#v", page["exchangeRateBasis"])
 	}
 	pricedSubscriptions := pricedBody["subscriptions"].([]any)
 	pricedItem := publicStatusTestSubscriptionByName(t, pricedSubscriptions, "Visible Plan")

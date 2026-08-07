@@ -71,7 +71,8 @@ describe("SubscriptionTagInput", () => {
     const input = screen.getByLabelText("标签");
     const sizer = input.closest('[data-slot="subscription-tag-input-sizer"]');
     expect(input).toHaveAttribute("size", "1");
-    expect(sizer).toHaveClass("min-w-[1ch]");
+    expect(sizer).toHaveClass("min-w-px");
+    expect(sizer).toHaveClass("w-px");
     expect(sizer).toHaveClass("flex-none");
     expect(input).toHaveClass("w-full");
     expect(input).toHaveClass("min-w-0");
@@ -82,6 +83,8 @@ describe("SubscriptionTagInput", () => {
     await user.type(input, "Design");
 
     expect(sizer).toHaveTextContent("Design");
+    expect(sizer).toHaveClass("min-w-[1ch]");
+    expect(sizer).not.toHaveClass("w-px");
   });
 
   it("keeps suggestions open after focus settles and closes them from outside", async () => {

@@ -45,6 +45,8 @@ vi.mock("@/hooks/use-exchange-rates", () => ({
       if (from === "CNY" && to === "USD") return amount / 7;
       return amount;
     },
+    loading: false,
+    sourceDate: "2026-08-01",
   }),
 }));
 
@@ -140,12 +142,14 @@ vi.mock("@/components/subscription-card", () => ({
   SubscriptionCard: ({
     subscription,
     inheritedReminderDays,
+    priceReferenceCurrency,
     onTogglePinned,
     onTogglePublicHidden,
     onViewDetails,
   }: {
     subscription: Subscription;
     inheritedReminderDays: number;
+    priceReferenceCurrency: string | null;
     onTogglePinned?: (id: string) => void;
     onTogglePublicHidden?: (id: string) => void;
     onViewDetails?: (id: string) => void;
@@ -153,6 +157,7 @@ vi.mock("@/components/subscription-card", () => ({
     <article data-testid="subscription-card">
       {subscription.name}
       <span data-testid="subscription-card-reminder">{inheritedReminderDays}</span>
+      <span data-testid="subscription-card-reference">{priceReferenceCurrency ?? "off"}</span>
       <button type="button" onClick={() => onViewDetails?.(subscription.id)}>
         查看 {subscription.name} 的详情
       </button>
@@ -170,16 +175,18 @@ vi.mock("@/components/subscription-detail-dialog", () => ({
   SubscriptionDetailDialog: ({
     open,
     subscription,
+    priceReferenceCurrency,
     onEditSubscription,
   }: {
     open: boolean;
     subscription: Subscription | null;
+    priceReferenceCurrency: string | null;
     onEditSubscription?: (subscription: Subscription) => void;
   }) => (
     <div data-testid="subscription-detail-dialog">
       {open && subscription ? (
         <>
-          <span>{subscription.name} 详情</span>
+          <span>{subscription.name} 详情 {priceReferenceCurrency ?? "off"}</span>
           <button type="button" onClick={() => onEditSubscription?.(subscription)}>
             编辑详情 {subscription.name}
           </button>
@@ -206,7 +213,7 @@ function subscription(overrides: SubscriptionOverrides = {}): Subscription {
     id: "sub",
     name: "Service",
     logo: undefined,
-    price: 10,
+    price: "10",
     currency: "USD",
     category: "productivity",
     status: "active",
@@ -304,7 +311,7 @@ function manySubscriptions(count: number) {
     subscription({
       id: `service-${index.toString().padStart(3, "0")}`,
       name: `Service ${index.toString().padStart(3, "0")}`,
-      price: index + 1,
+      price: String(index + 1),
     }),
   );
 }
@@ -316,6 +323,19 @@ function installPointerCaptureMocks() {
   Element.prototype.scrollIntoView ??= vi.fn();
 }
 
+function mockDefaultSubscriptionsPageSettings() {
+  mocks.useSettings.mockReturnValue({
+    data: {
+      ...DEFAULT_SETTINGS,
+      timezone: "Asia/Shanghai",
+      defaultCurrency: "CNY",
+      notificationReminderDays: 5,
+      subscriptionPriceReferenceEnabled: true,
+      subscriptionPriceReferenceCurrency: "USD",
+    },
+  });
+}
+
 beforeEach(() => { mocks.renderHeaderActions = false; mocks.useSubscriptions.mockImplementation(() => ({ data: mocks.useInfiniteSubscriptions().subscriptions ?? [], isPending: false })); });
 
 describe("Subscriptions page sorting", () => {
@@ -323,19 +343,12 @@ describe("Subscriptions page sorting", () => {
 
   beforeEach(() => {
     mockMobileTagFilterMatch(false);
-    mocks.useSettings.mockReturnValue({
-      data: {
-        ...DEFAULT_SETTINGS,
-        timezone: "Asia/Shanghai",
-        defaultCurrency: "CNY",
-        notificationReminderDays: 5,
-      },
-    });
+    mockDefaultSubscriptionsPageSettings();
     mocks.useInfiniteSubscriptions.mockReturnValue({
       subscriptions: [
-        subscription({ id: "annual-usd", name: "Annual USD", price: 120, currency: "USD", billingCycle: "annual" }),
-        subscription({ id: "monthly-cny", name: "Monthly CNY", price: 80, currency: "CNY", billingCycle: "monthly" }),
-        subscription({ id: "quarterly-cny", name: "Quarterly CNY", price: 180, currency: "CNY", billingCycle: "quarterly" }),
+        subscription({ id: "annual-usd", name: "Annual USD", price: "120", currency: "USD", billingCycle: "annual" }),
+        subscription({ id: "monthly-cny", name: "Monthly CNY", price: "80", currency: "CNY", billingCycle: "monthly" }),
+        subscription({ id: "quarterly-cny", name: "Quarterly CNY", price: "180", currency: "CNY", billingCycle: "quarterly" }),
       ],
       isPending: false,
     });
@@ -381,8 +394,8 @@ describe("Subscriptions page sorting", () => {
     const user = userEvent.setup();
     mocks.useInfiniteSubscriptions.mockReturnValue({
       subscriptions: [
-        subscription({ id: "regular", name: "Regular Service", price: 999 }),
-        subscription({ id: "pinned", name: "Pinned Service", price: 1, pinned: true }),
+        subscription({ id: "regular", name: "Regular Service", price: "999" }),
+        subscription({ id: "pinned", name: "Pinned Service", price: "1", pinned: true }),
       ],
       isPending: false,
     });
@@ -421,7 +434,7 @@ describe("Subscriptions page sorting", () => {
 
     await user.click(screen.getByRole("button", { name: "查看 Readable Service 的详情" }));
 
-    expect(screen.getByText("Readable Service 详情")).toBeInTheDocument();
+    expect(screen.getByText(/Readable Service 详情/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "编辑详情 Readable Service" }));
 
@@ -525,14 +538,7 @@ describe("Subscriptions page desktop tag filters", () => {
 
   beforeEach(() => {
     mockMobileTagFilterMatch(false);
-    mocks.useSettings.mockReturnValue({
-      data: {
-        ...DEFAULT_SETTINGS,
-        timezone: "Asia/Shanghai",
-        defaultCurrency: "CNY",
-        notificationReminderDays: 5,
-      },
-    });
+    mockDefaultSubscriptionsPageSettings();
     mocks.useInfiniteSubscriptions.mockReturnValue({
       subscriptions: [
         subscription({ id: "cloud", name: "Tagged Cloud", tags: ["工作", "云服务", "Security"] }),
@@ -600,14 +606,7 @@ describe("Subscriptions page mobile tag filters", () => {
 
   beforeEach(() => {
     mockMobileTagFilterMatch(true);
-    mocks.useSettings.mockReturnValue({
-      data: {
-        ...DEFAULT_SETTINGS,
-        timezone: "Asia/Shanghai",
-        defaultCurrency: "CNY",
-        notificationReminderDays: 5,
-      },
-    });
+    mockDefaultSubscriptionsPageSettings();
     mocks.useInfiniteSubscriptions.mockReturnValue({
       subscriptions: [
         subscription({ id: "cloud", name: "Tagged Cloud", tags: ["工作", "云服务", "Security"] }),
@@ -697,14 +696,7 @@ describe("Subscriptions page virtualization", () => {
 
   beforeEach(() => {
     mockMobileTagFilterMatch(false, 1280);
-    mocks.useSettings.mockReturnValue({
-      data: {
-        ...DEFAULT_SETTINGS,
-        timezone: "Asia/Shanghai",
-        defaultCurrency: "CNY",
-        notificationReminderDays: 5,
-      },
-    });
+    mockDefaultSubscriptionsPageSettings();
     mocks.useInfiniteSubscriptions.mockReturnValue({
       subscriptions: manySubscriptions(90),
       isPending: false,
@@ -722,6 +714,7 @@ describe("Subscriptions page virtualization", () => {
     expect(screen.getAllByTestId("subscription-card").length).toBeLessThan(90);
     expect(visibleSubscriptionNames()[0]).toBe("Service 000");
     expect(screen.getAllByTestId("subscription-card-reminder")[0]).toHaveTextContent("5");
+    expect(screen.getAllByTestId("subscription-card-reference")[0]).toHaveTextContent("USD");
 
     await user.click(screen.getByRole("combobox", { name: "排序" }));
     await user.click(await screen.findByRole("option", { name: "名称 Z-A" }));

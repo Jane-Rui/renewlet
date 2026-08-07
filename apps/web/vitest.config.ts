@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { lingui } from "@lingui/vite-plugin";
 import { defineConfig } from "vitest/config";
-import { resolveClientBuildVersion } from "./vite/build-version";
+import { resolveClientBuildVersion } from "./vite/build-version.js";
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(rootDir, "../..");

@@ -79,6 +79,8 @@ vi.mock("@/hooks/use-settings", () => ({
 vi.mock("@/hooks/use-exchange-rates", () => ({
   useExchangeRates: () => ({
     convert: (amount: number) => amount,
+    loading: false,
+    sourceDate: "2026-08-01",
   }),
 }));
 
@@ -149,7 +151,7 @@ function subscription(overrides: SubscriptionOverrides = {}): Subscription {
     id: "sub",
     name: "Service",
     logo: undefined,
-    price: 10,
+    price: "10",
     currency: "USD",
     category: "productivity",
     status: "active",

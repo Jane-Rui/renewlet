@@ -34,7 +34,7 @@ func TestEnsureSchemaCreatesContractFieldsAndIndexes(t *testing.T) {
 		"user":                         core.FieldTypeRelation,
 		"name":                         core.FieldTypeText,
 		"logo":                         core.FieldTypeText,
-		"price":                        core.FieldTypeNumber,
+		"price":                        core.FieldTypeText,
 		"currency":                     core.FieldTypeText,
 		"billingCycle":                 core.FieldTypeSelect,
 		"customDays":                   core.FieldTypeNumber,
@@ -76,12 +76,15 @@ func TestEnsureSchemaCreatesContractFieldsAndIndexes(t *testing.T) {
 		"updated": core.FieldTypeAutodate,
 	})
 	assertFields(t, app, "subscription_scheduler_states", map[string]string{
-		"user":                   core.FieldTypeRelation,
-		"autoRenewCount":         core.FieldTypeNumber,
-		"repeatReminderCount":    core.FieldTypeNumber,
-		"lastAutoRenewLocalDate": core.FieldTypeText,
-		"created":                core.FieldTypeAutodate,
-		"updated":                core.FieldTypeAutodate,
+		"user":                           core.FieldTypeRelation,
+		"autoRenewCount":                 core.FieldTypeNumber,
+		"repeatReminderCount":            core.FieldTypeNumber,
+		"lastAutoRenewLocalDate":         core.FieldTypeText,
+		"nextAutoRenewCheckAtUTC":        core.FieldTypeText,
+		"nextDailyNotificationDueAtUTC":  core.FieldTypeText,
+		"nextRepeatNotificationDueAtUTC": core.FieldTypeText,
+		"created":                        core.FieldTypeAutodate,
+		"updated":                        core.FieldTypeAutodate,
 	})
 	assertFields(t, app, "assets", map[string]string{
 		"user":         core.FieldTypeRelation,
@@ -93,7 +96,7 @@ func TestEnsureSchemaCreatesContractFieldsAndIndexes(t *testing.T) {
 		"created":      core.FieldTypeAutodate,
 		"updated":      core.FieldTypeAutodate,
 	})
-	assertNumberField(t, app, "subscriptions", "price", false, 0, maxSubscriptionPrice)
+	assertTextFieldRequired(t, app, "subscriptions", "price", true)
 	assertNumberField(t, app, "subscriptions", "reminderDays", false, disabledReminderDays, maxReminderDays)
 	assertTextFieldRequired(t, app, "subscriptions", "startDate", false)
 	assertSelectFieldValues(t, app, "subscriptions", "billingCycle", "weekly", "monthly", "quarterly", "semi-annual", "annual", "custom", "one-time")
@@ -144,12 +147,13 @@ func TestEnsureSchemaCreatesContractFieldsAndIndexes(t *testing.T) {
 	})
 	assertMissingField(t, app, "api_tokens", "revokedAt")
 	assertFields(t, app, "app_sessions", map[string]string{
-		"user":       core.FieldTypeRelation,
-		"tokenHash":  core.FieldTypeText,
-		"expiresAt":  core.FieldTypeText,
-		"lastSeenAt": core.FieldTypeText,
-		"created":    core.FieldTypeAutodate,
-		"updated":    core.FieldTypeAutodate,
+		"user":          core.FieldTypeRelation,
+		"tokenHash":     core.FieldTypeText,
+		"csrfTokenHash": core.FieldTypeText,
+		"expiresAt":     core.FieldTypeText,
+		"lastSeenAt":    core.FieldTypeText,
+		"created":       core.FieldTypeAutodate,
+		"updated":       core.FieldTypeAutodate,
 	})
 	assertFields(t, app, "mfa_totp_credentials", map[string]string{
 		"user":             core.FieldTypeRelation,
@@ -334,7 +338,7 @@ func TestBackfillSubscriptionAutoRenewOnlyForcesOneTimeFalse(t *testing.T) {
 		record := core.NewRecord(subscriptions)
 		record.Set("user", user.Id)
 		record.Set("name", name)
-		record.Set("price", 1)
+		record.Set("price", "1")
 		record.Set("currency", "USD")
 		record.Set("billingCycle", cycle)
 		record.Set("category", "productivity")
@@ -395,6 +399,9 @@ func TestEnsureSchemaSelfHealsSubscriptionLogoURLFieldToText(t *testing.T) {
 	if err := upsertField(subscriptions, &core.URLField{Name: "logo"}); err != nil {
 		t.Fatal(err)
 	}
+	if err := upsertField(subscriptions, &core.NumberField{Name: "price"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := app.Save(subscriptions); err != nil {
 		t.Fatal(err)
 	}
@@ -409,6 +416,7 @@ func TestEnsureSchemaSelfHealsSubscriptionLogoURLFieldToText(t *testing.T) {
 	record.Set("user", user.Id)
 	record.Set("name", "Logo Field")
 	record.Set("logo", "https://example.com/logo.png")
+	record.Set("price", 12.5)
 	if err := app.Save(record); err != nil {
 		t.Fatal(err)
 	}
@@ -437,77 +445,60 @@ func TestEnsureSchemaSelfHealsSubscriptionLogoURLFieldToText(t *testing.T) {
 	}
 }
 
-func TestEnsureSchemaCleansInvalidSubscriptionLogosButKeepsHttpLinks(t *testing.T) {
+func TestEnsureSchemaMigratesLegacySubscriptionPriceNumberFieldToText(t *testing.T) {
 	app := newSchemaTestApp(t)
-	if err := ensureSchema(app); err != nil {
-		t.Fatal(err)
-	}
 	users, err := app.FindCollectionByNameOrId("users")
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	subscriptions := core.NewBaseCollection("subscriptions")
+	if err := upsertField(subscriptions, userRelation(users)); err != nil {
+		t.Fatal(err)
+	}
+	if err := upsertField(subscriptions, &core.TextField{Name: "name", Required: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := upsertField(subscriptions, &core.TextField{Name: "logo"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := upsertField(subscriptions, &core.NumberField{Name: "price"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.Save(subscriptions); err != nil {
+		t.Fatal(err)
+	}
+
 	user := core.NewRecord(users)
-	user.SetEmail("schema-logo-cleanup@example.com")
+	user.SetEmail("schema-price@example.com")
 	user.SetPassword("password123")
 	user.SetVerified(true)
 	if err := app.Save(user); err != nil {
 		t.Fatal(err)
 	}
-	subscriptions, err := app.FindCollectionByNameOrId("subscriptions")
-	if err != nil {
+	record := core.NewRecord(subscriptions)
+	record.Set("user", user.Id)
+	record.Set("name", "Legacy Price")
+	record.Set("logo", "https://example.com/logo.png")
+	record.Set("price", 12.5)
+	if err := app.Save(record); err != nil {
 		t.Fatal(err)
 	}
-
-	insert := func(name string, logo string) string {
-		t.Helper()
-		record := core.NewRecord(subscriptions)
-		record.Set("user", user.Id)
-		record.Set("name", name)
-		record.Set("price", 1)
-		record.Set("currency", "USD")
-		record.Set("billingCycle", "monthly")
-		record.Set("category", "productivity")
-		record.Set("status", "active")
-		record.Set("startDate", "2026-05-14")
-		record.Set("nextBillingDate", "2026-06-14")
-		record.Set("autoRenew", true)
-		record.Set("autoCalculateNextBillingDate", true)
-		record.Set("tags", []string{})
-		record.Set("extra", emptyJSONPayload{})
-		record.Set("reminderDays", 3)
-		record.Set("repeatReminderEnabled", false)
-		record.Set("repeatReminderInterval", defaultRepeatReminderInterval)
-		record.Set("repeatReminderWindow", defaultRepeatReminderWindow)
-		record.Set("logo", logo)
-		if err := app.SaveNoValidate(record); err != nil {
-			t.Fatal(err)
-		}
-		return record.Id
-	}
-
-	httpID := insert("HTTP Logo", "http://example.com/logo.png")
-	dataID := insert("Data Logo", "data:image/png;base64,aGVsbG8=")
-	userinfoID := insert("Userinfo Logo", "https://user:pass@example.com/logo.png")
-	privateID := insert("Private Logo", "/api/app/assets/2pbs0lgyypqhjoy")
 
 	if err := ensureSchema(app); err != nil {
 		t.Fatal(err)
 	}
 
-	assertLogo := func(id string, want string) {
-		t.Helper()
-		record, err := app.FindRecordById("subscriptions", id)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := record.GetString("logo"); got != want {
-			t.Fatalf("logo for %s = %q, want %q", id, got, want)
-		}
+	assertTextFieldRequired(t, app, "subscriptions", "price", true)
+	assertTableColumnType(t, app, "subscriptions", "price", "TEXT")
+	assertMissingTableColumn(t, app, "subscriptions", legacySubscriptionPriceNumberColumn)
+	savedRecord, err := app.FindRecordById("subscriptions", record.Id)
+	if err != nil {
+		t.Fatal(err)
 	}
-	assertLogo(httpID, "http://example.com/logo.png")
-	assertLogo(privateID, "/api/app/assets/2pbs0lgyypqhjoy")
-	assertLogo(dataID, "")
-	assertLogo(userinfoID, "")
+	if got := savedRecord.GetString("price"); got != "12.5" {
+		t.Fatalf("legacy price = %q, want %q", got, "12.5")
+	}
 }
 
 func TestEnsureSchemaSelfHealsAssetsSvgMimeType(t *testing.T) {
@@ -698,4 +689,34 @@ func assertIndexDefinition(t *testing.T, app core.App, collectionName string, in
 		}
 	}
 	t.Fatalf("collection %s index %s definition mismatch, want %q in %#v", collectionName, indexName, expected, collection.Indexes)
+}
+
+func assertTableColumnType(t *testing.T, app core.App, tableName string, columnName string, expectedType string) {
+	t.Helper()
+	info, err := app.TableInfo(tableName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range info {
+		if row.Name == columnName {
+			if row.Type != expectedType {
+				t.Fatalf("table %s column %s type = %q, want %q", tableName, columnName, row.Type, expectedType)
+			}
+			return
+		}
+	}
+	t.Fatalf("table %s is missing column %s", tableName, columnName)
+}
+
+func assertMissingTableColumn(t *testing.T, app core.App, tableName string, columnName string) {
+	t.Helper()
+	columns, err := app.TableColumns(tableName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, column := range columns {
+		if column == columnName {
+			t.Fatalf("table %s column %s should not exist", tableName, columnName)
+		}
+	}
 }

@@ -123,6 +123,34 @@ func TestPublicAPITokenLifecycleAndReadRoutes(t *testing.T) {
 	if used.GetString("lastUsedAt") == "" {
 		t.Fatal("expected public API request to update lastUsedAt")
 	}
+	firstLastUsedAt := used.GetString("lastUsedAt")
+	freshAuditRes := serveTestRequest(t, app, http.MethodGet, "/api/public/v1/status", "", publicToken)
+	if freshAuditRes.Code != http.StatusOK {
+		t.Fatalf("expected fresh public API status 200, got %d: %s", freshAuditRes.Code, freshAuditRes.Body.String())
+	}
+	freshUsed, err := app.FindRecordById("api_tokens", createBody.Token.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := freshUsed.GetString("lastUsedAt"); got != firstLastUsedAt {
+		t.Fatalf("fresh public API request must not rewrite lastUsedAt, before=%q after=%q", firstLastUsedAt, got)
+	}
+	staleLastUsedAt := time.Now().UTC().Add(-auditTouchInterval - time.Minute).Format(time.RFC3339Nano)
+	freshUsed.Set("lastUsedAt", staleLastUsedAt)
+	if err := app.Save(freshUsed); err != nil {
+		t.Fatal(err)
+	}
+	staleAuditRes := serveTestRequest(t, app, http.MethodGet, "/api/public/v1/status", "", publicToken)
+	if staleAuditRes.Code != http.StatusOK {
+		t.Fatalf("expected stale public API status 200, got %d: %s", staleAuditRes.Code, staleAuditRes.Body.String())
+	}
+	staleUsed, err := app.FindRecordById("api_tokens", createBody.Token.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if staleUsed.GetString("lastUsedAt") == staleLastUsedAt {
+		t.Fatalf("stale public API request should refresh lastUsedAt, still %q", staleUsed.GetString("lastUsedAt"))
+	}
 
 	listPublicRes := serveTestRequest(t, app, http.MethodGet, "/api/public/v1/subscriptions?limit=1", "", publicToken)
 	if listPublicRes.Code != http.StatusOK {

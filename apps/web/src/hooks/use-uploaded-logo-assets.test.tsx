@@ -37,7 +37,6 @@ vi.mock("@/lib/pocketbase", () => ({
     beforeSend: undefined,
   },
   getCurrentUserId: mocks.getCurrentUserId,
-  getAuthHeader: vi.fn(() => ({})),
 }));
 
 function listResult(overrides: Partial<AssetsListFixture> = {}): AssetsListFixture {

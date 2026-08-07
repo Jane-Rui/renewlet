@@ -307,9 +307,11 @@ export function mediaIconIndexRefreshJobRow(overrides: Partial<MediaIconIndexRef
 }
 
 export function requestFixture(method: string, body?: string): Request {
+  const unsafe = !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
   const headers: HeadersInit = {
     "accept-language": "en-US",
-    authorization: "Bearer session-token",
+    cookie: "renewlet_session=session-token; renewlet_csrf=csrf-token",
+    ...(unsafe ? { origin: "https://renewlet.example", "x-renewlet-csrf": "csrf-token" } : {}),
   };
   const init: RequestInit = {
     method,

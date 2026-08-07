@@ -10,8 +10,8 @@ import {
   renderSitemapXml,
   replaceWebsiteMetadataPlaceholders,
   resolveWebsiteDeployment,
-} from './src/lib/website-metadata'
-import { latestStableReleaseVersion } from './scripts/release-version'
+} from './src/lib/website-metadata.ts'
+import { latestStableReleaseVersion } from './scripts/release-version.ts'
 
 const rootDir = fileURLToPath(new URL('.', import.meta.url))
 const deployment = resolveWebsiteDeployment(process.env)

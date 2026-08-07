@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { DEFAULT_CUSTOM_CONFIG } from "@/types/config";
 import type { Subscription } from "@/types/subscription";
 import { assertDateOnly } from "@/lib/time/date-only";
+import { moneyToNumber } from "@renewlet/shared/money";
 import Statistics from "./statistics";
 
 type RecurringBillingCycle = Exclude<Subscription["billingCycle"], "custom" | "one-time">;
@@ -52,18 +53,20 @@ vi.mock("@/components/subscription-detail-dialog", () => ({
   SubscriptionDetailDialog: ({
     open,
     subscription,
+    priceReferenceCurrency,
     onEditSubscription,
     onRenewSubscription,
   }: {
     open: boolean;
     subscription: Subscription | null;
+    priceReferenceCurrency: string | null;
     onEditSubscription?: (subscription: Subscription) => void;
     onRenewSubscription?: (id: string) => void;
   }) => (
     <div data-testid="subscription-detail-dialog">
       {open && subscription ? (
         <>
-          <span>{subscription.name} 详情</span>
+          <span>{subscription.name} 详情 {priceReferenceCurrency ?? "off"}</span>
           <button type="button" onClick={() => onEditSubscription?.(subscription)}>
             编辑详情 {subscription.name}
           </button>
@@ -142,13 +145,15 @@ vi.mock("@/contexts/CustomConfigContext", () => ({
   useCustomConfig: mocks.useCustomConfig,
 }));
 
-vi.mock("@/hooks/use-exchange-rates", () => ({
-  useExchangeRates: () => ({
-    convert: (amount: number) => amount,
+vi.mock("@/hooks/use-report-exchange-rates", () => ({
+  useReportExchangeRates: () => ({
+    convert: (amount: number | string) => moneyToNumber(amount),
     error: null,
     getCurrencySymbol: () => "¥",
     lastUpdated: null,
     loading: false,
+    sourceDate: "2026-08-01",
+    reportBasisStatus: { month: "2026-08", locked: true, sourceDate: "2026-08-01", capturedAt: "2026-08-06T00:00:00Z" },
     refresh: mocks.refreshRates,
   }),
 }));
@@ -170,7 +175,7 @@ function subscription(overrides: SubscriptionOverrides): Subscription {
     id: "sub",
     name: "Service",
     logo: undefined,
-    price: 10,
+    price: "10",
     currency: "CNY",
     category: "productivity",
     status: "active",
@@ -268,7 +273,9 @@ describe("Statistics page", () => {
     mocks.useSettings.mockReturnValue({
       data: {
         defaultCurrency: "CNY",
-        monthlyBudget: 500,
+        monthlyBudget: "500",
+        subscriptionPriceReferenceEnabled: true,
+        subscriptionPriceReferenceCurrency: "USD",
         timezone: "UTC",
       },
       isPending: false,
@@ -284,9 +291,9 @@ describe("Statistics page", () => {
     });
     mocks.useSubscriptions.mockReturnValue({
       data: [
-        subscription({ id: "active", status: "active", price: 20 }),
-        subscription({ id: "paused", status: "paused", price: 10 }),
-        subscription({ id: "cancelled", status: "cancelled", price: 20 }),
+        subscription({ id: "active", status: "active", price: "20" }),
+        subscription({ id: "paused", status: "paused", price: "10" }),
+        subscription({ id: "cancelled", status: "cancelled", price: "20" }),
       ],
       isPending: false,
     });
@@ -327,13 +334,13 @@ describe("Statistics page", () => {
       data: [
         subscription({
           id: "family-plan",
-          price: 100,
+          price: "100",
           status: "active",
           costSharing: {
             enabled: true,
             splitMode: "custom",
             members: [
-              { id: "member", name: "Member", currency: "CNY", customAmount: 60 },
+              { id: "member", name: "Member", currency: "CNY", customAmount: "60" },
             ],
           },
         }),
@@ -482,8 +489,8 @@ describe("Statistics page", () => {
     vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
     mocks.useSubscriptions.mockReturnValue({
       data: [
-        subscription({ id: "monthly", name: "Monthly", price: 10, billingCycle: "monthly", nextBillingDate: assertDateOnly("2026-01-15") }),
-        subscription({ id: "annual", name: "Annual", price: 120, billingCycle: "annual", nextBillingDate: assertDateOnly("2026-01-20") }),
+        subscription({ id: "monthly", name: "Monthly", price: "10", billingCycle: "monthly", nextBillingDate: assertDateOnly("2026-01-15") }),
+        subscription({ id: "annual", name: "Annual", price: "120", billingCycle: "annual", nextBillingDate: assertDateOnly("2026-01-20") }),
       ],
       isPending: false,
     });
@@ -540,8 +547,8 @@ describe("Statistics page", () => {
     vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
     mocks.useSubscriptions.mockReturnValue({
       data: [
-        subscription({ id: "monthly", name: "Monthly", price: 10, billingCycle: "monthly", nextBillingDate: assertDateOnly("2026-01-15") }),
-        subscription({ id: "annual", name: "Annual", price: 120, billingCycle: "annual", nextBillingDate: assertDateOnly("2026-01-20") }),
+        subscription({ id: "monthly", name: "Monthly", price: "10", billingCycle: "monthly", nextBillingDate: assertDateOnly("2026-01-15") }),
+        subscription({ id: "annual", name: "Annual", price: "120", billingCycle: "annual", nextBillingDate: assertDateOnly("2026-01-20") }),
       ],
       isPending: false,
     });
@@ -558,7 +565,7 @@ describe("Statistics page", () => {
 
       fireEvent.click(annualAction);
 
-      expect(screen.getByTestId("subscription-detail-dialog")).toHaveTextContent("Annual 详情");
+      expect(screen.getByTestId("subscription-detail-dialog")).toHaveTextContent("Annual 详情 USD");
 
       fireEvent.click(screen.getByRole("button", { name: "编辑详情 Annual" }));
       expect(mocks.handleEditSubscription).toHaveBeenCalledWith("annual");
@@ -579,7 +586,7 @@ describe("Statistics page", () => {
       data: Array.from({ length: 7 }, (_, index) => subscription({
         id: `sub-${index}`,
         name: index === 6 ? longName : `Service ${index + 1}`,
-        price: 10 + index,
+        price: String(10 + index),
         billingCycle: "monthly",
         nextBillingDate: assertDateOnly("2026-01-10"),
       })),

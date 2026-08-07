@@ -44,7 +44,7 @@ vi.mock("@/services/passkey-service", () => ({
 
 const sessionFixture: SessionData = {
   type: "session",
-  session: { id: "token-1", expiresAt: "2026-07-03T00:00:00.000Z" },
+  session: { expiresAt: "2026-07-03T00:00:00.000Z" },
   user: {
     id: "user-1",
     email: "alice@example.com",
@@ -119,7 +119,7 @@ describe("authClient.useSession", () => {
     expect(input).toBe("/api/app/auth/session");
     expect(init?.credentials).toBe("include");
     expect(headers).toBeInstanceOf(Headers);
-    expect((headers as Headers).get("authorization")).toBe("Bearer token-1");
+    expect((headers as Headers).get("authorization")).toBeNull();
     expect(result.current.first.data?.user.email).toBe("alice@example.com");
     expect(result.current.second.data?.user.email).toBe("alice@example.com");
   });
@@ -141,7 +141,7 @@ describe("authClient.useSession", () => {
     await waitFor(() => {
       expect(secondRender.result.current.isPending).toBe(false);
     });
-    expect(secondRender.result.current.data?.session.id).toBe("token-1");
+    expect(secondRender.result.current.data?.session.expiresAt).toBe("2026-07-03T00:00:00.000Z");
     expect(mocks.fetch).not.toHaveBeenCalled();
   });
 
@@ -154,7 +154,7 @@ describe("authClient.useSession", () => {
     writeProductSession(sessionFixture);
 
     await waitFor(() => {
-      expect(result.current.data?.session.id).toBe("token-1");
+      expect(result.current.data?.session.expiresAt).toBe("2026-07-03T00:00:00.000Z");
     });
     expect(mocks.fetch).not.toHaveBeenCalled();
   });
@@ -162,9 +162,9 @@ describe("authClient.useSession", () => {
   it("stores the product session after passkey sign-in succeeds", async () => {
     const result = await authClient.signIn.passkey();
 
-    expect(result).toMatchObject({ error: null, cancelled: false, data: { type: "session", session: { id: "token-1" } } });
+    expect(result).toMatchObject({ error: null, cancelled: false, data: { type: "session", session: { expiresAt: "2026-07-03T00:00:00.000Z" } } });
     expect(mocks.authenticatePasskey).toHaveBeenCalledTimes(1);
-    expect(readProductSession()?.session.id).toBe("token-1");
+    expect(readProductSession()?.session.expiresAt).toBe("2026-07-03T00:00:00.000Z");
   });
 
   it("does not persist a session when passkey sign-in is cancelled", async () => {
@@ -192,7 +192,7 @@ describe("authClient.useSession", () => {
       shouldPersistSession: () => false,
     });
 
-    expect(result).toMatchObject({ error: null, cancelled: false, data: { type: "session", session: { id: "token-1" } } });
+    expect(result).toMatchObject({ error: null, cancelled: false, data: { type: "session", session: { expiresAt: "2026-07-03T00:00:00.000Z" } } });
     expect(mocks.authenticatePasskey).toHaveBeenCalledWith({ useBrowserAutofill: true });
     expect(readProductSession()).toBeNull();
   });
@@ -212,7 +212,7 @@ describe("authClient.useSession", () => {
       { shouldPersistSession: () => false },
     );
 
-    expect(result).toMatchObject({ error: null, data: { type: "session", session: { id: "token-1" } } });
+    expect(result).toMatchObject({ error: null, data: { type: "session", session: { expiresAt: "2026-07-03T00:00:00.000Z" } } });
     expect(mocks.fetch).toHaveBeenCalledWith("/api/app/auth/mfa/verify", expect.objectContaining({
       method: "POST",
       body: JSON.stringify({ method: "totp", ticketId: "ticket-1", code: "123456" }),
@@ -235,7 +235,7 @@ describe("authClient.useSession", () => {
       expect(firstRender.result.current.isPending).toBe(false);
       expect(secondRender.result.current.isPending).toBe(false);
     });
-    expect(firstRender.result.current.data?.session.id).toBe("token-1");
-    expect(secondRender.result.current.data?.session.id).toBe("token-1");
+    expect(firstRender.result.current.data?.session.expiresAt).toBe("2026-07-03T00:00:00.000Z");
+    expect(secondRender.result.current.data?.session.expiresAt).toBe("2026-07-03T00:00:00.000Z");
   });
 });

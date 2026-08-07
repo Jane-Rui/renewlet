@@ -16,7 +16,7 @@ export interface SubscriptionFormFieldsProps {
   errors?: SubscriptionFormErrors | undefined;
   onClearFieldError?: ((field: keyof SubscriptionFormErrors) => void) | undefined;
   notificationReminderDays: number;
-  costSharingCurrencyConvert?: ((amount: number, fromCurrency: string, toCurrency: string) => number) | undefined;
+  costSharingCurrencyConvert?: ((amount: number | string, fromCurrency: string, toCurrency: string) => number) | undefined;
   onManageCostSharingMembers?: (() => void) | undefined;
   costSharingManageMembersButtonRef?: Ref<HTMLButtonElement> | undefined;
 }

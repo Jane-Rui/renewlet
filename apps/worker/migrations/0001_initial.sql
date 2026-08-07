@@ -16,7 +16,7 @@ CREATE INDEX IF NOT EXISTS idx_users_role_banned ON users (role, banned);
 
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
-  -- 浏览器持有明文 Bearer token；D1 只存 hash，泄库不能直接接管会话。
+  -- 产品 session token 只进 HttpOnly cookie；D1 只存 hash，泄库不能直接接管会话。
   token_hash TEXT NOT NULL UNIQUE,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   expires_at TEXT NOT NULL,
@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   logo TEXT,
-  price REAL NOT NULL,
+  price TEXT NOT NULL,
   currency TEXT NOT NULL,
   billing_cycle TEXT NOT NULL,
   custom_days INTEGER,

@@ -9,7 +9,7 @@ import {
 const recurringBody = {
   name: "QQ Music",
   logo: null,
-  price: 15,
+  price: "15",
   currency: "CNY",
   billingCycle: "monthly",
   customDays: null,

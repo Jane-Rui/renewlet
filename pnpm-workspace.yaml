@@ -7,3 +7,21 @@ allowBuilds:
   esbuild: true
   sharp: true
   workerd: true
+# Cloudflare 当前 wrangler@4.119.0 精确依赖的 miniflare 锁住 undici@7.28.0；上游发修复版后删除这条窄范围安全兜底。
+overrides:
+  "miniflare@5.20260801.0-alpha>undici": "7.29.0"
+# pnpm 11 默认拦截发布不足 24 小时的包；本轮明确升级到 same-day latest 时只放行精确版本，避免用 minimumReleaseAge: 0 关闭整个供应链冷却期。
+minimumReleaseAgeExclude:
+  - '@ai-sdk/anthropic@4.0.33'
+  - '@ai-sdk/gateway@4.0.43'
+  - '@ai-sdk/google@4.0.36'
+  - '@ai-sdk/openai-compatible@3.0.25'
+  - '@ai-sdk/openai@4.0.32'
+  - '@ai-sdk/provider-utils@5.0.23'
+  - '@ai-sdk/provider@4.0.6'
+  - '@aws-sdk/client-s3@3.1104.0'
+  - '@aws-sdk/s3-request-presigner@3.1104.0'
+  - '@redocly/cli@2.45.0'
+  - ai@7.0.55
+  - lucide-react@1.29.0
+  - tsx@4.23.9

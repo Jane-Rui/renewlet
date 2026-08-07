@@ -20,7 +20,7 @@ function prepared(): PreparedImport {
         {
           name: "Netflix",
           logo: null,
-          price: 9.99,
+          price: "9.99",
           currency: "USD",
           billingCycle: "monthly",
           customDays: null,
@@ -49,7 +49,7 @@ function prepared(): PreparedImport {
         {
           name: "Unknown Tool",
           logo: null,
-          price: 3,
+          price: "3",
           currency: "USD",
           billingCycle: "monthly",
           customDays: null,
@@ -154,5 +154,32 @@ describe("resolveAutoLogosForPreparedImport", () => {
 
     expect(resolved.payload.subscriptions[0]?.logo).toBeNull();
     expect(resolved.logoAutoMatches).toBeUndefined();
+  });
+
+  it("does not treat staged payment method icons as subscription logo assets", async () => {
+    resolveMock.mockResolvedValue(response([
+      {
+        id: "0",
+        autoCandidate: candidate({ url: "https://cdn.example.com/netflix.svg" }),
+        candidates: { best: null, builtIn: [], appStore: [], favicon: [] },
+      },
+    ]));
+    const source = prepared();
+    source.assets = [{
+      target: { type: "paymentMethodIcon", paymentMethodIndex: 0 },
+      kind: "icon",
+      filename: "card.svg",
+      blob: new Blob(["svg"], { type: "image/svg+xml" }),
+    }];
+
+    const resolved = await resolveAutoLogosForPreparedImport(source);
+
+    expect(resolveMock).toHaveBeenCalledWith({
+      kind: "logo",
+      mode: "auto",
+      items: [{ id: "0", name: "Netflix", website: "https://netflix.com/" }, { id: "1", name: "Unknown Tool", website: "https://example.com/" }],
+      limit: 1,
+    });
+    expect(resolved.payload.subscriptions[0]?.logo).toBe("https://cdn.example.com/netflix.svg");
   });
 });

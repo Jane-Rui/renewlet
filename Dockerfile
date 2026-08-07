@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 # 构建链路：Node 阶段产出 Vite 静态资源，Go 阶段嵌入静态资源并生成单文件 server，runner 只保留运行依赖。
-FROM --platform=$BUILDPLATFORM node:24-alpine AS client-deps
+FROM --platform=$BUILDPLATFORM node:24.19.0-alpine3.24 AS client-deps
 
 WORKDIR /app
 RUN corepack enable
@@ -21,7 +21,7 @@ COPY packages/shared packages/shared
 COPY scripts/check-client-csp.mjs scripts/check-client-csp.mjs
 RUN pnpm --filter @renewlet/client build
 
-FROM --platform=$BUILDPLATFORM golang:1.26.2-alpine AS server-builder
+FROM --platform=$BUILDPLATFORM golang:1.26.5-alpine3.24 AS server-builder
 
 # Release workflow 和 Docker buildx 会注入这些元数据；页面内更新和版本弹窗都依赖 ldflags 中的值。
 ARG TARGETOS=linux
@@ -43,7 +43,7 @@ COPY --from=client-builder /app/apps/web/dist ./internal/static/public
 RUN mkdir -p /out /pb_data \
   && CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-$(go env GOARCH)} go build -trimpath -ldflags="-s -w -X main.Version=${VERSION} -X main.Commit=${COMMIT} -X main.BuildTime=${BUILD_TIME} -X main.BuildType=release" -o /out/renewlet ./cmd/renewlet
 
-FROM alpine:3.22 AS runner
+FROM alpine:3.24 AS runner
 
 ARG VERSION=0.0.0-dev
 ARG COMMIT=dev

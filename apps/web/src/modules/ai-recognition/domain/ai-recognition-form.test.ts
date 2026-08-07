@@ -12,7 +12,7 @@ import {
 function draft(overrides: Partial<AiRecognizedSubscriptionDraft> = {}): AiRecognizedSubscriptionDraft {
   return {
     name: "DMIT",
-    price: 15,
+    price: "15",
     currency: "CNY",
     billingCycle: "monthly",
     customDays: null,
@@ -47,7 +47,7 @@ const context = {
 describe("AI recognition form mapping", () => {
   it("maps an AI draft into the reusable subscription form state", () => {
     const formData = aiDraftToSubscriptionFormState(draft({
-      price: 12.5,
+      price: "12.5",
       currency: null,
       billingCycle: "custom",
       customDays: 45,
@@ -150,7 +150,7 @@ describe("AI recognition form mapping", () => {
 
     expect(patch).toMatchObject({
       name: "Netflix Premium",
-      price: 66,
+      price: "66",
       currency: "USD",
       billingCycle: "annual",
       customDays: null,

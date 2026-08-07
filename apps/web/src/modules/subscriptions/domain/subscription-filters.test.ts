@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { assertDateOnly } from "@/lib/time/date-only";
 import type { Subscription } from "@/types/subscription";
+import { moneyToNumber } from "@renewlet/shared/money";
 import {
   DEFAULT_SUBSCRIPTION_ADVANCED_FILTERS,
   SUBSCRIPTION_PAYMENT_METHOD_NONE_VALUE,
@@ -23,11 +24,12 @@ type SubscriptionOverrides = Partial<SubscriptionBaseFixture> & (
   | { billingCycle: "custom"; customDays?: number; customCycleUnit?: Subscription["customCycleUnit"]; oneTimeTermCount?: undefined; oneTimeTermUnit?: undefined }
 );
 
-const convert = (amount: number, from: string, to: string) => {
-  if (from === to) return amount;
-  if (from === "USD" && to === "CNY") return amount * 7;
-  if (from === "CNY" && to === "USD") return amount / 7;
-  return amount;
+const convert = (amount: number | string, from: string, to: string) => {
+  const value = moneyToNumber(amount);
+  if (from === to) return value;
+  if (from === "USD" && to === "CNY") return value * 7;
+  if (from === "CNY" && to === "USD") return value / 7;
+  return value;
 };
 
 function subscription(overrides: SubscriptionOverrides = {}): Subscription {
@@ -35,7 +37,7 @@ function subscription(overrides: SubscriptionOverrides = {}): Subscription {
     id: "sub",
     name: "Service",
     logo: undefined,
-    price: 10,
+    price: "10",
     currency: "USD",
     category: "productivity",
     status: "active",
@@ -112,10 +114,10 @@ describe("subscription sorting", () => {
 
   it("keeps pinned subscriptions ahead for default and field sorting", () => {
     const subscriptions = [
-      subscription({ id: "regular-expensive", price: 100 }),
-      subscription({ id: "pinned-cheap", price: 10, pinned: true }),
-      subscription({ id: "regular-cheap", price: 1 }),
-      subscription({ id: "pinned-expensive", price: 80, pinned: true }),
+      subscription({ id: "regular-expensive", price: "100" }),
+      subscription({ id: "pinned-cheap", price: "10", pinned: true }),
+      subscription({ id: "regular-cheap", price: "1" }),
+      subscription({ id: "pinned-expensive", price: "80", pinned: true }),
     ];
 
     expect(sortIds(subscriptions, "default")).toEqual([
@@ -145,9 +147,9 @@ describe("subscription sorting", () => {
 
   it("sorts by monthly cost after currency conversion and cycle normalization", () => {
     const subscriptions = [
-      subscription({ id: "annual-usd", price: 120, currency: "USD", billingCycle: "annual" }),
-      subscription({ id: "monthly-cny", price: 80, currency: "CNY", billingCycle: "monthly" }),
-      subscription({ id: "quarterly-cny", price: 180, currency: "CNY", billingCycle: "quarterly" }),
+      subscription({ id: "annual-usd", price: "120", currency: "USD", billingCycle: "annual" }),
+      subscription({ id: "monthly-cny", price: "80", currency: "CNY", billingCycle: "monthly" }),
+      subscription({ id: "quarterly-cny", price: "180", currency: "CNY", billingCycle: "quarterly" }),
     ];
 
     expect(sortIds(subscriptions, "monthly_cost_desc")).toEqual([
@@ -164,9 +166,9 @@ describe("subscription sorting", () => {
 
   it("sorts by raw single-payment price without currency or cycle normalization", () => {
     const subscriptions = [
-      subscription({ id: "annual-usd", price: 120, currency: "USD", billingCycle: "annual" }),
-      subscription({ id: "monthly-cny", price: 80, currency: "CNY", billingCycle: "monthly" }),
-      subscription({ id: "quarterly-cny", price: 180, currency: "CNY", billingCycle: "quarterly" }),
+      subscription({ id: "annual-usd", price: "120", currency: "USD", billingCycle: "annual" }),
+      subscription({ id: "monthly-cny", price: "80", currency: "CNY", billingCycle: "monthly" }),
+      subscription({ id: "quarterly-cny", price: "180", currency: "CNY", billingCycle: "quarterly" }),
     ];
 
     expect(sortIds(subscriptions, "price_desc")).toEqual([

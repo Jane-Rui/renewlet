@@ -39,7 +39,7 @@ describe("notification-content", () => {
         {
           id: "sub-1",
           name: "Netflix",
-          price: 10,
+          price: "10",
           currency: "USD",
           status: "active",
           nextBillingDate: "2026-01-13",
@@ -48,7 +48,7 @@ describe("notification-content", () => {
         {
           id: "sub-2",
           name: "Trial",
-          price: 0,
+          price: "0",
           currency: "USD",
           status: "trial",
           nextBillingDate: "2026-02-01",
@@ -85,7 +85,7 @@ describe("notification-content", () => {
         {
           id: "sub-inherit",
           name: "Inherited SaaS",
-          price: 10,
+          price: "10",
           currency: "USD",
           status: "active",
           nextBillingDate: "2026-01-15",
@@ -114,7 +114,7 @@ describe("notification-content", () => {
         {
           id: "sub-quiet",
           name: "Quiet SaaS",
-          price: 10,
+          price: "10",
           currency: "USD",
           status: "active",
           nextBillingDate: "2026-01-10",
@@ -135,7 +135,7 @@ describe("notification-content", () => {
         {
           id: "sub-1",
           name: "Netflix",
-          price: 10,
+          price: "10",
           currency: "USD",
           status: "active",
           nextBillingDate: "2026-01-13",
@@ -157,7 +157,7 @@ describe("notification-content", () => {
         {
           id: "bad",
           name: "Broken",
-          price: 10,
+          price: "10",
           currency: "USD",
           status: "active",
           nextBillingDate: "2026-02-31",
@@ -175,7 +175,7 @@ describe("notification-content", () => {
     const subscription = {
       id: "expired",
       name: "Old service",
-      price: 5,
+      price: "5",
       currency: "USD",
       status: "active" as const,
       nextBillingDate: "2026-01-01",
@@ -207,7 +207,7 @@ describe("notification-content", () => {
         {
           id: "fixed-term",
           name: "Discounted membership",
-          price: 120,
+          price: "120",
           currency: "USD",
           status: "active",
           billingCycle: "one-time",
@@ -240,7 +240,7 @@ describe("notification-content", () => {
         {
           id: "buyout",
           name: "Lifetime license",
-          price: 199,
+          price: "199",
           currency: "USD",
           status: "active",
           billingCycle: "one-time",
@@ -262,7 +262,7 @@ describe("notification-content", () => {
         {
           id: "expired-fixed-term",
           name: "Expired membership",
-          price: 120,
+          price: "120",
           currency: "USD",
           status: "active",
           billingCycle: "one-time",

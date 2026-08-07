@@ -87,7 +87,8 @@ export function SubscriptionTagInput({
   const sizerText = hasTags ? inputValue || "\u00a0" : inputValue || placeholder;
   const inputSizerClassName = cn(
     "inline-grid max-w-full",
-    hasTags ? "min-w-[1ch] flex-none" : "min-w-[8rem] flex-1",
+    // 空光标没有真实文本撑宽；压到 1px 避免 flex 换行用 input 默认 intrinsic width 误判。
+    hasTags ? (inputValue ? "min-w-[1ch] flex-none" : "min-w-px w-px flex-none") : "min-w-[8rem] flex-1",
   );
   const inputClassName =
     "col-start-1 row-start-1 h-7 w-full min-w-0 bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50";

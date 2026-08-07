@@ -17,7 +17,7 @@ func seedDemoSettings(app core.App, userID string) error {
 	settings.Locale = string(localeZhCN)
 	settings.DefaultCurrency = "CNY"
 	settings.PublicStatusCurrency = "inherit"
-	settings.MonthlyBudget = 800
+	settings.MonthlyBudget = "800"
 	settings.Timezone = demoModeScheduleTimezone
 	settings.NotificationTimeLocal = "09:00"
 	// 公开 demo 允许浏览设置页，但默认不启用真实通知渠道，避免 reset 前的共享账号触达外部服务。
