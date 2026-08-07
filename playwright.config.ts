@@ -30,6 +30,9 @@ const e2eClientPort = 45173;
 const e2eServerURL = `http://127.0.0.1:${e2eServerPort}`;
 const e2eClientURL = `http://127.0.0.1:${e2eClientPort}`;
 const adminStorageState = "e2e/.auth/admin.json";
+const browserExecutablePath = env.RENEWLET_E2E_BROWSER_EXECUTABLE?.trim();
+// 本机收尾验证可能遇到 Playwright CDN/TLS 被代理拦截；只在显式传入时用系统浏览器，CI 仍使用 hermetic 浏览器。
+const localBrowserFallback = browserExecutablePath ? { launchOptions: { executablePath: browserExecutablePath } } : {};
 
 // 端口必须保持拆分：43190 只给 PocketBase/Go API，浏览器页面只从 45173 的 Vite 入口进入。
 // 如果把 baseURL 指到后端端口，headed 调试会看到 PocketBase UI 而不是 Renewlet 前端。
@@ -50,6 +53,7 @@ export default defineConfig({
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
     video: "retain-on-failure",
+    ...localBrowserFallback,
   },
   webServer: [
     {
