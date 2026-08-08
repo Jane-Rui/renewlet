@@ -21,7 +21,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v7.0.0
         with:
-          node-version: 24
+          node-version: 24.19.0
 
       - name: Generate Docker Hub overview
         # Docker Hub Overview 是仓库元数据，不跟随 image push；手动修复也必须复用发布时的绝对链接产物。
