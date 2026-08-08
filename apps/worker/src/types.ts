@@ -140,6 +140,16 @@ export interface TelegramBotBindingRow {
   updated_at: string;
 }
 
+/** 站点级登录人机验证配置；key 固定为 global，secret 只给 Worker Siteverify 使用，不进入 status、备份或前端响应。 */
+export interface AuthSecuritySettingsRow {
+  key: "global";
+  turnstile_enabled: number;
+  turnstile_site_key: string;
+  turnstile_secret: string;
+  created_at: string;
+  updated_at: string;
+}
+
 /** D1 订阅行模型；snake_case 与整数布尔必须在 `toApiSubscription` 里收敛到 shared schema。 */
 export interface SubscriptionRow {
   id: string;

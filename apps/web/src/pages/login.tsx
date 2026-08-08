@@ -22,11 +22,13 @@ import { FormField } from "@/components/ui/form-field";
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RenewletBrandLockup } from '@/components/brand/renewlet-brand-mark';
+import { TurnstileWidget } from '@/components/turnstile-widget';
 import { toast } from '@/components/ui/sonner';
 import { authClient } from '@/lib/auth-client';
 import { getAuthDisplayMessage } from '@/lib/display-error';
 import { sanitizeNextPath } from '@/lib/redirect';
 import { reportClientError } from "@/lib/report-client-error";
+import { useTheme } from "@/lib/theme-provider";
 import { usePasswordResetAvailability } from '@/hooks/use-password-reset-availability';
 import { useSetupStatus } from '@/hooks/use-setup-status';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -36,7 +38,7 @@ import type { AuthenticatorMfaMethod } from "@renewlet/shared/schemas/auth";
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const REMEMBERED_LOGIN_EMAIL_STORAGE_KEY = "renewlet_login_email";
 
-type LoginErrors = Partial<Record<"email" | "password", string>>;
+type LoginErrors = Partial<Record<"email" | "password" | "turnstile", string>>;
 
 function readRememberedLoginEmail(): string {
   if (typeof window === "undefined") return "";
@@ -67,6 +69,7 @@ const Login = () => {
   const router = useRouter();
   const emailInputRef = useRef<HTMLInputElement>(null);
   const passwordInputRef = useRef<HTMLInputElement>(null);
+  const turnstileFieldRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef(false);
   const passkeyFlowRef = useRef(0);
   const mfaVerifyFlowRef = useRef(0);
@@ -78,6 +81,8 @@ const Login = () => {
   const [email, setEmail] = useState(readRememberedLoginEmail);
   const [password, setPassword] = useState('');
   const [rememberEmail, setRememberEmail] = useState(true);
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const [turnstileResetSignal, setTurnstileResetSignal] = useState(0);
   const [errors, setErrors] = useState<LoginErrors>({});
   const [mfaState, setMfaState] = useState<LoginMfaState | null>(null);
   const [mfaMethod, setMfaMethod] = useState<AuthenticatorMfaMethod>("totp");
@@ -86,7 +91,10 @@ const Login = () => {
   const passwordResetEnabled = usePasswordResetAvailability();
   const setupStatus = useSetupStatus();
   const { t } = useI18n();
+  const { resolvedTheme } = useTheme();
   const showSetupPrompt = setupStatus.setupRequired && setupStatus.setupEnabled;
+  // /api/app/status 是登录页唯一的 Turnstile siteKey 来源；配置不完整时后端会收敛成 enabled=false。
+  const turnstileRequired = setupStatus.turnstile.enabled && setupStatus.turnstile.siteKey.trim().length > 0;
   const isBusy = isLoading || isPasskeyLoading;
 
   const invalidatePasskeyFlows = useCallback(() => {
@@ -134,6 +142,7 @@ const Login = () => {
       nextErrors.email = t("auth.validation.emailInvalid");
     }
     if (!password) nextErrors.password = t("auth.validation.passwordRequired");
+    if (turnstileRequired && !turnstileToken) nextErrors.turnstile = t("auth.turnstileRequired");
 
     return { nextErrors, trimmedEmail };
   };
@@ -145,6 +154,10 @@ const Login = () => {
     }
     if (nextErrors.password) {
       passwordInputRef.current?.focus();
+      return;
+    }
+    if (nextErrors.turnstile) {
+      turnstileFieldRef.current?.scrollIntoView({ block: "center" });
     }
   };
 
@@ -170,6 +183,17 @@ const Login = () => {
     // 登录成功后只跳转 sanitize 后的站内路径，避免 next 参数把 token/session 状态带到外站。
     router.push(getNextPath());
   }, [cancelPasskeyCeremony, getNextPath, invalidateMfaVerifyFlows, rememberEmail, router, t]);
+
+  const resetTurnstile = useCallback(() => {
+    // Turnstile token 单次有效且会过期；登录失败、进入 MFA 或 challenge 异常后必须换新 token。
+    setTurnstileToken("");
+    setTurnstileResetSignal((value) => value + 1);
+  }, []);
+
+  const handleTurnstileTokenChange = useCallback((token: string) => {
+    setTurnstileToken(token);
+    if (token) clearError("turnstile");
+  }, []);
 
   const handlePasskeyLogin = useCallback(async (options: { useBrowserAutofill?: boolean; silent?: boolean } = {}) => {
     if (!options.silent) {
@@ -258,8 +282,14 @@ const Login = () => {
     setIsLoading(true);
     setErrors({});
     try {
-      const { data, error } = await authClient.signIn.email({ email: trimmedEmail, password });
+      const { data, error } = await authClient.signIn.email({
+        email: trimmedEmail,
+        password,
+        // Turnstile 只保护邮箱密码提交；Passkey、MFA verify 和首次 setup 都不读取这个 token。
+        ...(turnstileRequired ? { turnstileToken } : {}),
+      });
       if (error) {
+        resetTurnstile();
         reportClientError(error, { source: "login" });
         toast.error(t("auth.loginFailed"), {
           description: getAuthDisplayMessage(error),
@@ -275,6 +305,7 @@ const Login = () => {
         // MFA ticket 只代表“密码已通过，等待身份验证器/恢复码”；Passkey 有独立 challenge，不写入这里。
         cancelPasskeyCeremony();
         invalidateMfaVerifyFlows();
+        resetTurnstile();
         setMfaState({ ...data, email: trimmedEmail });
         setMfaMethod(preferredMfaMethod);
         setMfaCode("");
@@ -283,6 +314,7 @@ const Login = () => {
       }
       finishSuccessfulSession(trimmedEmail);
     } catch (err: unknown) {
+      resetTurnstile();
       reportClientError(err, { source: "login" });
       toast.error(t("auth.loginFailed"), {
         description: getAuthDisplayMessage(err),
@@ -513,6 +545,18 @@ const Login = () => {
                   {t("auth.rememberEmail")}
                 </Label>
               </div>
+
+              {turnstileRequired ? (
+                <div ref={turnstileFieldRef}>
+                  <TurnstileWidget
+                    siteKey={setupStatus.turnstile.siteKey}
+                    theme={resolvedTheme}
+                    resetSignal={turnstileResetSignal}
+                    error={errors.turnstile}
+                    onTokenChange={handleTurnstileTokenChange}
+                  />
+                </div>
+              ) : null}
 
               <div className="pt-3">
                 <Button

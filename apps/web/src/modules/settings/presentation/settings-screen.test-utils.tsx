@@ -20,6 +20,7 @@ import { BUILT_IN_ICON_PROVIDERS, type BuiltInIconProvider } from "@renewlet/sha
 import { SettingsScreen } from "./settings-screen";
 import { NotificationChannelConfigPanel } from "./notification-channel-config-panel";
 import type { UploadedAssetsManagerController } from "../application/use-uploaded-assets-manager";
+import type { SettingsAuthSecurityController } from "../application/use-auth-security-settings-controller";
 import type { SettingsTelegramBotCommandsController } from "../application/use-telegram-bot-commands-controller";
 
 const mocks = vi.hoisted(() => ({
@@ -32,6 +33,7 @@ export { mocks };
 
 export const SETTINGS_SECTION_IDS = [
   "settings-account",
+  "settings-access-security",
   "settings-appearance",
   "settings-display",
   "settings-icon-sources",
@@ -418,6 +420,7 @@ export function createControllerState(overrides: {
     }>;
     createdPlainToken?: string | null;
   };
+  authSecurity?: Partial<SettingsAuthSecurityController>;
   telegramBotCommands?: Partial<SettingsTelegramBotCommandsController>;
   rates?: ExchangeRates;
   activeRateProvider?: ExchangeRateSource;
@@ -588,6 +591,23 @@ export function createControllerState(overrides: {
       deleteCommands: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
       refetch: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
       ...overrides.telegramBotCommands,
+    },
+    authSecurity: {
+      canManage: true,
+      disabled: false,
+      isLoading: false,
+      isSaving: false,
+      isClearingSecret: false,
+      secretConfigured: false,
+      hasChanges: false,
+      draft: { enabled: false, siteKey: "", secret: "" },
+      setEnabled: fn,
+      setSiteKey: fn,
+      setSecret: fn,
+      discard: fn,
+      save: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+      clearSecret: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+      ...overrides.authSecurity,
     },
     password: {
       passwordDialogOpen: false,

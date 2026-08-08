@@ -46,6 +46,31 @@ export const adminDeleteUserResponseSchema = okResponseSchema;
 export const adminResetUserMfaResponseSchema = okResponseSchema;
 export const adminResetUserPasskeysResponseSchema = okResponseSchema;
 
+// 管理端访问安全契约只返回脱敏状态；secret 明文只允许通过 update body 单向写入服务端。
+export const authSecurityTurnstileSettingsSchema = z.object({
+  enabled: z.boolean(),
+  siteKey: z.string(),
+  // 管理端只知道 secret 是否已配置；密钥明文只能随本次 PUT 入站，不能被任何 API 回显。
+  secretConfigured: z.boolean(),
+}).strict();
+
+export const authSecuritySettingsPayloadSchema = z.object({
+  turnstile: authSecurityTurnstileSettingsSchema,
+}).strict();
+export const authSecuritySettingsResponseSchema = apiSuccessResponseSchema(authSecuritySettingsPayloadSchema);
+
+// 该 wire-shape 必须与 Go DTO、Worker handler 和设置页 controller 同步：secret 省略=保留，空字符串=清空。
+export const authSecurityTurnstileUpdateSchema = z.object({
+  enabled: z.boolean(),
+  siteKey: z.string().trim().max(256),
+  // undefined 表示保留旧 secret，空字符串表示清空；服务端会在启用时重新检查完整性。
+  secret: z.string().max(4096).optional(),
+}).strict();
+
+export const authSecuritySettingsUpdateBodySchema = z.object({
+  turnstile: authSecurityTurnstileUpdateSchema,
+}).strict();
+
 /**
  * 管理员创建用户请求契约。
  *
@@ -73,3 +98,5 @@ export const adminPatchUserBodySchema = z.object({
 export type UserRole = z.infer<typeof userRoleSchema>;
 export type AdminUser = z.infer<typeof adminUserSchema>;
 export type AdminUsersResponse = z.infer<typeof adminUsersPayloadSchema>;
+export type AuthSecuritySettings = z.infer<typeof authSecuritySettingsPayloadSchema>;
+export type AuthSecuritySettingsUpdateBody = z.infer<typeof authSecuritySettingsUpdateBodySchema>;

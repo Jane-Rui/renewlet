@@ -33,6 +33,7 @@ describe("Setup page", () => {
       setupRequired: true,
       setupEnabled: true,
       demoMode: false,
+      turnstile: { enabled: false, siteKey: "" },
       isLoading: false,
     });
   });

@@ -45,7 +45,8 @@ const mocks = vi.hoisted(() => ({
   deleteTelegramBotCommandsIsPending: false,
   isCloudflareRuntime: false,
   accountIdentity: { email: "alice@example.com" as string | null, role: "admin", banned: false },
-  appStatus: { setupRequired: false, setupEnabled: true, demoMode: false, isLoading: false },
+  appStatus: { setupRequired: false, setupEnabled: true, demoMode: false, turnstile: { enabled: false, siteKey: "" }, isLoading: false },
+  authSecurityController: { canManage: true, disabled: false, isLoading: false, isSaving: false, isClearingSecret: false, secretConfigured: false, hasChanges: false, draft: { enabled: false, siteKey: "", secret: "" }, setEnabled: vi.fn(), setSiteKey: vi.fn(), setSecret: vi.fn(), discard: vi.fn(), save: vi.fn(), clearSecret: vi.fn() },
 }));
 
 vi.mock("@/hooks/use-toast", () => ({
@@ -59,6 +60,10 @@ vi.mock("@/hooks/use-settings", () => ({
 
 vi.mock("@/hooks/use-setup-status", () => ({
   useSetupStatus: () => mocks.appStatus,
+}));
+
+vi.mock("./use-auth-security-settings-controller", () => ({
+  useAuthSecuritySettingsController: () => mocks.authSecurityController,
 }));
 
 vi.mock("@/hooks/use-report-exchange-rates", () => ({
@@ -215,7 +220,7 @@ describe("useSettingsFormController monthly budget input", () => {
     mocks.telegramBotCommands = { data: undefined, isLoading: false, refetch: vi.fn().mockResolvedValue(undefined) };
     mocks.isCloudflareRuntime = false;
     mocks.accountIdentity = { email: "alice@example.com", role: "admin", banned: false };
-    mocks.appStatus = { setupRequired: false, setupEnabled: true, demoMode: false, isLoading: false };
+    mocks.appStatus = { setupRequired: false, setupEnabled: true, demoMode: false, turnstile: { enabled: false, siteKey: "" }, isLoading: false };
     mocks.updateSettingsMutateAsync.mockImplementation(async (settings: AppSettings) => settings);
     mocks.saveConfig.mockImplementation(async (config: CustomConfig) => config);
     mocks.refreshRates.mockResolvedValue(undefined);

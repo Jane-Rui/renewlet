@@ -1,6 +1,6 @@
 // 系统版本 schema 测试保护 Docker 可执行更新与 Cloudflare 只读部署升级这两条前端能力分流。
 import { describe, expect, it } from "vitest";
-import { systemVersionResponseSchema } from "./app";
+import { appStatusResponseSchema, systemVersionResponseSchema } from "./app";
 
 const success = <T>(data: T) => ({ ok: true, data });
 
@@ -23,6 +23,23 @@ const baseVersionResponse = {
 };
 
 describe("system app schemas", () => {
+  it("accepts app status Turnstile public config without secret metadata", () => {
+    const parsed = appStatusResponseSchema.parse(success({
+      setupRequired: false,
+      setupEnabled: true,
+      demoMode: false,
+      turnstile: { enabled: true, siteKey: "site-key" },
+    })).data;
+
+    expect(parsed.turnstile).toEqual({ enabled: true, siteKey: "site-key" });
+    expect(appStatusResponseSchema.safeParse(success({
+      setupRequired: false,
+      setupEnabled: true,
+      demoMode: false,
+      turnstile: { enabled: true, siteKey: "site-key", secretConfigured: true },
+    })).success).toBe(false);
+  });
+
   it("accepts the Docker in-app update capability response", () => {
     expect(systemVersionResponseSchema.parse(success(baseVersionResponse)).data.updateMode).toBe("in-app-binary");
     expect(systemVersionResponseSchema.safeParse(baseVersionResponse).success).toBe(false);

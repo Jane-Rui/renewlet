@@ -9,15 +9,22 @@ export const healthPayloadSchema = z.object({
 }).strict();
 export const healthResponseSchema = apiSuccessResponseSchema(healthPayloadSchema);
 
+export const turnstilePublicConfigSchema = z.object({
+  enabled: z.boolean(),
+  siteKey: z.string(),
+}).strict();
+
 /**
  * 认证前应用能力状态。
  *
- * app status 是登录、setup 和 demo 置灰能力的共同真相源；真正写入仍由后端 route/hook 校验。
+ * app status 是登录、setup、demo 置灰和 Turnstile 人机验证能力的共同真相源；真正写入仍由后端 route/hook 校验。
  */
 export const appStatusPayloadSchema = z.object({
   setupRequired: z.boolean(),
   setupEnabled: z.boolean(),
   demoMode: z.boolean(),
+  // 只允许公开 siteKey；Turnstile secret 是后端 Siteverify 凭据，不能进入认证前 status 或前端缓存。
+  turnstile: turnstilePublicConfigSchema,
 }).strict();
 export const appStatusResponseSchema = apiSuccessResponseSchema(appStatusPayloadSchema);
 

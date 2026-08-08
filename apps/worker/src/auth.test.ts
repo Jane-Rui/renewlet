@@ -19,7 +19,8 @@ import {
 } from "./auth";
 import { readSuccessData } from "./api-test-helpers";
 import { AccountSecuritySchemaError } from "./account-security-schema";
-import type { Env, UserRow } from "./types";
+import { toResponse } from "./http";
+import type { AuthSecuritySettingsRow, Env, UserRow } from "./types";
 
 const mocks = vi.hoisted(() => ({
   enabledAdminCount: vi.fn(),
@@ -213,6 +214,59 @@ describe("Cloudflare auth settings initialization", () => {
     expect(mocks.verifyPassword).toHaveBeenCalledWith("password123", "old-hash");
     expect(mocks.ensureSettings).toHaveBeenCalledWith(expect.anything(), "usr_login", "zh-CN");
     expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("requires Turnstile before looking up password login users when enabled", async () => {
+    const response = await login(jsonRequest("/api/app/auth/login", "POST", {
+      email: "login@example.com",
+      password: "password123",
+    }), envFixture(vi.fn(), authSecurityRow())).catch((error: unknown) => toResponse(error));
+
+    expect(response.status).toBe(400);
+    await expect(response.text()).resolves.toContain("TURNSTILE_REQUIRED");
+    expect(mocks.findUserByEmail).not.toHaveBeenCalled();
+    expect(mocks.verifyPassword).not.toHaveBeenCalled();
+  });
+
+  it("fails closed on Turnstile Siteverify network failure", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("secret-value upstream down");
+    }));
+
+    const response = await login(jsonRequest("/api/app/auth/login", "POST", {
+      email: "login@example.com",
+      password: "password123",
+      turnstileToken: "bad-token",
+    }), envFixture(vi.fn(), authSecurityRow())).catch((error: unknown) => toResponse(error));
+
+    expect(response.status).toBe(400);
+    const body = await response.text();
+    expect(body).toContain("TURNSTILE_FAILED");
+    expect(body).not.toContain("secret-value upstream down");
+    expect(mocks.findUserByEmail).not.toHaveBeenCalled();
+    expect(mocks.verifyPassword).not.toHaveBeenCalled();
+  });
+
+  it("continues the password login flow after a successful Turnstile verification", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ success: true }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const run = vi.fn().mockResolvedValue({});
+    mocks.findUserByEmail.mockResolvedValue(userRow({ id: "usr_login", email: "login@example.com" }));
+
+    const response = await login(jsonRequest("/api/app/auth/login", "POST", {
+      email: "login@example.com",
+      password: "password123",
+      turnstileToken: "ok-token",
+    }, { "cf-connecting-ip": "203.0.113.9" }), envFixture(run, authSecurityRow()));
+
+    expect(response.status).toBe(200);
+    expect(mocks.findUserByEmail).toHaveBeenCalledWith(expect.anything(), "login@example.com");
+    expect(mocks.verifyPassword).toHaveBeenCalledWith("password123", "old-hash");
+    const calls = fetchMock.mock.calls as unknown as Array<[RequestInfo | URL, RequestInit?]>;
+    const [, init] = calls[0] ?? [];
+    expect(String(init?.body)).toContain("secret=secret-value");
+    expect(String(init?.body)).toContain("response=ok-token");
+    expect(String(init?.body)).toContain("remoteip=203.0.113.9");
   });
 
   it("returns an MFA ticket without creating a session when an authenticator is enabled", async () => {
@@ -467,6 +521,7 @@ describe("Cloudflare app status", () => {
       setupRequired: true,
       setupEnabled: true,
       demoMode: false,
+      turnstile: { enabled: false, siteKey: "" },
     });
   });
 });
@@ -512,7 +567,7 @@ function authHeaders(): Record<string, string> {
   };
 }
 
-function envFixture(updateRun: ReturnType<typeof vi.fn>): Env {
+function envFixture(updateRun: ReturnType<typeof vi.fn>, authSecurity?: AuthSecuritySettingsRow | null): Env {
   const sessionTouchRun = vi.fn().mockResolvedValue({});
   return {
     DB: {
@@ -535,6 +590,9 @@ function envFixture(updateRun: ReturnType<typeof vi.fn>): Env {
           if (sql.includes("SELECT settings_json FROM settings")) {
             return { first: vi.fn().mockResolvedValue(null) };
           }
+          if (sql.includes("FROM auth_security_settings")) {
+            return { first: vi.fn().mockResolvedValue(authSecurity ?? null) };
+          }
           if (sql.includes("UPDATE sessions SET last_seen_at")) {
             return { run: sessionTouchRun };
           }
@@ -544,6 +602,18 @@ function envFixture(updateRun: ReturnType<typeof vi.fn>): Env {
     } as unknown as D1Database,
     ASSETS: {} as Fetcher,
     ASSETS_BUCKET: {} as R2Bucket,
+  };
+}
+
+function authSecurityRow(overrides: Partial<AuthSecuritySettingsRow> = {}): AuthSecuritySettingsRow {
+  return {
+    key: "global",
+    turnstile_enabled: 1,
+    turnstile_site_key: "site-key",
+    turnstile_secret: "secret-value",
+    created_at: "2026-06-03T00:00:00.000Z",
+    updated_at: "2026-06-03T00:00:00.000Z",
+    ...overrides,
   };
 }
 

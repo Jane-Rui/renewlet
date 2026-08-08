@@ -71,6 +71,9 @@ const mocks = vi.hoisted(() => ({
     isLoading: false,
     refetch: vi.fn(),
   },
+  authSecuritySettings: { data: { turnstile: { enabled: false, siteKey: "", secretConfigured: false } }, isLoading: false },
+  updateAuthSecurityMutateAsync: vi.fn(),
+  updateAuthSecurityIsPending: false,
   checkBuiltInIconIndexProviderMutateAsync: vi.fn(),
   checkBuiltInIconIndexProviderIsPending: false,
   refreshBuiltInIconIndexProviderMutateAsync: vi.fn(),
@@ -80,7 +83,7 @@ const mocks = vi.hoisted(() => ({
   openWindow: vi.fn(),
   isCloudflareRuntime: false,
   accountIdentity: { email: "alice@example.com" as string | null, role: "admin", banned: false },
-  appStatus: { setupRequired: false, setupEnabled: true, demoMode: false, isLoading: false },
+  appStatus: { setupRequired: false, setupEnabled: true, demoMode: false, turnstile: { enabled: false, siteKey: "" }, isLoading: false },
 }));
 
 vi.mock("@/hooks/use-toast", () => ({
@@ -100,6 +103,14 @@ vi.mock("@/hooks/use-settings", () => ({
 
 vi.mock("@/hooks/use-setup-status", () => ({
   useSetupStatus: () => mocks.appStatus,
+}));
+
+vi.mock("@/hooks/use-auth-security", () => ({
+  useAuthSecuritySettings: () => mocks.authSecuritySettings,
+  useUpdateAuthSecuritySettings: () => ({
+    mutateAsync: mocks.updateAuthSecurityMutateAsync,
+    isPending: mocks.updateAuthSecurityIsPending,
+  }),
 }));
 
 vi.mock("@/hooks/use-report-exchange-rates", () => ({
@@ -381,6 +392,8 @@ export function setupSettingsFormControllerTestEnvironment() {
     mocks.checkBuiltInIconIndexProviderIsPending = false;
     mocks.refreshBuiltInIconIndexProviderMutateAsync.mockReset();
     mocks.refreshBuiltInIconIndexProviderIsPending = false;
+    mocks.updateAuthSecurityMutateAsync.mockReset();
+    mocks.updateAuthSecurityIsPending = false;
     mocks.writeClipboard.mockReset();
     mocks.fetch.mockReset();
     mocks.openWindow.mockReset();
@@ -409,8 +422,16 @@ export function setupSettingsFormControllerTestEnvironment() {
     mocks.customConfig = DEFAULT_CUSTOM_CONFIG;
     mocks.isCloudflareRuntime = false;
     mocks.accountIdentity = { email: "alice@example.com", role: "admin", banned: false };
-    mocks.appStatus = { setupRequired: false, setupEnabled: true, demoMode: false, isLoading: false };
+    mocks.appStatus = { setupRequired: false, setupEnabled: true, demoMode: false, turnstile: { enabled: false, siteKey: "" }, isLoading: false };
+    mocks.authSecuritySettings = { data: { turnstile: { enabled: false, siteKey: "", secretConfigured: false } }, isLoading: false };
     mocks.updateSettingsMutateAsync.mockImplementation(async (settings: AppSettings) => settings);
+    mocks.updateAuthSecurityMutateAsync.mockImplementation(async (body: { turnstile: { enabled: boolean; siteKey: string; secret?: string } }) => ({
+      turnstile: {
+        enabled: body.turnstile.enabled,
+        siteKey: body.turnstile.siteKey,
+        secretConfigured: body.turnstile.secret !== "",
+      },
+    }));
     mocks.saveConfig.mockImplementation(async (config: CustomConfig) => config);
     mocks.refreshRates.mockResolvedValue(undefined);
     mocks.createCalendarFeedMutateAsync.mockResolvedValue({

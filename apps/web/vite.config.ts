@@ -41,8 +41,9 @@ const customHeadScriptPlugin = (script: CustomHeadScript | undefined, options: {
 });
 
 function contentSecurityPolicy(script: CustomHeadScript | undefined): string {
-  const scriptSources = ["'self'", "'unsafe-inline'", "'wasm-unsafe-eval'"];
-  const connectSources = ["'self'", "https:"];
+  const turnstileChallengeOrigin = "https://challenges.cloudflare.com";
+  const scriptSources = ["'self'", "'unsafe-inline'", "'wasm-unsafe-eval'", turnstileChallengeOrigin];
+  const connectSources = ["'self'", "https:", turnstileChallengeOrigin];
   if (script) {
     appendUniqueString(scriptSources, script.scriptOrigin);
     for (const origin of script.connectOrigins) appendUniqueString(connectSources, origin);
@@ -54,6 +55,7 @@ function contentSecurityPolicy(script: CustomHeadScript | undefined): string {
     "img-src 'self' data: blob: http: https:",
     "connect-src " + connectSources.join(" "),
     "font-src 'self' data:",
+    "frame-src " + turnstileChallengeOrigin,
     "object-src 'none'",
     "base-uri 'self'",
     "frame-ancestors 'none'",

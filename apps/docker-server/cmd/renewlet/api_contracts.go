@@ -57,9 +57,10 @@ type healthResponse struct {
 // appStatusResponse 是认证前 capability 真相源。
 // 登录页、setup 页和设置页 demo 限制都从这里读取；真正写入仍由各 route/hook 再次校验。
 type appStatusResponse struct {
-	SetupRequired bool `json:"setupRequired"`
-	SetupEnabled  bool `json:"setupEnabled"`
-	DemoMode      bool `json:"demoMode"`
+	SetupRequired bool                  `json:"setupRequired"`
+	SetupEnabled  bool                  `json:"setupEnabled"`
+	DemoMode      bool                  `json:"demoMode"`
+	Turnstile     turnstilePublicConfig `json:"turnstile"`
 }
 
 // setupStatusResponse 描述旧 setup 入口是否可用。
@@ -146,11 +147,14 @@ type passkeyWebAuthnOptionsResponse struct {
 type loginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+	// turnstileToken 只保护邮箱密码登录提交；Passkey、MFA 二阶段和首次 setup 不能复用这个字段。
+	TurnstileToken string `json:"turnstileToken,omitempty"`
 }
 
 func (r *loginRequest) Validate(locale appLocale) error {
 	r.Email = strings.TrimSpace(r.Email)
-	if !isValidEmailAddress(r.Email) || r.Password == "" || len(r.Password) > 72 {
+	r.TurnstileToken = strings.TrimSpace(r.TurnstileToken)
+	if !isValidEmailAddress(r.Email) || r.Password == "" || len(r.Password) > 72 || len(r.TurnstileToken) > 2048 {
 		return errors.New(serverText(locale, "auth.invalidEmailOrPassword"))
 	}
 	return nil

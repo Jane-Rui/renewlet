@@ -71,10 +71,11 @@ export const setupCreateBodySchema = z.object({
   password: z.string().min(8).max(72),
 }).strict();
 
-/** 登录请求不接受额外字段；Cloudflare/Go 都应只按 email+password 建立会话。 */
+/** 登录请求不接受额外字段；Turnstile token 只服务密码登录前置校验，不参与 Passkey/MFA 二阶段。 */
 export const loginBodySchema = z.object({
   email: z.email().max(254),
   password: z.string().min(1).max(72),
+  turnstileToken: z.string().trim().min(1).max(2048).optional(),
 }).strict();
 
 export const mfaStatusPayloadSchema = z.object({

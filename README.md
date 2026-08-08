@@ -38,7 +38,7 @@ Sign in with `demo@renewlet.local` / `renewlet-demo`. The demo resets regularly,
 - Subscription records with billing cycles, statuses, tags, websites, notes, logos, categories, and payment methods.
 - Reminder jobs based on each user's IANA time zone, local notification time, reminder days, repeat reminders, delivery history, and failed-send retries.
 - Notifications through Telegram, Notifyx, Webhook, WeCom Bot, DingTalk Bot, SMTP email, Bark, ServerChan, Discord, and PushPlus.
-- Account security with authenticator codes, one-time recovery codes, and passkey sign-in.
+- Account security with authenticator codes, one-time recovery codes, and passkey sign-in; access security with optional Cloudflare Turnstile human verification for login.
 - Monthly and yearly cost normalization, budget usage, category charts, payment-method charts, and inactive-subscription savings.
 - AI recognition for bill screenshots, notes, CSV/TSV, and pasted table text; drafts are reviewed before import.
 - Global private ICS feed and per-subscription calendar feeds.
@@ -89,6 +89,14 @@ RENEWLET_IMAGE="ghcr.io/zhiyingzzhou/renewlet:0.2.96"
 Use the deploy button for a Cloudflare-managed repository, or follow [Cloudflare Workers deploy](docs/cloudflare-workers-deploy.md) to manage D1, R2, GitHub Actions, and secrets yourself.
 
 Do not click the deploy button again to upgrade. One-click deploy users run `Sync Renewlet Upstream` in the generated repository connected by Cloudflare Builds; manual deploy users update their fork to the latest Renewlet version, then run `Cloudflare Worker`.
+
+## Login human verification
+
+Admins can enable Turnstile human verification in **Settings -> Access security -> Cloudflare Turnstile**. It protects email password login before password verification, and does not change passkey sign-in, the MFA second step, or first-time setup.
+
+Turnstile is a site-level security setting. Renewlet only exposes the public Site key to the login page; the Secret key stays on the server for Cloudflare Siteverify and is not included in public status, exports, cloud backups, or logs. Docker and Cloudflare deployments already include the required CSP entries for `https://challenges.cloudflare.com`.
+
+For manual validation, use Cloudflare's official Turnstile testing Site key and Secret key instead of a real challenge.
 
 ## Upgrade
 

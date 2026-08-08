@@ -96,6 +96,10 @@ func registerRecordHooks(app core.App) {
 			if err := normalizeCloudBackupTargetRecord(e.Record); err != nil {
 				return err
 			}
+		case authSecurityCollectionName:
+			if err := normalizeAuthSecuritySettingsRecord(e.Record); err != nil {
+				return err
+			}
 		}
 		return e.Next()
 	})

@@ -148,12 +148,27 @@ describe("SettingsScreen SMTP email settings", () => {
     mocks.useSettingsFormController.mockReturnValue(createControllerState({
       canManageUsers: false,
       canAccessPocketBaseAdmin: false,
+      authSecurity: { canManage: false },
     }));
 
     renderSettingsScreen();
 
     expect(screen.queryByRole("link", { name: "管理用户" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "PocketBase 后台" })).not.toBeInTheDocument();
+    expect(document.getElementById("settings-access-security")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Cloudflare Turnstile" })).not.toBeInTheDocument();
+  });
+
+  it("keeps Turnstile out of account settings and renders it under access security", () => {
+    renderSettingsScreen();
+
+    const accountSection = document.getElementById("settings-account");
+    const accessSecuritySection = document.getElementById("settings-access-security");
+    expect(accountSection).not.toBeNull();
+    expect(accessSecuritySection).not.toBeNull();
+    expect(within(accountSection as HTMLElement).queryByRole("heading", { name: "Cloudflare Turnstile" })).not.toBeInTheDocument();
+    expect(within(accessSecuritySection as HTMLElement).getByRole("heading", { name: "访问安全" })).toBeInTheDocument();
+    expect(within(accessSecuritySection as HTMLElement).getByRole("heading", { name: "Cloudflare Turnstile" })).toBeInTheDocument();
   });
 
   it("keeps user management visible for Cloudflare admins while hiding PocketBase admin", () => {
@@ -648,8 +663,7 @@ describe("SettingsScreen SMTP email settings", () => {
     renderSettingsScreen();
 
     expect(screen.queryByText("有未保存更改")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "保存更改" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "放弃更改" })).not.toBeInTheDocument();
+    expect(document.querySelector(".h5-bottom-bar")).toBeNull();
   });
 
   it("uses the unified settings layout contract without horizontal gutter workarounds", () => {
@@ -697,10 +711,11 @@ describe("SettingsScreen SMTP email settings", () => {
 
     expect(screen.getByText("有未保存更改")).toBeInTheDocument();
     expect(screen.getByTestId("settings-main")).toHaveClass("h5-bottom-bar-space");
-    expect(screen.getByText("有未保存更改").closest(".h5-bottom-bar")).not.toBeNull();
-    await user.click(screen.getByRole("button", { name: "放弃更改" }));
+    const bottomBar = screen.getByText("有未保存更改").closest(".h5-bottom-bar");
+    expect(bottomBar).not.toBeNull();
+    await user.click(within(bottomBar as HTMLElement).getByRole("button", { name: "放弃更改" }));
     expect(controller.handleDiscardChanges).toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "保存更改" }));
+    await user.click(within(bottomBar as HTMLElement).getByRole("button", { name: "保存更改" }));
     expect(controller.handleSaveChanges).toHaveBeenCalled();
   });
 

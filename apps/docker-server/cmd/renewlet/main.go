@@ -241,9 +241,10 @@ func staticCacheControl(request *http.Request, staticFS fs.FS) string {
 }
 
 func staticContentSecurityPolicy(request *http.Request) string {
-	scriptSources := []string{"'self'", "'wasm-unsafe-eval'"}
-	// 汇率仍由浏览器直连公开 provider；这里必须与 Cloudflare `_headers` 保持同源列表同步。
-	connectSources := []string{"'self'", "https://cdn.jsdelivr.net", "https://latest.currency-api.pages.dev", "https://api.frankfurter.dev", "https://www.floatrates.com"}
+	turnstileChallengeOrigin := "https://challenges.cloudflare.com"
+	scriptSources := []string{"'self'", "'wasm-unsafe-eval'", turnstileChallengeOrigin}
+	// 汇率仍由浏览器直连公开 provider；Turnstile widget 还会加载 challenge iframe，三份 CSP 必须同源列表同步。
+	connectSources := []string{"'self'", "https://cdn.jsdelivr.net", "https://latest.currency-api.pages.dev", "https://api.frankfurter.dev", "https://www.floatrates.com", turnstileChallengeOrigin}
 	if script, ok := customHeadScriptFromEnv(); ok {
 		// 自定义 head 脚本是部署者显式打开的外部执行边界；注入和 CSP 必须从同一份校验结果派生。
 		scriptSources = appendUniqueString(scriptSources, script.ScriptOrigin)
@@ -259,6 +260,7 @@ func staticContentSecurityPolicy(request *http.Request) string {
 		"font-src 'self' data:",
 		"img-src 'self' data: blob: " + staticImageSources(request),
 		"connect-src " + strings.Join(connectSources, " "),
+		"frame-src " + turnstileChallengeOrigin,
 		"object-src 'none'",
 		"base-uri 'self'",
 		"frame-ancestors 'none'",

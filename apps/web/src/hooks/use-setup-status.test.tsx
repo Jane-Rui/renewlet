@@ -16,6 +16,7 @@ describe("useSetupStatus app status", () => {
           setupRequired: false,
           setupEnabled: false,
           demoMode: true,
+          turnstile: { enabled: true, siteKey: "site-key" },
         },
       }),
     });
@@ -35,6 +36,7 @@ describe("useSetupStatus app status", () => {
       setupRequired: false,
       setupEnabled: false,
       demoMode: true,
+      turnstile: { enabled: true, siteKey: "site-key" },
     });
   });
 
@@ -61,6 +63,7 @@ describe("useSetupStatus app status", () => {
       setupRequired: false,
       setupEnabled: true,
       demoMode: false,
+      turnstile: { enabled: false, siteKey: "" },
     });
   });
 });

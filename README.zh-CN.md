@@ -38,7 +38,7 @@ Renewlet 是一个自托管订阅账本，用来记录周期扣费并发送续�
 - 订阅记录：扣费周期、状态、标签、网站、备注、Logo、分类和付款方式。
 - 续费提醒：按用户 IANA 时区、本地提醒时间、提前天数、重复提醒、发送历史和失败重试生成任务。
 - 通知渠道：Telegram、Notifyx、Webhook、企业微信机器人、钉钉机器人、SMTP 邮件、Bark、Server酱、Discord 和 PushPlus。
-- 账户安全：身份验证器验证码、一次性恢复码和通行密钥登录。
+- 账户安全：身份验证器验证码、一次性恢复码和通行密钥登录；访问安全：可选 Cloudflare Turnstile 登录人机验证。
 - 支出统计：月/年成本折算、预算使用、分类图表、付款方式图表和停用订阅节省。
 - AI 识别：从账单截图、备忘录、CSV/TSV 或表格文本生成订阅草稿，确认后再导入。
 - 日历订阅：全局私有 ICS Feed 和单个订阅 Feed。
@@ -89,6 +89,14 @@ RENEWLET_IMAGE="ghcr.io/zhiyingzzhou/renewlet:0.2.96"
 可以使用部署按钮创建 Cloudflare 管理的仓库；也可以按 [Cloudflare Workers 部署](docs/cloudflare-workers-deploy.zh-CN.md) 自己管理 D1、R2、GitHub Actions 和 secrets。
 
 升级时不要重新点击部署按钮。一键部署用户在 Cloudflare Builds 连接的生成仓库里运行 `Sync Renewlet Upstream`；手动部署用户把自己的 fork 更新到 Renewlet 最新版本后运行 `Cloudflare Worker`。
+
+## 登录人机验证
+
+管理员可以在 **设置 -> 访问安全 -> Cloudflare Turnstile** 中启用 Turnstile 人机验证。它只在邮箱密码登录的密码校验前生效，不改变通行密钥登录、MFA 二阶段校验或首次初始化 setup。
+
+Turnstile 是站点级安全设置。Renewlet 只把公开 Site key 暴露给登录页；Secret key 只保存在服务端用于 Cloudflare Siteverify，不进入公开状态、导出、云备份或日志。Docker 和 Cloudflare 部署已经内置 `https://challenges.cloudflare.com` 所需的 CSP 放行。
+
+手动验收时建议使用 Cloudflare 官方 Turnstile 测试 Site key 和 Secret key，避免真实挑战干扰。
 
 ## 升级
 

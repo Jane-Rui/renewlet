@@ -38,11 +38,12 @@ export async function gotoSettingsAfterHydration(page: Page) {
 }
 
 export function getSettingsSaveButton(page: Page) {
-  return page.getByRole("button", { name: /^(保存更改|Save changes)$/ });
+  // 设置页已有 Turnstile 独立保存/放弃按钮；全局草稿操作必须限定底部保存栏，避免同名按钮误匹配。
+  return page.getByTestId("settings-save-bar").getByRole("button", { name: /^(保存更改|Save changes)$/ });
 }
 
 export function getSettingsDiscardButton(page: Page) {
-  return page.getByRole("button", { name: /^(放弃更改|Discard changes)$/ });
+  return page.getByTestId("settings-save-bar").getByRole("button", { name: /^(放弃更改|Discard changes)$/ });
 }
 
 export async function fillChangedTestPhone(input: Locator) {

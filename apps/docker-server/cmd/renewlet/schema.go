@@ -49,6 +49,7 @@ var schemaAutodateCollections = []string{
 	"telegram_bot_bindings",
 	"cloud_backup_targets",
 	"media_icon_indexes",
+	authSecurityCollectionName,
 }
 
 // ensureSchema 收敛 PocketBase schema，并只通过内部迁移账本执行一次性历史数据修复。
@@ -115,6 +116,9 @@ func ensureCollectionsSchema(app core.App) error {
 		return err
 	}
 	if err := ensureCloudBackupTargetsCollection(app, users); err != nil {
+		return err
+	}
+	if err := ensureAuthSecuritySettingsCollection(app); err != nil {
 		return err
 	}
 	return ensureMediaIconIndexesCollection(app)
@@ -461,6 +465,34 @@ func ensureMediaIconIndexesCollection(app core.App) error {
 		}
 		// 系统级索引不挂 user relation；普通搜索只读热索引，完整 detail 仅供管理员刷新合并 provider。
 		c.AddIndex("idx_media_icon_indexes_key_unique", true, "`key`", "")
+		return nil
+	})
+}
+
+func ensureAuthSecuritySettingsCollection(app core.App) error {
+	return ensureCollection(app, authSecurityCollectionName, func(c *core.Collection) error {
+		// Turnstile secret 是站点级安全凭据，不挂 user relation，也不开放 PocketBase REST 读写。
+		c.ListRule = nil
+		c.ViewRule = nil
+		c.CreateRule = nil
+		c.UpdateRule = nil
+		c.DeleteRule = nil
+		fields := []core.Field{
+			&core.TextField{Name: "key", Required: true, Max: 32, Pattern: `^global$`},
+			&core.BoolField{Name: "turnstileEnabled"},
+			&core.TextField{Name: "turnstileSiteKey", Max: 256},
+			&core.TextField{Name: "turnstileSecret", Max: 4096},
+		}
+		for _, field := range fields {
+			if err := upsertField(c, field); err != nil {
+				return err
+			}
+		}
+		if err := ensureAutodates(c); err != nil {
+			return err
+		}
+		// 只允许 key=global 的单行配置；访问安全策略不能跟用户账号或导出 settings 绑定。
+		c.AddIndex("idx_auth_security_settings_key_unique", true, "`key`", "")
 		return nil
 	})
 }

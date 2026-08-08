@@ -13,6 +13,8 @@ export const messages = [
   msg({ id: "error.loginGeneric", message: "邮箱或密码不正确，请检查后重试" }),
   msg({ id: "error.tooManyAttempts", message: "尝试次数过多，请稍后再试" }),
   msg({ id: "error.loginUnavailable", message: "登录服务暂时不可用，请稍后重试" }),
+  msg({ id: "error.turnstileRequired", message: "请先完成人机验证" }),
+  msg({ id: "error.turnstileFailed", message: "人机验证失败，请重新验证后再登录" }),
   msg({ id: "error.code.SUBSCRIPTION_NAME_REQUIRED", message: "请输入订阅名称" }),
   msg({ id: "error.code.SUBSCRIPTION_NAME_TOO_LONG", message: "订阅名称不能超过 120 个字符" }),
   msg({ id: "error.code.CURRENCY_CODE_INVALID", message: "货币代码必须是 3 位大写字母" }),

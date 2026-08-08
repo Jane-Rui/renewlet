@@ -157,6 +157,8 @@ export function getDisplayErrorMessage(error: unknown, fallback = translate(getA
  * 这里只根据非敏感状态给出可行动文案，其余一律使用泛化登录失败原因。
  */
 export function getAuthDisplayMessage(error: unknown, fallback = translate(getApiLocale(), "error.loginGeneric")): string {
+  if (error instanceof ApiError && error.code === "TURNSTILE_REQUIRED") return translate(getApiLocale(), "error.turnstileRequired");
+  if (error instanceof ApiError && error.code === "TURNSTILE_FAILED") return translate(getApiLocale(), "error.turnstileFailed");
   if (!isRecord(error)) return fallback;
 
   const status = typeof error["status"] === "number"

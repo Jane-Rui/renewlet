@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   reportClientError: vi.fn(),
   usePasswordResetAvailability: vi.fn(),
   useSetupStatus: vi.fn(),
+  setTheme: vi.fn(),
+  resolvedTheme: "dark" as const,
 }));
 
 vi.mock("@/lib/auth-client", () => ({
@@ -36,6 +38,14 @@ vi.mock("@/lib/report-client-error", () => ({
 
 vi.mock("@/hooks/use-setup-status", () => ({
   useSetupStatus: mocks.useSetupStatus,
+}));
+
+vi.mock("@/lib/theme-provider", () => ({
+  useTheme: () => ({
+    theme: mocks.resolvedTheme,
+    resolvedTheme: mocks.resolvedTheme,
+    setTheme: mocks.setTheme,
+  }),
 }));
 
 const rememberedLoginEmailStorageKey = "renewlet_login_email";
@@ -108,12 +118,15 @@ describe("Login page", () => {
     mocks.verifyMfa.mockResolvedValue({ error: null });
     mocks.cancelPasskeyCeremony.mockReset();
     mocks.reportClientError.mockReset();
+    mocks.setTheme.mockReset();
+    mocks.resolvedTheme = "dark";
     localStorage.clear();
     mocks.usePasswordResetAvailability.mockReturnValue(false);
     mocks.useSetupStatus.mockReturnValue({
       setupRequired: false,
       setupEnabled: true,
       demoMode: false,
+      turnstile: { enabled: false, siteKey: "" },
       isLoading: false,
     });
   });
@@ -130,6 +143,7 @@ describe("Login page", () => {
       setupRequired: true,
       setupEnabled: true,
       demoMode: false,
+      turnstile: { enabled: false, siteKey: "" },
       isLoading: false,
     });
 

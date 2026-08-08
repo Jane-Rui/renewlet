@@ -72,6 +72,7 @@ import {
 } from "./mfa";
 import { isAccountSecuritySchemaError } from "./account-security-schema";
 import { refreshSubscriptionSchedulerState } from "./subscription-scheduler-state";
+import { publicTurnstileConfig, requireTurnstileForPasswordLogin } from "./auth-security-store";
 
 const DEFAULT_SESSION_TTL_DAYS = 30;
 const SESSION_LAST_SEEN_TOUCH_INTERVAL_MS = 15 * 60 * 1000;
@@ -86,6 +87,8 @@ async function buildAppStatus(env: Env) {
     setupRequired: !(await hasEnabledAdmin(env)),
     setupEnabled: setupEnabled(env),
     demoMode: false,
+    // status 只公开完整可用的 siteKey；Turnstile secret 和 secretConfigured 只存在管理员访问安全接口。
+    turnstile: await publicTurnstileConfig(env),
   });
 }
 
@@ -133,6 +136,8 @@ export async function createInitialAdmin(request: Request, env: Env): Promise<Re
 export async function login(request: Request, env: Env): Promise<Response> {
   const locale = requestLocale(request);
   const body = await readJson(request, loginBodySchema, locale);
+  // 人机验证必须先于用户查询和密码校验；MFA/Passkey/setup 走各自认证流，不消费 turnstileToken。
+  await requireTurnstileForPasswordLogin(request, env, body.turnstileToken, locale);
   const user = await findUserByEmail(env, body.email.trim());
   if (!user || !(await verifyPassword(body.password, user.password_hash))) {
     throw new HttpError(400, serverText(locale, "auth.invalidEmailOrPassword"));

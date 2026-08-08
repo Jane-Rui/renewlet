@@ -414,6 +414,7 @@ describe("AccountSettingsSection account security dialogs", () => {
 
     expect(screen.getByRole("heading", { name: "身份验证器" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "通行密钥" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Cloudflare Turnstile" })).not.toBeInTheDocument();
     expect(screen.getAllByText("身份验证器").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("恢复码")).toBeInTheDocument();
     expect(screen.getByText("已添加：1 个")).toBeInTheDocument();
