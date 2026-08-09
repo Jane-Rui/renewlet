@@ -1,4 +1,4 @@
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TurnstileWidget } from "./turnstile-widget";
 
@@ -56,6 +56,70 @@ describe("TurnstileWidget", () => {
     expect(getRenderOptions(api)).toMatchObject({ sitekey: "site-key", theme: "dark" });
   });
 
+  it("shows loading only while the Cloudflare script is not ready", () => {
+    render(<TurnstileWidget siteKey="site-key" theme="dark" errorId="test-turnstile-error" resetSignal={0} onTokenChange={vi.fn()} />);
+
+    expect(screen.getByText("auth.turnstileLoading")).toBeInTheDocument();
+  });
+
+  it("stops showing loading after render even before a token callback", async () => {
+    const api = installTurnstile();
+    const onTokenChange = vi.fn();
+
+    render(<TurnstileWidget siteKey="site-key" theme="dark" errorId="test-turnstile-error" resetSignal={0} onTokenChange={onTokenChange} />);
+
+    await waitFor(() => {
+      expect(api.render).toHaveBeenCalledTimes(1);
+    });
+    expect(screen.queryByText("auth.turnstileLoading")).not.toBeInTheDocument();
+    expect(onTokenChange).toHaveBeenCalledWith("");
+    expect(onTokenChange).not.toHaveBeenCalledWith("turnstile-token");
+  });
+
+  it("emits the token when Cloudflare reports a successful challenge", async () => {
+    const api = installTurnstile();
+    const onTokenChange = vi.fn();
+
+    render(<TurnstileWidget siteKey="site-key" theme="dark" errorId="test-turnstile-error" resetSignal={0} onTokenChange={onTokenChange} />);
+
+    await waitFor(() => {
+      expect(api.render).toHaveBeenCalledTimes(1);
+    });
+    act(() => {
+      getRenderOptions(api).callback("turnstile-token");
+    });
+
+    expect(onTokenChange).toHaveBeenCalledWith("turnstile-token");
+  });
+
+  it("clears the token and reports expired, failed and timeout states", async () => {
+    const api = installTurnstile();
+    const onTokenChange = vi.fn();
+
+    render(<TurnstileWidget siteKey="site-key" theme="dark" errorId="test-turnstile-error" resetSignal={0} onTokenChange={onTokenChange} />);
+
+    await waitFor(() => {
+      expect(api.render).toHaveBeenCalledTimes(1);
+    });
+    onTokenChange.mockClear();
+
+    act(() => {
+      getRenderOptions(api)["expired-callback"]();
+    });
+    expect(onTokenChange).toHaveBeenCalledWith("");
+    expect(screen.getByText("auth.turnstileExpired")).toBeInTheDocument();
+
+    act(() => {
+      getRenderOptions(api)["error-callback"]();
+    });
+    expect(screen.getByText("auth.turnstileFailed")).toBeInTheDocument();
+
+    act(() => {
+      getRenderOptions(api)["timeout-callback"]();
+    });
+    expect(screen.getByText("auth.turnstileExpired")).toBeInTheDocument();
+  });
+
   it("recreates the widget and clears the token when the theme changes", async () => {
     const api = installTurnstile();
     const onTokenChange = vi.fn();
@@ -102,5 +166,6 @@ describe("TurnstileWidget", () => {
     expect(api.render).toHaveBeenCalledTimes(1);
     expect(api.remove).not.toHaveBeenCalled();
     expect(onTokenChange).toHaveBeenCalledWith("");
+    expect(screen.queryByText("auth.turnstileLoading")).not.toBeInTheDocument();
   });
 });

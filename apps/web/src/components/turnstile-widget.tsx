@@ -7,7 +7,7 @@ import type { ResolvedThemeMode } from "@/types/theme";
 const TURNSTILE_SCRIPT_ID = "renewlet-turnstile-api";
 const TURNSTILE_SCRIPT_SRC = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
 
-type TurnstileWidgetStatus = "loading" | "ready" | "expired" | "failed";
+type TurnstileWidgetStatus = "loading" | "active" | "expired" | "failed";
 export type TurnstileTheme = ResolvedThemeMode;
 
 interface TurnstileRenderOptions {
@@ -66,7 +66,7 @@ export function TurnstileWidget({ siteKey, theme, errorId, error, resetSignal, c
           sitekey: siteKey,
           theme,
           callback: (token) => {
-            setStatus("ready");
+            setStatus("active");
             onTokenChange(token);
           },
           "expired-callback": () => {
@@ -82,6 +82,8 @@ export function TurnstileWidget({ siteKey, theme, errorId, error, resetSignal, c
             onTokenChange("");
           },
         });
+        // Cloudflare callback 只代表挑战成功拿到 token，不代表 iframe 首次可见；loading 只能绑定 script/render 生命周期。
+        setStatus("active");
       })
       .catch(() => {
         if (!disposed) {
@@ -110,11 +112,11 @@ export function TurnstileWidget({ siteKey, theme, errorId, error, resetSignal, c
     lastResetSignalRef.current = resetSignal;
     // resetSignal 只重置当前 widget：登录失败、挑战过期或上游错误后，旧 token 不能再次随表单提交。
     onTokenChange("");
-    setStatus("ready");
     const widgetId = widgetIdRef.current;
     if (widgetId && window.turnstile) {
       try {
         window.turnstile.reset(widgetId);
+        setStatus("active");
       } catch {
         setStatus("failed");
       }
