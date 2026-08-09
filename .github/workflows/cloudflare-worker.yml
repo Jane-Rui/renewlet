@@ -92,7 +92,7 @@ jobs:
 
       - name: Apply D1 migrations
         if: steps.deployment-secrets.outputs.ready == 'true'
-        run: pnpm cloudflare:migrations:apply -- --config "$CI_WRANGLER_CONFIG"
+        run: pnpm cloudflare:migrations:apply --config "$CI_WRANGLER_CONFIG"
 
       - name: Ensure Cloudflare Queues
         if: steps.deployment-secrets.outputs.ready == 'true'

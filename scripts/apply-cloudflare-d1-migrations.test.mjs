@@ -65,7 +65,7 @@ function runApply(responses, { args = [], maxAttempts = 5 } = {}) {
   }
 }
 
-test("passes --config to wrangler and succeeds on the first attempt", () => {
+test("passes canonical --config to wrangler and succeeds on the first attempt", () => {
   const { result, state } = runApply([
     { status: 0, stdout: "No migrations to apply.\n" },
   ], { args: ["--config", "wrangler.generated.jsonc"] });
@@ -75,6 +75,41 @@ test("passes --config to wrangler and succeeds on the first attempt", () => {
     ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--remote", "--config", "wrangler.generated.jsonc"],
   ]);
   assert.doesNotMatch(result.stdout + result.stderr, /super-secret-token/);
+});
+
+test("accepts a historical pnpm separator before --config", () => {
+  const { result, state } = runApply([
+    { status: 0, stdout: "No migrations to apply.\n" },
+  ], { args: ["--", "--config", "wrangler.generated.jsonc"] });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(state.calls, [
+    ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--remote", "--config", "wrangler.generated.jsonc"],
+  ]);
+});
+
+test("prints help even when a package manager separator is present", () => {
+  const { result, state } = runApply([], { args: ["--", "--help"] });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Usage: node scripts\/apply-cloudflare-d1-migrations\.mjs/);
+  assert.deepEqual(state.calls, []);
+});
+
+test("rejects unknown arguments before invoking wrangler", () => {
+  const { result, state } = runApply([{ status: 0 }], { args: ["--unknown"] });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Unknown argument: --unknown/);
+  assert.deepEqual(state.calls, []);
+});
+
+test("rejects a separator outside the historical leading position", () => {
+  const { result, state } = runApply([{ status: 0 }], { args: ["--config", "wrangler.generated.jsonc", "--"] });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Unknown argument: --/);
+  assert.deepEqual(state.calls, []);
 });
 
 test("retries Cloudflare D1 timeout code 7429 and then succeeds", () => {

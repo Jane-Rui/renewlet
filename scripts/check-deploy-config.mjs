@@ -323,6 +323,7 @@ function checkCloudflareDeployMigrationScript() {
     "D1 DB storage operation exceeded timeout",
     "\\[code:\\s*7429\\]",
     "Network connection lost",
+    "arg === \"--\" && index === 0",
     "non-retryable error",
     "failed after",
   ]) {
@@ -502,7 +503,7 @@ function checkCloudflareWorkflowBuildMetadata() {
     "SHORT_SHA=\"${GITHUB_SHA::7}\"",
     "RENEWLET_VERSION=${PACKAGE_VERSION}-dev+${SHORT_SHA}",
     "RENEWLET_BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-    "pnpm cloudflare:migrations:apply -- --config \"$CI_WRANGLER_CONFIG\"",
+    "pnpm cloudflare:migrations:apply --config \"$CI_WRANGLER_CONFIG\"",
     "Ensure Cloudflare Queues",
     "pnpm cloudflare:queues:ensure",
   ]) {
@@ -515,7 +516,7 @@ function checkCloudflareWorkflowBuildMetadata() {
     "RENEWLET_VERSION: ${{ needs.metadata.outputs.version }}",
     "RENEWLET_COMMIT: ${{ github.sha }}",
     "RENEWLET_BUILD_TIME: ${{ steps.build-time.outputs.value }}",
-    "pnpm cloudflare:migrations:apply -- --config \"$CI_WRANGLER_CONFIG\"",
+    "pnpm cloudflare:migrations:apply --config \"$CI_WRANGLER_CONFIG\"",
     "Ensure Cloudflare Queues",
     "pnpm cloudflare:queues:ensure",
   ]) {

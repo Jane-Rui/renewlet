@@ -35,6 +35,10 @@ function parseArgs(argv) {
   const options = { configPath: undefined };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
+    if (arg === "--" && index === 0) {
+      // pnpm 会把脚本名后的参数原样转发；只兼容旧 workflow 的前导分隔符，其它未知参数仍必须失败。
+      continue;
+    }
     if (arg === "--help" || arg === "-h") {
       console.log(usage());
       process.exit(0);
