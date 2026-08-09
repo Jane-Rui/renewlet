@@ -5,6 +5,8 @@ import type { SettingsAuthSecurityController } from "../application/use-auth-sec
 import { AccessSecuritySection } from "./access-security-section";
 
 const translations: Record<string, string> = {
+  "common.cancel": "取消",
+  "common.close": "关闭",
   "common.disabled": "未启用",
   "common.enabled": "已启用",
   "settings.accessSecurity": "访问安全",
@@ -16,10 +18,14 @@ const translations: Record<string, string> = {
   "settings.turnstileHelp": "启用后，Renewlet 会在邮箱密码登录前校验 Turnstile，用于降低爆破和撞库风险；通行密钥、身份验证器二阶段和首次设置不受影响。",
   "settings.turnstileSave": "保存 Turnstile 配置",
   "settings.turnstileSaving": "保存中...",
+  "settings.turnstileTest": "测试 Turnstile 配置",
+  "settings.turnstileTesting": "测试中...",
+  "settings.turnstileTestDialogTitle": "测试 Turnstile 配置",
+  "settings.turnstileTestDialogDescription": "完成下方验证后，Renewlet 会检查当前 Site key 和 Secret key 是否可用。",
   "settings.turnstileSecret": "Secret key",
   "settings.turnstileSecretConfigured": "密钥已配置",
   "settings.turnstileSecretConfiguredPlaceholder": "已保存，留空则保持不变",
-  "settings.turnstileSecretHelp": "只保存在服务端，用于调用 Cloudflare Siteverify；不会进入公开状态、导出或云备份。",
+  "settings.turnstileSecretHelp": "只保存在服务端，用于调用 Cloudflare Siteverify。",
   "settings.turnstileSecretKeepHelp": "留空保持当前密钥；填写新值会替换旧密钥。",
   "settings.turnstileSecretPlaceholder": "输入 Cloudflare Turnstile Secret key",
   "settings.turnstileSiteKey": "Site key",
@@ -28,9 +34,40 @@ const translations: Record<string, string> = {
   "settings.turnstileTitle": "Cloudflare Turnstile",
 };
 
+vi.mock("@/components/turnstile-widget", () => ({
+  TurnstileWidget: ({
+    siteKey,
+    theme,
+    errorId,
+    resetSignal,
+    error,
+    onTokenChange,
+  }: {
+    siteKey: string;
+    theme: string;
+    errorId: string;
+    resetSignal: number;
+    error?: string | undefined;
+    onTokenChange: (token: string) => void;
+  }) => (
+    <div data-testid="turnstile-test-widget" data-site-key={siteKey} data-theme={theme} data-error-id={errorId} data-reset-signal={resetSignal}>
+      {error ? <p>{error}</p> : null}
+      <button type="button" onClick={() => onTokenChange("test-token")}>Complete test verification</button>
+    </div>
+  ),
+}));
+
 vi.mock("@/i18n/I18nProvider", () => ({
   useI18n: () => ({
     t: (key: string) => translations[key] ?? key,
+  }),
+}));
+
+vi.mock("@/lib/theme-provider", () => ({
+  useTheme: () => ({
+    theme: "dark",
+    resolvedTheme: "dark",
+    setTheme: vi.fn(),
   }),
 }));
 
@@ -41,15 +78,23 @@ function createController(overrides: Partial<SettingsAuthSecurityController> = {
     isLoading: false,
     isSaving: false,
     isClearingSecret: false,
+    isTesting: false,
     secretConfigured: false,
     hasChanges: false,
     draft: { enabled: false, siteKey: "", secret: "" },
+    testDialogOpen: false,
+    testDialogSiteKey: "",
+    testResetSignal: 0,
+    testError: undefined,
     setEnabled: vi.fn(),
     setSiteKey: vi.fn(),
     setSecret: vi.fn(),
     discard: vi.fn(),
     save: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
     clearSecret: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    startTest: vi.fn(),
+    handleTestDialogOpenChange: vi.fn(),
+    handleTestTokenChange: vi.fn(),
     ...overrides,
   };
 }
@@ -86,6 +131,7 @@ describe("AccessSecuritySection", () => {
     expect(screen.getByLabelText("Site key")).toHaveValue("site-key");
     expect(screen.getByLabelText("Secret key")).toHaveAttribute("placeholder", "已保存，留空则保持不变");
     expect(screen.getByRole("button", { name: "保存 Turnstile 配置" })).toBeDisabled();
+    expect(screen.queryByTestId("turnstile-test-widget")).not.toBeInTheDocument();
   });
 
   it("forwards edits, discard, save and clear-secret actions to the controller", async () => {
@@ -101,6 +147,7 @@ describe("AccessSecuritySection", () => {
     fireEvent.change(screen.getByLabelText("Site key"), { target: { value: "site-key-2" } });
     fireEvent.change(screen.getByLabelText("Secret key"), { target: { value: "secret-2" } });
     await user.click(screen.getByRole("button", { name: "保存 Turnstile 配置" }));
+    await user.click(screen.getByRole("button", { name: "测试 Turnstile 配置" }));
     await user.click(screen.getByRole("button", { name: "放弃更改" }));
     await user.click(screen.getByRole("button", { name: "清除密钥" }));
 
@@ -108,7 +155,46 @@ describe("AccessSecuritySection", () => {
     expect(controller.setSiteKey).toHaveBeenCalledWith("site-key-2");
     expect(controller.setSecret).toHaveBeenCalledWith("secret-2");
     expect(controller.save).toHaveBeenCalledTimes(1);
+    expect(controller.startTest).toHaveBeenCalledTimes(1);
     expect(controller.discard).toHaveBeenCalledTimes(1);
     expect(controller.clearSecret).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens a dialog for temporary Turnstile configuration tests", async () => {
+    const user = userEvent.setup();
+    const controller = createController({
+      draft: { enabled: false, siteKey: "site-key", secret: "secret-value" },
+      testDialogOpen: true,
+      testDialogSiteKey: "site-key",
+      testResetSignal: 2,
+      testError: "测试失败",
+    });
+    renderAccessSecuritySection(controller);
+
+    expect(screen.getByRole("dialog", { name: "测试 Turnstile 配置" })).toBeInTheDocument();
+    expect(screen.getByText("完成下方验证后，Renewlet 会检查当前 Site key 和 Secret key 是否可用。")).toBeInTheDocument();
+    expect(screen.getByTestId("turnstile-test-widget")).toHaveAttribute("data-site-key", "site-key");
+    expect(screen.getByTestId("turnstile-test-widget")).toHaveAttribute("data-theme", "dark");
+    expect(screen.getByTestId("turnstile-test-widget")).toHaveAttribute("data-error-id", "settings-turnstile-test-error");
+    expect(screen.getByTestId("turnstile-test-widget")).toHaveAttribute("data-reset-signal", "2");
+    expect(screen.getByText("测试失败")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Complete test verification" }));
+
+    expect(controller.handleTestTokenChange).toHaveBeenCalledWith("test-token");
+  });
+
+  it("closes the Turnstile test dialog through the controller", async () => {
+    const user = userEvent.setup();
+    const controller = createController({
+      draft: { enabled: false, siteKey: "site-key", secret: "secret-value" },
+      testDialogOpen: true,
+      testDialogSiteKey: "site-key",
+    });
+    renderAccessSecuritySection(controller);
+
+    await user.click(screen.getByRole("button", { name: "取消" }));
+
+    expect(controller.handleTestDialogOpenChange).toHaveBeenCalledWith(false);
   });
 });

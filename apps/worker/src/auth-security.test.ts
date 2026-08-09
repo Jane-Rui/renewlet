@@ -1,8 +1,9 @@
 // Worker 登录人机验证测试保护站点级 secret 的 write-only 契约和 D1 缺表升级边界。
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readSuccessData } from "./api-test-helpers";
-import { readAuthSecurity, updateAuthSecurity } from "./auth-security";
+import { readAuthSecurity, testAuthSecurityTurnstile, updateAuthSecurity } from "./auth-security";
 import { resetAuthSecuritySchemaForTest } from "./auth-security-store";
+import { toResponse } from "./http";
 import type { AuthSecuritySettingsRow, Env } from "./types";
 
 const mocks = vi.hoisted(() => ({
@@ -17,6 +18,7 @@ describe("Cloudflare auth security admin API", () => {
   beforeEach(() => {
     mocks.requireAdmin.mockReset().mockResolvedValue({ user: { id: "usr_admin", role: "admin" } });
     resetAuthSecuritySchemaForTest();
+    vi.unstubAllGlobals();
   });
 
   it("reads Turnstile settings without exposing the secret", async () => {
@@ -71,14 +73,77 @@ describe("Cloudflare auth security admin API", () => {
     expect(response.status).toBe(200);
     expect(env.DB.prepare).toHaveBeenCalledWith(expect.stringContaining("CREATE TABLE IF NOT EXISTS auth_security_settings"));
   });
+
+  it("tests a draft Turnstile secret without saving it", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ success: true }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const env = envFixture(null);
+
+    const response = await testAuthSecurityTurnstile(jsonRequest({
+      turnstile: { siteKey: "site-key", secret: "draft-secret", turnstileToken: "draft-token" },
+    }, "/api/app/admin/auth-security/turnstile/test", { "cf-connecting-ip": "203.0.113.9" }), env);
+
+    expect(response.status).toBe(200);
+    await expect(readSuccessData(response.clone())).resolves.toEqual({ verified: true });
+    expect(await response.text()).not.toContain("draft-secret");
+    const [, init] = (fetchMock.mock.calls as unknown as Array<[RequestInfo | URL, RequestInit?]>)[0] ?? [];
+    expect(String(init?.body)).toContain("secret=draft-secret");
+    expect(String(init?.body)).toContain("response=draft-token");
+    expect(String(init?.body)).toContain("remoteip=203.0.113.9");
+  });
+
+  it("falls back to the stored Turnstile secret when the draft secret is empty", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ success: true }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const env = envFixture(authSecurityRow({ turnstile_secret: "stored-secret" }));
+
+    const response = await testAuthSecurityTurnstile(jsonRequest({
+      turnstile: { siteKey: "site-key", secret: "", turnstileToken: "stored-token" },
+    }, "/api/app/admin/auth-security/turnstile/test"), env);
+
+    expect(response.status).toBe(200);
+    const [, init] = (fetchMock.mock.calls as unknown as Array<[RequestInfo | URL, RequestInit?]>)[0] ?? [];
+    expect(String(init?.body)).toContain("secret=stored-secret");
+    expect(String(init?.body)).toContain("response=stored-token");
+  });
+
+  it("fails Turnstile configuration tests closed without leaking upstream details", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("secret-value token-value raw upstream failure");
+    }));
+    const env = envFixture(null);
+
+    const incomplete = await testAuthSecurityTurnstile(jsonRequest({
+      turnstile: { siteKey: "", secret: "", turnstileToken: "token-value" },
+    }, "/api/app/admin/auth-security/turnstile/test"), env).catch((error: unknown) => toResponse(error));
+    expect(incomplete.status).toBe(400);
+    await expect(incomplete.text()).resolves.toContain("TURNSTILE_CONFIG_INCOMPLETE");
+
+    const missingToken = await testAuthSecurityTurnstile(jsonRequest({
+      turnstile: { siteKey: "site-key", secret: "secret-value" },
+    }, "/api/app/admin/auth-security/turnstile/test"), env).catch((error: unknown) => toResponse(error));
+    expect(missingToken.status).toBe(400);
+    await expect(missingToken.text()).resolves.toContain("TURNSTILE_REQUIRED");
+
+    const failed = await testAuthSecurityTurnstile(jsonRequest({
+      turnstile: { siteKey: "site-key", secret: "secret-value", turnstileToken: "token-value" },
+    }, "/api/app/admin/auth-security/turnstile/test"), env).catch((error: unknown) => toResponse(error));
+    expect(failed.status).toBe(400);
+    const body = await failed.text();
+    expect(body).toContain("TURNSTILE_TEST_FAILED");
+    expect(body).not.toContain("raw upstream failure");
+    expect(body).not.toContain("secret-value");
+    expect(body).not.toContain("token-value");
+  });
 });
 
-function jsonRequest(body: unknown): Request {
-  return new Request("https://renewlet.example/api/app/admin/auth-security", {
-    method: "PUT",
+function jsonRequest(body: unknown, path = "/api/app/admin/auth-security", headers: Record<string, string> = {}): Request {
+  return new Request(`https://renewlet.example${path}`, {
+    method: path.endsWith("/turnstile/test") ? "POST" : "PUT",
     headers: {
       "accept-language": "en-US",
       "content-type": "application/json",
+      ...headers,
     },
     body: JSON.stringify(body),
   });
@@ -98,6 +163,7 @@ function authSecurityRow(overrides: Partial<AuthSecuritySettingsRow> = {}): Auth
 
 function envFixture(row: AuthSecuritySettingsRow | null, options: { missingTableOnFirstWrite?: boolean } = {}): Env {
   let writeAttempts = 0;
+  // 这个 fake D1 同时模拟首次写入缺表和 singleton upsert，锁住 Worker 懒补 migration 的真实升级路径。
   const prepare = vi.fn((sql: string) => ({
     bind: vi.fn((...values: unknown[]) => ({
       first: vi.fn(async () => row),

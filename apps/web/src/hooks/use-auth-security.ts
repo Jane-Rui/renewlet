@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { authSecurityService } from "@/services/auth-security-service";
-import type { AuthSecuritySettingsUpdateBody } from "@/lib/api/schemas/admin";
+import type { AuthSecuritySettingsUpdateBody, AuthSecurityTurnstileTestBody } from "@/lib/api/schemas/admin";
 
 export const authSecurityQueryKey = ["auth-security"] as const;
 
@@ -23,5 +23,12 @@ export function useUpdateAuthSecuritySettings() {
       // Turnstile 人机验证是站点级访问安全状态，保存后只缓存脱敏响应，不能触碰账号 settings 草稿。
       queryClient.setQueryData(authSecurityQueryKey, settings);
     },
+  });
+}
+
+export function useTestAuthSecurityTurnstile() {
+  return useMutation({
+    // 配置测试只验证当前草稿凭据和一次性 token，不代表保存成功，也不能写入 auth-security query 缓存。
+    mutationFn: (body: AuthSecurityTurnstileTestBody) => authSecurityService.testTurnstile(body),
   });
 }

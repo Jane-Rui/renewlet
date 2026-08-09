@@ -551,6 +551,7 @@ const Login = () => {
                   <TurnstileWidget
                     siteKey={setupStatus.turnstile.siteKey}
                     theme={resolvedTheme}
+                    errorId="login-turnstile-error"
                     resetSignal={turnstileResetSignal}
                     error={errors.turnstile}
                     onTokenChange={handleTurnstileTokenChange}

@@ -86,6 +86,7 @@ func TestAuthLoginRequiresTurnstileBeforePasswordFlow(t *testing.T) {
 		verifyTurnstileToken = originalVerify
 	})
 	calls := make([]string, 0, 2)
+	// verifyTurnstileToken 是包级替换点，测试用它证明登录在密码流程前完成 Siteverify 且失败响应脱敏。
 	verifyTurnstileToken = func(_ context.Context, secret string, token string, remoteIP string) error {
 		calls = append(calls, secret+"|"+token+"|"+remoteIP)
 		return errors.New("cloudflare raw failure")
@@ -119,5 +120,92 @@ func TestAuthLoginRequiresTurnstileBeforePasswordFlow(t *testing.T) {
 	}
 	if calls[len(calls)-1] != "secret-value|ok-token|203.0.113.9" {
 		t.Fatalf("expected Siteverify to receive secret, token and remote IP, got %#v", calls)
+	}
+}
+
+func TestAuthSecurityTurnstileTestRouteVerifiesDraftAndStoredSecret(t *testing.T) {
+	app := newSchemaTestApp(t)
+	if err := ensureSchema(app); err != nil {
+		t.Fatal(err)
+	}
+	_, token := createRouteTestUser(t, app, "admin")
+
+	originalVerify := verifyTurnstileToken
+	t.Cleanup(func() {
+		verifyTurnstileToken = originalVerify
+	})
+	calls := make([]string, 0, 2)
+	// 这里显式记录 Siteverify 入参，防止测试接口以后误改成保存草稿 secret 或忽略 remoteip。
+	verifyTurnstileToken = func(_ context.Context, secret string, token string, remoteIP string) error {
+		calls = append(calls, secret+"|"+token+"|"+remoteIP)
+		return nil
+	}
+
+	draft := serveTestRequestWithHeaders(t, app, http.MethodPost, "/api/app/admin/auth-security/turnstile/test", `{"turnstile":{"siteKey":"site-key","secret":"draft-secret","turnstileToken":"draft-token"}}`, token, map[string]string{
+		"CF-Connecting-IP": "203.0.113.9",
+	})
+	if draft.Code != http.StatusOK || !strings.Contains(draft.Body.String(), `"verified":true`) {
+		t.Fatalf("expected draft secret test success, got %d: %s", draft.Code, draft.Body.String())
+	}
+	if calls[len(calls)-1] != "draft-secret|draft-token|203.0.113.9" {
+		t.Fatalf("expected draft secret Siteverify call, got %#v", calls)
+	}
+	if strings.Contains(draft.Body.String(), "draft-secret") || strings.Contains(draft.Body.String(), "draft-token") {
+		t.Fatalf("turnstile test response leaked draft credentials: %s", draft.Body.String())
+	}
+
+	if err := saveAuthSecuritySettings(app, authSecurityStoredSettings{
+		TurnstileEnabled: false,
+		TurnstileSiteKey: "stored-site-key",
+		TurnstileSecret:  "stored-secret",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stored := serveTestRequest(t, app, http.MethodPost, "/api/app/admin/auth-security/turnstile/test", `{"turnstile":{"siteKey":"stored-site-key","secret":"","turnstileToken":"stored-token"}}`, token)
+	if stored.Code != http.StatusOK {
+		t.Fatalf("expected stored secret test success, got %d: %s", stored.Code, stored.Body.String())
+	}
+	// 无代理头时 httptest RemoteAddr 仍是 best-effort 客户端 IP，避免测试接口退化成永远不传 remoteip。
+	if calls[len(calls)-1] != "stored-secret|stored-token|192.0.2.1" {
+		t.Fatalf("expected stored secret fallback Siteverify call, got %#v", calls)
+	}
+}
+
+func TestAuthSecurityTurnstileTestRouteFailsClosedWithoutLeaks(t *testing.T) {
+	app := newSchemaTestApp(t)
+	if err := ensureSchema(app); err != nil {
+		t.Fatal(err)
+	}
+	_, token := createRouteTestUser(t, app, "admin")
+
+	originalVerify := verifyTurnstileToken
+	t.Cleanup(func() {
+		verifyTurnstileToken = originalVerify
+	})
+	calls := 0
+	verifyTurnstileToken = func(_ context.Context, secret string, token string, remoteIP string) error {
+		calls++
+		return errors.New("cloudflare raw failure secret-value token-value")
+	}
+
+	incomplete := serveTestRequest(t, app, http.MethodPost, "/api/app/admin/auth-security/turnstile/test", `{"turnstile":{"siteKey":"","secret":"","turnstileToken":"token-value"}}`, token)
+	if incomplete.Code != http.StatusBadRequest || !strings.Contains(incomplete.Body.String(), "TURNSTILE_CONFIG_INCOMPLETE") {
+		t.Fatalf("expected incomplete config error, got %d: %s", incomplete.Code, incomplete.Body.String())
+	}
+
+	missingToken := serveTestRequest(t, app, http.MethodPost, "/api/app/admin/auth-security/turnstile/test", `{"turnstile":{"siteKey":"site-key","secret":"secret-value"}}`, token)
+	if missingToken.Code != http.StatusBadRequest || !strings.Contains(missingToken.Body.String(), "TURNSTILE_REQUIRED") {
+		t.Fatalf("expected missing token error, got %d: %s", missingToken.Code, missingToken.Body.String())
+	}
+	if calls != 0 {
+		t.Fatalf("missing token must not call Siteverify, got %d calls", calls)
+	}
+
+	failed := serveTestRequest(t, app, http.MethodPost, "/api/app/admin/auth-security/turnstile/test", `{"turnstile":{"siteKey":"site-key","secret":"secret-value","turnstileToken":"token-value"}}`, token)
+	if failed.Code != http.StatusBadRequest || !strings.Contains(failed.Body.String(), "TURNSTILE_TEST_FAILED") {
+		t.Fatalf("expected test failure code, got %d: %s", failed.Code, failed.Body.String())
+	}
+	if strings.Contains(failed.Body.String(), "cloudflare raw failure") || strings.Contains(failed.Body.String(), "secret-value") || strings.Contains(failed.Body.String(), "token-value") {
+		t.Fatalf("turnstile test failure leaked upstream details: %s", failed.Body.String())
 	}
 }

@@ -48,7 +48,7 @@ describe("TurnstileWidget", () => {
   it("passes the resolved Renewlet theme to Cloudflare render options", async () => {
     const api = installTurnstile();
 
-    render(<TurnstileWidget siteKey="site-key" theme="dark" resetSignal={0} onTokenChange={vi.fn()} />);
+    render(<TurnstileWidget siteKey="site-key" theme="dark" errorId="test-turnstile-error" resetSignal={0} onTokenChange={vi.fn()} />);
 
     await waitFor(() => {
       expect(api.render).toHaveBeenCalledTimes(1);
@@ -60,7 +60,7 @@ describe("TurnstileWidget", () => {
     const api = installTurnstile();
     const onTokenChange = vi.fn();
     const { rerender } = render(
-      <TurnstileWidget siteKey="site-key" theme="dark" resetSignal={0} onTokenChange={onTokenChange} />,
+      <TurnstileWidget siteKey="site-key" theme="dark" errorId="test-turnstile-error" resetSignal={0} onTokenChange={onTokenChange} />,
     );
 
     await waitFor(() => {
@@ -71,7 +71,7 @@ describe("TurnstileWidget", () => {
     });
     onTokenChange.mockClear();
 
-    rerender(<TurnstileWidget siteKey="site-key" theme="light" resetSignal={0} onTokenChange={onTokenChange} />);
+    rerender(<TurnstileWidget siteKey="site-key" theme="light" errorId="test-turnstile-error" resetSignal={0} onTokenChange={onTokenChange} />);
 
     await waitFor(() => {
       expect(api.render).toHaveBeenCalledTimes(2);
@@ -85,7 +85,7 @@ describe("TurnstileWidget", () => {
     const api = installTurnstile();
     const onTokenChange = vi.fn();
     const { rerender } = render(
-      <TurnstileWidget siteKey="site-key" theme="dark" resetSignal={0} onTokenChange={onTokenChange} />,
+      <TurnstileWidget siteKey="site-key" theme="dark" errorId="test-turnstile-error" resetSignal={0} onTokenChange={onTokenChange} />,
     );
 
     await waitFor(() => {
@@ -94,7 +94,7 @@ describe("TurnstileWidget", () => {
     api.remove.mockClear();
     onTokenChange.mockClear();
 
-    rerender(<TurnstileWidget siteKey="site-key" theme="dark" resetSignal={1} onTokenChange={onTokenChange} />);
+    rerender(<TurnstileWidget siteKey="site-key" theme="dark" errorId="test-turnstile-error" resetSignal={1} onTokenChange={onTokenChange} />);
 
     await waitFor(() => {
       expect(api.reset).toHaveBeenCalledWith("widget-1");

@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   authSecuritySettingsResponseSchema,
   authSecuritySettingsUpdateBodySchema,
+  authSecurityTurnstileTestBodySchema,
+  authSecurityTurnstileTestResponseSchema,
 } from "./admin";
 
 const success = <T>(data: T) => ({ ok: true, data });
@@ -50,5 +52,30 @@ describe("admin schemas", () => {
         secretConfigured: false,
       },
     }).success).toBe(false);
+  });
+
+  it("keeps Turnstile test request and response strict without exposing secrets", () => {
+    const parsed = authSecurityTurnstileTestBodySchema.parse({
+      turnstile: {
+        siteKey: " site-key ",
+        secret: "",
+        turnstileToken: "",
+      },
+    });
+
+    expect(parsed.turnstile.siteKey).toBe("site-key");
+    expect(parsed.turnstile.turnstileToken).toBe("");
+    expect(authSecurityTurnstileTestBodySchema.safeParse({
+      turnstile: {
+        siteKey: "site-key",
+        turnstileToken: "token",
+        unexpected: true,
+      },
+    }).success).toBe(false);
+    expect(authSecurityTurnstileTestResponseSchema.parse(success({ verified: true })).data.verified).toBe(true);
+    expect(authSecurityTurnstileTestResponseSchema.safeParse(success({
+      verified: true,
+      secret: "secret-value",
+    })).success).toBe(false);
   });
 });

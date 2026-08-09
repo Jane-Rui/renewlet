@@ -53,6 +53,7 @@
   "auth.turnstileConfigIncomplete": "启用 Cloudflare Turnstile 需要同时填写 site key 和 secret key",
   "auth.turnstileFailed": "人机验证失败，请重试",
   "auth.turnstileRequired": "请完成人机验证",
+  "auth.turnstileTestFailed": "Turnstile 配置测试失败，请检查 Site key 和 Secret key",
   "auth.userNotFound": "用户不存在",
   "calendarFeed.alarmDescription": "{name} 即将续费",
   "calendarFeed.alarmExpiryDescription": "{name} 即将到期",

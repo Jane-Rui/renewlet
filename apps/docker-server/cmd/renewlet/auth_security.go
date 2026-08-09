@@ -59,6 +59,21 @@ type authSecurityUpdateRequest struct {
 	Turnstile authSecurityTurnstileUpdate `json:"turnstile"`
 }
 
+// 测试接口沿用管理端 write-only secret 语义：secret 非空测草稿，空/省略回退已保存密钥，响应只给布尔结果。
+type authSecurityTurnstileTestRequest struct {
+	Turnstile authSecurityTurnstileTestInput `json:"turnstile"`
+}
+
+type authSecurityTurnstileTestInput struct {
+	SiteKey        string `json:"siteKey"`
+	Secret         string `json:"secret,omitempty"`
+	TurnstileToken string `json:"turnstileToken,omitempty"`
+}
+
+type authSecurityTurnstileTestResponse struct {
+	Verified bool `json:"verified"`
+}
+
 type authSecurityStoredSettings struct {
 	TurnstileEnabled bool
 	TurnstileSiteKey string
@@ -80,6 +95,17 @@ func (r *authSecurityUpdateRequest) Validate(locale appLocale) error {
 			return errors.New(serverText(locale, "common.invalidRequestParameters"))
 		}
 		r.Turnstile.Secret = &secret
+	}
+	return nil
+}
+
+func (r *authSecurityTurnstileTestRequest) Validate(locale appLocale) error {
+	r.Turnstile.SiteKey = strings.TrimSpace(r.Turnstile.SiteKey)
+	r.Turnstile.Secret = strings.TrimSpace(r.Turnstile.Secret)
+	r.Turnstile.TurnstileToken = strings.TrimSpace(r.Turnstile.TurnstileToken)
+	// 这里只做边界归一和尺寸限制；“是否具备 token/secret”由 route 返回稳定业务 code。
+	if len(r.Turnstile.SiteKey) > 256 || len(r.Turnstile.Secret) > 4096 || len(r.Turnstile.TurnstileToken) > 2048 {
+		return errors.New(serverText(locale, "common.invalidRequestParameters"))
 	}
 	return nil
 }
@@ -119,6 +145,41 @@ func handleAuthSecurityUpdate(app core.App, e *core.RequestEvent) error {
 		return e.InternalServerError(serverText(locale, "common.internalError"), err)
 	}
 	return apiSuccessJSON(e, http.StatusOK, authSecurityResponseFromStored(next))
+}
+
+func handleAuthSecurityTurnstileTest(app core.App, e *core.RequestEvent) error {
+	locale := requestLocale(e.Request)
+	if err := demoModePolicy.RejectExternalSideEffect(e); err != nil {
+		return err
+	}
+	body, err := decodeStrictJSON[authSecurityTurnstileTestRequest](e.Request, locale)
+	if err != nil {
+		return e.BadRequestError(validationErrorMessage(locale, "common.invalidRequestBody", err), err)
+	}
+	if body.Turnstile.SiteKey == "" {
+		return apiErrorJSON(e, http.StatusBadRequest, "TURNSTILE_CONFIG_INCOMPLETE", serverText(locale, "auth.turnstileConfigIncomplete"), nil)
+	}
+	secret := body.Turnstile.Secret
+	if secret == "" {
+		// 测试里的空 secret 不是“清空”，只表示沿用服务端已保存密钥，避免管理员必须重新粘贴密钥才能验配置。
+		current, err := readAuthSecuritySettings(app)
+		if err != nil {
+			return e.InternalServerError(serverText(locale, "common.internalError"), err)
+		}
+		secret = current.TurnstileSecret
+	}
+	if secret == "" {
+		return apiErrorJSON(e, http.StatusBadRequest, "TURNSTILE_CONFIG_INCOMPLETE", serverText(locale, "auth.turnstileConfigIncomplete"), nil)
+	}
+	if body.Turnstile.TurnstileToken == "" {
+		return apiErrorJSON(e, http.StatusBadRequest, "TURNSTILE_REQUIRED", serverText(locale, "auth.turnstileRequired"), nil)
+	}
+	// 配置测试只消费当前草稿 token 和候选 secret，不落库；成功后管理员仍要显式保存/启用。
+	if err := verifyTurnstileToken(e.Request.Context(), secret, body.Turnstile.TurnstileToken, turnstileClientIP(e.Request)); err != nil {
+		// 测试接口同样失败关闭，但用独立 code，避免前端把配置错误展示成登录失败。
+		return apiErrorJSON(e, http.StatusBadRequest, "TURNSTILE_TEST_FAILED", serverText(locale, "auth.turnstileTestFailed"), nil)
+	}
+	return apiSuccessJSON(e, http.StatusOK, authSecurityTurnstileTestResponse{Verified: true})
 }
 
 func publicTurnstileConfig(app core.App) (turnstilePublicConfig, error) {

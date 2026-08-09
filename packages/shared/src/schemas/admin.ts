@@ -71,6 +71,23 @@ export const authSecuritySettingsUpdateBodySchema = z.object({
   turnstile: authSecurityTurnstileUpdateSchema,
 }).strict();
 
+// 配置页测试会消耗一次 Turnstile token；secret 非空=测试草稿，空/省略=后端回退已保存值，响应不能回显凭据。
+export const authSecurityTurnstileTestSchema = z.object({
+  siteKey: z.string().trim().max(256),
+  secret: z.string().max(4096).optional(),
+  // token 缺失要保留为稳定业务错误码 TURNSTILE_REQUIRED，schema 只负责拒绝未知字段和超长输入。
+  turnstileToken: z.string().trim().max(2048).optional().default(""),
+}).strict();
+
+export const authSecurityTurnstileTestBodySchema = z.object({
+  turnstile: authSecurityTurnstileTestSchema,
+}).strict();
+
+export const authSecurityTurnstileTestPayloadSchema = z.object({
+  verified: z.literal(true),
+}).strict();
+export const authSecurityTurnstileTestResponseSchema = apiSuccessResponseSchema(authSecurityTurnstileTestPayloadSchema);
+
 /**
  * 管理员创建用户请求契约。
  *
@@ -100,3 +117,5 @@ export type AdminUser = z.infer<typeof adminUserSchema>;
 export type AdminUsersResponse = z.infer<typeof adminUsersPayloadSchema>;
 export type AuthSecuritySettings = z.infer<typeof authSecuritySettingsPayloadSchema>;
 export type AuthSecuritySettingsUpdateBody = z.infer<typeof authSecuritySettingsUpdateBodySchema>;
+export type AuthSecurityTurnstileTestBody = z.infer<typeof authSecurityTurnstileTestBodySchema>;
+export type AuthSecurityTurnstileTestResponse = z.infer<typeof authSecurityTurnstileTestPayloadSchema>;

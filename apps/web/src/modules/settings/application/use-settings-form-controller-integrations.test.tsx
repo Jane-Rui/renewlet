@@ -91,7 +91,7 @@ const mocks = vi.hoisted(() => ({
   isCloudflareRuntime: false,
   accountIdentity: { email: "alice@example.com" as string | null, role: "admin", banned: false },
   appStatus: { setupRequired: false, setupEnabled: true, demoMode: false, turnstile: { enabled: false, siteKey: "" }, isLoading: false },
-  authSecurityController: { canManage: true, disabled: false, isLoading: false, isSaving: false, isClearingSecret: false, secretConfigured: false, hasChanges: false, draft: { enabled: false, siteKey: "", secret: "" }, setEnabled: vi.fn(), setSiteKey: vi.fn(), setSecret: vi.fn(), discard: vi.fn(), save: vi.fn(), clearSecret: vi.fn() },
+  authSecurityController: { canManage: true, disabled: false, isLoading: false, isSaving: false, isClearingSecret: false, isTesting: false, secretConfigured: false, hasChanges: false, draft: { enabled: false, siteKey: "", secret: "" }, testDialogOpen: false, testDialogSiteKey: "", testResetSignal: 0, testError: undefined, setEnabled: vi.fn(), setSiteKey: vi.fn(), setSecret: vi.fn(), discard: vi.fn(), save: vi.fn(), clearSecret: vi.fn(), startTest: vi.fn(), handleTestDialogOpenChange: vi.fn(), handleTestTokenChange: vi.fn() },
 }));
 
 function checkedIconProviders(): BuiltInIconProvider[] {

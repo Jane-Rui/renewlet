@@ -53,6 +53,7 @@
   "auth.turnstileConfigIncomplete": "Cloudflare Turnstile requires both site key and secret key",
   "auth.turnstileFailed": "Verification failed. Please try again.",
   "auth.turnstileRequired": "Please complete the verification",
+  "auth.turnstileTestFailed": "Turnstile configuration test failed. Check the site key and secret key.",
   "auth.userNotFound": "User not found",
   "calendarFeed.alarmDescription": "{name} renews soon",
   "calendarFeed.alarmExpiryDescription": "{name} expires soon",

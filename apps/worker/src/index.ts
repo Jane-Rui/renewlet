@@ -28,7 +28,7 @@ import {
   session,
   setupStatus,
 } from "./auth";
-import { readAuthSecurity, updateAuthSecurity } from "./auth-security";
+import { readAuthSecurity, testAuthSecurityTurnstile, updateAuthSecurity } from "./auth-security";
 import { deleteAsset, listUploadedAssets, readAsset, uploadAsset } from "./assets";
 import {
   calendarFeedIcs,
@@ -189,6 +189,7 @@ defineRoute(adminRoutes, "/auth-security", {
   GET: (context) => readAuthSecurity(context.req.raw, context.env),
   PUT: (context) => updateAuthSecurity(context.req.raw, context.env),
 });
+defineRoute(adminRoutes, "/auth-security/turnstile/test", { POST: (context) => testAuthSecurityTurnstile(context.req.raw, context.env) });
 defineRoute(adminRoutes, "/media/icon-index", { GET: (context) => builtInIconIndexStatus(context.req.raw, context.env) });
 defineRoute(adminRoutes, "/media/icon-index/providers/:provider/check", {
   POST: (context) => checkBuiltInIconIndexProvider(context.req.raw, context.env, routeParam(context, "provider")),

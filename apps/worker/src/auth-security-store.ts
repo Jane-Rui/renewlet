@@ -107,7 +107,7 @@ export async function requireTurnstileForPasswordLogin(request: Request, env: En
     throw new HttpError(400, serverText(locale, "auth.turnstileRequired"), "TURNSTILE_REQUIRED");
   }
   // Turnstile 必须在密码哈希校验前完成，避免爆破请求把成本推到用户查询和 password verify 热路径。
-  const verified = await verifyCloudflareTurnstileToken(settings.turnstileSecret, responseToken, turnstileClientIP(request));
+  const verified = await verifyTurnstileChallenge(request, settings.turnstileSecret, responseToken);
   if (!verified) {
     // Siteverify 网络失败和挑战失败都失败关闭；响应不透出 Cloudflare 原始错误，避免泄露配置和验证细节。
     throw new HttpError(400, serverText(locale, "auth.turnstileFailed"), "TURNSTILE_FAILED");
@@ -116,6 +116,11 @@ export async function requireTurnstileForPasswordLogin(request: Request, env: En
 
 export function turnstileComplete(settings: AuthSecurityStoredSettings): boolean {
   return settings.turnstileEnabled && settings.turnstileSiteKey.length > 0 && settings.turnstileSecret.length > 0;
+}
+
+export async function verifyTurnstileChallenge(request: Request, secret: string, token: string): Promise<boolean> {
+  // 配置测试和登录校验必须共用同一条 Siteverify 出口，确保 secret/token 脱敏、timeout 和 remoteip 语义不漂移。
+  return await verifyCloudflareTurnstileToken(secret, token, turnstileClientIP(request));
 }
 
 async function verifyCloudflareTurnstileToken(secret: string, token: string, remoteIP: string): Promise<boolean> {

@@ -36,13 +36,14 @@ let turnstileScriptPromise: Promise<TurnstileAPI> | null = null;
 export interface TurnstileWidgetProps {
   siteKey: string;
   theme: TurnstileTheme;
+  errorId: string;
   error?: string | undefined;
   resetSignal: number;
   className?: string;
   onTokenChange: (token: string) => void;
 }
 
-export function TurnstileWidget({ siteKey, theme, error, resetSignal, className, onTokenChange }: TurnstileWidgetProps) {
+export function TurnstileWidget({ siteKey, theme, errorId, error, resetSignal, className, onTokenChange }: TurnstileWidgetProps) {
   const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetIdRef = useRef<string | null>(null);
@@ -143,7 +144,7 @@ export function TurnstileWidget({ siteKey, theme, error, resetSignal, className,
           {statusMessage}
         </p>
       ) : null}
-      <FieldError id="login-turnstile-error" message={error} />
+      <FieldError id={errorId} message={error} />
     </div>
   );
 }

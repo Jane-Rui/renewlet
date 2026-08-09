@@ -74,6 +74,8 @@ const mocks = vi.hoisted(() => ({
   authSecuritySettings: { data: { turnstile: { enabled: false, siteKey: "", secretConfigured: false } }, isLoading: false },
   updateAuthSecurityMutateAsync: vi.fn(),
   updateAuthSecurityIsPending: false,
+  testAuthSecurityTurnstileMutateAsync: vi.fn(),
+  testAuthSecurityTurnstileIsPending: false,
   checkBuiltInIconIndexProviderMutateAsync: vi.fn(),
   checkBuiltInIconIndexProviderIsPending: false,
   refreshBuiltInIconIndexProviderMutateAsync: vi.fn(),
@@ -110,6 +112,10 @@ vi.mock("@/hooks/use-auth-security", () => ({
   useUpdateAuthSecuritySettings: () => ({
     mutateAsync: mocks.updateAuthSecurityMutateAsync,
     isPending: mocks.updateAuthSecurityIsPending,
+  }),
+  useTestAuthSecurityTurnstile: () => ({
+    mutateAsync: mocks.testAuthSecurityTurnstileMutateAsync,
+    isPending: mocks.testAuthSecurityTurnstileIsPending,
   }),
 }));
 
@@ -432,6 +438,8 @@ export function setupSettingsFormControllerTestEnvironment() {
         secretConfigured: body.turnstile.secret !== "",
       },
     }));
+    mocks.testAuthSecurityTurnstileMutateAsync.mockResolvedValue({ verified: true });
+    mocks.testAuthSecurityTurnstileIsPending = false;
     mocks.saveConfig.mockImplementation(async (config: CustomConfig) => config);
     mocks.refreshRates.mockResolvedValue(undefined);
     mocks.createCalendarFeedMutateAsync.mockResolvedValue({

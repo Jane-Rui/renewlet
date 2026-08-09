@@ -1,9 +1,19 @@
-import { KeyRound, ShieldCheck } from "lucide-react";
+import { FlaskConical, KeyRound, ShieldCheck } from "lucide-react";
+import { TurnstileWidget } from "@/components/turnstile-widget";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { useI18n } from "@/i18n/I18nProvider";
+import { useTheme } from "@/lib/theme-provider";
 import type { SettingsAuthSecurityController } from "../application/use-auth-security-settings-controller";
 import { getSettingsSectionClassName } from "./settings-layout";
 import { CheckboxSettingRow, LoadingButtonContent } from "./settings-shared-controls";
@@ -16,8 +26,9 @@ export interface AccessSecuritySectionProps {
 
 export function AccessSecuritySection({ id, className, controller }: AccessSecuritySectionProps) {
   const { t } = useI18n();
+  const { resolvedTheme } = useTheme();
   const disabled = controller.disabled || controller.isLoading;
-  const actionBusy = controller.isSaving || controller.isClearingSecret;
+  const actionBusy = controller.isSaving || controller.isClearingSecret || controller.isTesting;
   // badge 展示的是可实际生效的完整配置，不是单纯开关状态；缺任一 key 都不能提示已启用。
   const enabled = controller.draft.enabled && controller.draft.siteKey.trim().length > 0 && (controller.secretConfigured || controller.draft.secret.trim().length > 0);
 
@@ -114,6 +125,18 @@ export function AccessSecuritySection({ id, className, controller }: AccessSecur
             type="button"
             size="sm"
             variant="outline"
+            disabled={disabled || controller.isSaving || controller.isClearingSecret || controller.isTesting}
+            onClick={controller.startTest}
+          >
+            <LoadingButtonContent loading={controller.isTesting} loadingLabel={t("settings.turnstileTesting")}>
+              <FlaskConical className="h-4 w-4" />
+              {t("settings.turnstileTest")}
+            </LoadingButtonContent>
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
             disabled={disabled || !controller.hasChanges || actionBusy}
             onClick={controller.discard}
           >
@@ -134,6 +157,37 @@ export function AccessSecuritySection({ id, className, controller }: AccessSecur
           ) : null}
         </div>
       </div>
+
+      <Dialog open={controller.testDialogOpen} onOpenChange={controller.handleTestDialogOpenChange}>
+        <DialogContent
+          closeLabel={t("common.close")}
+          dismissMode="explicit"
+          className="border-border bg-card sm:max-w-md"
+        >
+          <DialogHeader>
+            <DialogTitle>{t("settings.turnstileTestDialogTitle")}</DialogTitle>
+            <DialogDescription>{t("settings.turnstileTestDialogDescription")}</DialogDescription>
+          </DialogHeader>
+
+          {controller.testDialogOpen ? (
+            // 测试挑战只在弹窗打开时挂载；关闭后卸载 iframe，避免已消费 token 留在设置页主内容里。
+            <TurnstileWidget
+              siteKey={controller.testDialogSiteKey}
+              theme={resolvedTheme}
+              errorId="settings-turnstile-test-error"
+              resetSignal={controller.testResetSignal}
+              error={controller.testError}
+              onTokenChange={controller.handleTestTokenChange}
+            />
+          ) : null}
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => controller.handleTestDialogOpenChange(false)}>
+              {t("common.cancel")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

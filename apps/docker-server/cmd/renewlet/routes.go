@@ -101,6 +101,7 @@ func registerRoutes(app core.App, router *router.Router[*core.RequestEvent]) {
 	// 访问安全是站点级管理员策略；不要挂到账号 settings route，避免 secret 进入用户导出/备份链路。
 	admin.GET("/auth-security", func(e *core.RequestEvent) error { return handleAuthSecurityRead(app, e) })
 	admin.PUT("/auth-security", func(e *core.RequestEvent) error { return handleAuthSecurityUpdate(app, e) })
+	admin.POST("/auth-security/turnstile/test", func(e *core.RequestEvent) error { return handleAuthSecurityTurnstileTest(app, e) })
 	admin.GET("/users", func(e *core.RequestEvent) error {
 		locale := requestLocale(e.Request)
 		users, err := app.FindAllRecords("users")
