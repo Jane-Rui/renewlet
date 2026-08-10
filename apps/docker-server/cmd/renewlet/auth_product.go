@@ -72,6 +72,9 @@ func handleAuthLogin(app core.App, e *core.RequestEvent) error {
 	if err != nil {
 		return e.BadRequestError(validationErrorMessage(locale, "common.invalidRequestBody", err), err)
 	}
+	if err := requireTurnstileForPasswordLogin(app, e.Request, body.TurnstileToken, locale); err != nil {
+		return turnstileAPIError(e, err)
+	}
 	user, err := app.FindAuthRecordByEmail("users", body.Email)
 	if err != nil || !user.ValidatePassword(body.Password) {
 		return e.BadRequestError(serverText(locale, "auth.invalidEmailOrPassword"), err)

@@ -2,15 +2,15 @@
  * 轻量主题 Provider。
  *
  * 架构位置：统一管理 dark/light/system 解析和品牌 favicon 更新；设置页的“预览后保存”
- * 逻辑只调用这里，不直接操作 DOM class。
+ * 逻辑只调用这里，不直接操作 DOM class。Turnstile 这类第三方 iframe 也只能消费这里解析后的 light/dark。
  *
  * 状态链路：
- *   初始 theme -> document class -> favicon
- *   setTheme -> state -> document class -> favicon
+ *   初始 theme -> resolvedTheme -> document class -> favicon
+ *   setTheme/system media change -> resolvedTheme -> document class -> favicon
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { updateBrandFavicon } from "@/lib/brand-favicon";
-import type { ThemeMode } from "@/types/theme";
+import type { ResolvedThemeMode, ThemeMode } from "@/types/theme";
 
 interface SetThemeOptions {
   localOverride?: boolean;
@@ -18,12 +18,19 @@ interface SetThemeOptions {
 
 type ThemeContextValue = {
   theme: ThemeMode;
+  resolvedTheme: ResolvedThemeMode;
   setTheme: (theme: ThemeMode, options?: SetThemeOptions) => void;
 };
 
 const STORAGE_KEY = "renewlet_theme_mode";
+const SYSTEM_THEME_QUERY = "(prefers-color-scheme: dark)";
 export const THEME_MODE_OVERRIDE_STORAGE_KEY = "renewlet_theme_mode_override";
 const ThemeContext = createContext<ThemeContextValue | null>(null);
+
+interface ThemeState {
+  theme: ThemeMode;
+  resolvedTheme: ResolvedThemeMode;
+}
 
 function readInitialTheme(defaultTheme: ThemeMode): ThemeMode {
   if (typeof window === "undefined") return defaultTheme;
@@ -32,11 +39,24 @@ function readInitialTheme(defaultTheme: ThemeMode): ThemeMode {
   return defaultTheme;
 }
 
-function applyTheme(theme: ThemeMode) {
-  if (typeof window === "undefined") return;
-  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  const shouldUseDark = theme === "dark" || (theme === "system" && prefersDark);
-  document.documentElement.classList.toggle("dark", shouldUseDark);
+function getSystemTheme(): ResolvedThemeMode {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return "light";
+  return window.matchMedia(SYSTEM_THEME_QUERY).matches ? "dark" : "light";
+}
+
+export function resolveThemeMode(theme: ThemeMode): ResolvedThemeMode {
+  if (theme === "light" || theme === "dark") return theme;
+  return getSystemTheme();
+}
+
+function readInitialThemeState(defaultTheme: ThemeMode): ThemeState {
+  const theme = readInitialTheme(defaultTheme);
+  return { theme, resolvedTheme: resolveThemeMode(theme) };
+}
+
+function applyResolvedTheme(resolvedTheme: ResolvedThemeMode) {
+  if (typeof document === "undefined") return;
+  document.documentElement.classList.toggle("dark", resolvedTheme === "dark");
   updateBrandFavicon();
 }
 
@@ -75,27 +95,37 @@ export function ThemeProvider({
   defaultTheme?: ThemeMode;
   enableSystem?: boolean;
 }) {
-  const [theme, setThemeState] = useState<ThemeMode>(() => readInitialTheme(defaultTheme));
+  const [themeState, setThemeState] = useState<ThemeState>(() => readInitialThemeState(defaultTheme));
+  const { theme, resolvedTheme } = themeState;
 
   useEffect(() => {
-    applyTheme(theme);
+    applyResolvedTheme(resolvedTheme);
     window.localStorage.setItem(STORAGE_KEY, theme);
-  }, [theme]);
+  }, [resolvedTheme, theme]);
 
   useEffect(() => {
     if (theme !== "system") return undefined;
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const handleChange = () => applyTheme("system");
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return undefined;
+    const media = window.matchMedia(SYSTEM_THEME_QUERY);
+    const handleChange = () => {
+      const nextResolvedTheme: ResolvedThemeMode = media.matches ? "dark" : "light";
+      setThemeState((current) => {
+        // system 模式下媒体查询变化要更新 resolvedTheme；Turnstile widget 依赖它重建 iframe，而不是跟随浏览器 auto。
+        if (current.theme !== "system" || current.resolvedTheme === nextResolvedTheme) return current;
+        return { theme: current.theme, resolvedTheme: nextResolvedTheme };
+      });
+    };
     media.addEventListener("change", handleChange);
+    handleChange();
     return () => media.removeEventListener("change", handleChange);
   }, [theme]);
 
   const setTheme = useCallback((nextTheme: ThemeMode, options: SetThemeOptions = {}) => {
     if (options.localOverride !== false) writeThemeModeOverride();
-    setThemeState(nextTheme);
+    setThemeState({ theme: nextTheme, resolvedTheme: resolveThemeMode(nextTheme) });
   }, []);
 
-  const value = useMemo(() => ({ theme, setTheme }), [setTheme, theme]);
+  const value = useMemo(() => ({ theme, resolvedTheme, setTheme }), [resolvedTheme, setTheme, theme]);
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 

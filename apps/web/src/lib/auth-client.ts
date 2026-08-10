@@ -12,6 +12,7 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 import { pb } from "@/lib/pocketbase";
+import { ApiError } from "@/lib/api-client";
 import { getLocaleHeaders } from "@/i18n/api-locale";
 import {
   getProductCsrfHeader,
@@ -74,21 +75,21 @@ async function fetchAuthJson(input: RequestInfo, init?: RequestInit): Promise<un
   const response = await fetch(input, { ...init, headers, credentials: "include" });
   const payload = await response.json().catch(() => null) as unknown;
   if (!response.ok) {
-    const message = payload && typeof payload === "object" && !Array.isArray(payload)
-      ? "error" in payload
-        && payload.error
-        && typeof payload.error === "object"
-        && !Array.isArray(payload.error)
-        && "message" in payload.error
-        && typeof payload.error.message === "string"
-          ? payload.error.message
-          : "message" in payload && typeof payload.message === "string"
-            ? payload.message
-            : response.statusText
-      : response.statusText;
-    throw new Error(message || "Request failed");
+    const payloadRecord = recordFromUnknown(payload);
+    const errorBody = recordFromUnknown(payloadRecord?.["error"]);
+    const message = typeof errorBody?.["message"] === "string"
+      ? errorBody["message"]
+      : typeof payloadRecord?.["message"] === "string"
+        ? payloadRecord["message"]
+        : response.statusText;
+    const code = typeof errorBody?.["code"] === "string" ? errorBody["code"] : undefined;
+    throw new ApiError(message || "Request failed", response.status, errorBody?.["details"], code);
   }
   return payload;
+}
+
+function recordFromUnknown(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
 async function fetchSession(input: RequestInfo, init?: RequestInit): Promise<SessionData> {
@@ -215,11 +216,15 @@ export const authClient = {
   },
 
   signIn: {
-    async email({ email, password }: { email: string; password: string }) {
+    async email({ email, password, turnstileToken }: { email: string; password: string; turnstileToken?: string }) {
       try {
         const data = await fetchLogin("/api/app/auth/login", {
           method: "POST",
-          body: JSON.stringify({ email, password }),
+          body: JSON.stringify({
+            email,
+            password,
+            ...(turnstileToken ? { turnstileToken } : {}),
+          }),
         });
         if (data.type === "mfa_required") {
           // mfa_required 只返回给登录页状态机；认证适配层不能把 ticket 写成 session 或持久化。

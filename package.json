@@ -2,7 +2,7 @@
   "name": "renewlet",
   "private": true,
   "license": "MIT",
-  "version": "0.2.96",
+  "version": "0.2.97",
   "packageManager": "pnpm@11.20.0",
   "engines": {
     "node": ">=24.19.0"
@@ -51,7 +51,7 @@
     "check:worker-types": "wrangler types apps/worker/src/worker-configuration.d.ts --env-file /dev/null --include-runtime false --check",
     "start": "pnpm run build:client && pnpm run sync:static && pnpm --dir apps/docker-server start",
     "deploy": "node scripts/prepare-cloudflare-local-headers.mjs --check-production && pnpm cloudflare:migrations:apply && pnpm cloudflare:queues:ensure && wrangler deploy",
-    "check:deploy": "node scripts/check-deploy-config.mjs",
+    "check:deploy": "node scripts/check-deploy-config.mjs && node --test scripts/ensure-cloudflare-queues.test.mjs scripts/apply-cloudflare-d1-migrations.test.mjs",
     "check:website": "pnpm --filter @renewlet/website lint && pnpm --filter @renewlet/website test && pnpm --filter @renewlet/website build",
     "release": "node scripts/release.mjs",
     "check:release": "node --test scripts/release.test.mjs",
@@ -62,7 +62,7 @@
     "dev:cloudflare": "pnpm build:cloudflare && node scripts/prepare-cloudflare-local-headers.mjs && pnpm cloudflare:migrations:apply:local && node scripts/cloudflare-dev-hint.mjs && node scripts/cloudflare-dev-wrangler.mjs --test-scheduled",
     "probe:workerd-upstream": "node scripts/workerd-upstream-probe.mjs",
     "cloudflare:migrations:apply:local": "CI=1 wrangler d1 migrations apply DB --local",
-    "cloudflare:migrations:apply": "wrangler d1 migrations apply DB --remote",
+    "cloudflare:migrations:apply": "node scripts/apply-cloudflare-d1-migrations.mjs",
     "deploy:cloudflare": "pnpm build:cloudflare && pnpm deploy",
     "lint": "pnpm --filter @renewlet/client lint",
     "test": "pnpm --filter @renewlet/client test && pnpm --dir apps/docker-server test",

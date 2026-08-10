@@ -291,8 +291,10 @@ function checkCloudflareDeployMigrationScript() {
   const deployCloudflareScript = packageJson.scripts?.["deploy:cloudflare"];
   const buildCloudflareScript = packageJson.scripts?.["build:cloudflare"];
   const devScript = packageJson.scripts?.["dev:cloudflare"];
+  const checkDeployScript = packageJson.scripts?.["check:deploy"];
   const migrationScript = packageJson.scripts?.["cloudflare:migrations:apply"];
   const queuesEnsureScript = packageJson.scripts?.["cloudflare:queues:ensure"];
+  const migrationRunnerScript = readFileSync(join(repoRoot, "scripts/apply-cloudflare-d1-migrations.mjs"), "utf8");
 
   // Deploy Button 和自管 Wrangler 部署都依赖这个顺序：先确认生产 headers，再迁移 D1/确保队列，最后更新 Worker。
   if (deployScript !== "node scripts/prepare-cloudflare-local-headers.mjs --check-production && pnpm cloudflare:migrations:apply && pnpm cloudflare:queues:ensure && wrangler deploy") {
@@ -304,14 +306,30 @@ function checkCloudflareDeployMigrationScript() {
   if (buildCloudflareScript !== "VITE_RENEWLET_RUNTIME=cloudflare pnpm --filter @renewlet/client build") {
     throw new Error("package.json build:cloudflare must keep the production client build without local HTTP header rewrites.");
   }
-  if (migrationScript !== "wrangler d1 migrations apply DB --remote") {
-    throw new Error("package.json cloudflare:migrations:apply must target the DB binding with remote D1 migrations.");
+  if (checkDeployScript !== "node scripts/check-deploy-config.mjs && node --test scripts/ensure-cloudflare-queues.test.mjs scripts/apply-cloudflare-d1-migrations.test.mjs") {
+    throw new Error("package.json check:deploy must include Cloudflare deployment helper tests.");
+  }
+  if (migrationScript !== "node scripts/apply-cloudflare-d1-migrations.mjs") {
+    throw new Error("package.json cloudflare:migrations:apply must use the retry-aware remote D1 migration helper.");
   }
   if (queuesEnsureScript !== "node scripts/ensure-cloudflare-queues.mjs") {
     throw new Error("package.json cloudflare:queues:ensure must keep the idempotent Queue creation helper.");
   }
   if (devScript !== "pnpm build:cloudflare && node scripts/prepare-cloudflare-local-headers.mjs && pnpm cloudflare:migrations:apply:local && node scripts/cloudflare-dev-hint.mjs && node scripts/cloudflare-dev-wrangler.mjs --test-scheduled") {
     throw new Error("package.json dev:cloudflare must prepare local HTTP headers, print the local Cron hint, inject local proxy settings for Wrangler, and enable Wrangler scheduled middleware.");
+  }
+  // D1 远端 migration 偶发 7429/reset 时可以重试；权限、SQL 和 binding 错误仍必须保持失败。
+  for (const snippet of [
+    "D1 DB storage operation exceeded timeout",
+    "\\[code:\\s*7429\\]",
+    "Network connection lost",
+    "arg === \"--\" && index === 0",
+    "non-retryable error",
+    "failed after",
+  ]) {
+    if (!migrationRunnerScript.includes(snippet)) {
+      throw new Error(`apply-cloudflare-d1-migrations.mjs must keep retry boundary snippet: ${snippet}`);
+    }
   }
 }
 
@@ -485,6 +503,7 @@ function checkCloudflareWorkflowBuildMetadata() {
     "SHORT_SHA=\"${GITHUB_SHA::7}\"",
     "RENEWLET_VERSION=${PACKAGE_VERSION}-dev+${SHORT_SHA}",
     "RENEWLET_BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+    "pnpm cloudflare:migrations:apply --config \"$CI_WRANGLER_CONFIG\"",
     "Ensure Cloudflare Queues",
     "pnpm cloudflare:queues:ensure",
   ]) {
@@ -497,6 +516,7 @@ function checkCloudflareWorkflowBuildMetadata() {
     "RENEWLET_VERSION: ${{ needs.metadata.outputs.version }}",
     "RENEWLET_COMMIT: ${{ github.sha }}",
     "RENEWLET_BUILD_TIME: ${{ steps.build-time.outputs.value }}",
+    "pnpm cloudflare:migrations:apply --config \"$CI_WRANGLER_CONFIG\"",
     "Ensure Cloudflare Queues",
     "pnpm cloudflare:queues:ensure",
   ]) {

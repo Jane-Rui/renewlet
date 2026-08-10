@@ -140,10 +140,13 @@ func TestStaticContentSecurityPolicyAllowsCustomHeadScriptOrigin(t *testing.T) {
 		t.Fatal(err)
 	}
 	policy := staticContentSecurityPolicy(request)
-	if !strings.Contains(policy, "script-src 'self' 'wasm-unsafe-eval' https://cdn.example.com") {
+	if !strings.Contains(policy, "script-src 'self' 'wasm-unsafe-eval' https://challenges.cloudflare.com https://cdn.example.com") {
 		t.Fatalf("expected script-src to include custom script origin, got %q", policy)
 	}
-	if !strings.Contains(policy, "connect-src 'self' https://cdn.jsdelivr.net https://latest.currency-api.pages.dev https://api.frankfurter.dev https://www.floatrates.com https://cdn.example.com https://api.example.com") {
+	if !strings.Contains(policy, "connect-src 'self' https://cdn.jsdelivr.net https://latest.currency-api.pages.dev https://api.frankfurter.dev https://www.floatrates.com https://challenges.cloudflare.com https://cdn.example.com https://api.example.com") {
 		t.Fatalf("expected connect-src to include custom connect origins, got %q", policy)
+	}
+	if !strings.Contains(policy, "frame-src https://challenges.cloudflare.com") {
+		t.Fatalf("expected frame-src to include Turnstile challenge origin, got %q", policy)
 	}
 }

@@ -28,6 +28,7 @@ import {
   session,
   setupStatus,
 } from "./auth";
+import { readAuthSecurity, testAuthSecurityTurnstile, updateAuthSecurity } from "./auth-security";
 import { deleteAsset, listUploadedAssets, readAsset, uploadAsset } from "./assets";
 import {
   calendarFeedIcs,
@@ -183,6 +184,12 @@ defineRoute(adminRoutes, "/users/:id", {
 });
 defineRoute(adminRoutes, "/system/update", { POST: (context) => systemUpdate(context.req.raw, context.env) });
 defineRoute(adminRoutes, "/system/restart", { POST: (context) => systemRestart(context.req.raw, context.env) });
+// 访问安全是站点级管理员策略；这里必须和用户 settings 路由分开，避免 secret 进入账号草稿/导出链路。
+defineRoute(adminRoutes, "/auth-security", {
+  GET: (context) => readAuthSecurity(context.req.raw, context.env),
+  PUT: (context) => updateAuthSecurity(context.req.raw, context.env),
+});
+defineRoute(adminRoutes, "/auth-security/turnstile/test", { POST: (context) => testAuthSecurityTurnstile(context.req.raw, context.env) });
 defineRoute(adminRoutes, "/media/icon-index", { GET: (context) => builtInIconIndexStatus(context.req.raw, context.env) });
 defineRoute(adminRoutes, "/media/icon-index/providers/:provider/check", {
   POST: (context) => checkBuiltInIconIndexProvider(context.req.raw, context.env, routeParam(context, "provider")),

@@ -17,6 +17,9 @@ func seedDemoSettings(app core.App, userID string) error {
 	settings.Locale = string(localeZhCN)
 	settings.DefaultCurrency = "CNY"
 	settings.PublicStatusCurrency = "inherit"
+	// 价格 catalog 覆盖多币种，demo 默认展示 CNY 参考价，避免访客先改设置才能看懂折算效果。
+	settings.SubscriptionPriceReferenceEnabled = true
+	settings.SubscriptionPriceReferenceCurrency = "CNY"
 	settings.MonthlyBudget = "800"
 	settings.Timezone = demoModeScheduleTimezone
 	settings.NotificationTimeLocal = "09:00"

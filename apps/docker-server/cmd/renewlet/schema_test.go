@@ -69,6 +69,14 @@ func TestEnsureSchemaCreatesContractFieldsAndIndexes(t *testing.T) {
 		"created":  core.FieldTypeAutodate,
 		"updated":  core.FieldTypeAutodate,
 	})
+	assertFields(t, app, authSecurityCollectionName, map[string]string{
+		"key":              core.FieldTypeText,
+		"turnstileEnabled": core.FieldTypeBool,
+		"turnstileSiteKey": core.FieldTypeText,
+		"turnstileSecret":  core.FieldTypeText,
+		"created":          core.FieldTypeAutodate,
+		"updated":          core.FieldTypeAutodate,
+	})
 	assertFields(t, app, "custom_configs", map[string]string{
 		"user":    core.FieldTypeRelation,
 		"config":  core.FieldTypeJSON,
@@ -243,6 +251,7 @@ func TestEnsureSchemaCreatesContractFieldsAndIndexes(t *testing.T) {
 	assertIndexDefinition(t, app, "subscriptions", "idx_subscriptions_user_repeat_reminder_order", "user, repeatReminderEnabled, created, id")
 	assertIndex(t, app, "subscription_scheduler_states", "idx_subscription_scheduler_states_user_unique")
 	assertIndex(t, app, "settings", "idx_settings_user_unique")
+	assertIndex(t, app, authSecurityCollectionName, "idx_auth_security_settings_key_unique")
 	assertIndex(t, app, "custom_configs", "idx_custom_configs_user_unique")
 	assertIndex(t, app, "notification_jobs", "idx_notification_jobs_user_local_time_unique")
 	assertIndex(t, app, "calendar_feeds", "idx_calendar_feeds_user_all_unique")

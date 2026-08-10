@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { adminResetUserMfaResponseSchema, adminResetUserPasskeysResponseSchema } from "./admin";
 import {
+  loginBodySchema,
   loginResponseSchema,
   mfaRecoveryCodesResponseSchema,
   mfaStatusResponseSchema,
@@ -127,5 +128,23 @@ describe("auth schemas", () => {
     expect(adminResetUserMfaResponseSchema.parse(success({}))).toEqual(success({}));
     expect(adminResetUserPasskeysResponseSchema.parse(success({}))).toEqual(success({}));
     expect(adminResetUserMfaResponseSchema.safeParse({ ok: true }).success).toBe(false);
+  });
+
+  it("accepts optional Turnstile token on password login without widening the request body", () => {
+    expect(loginBodySchema.parse({
+      email: "admin@example.com",
+      password: "password123",
+      turnstileToken: " token-value ",
+    }).turnstileToken).toBe("token-value");
+    expect(loginBodySchema.safeParse({
+      email: "admin@example.com",
+      password: "password123",
+      turnstileToken: "",
+    }).success).toBe(false);
+    expect(loginBodySchema.safeParse({
+      email: "admin@example.com",
+      password: "password123",
+      token: "old-field",
+    }).success).toBe(false);
   });
 });

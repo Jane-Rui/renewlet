@@ -81,6 +81,10 @@ import {
   type SettingsBuiltInIconIndexController,
 } from "./use-built-in-icon-index-controller";
 import {
+  useAuthSecuritySettingsController,
+  type SettingsAuthSecurityController,
+} from "./use-auth-security-settings-controller";
+import {
   useNotificationHistory,
   type NotificationHistoryResponse,
   type NotificationHistoryStatusFilter,
@@ -168,6 +172,7 @@ export interface SettingsFormController {
   publicStatusPage: SettingsPublicStatusPageController;
   publicApi: SettingsPublicApiController;
   telegramBotCommands: SettingsTelegramBotCommandsController;
+  authSecurity: SettingsAuthSecurityController;
   password: PasswordChangeController;
   passwordResetEnabled: boolean;
   externalIntegrationsDisabled: boolean;
@@ -226,6 +231,7 @@ export function useSettingsFormController(): SettingsFormController {
   const deleteCalendarFeed = useDeleteCalendarFeed();
   const canRefreshBuiltInIconIndex = accountIdentity.role === "admin";
   const builtInIconIndex = useSettingsBuiltInIconIndexController(canRefreshBuiltInIconIndex);
+  const authSecurity = useAuthSecuritySettingsController(canManageUsers, sensitiveAccountActionsDisabled);
   const { refetch: refetchNotificationHistory } = notificationHistory;
   const hasInitializedFromRemoteRef = useRef(false);
   const hasResolvedDefaultRecipientEmailRef = useRef(false);
@@ -760,6 +766,7 @@ export function useSettingsFormController(): SettingsFormController {
     publicStatusPage,
     publicApi,
     telegramBotCommands,
+    authSecurity,
     password,
     passwordResetEnabled,
     externalIntegrationsDisabled,

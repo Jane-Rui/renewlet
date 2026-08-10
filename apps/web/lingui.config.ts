@@ -8,6 +8,7 @@ const catalogDomains = [
   "subscription",
   "auth",
   "settings",
+  "settings-access-security",
   "public-status",
   "notification",
   "labels",

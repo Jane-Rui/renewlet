@@ -11,6 +11,9 @@
 export const THEME_MODES = ["light", "dark", "system"] as const;
 export type ThemeMode = (typeof THEME_MODES)[number];
 
+/** 已解析明暗模式（对应当前实际渲染外观；Turnstile 这类第三方 iframe 只能消费该值）。 */
+export type ResolvedThemeMode = Exclude<ThemeMode, "system">;
+
 /** 主题风格（对应 `html[data-theme=...]`）。 */
 export const THEME_VARIANTS = ["emerald", "ocean", "sunset", "lavender", "rose", "custom"] as const;
 export type ThemeVariant = (typeof THEME_VARIANTS)[number];

@@ -16,6 +16,10 @@ type SetupStatus = {
   setupRequired: boolean;
   setupEnabled: boolean;
   demoMode: boolean;
+  turnstile: {
+    enabled: boolean;
+    siteKey: string;
+  };
   isLoading: boolean;
 };
 
@@ -23,14 +27,19 @@ const hiddenSetupStatus: SetupStatus = {
   setupRequired: false,
   setupEnabled: true,
   demoMode: false,
+  turnstile: {
+    enabled: false,
+    siteKey: "",
+  },
   isLoading: false,
 };
 
-function normalizeSetupStatus(data: { setupRequired: boolean; setupEnabled: boolean; demoMode: boolean }): Omit<SetupStatus, "isLoading"> {
+function normalizeSetupStatus(data: { setupRequired: boolean; setupEnabled: boolean; demoMode: boolean; turnstile: { enabled: boolean; siteKey: string } }): Omit<SetupStatus, "isLoading"> {
   return {
     setupRequired: data.setupRequired,
     setupEnabled: data.setupEnabled,
     demoMode: data.demoMode,
+    turnstile: data.turnstile,
   };
 }
 

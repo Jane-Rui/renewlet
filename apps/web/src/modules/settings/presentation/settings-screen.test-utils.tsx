@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router";
 import { vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { ThemeProvider } from "@/lib/theme-provider";
 import { DEFAULT_CUSTOM_CONFIG, type CustomConfig } from "@/types/config";
 import { canonicalizeMoneyString } from "@renewlet/shared/money";
 import type {
@@ -20,6 +21,7 @@ import { BUILT_IN_ICON_PROVIDERS, type BuiltInIconProvider } from "@renewlet/sha
 import { SettingsScreen } from "./settings-screen";
 import { NotificationChannelConfigPanel } from "./notification-channel-config-panel";
 import type { UploadedAssetsManagerController } from "../application/use-uploaded-assets-manager";
+import type { SettingsAuthSecurityController } from "../application/use-auth-security-settings-controller";
 import type { SettingsTelegramBotCommandsController } from "../application/use-telegram-bot-commands-controller";
 
 const mocks = vi.hoisted(() => ({
@@ -32,6 +34,7 @@ export { mocks };
 
 export const SETTINGS_SECTION_IDS = [
   "settings-account",
+  "settings-access-security",
   "settings-appearance",
   "settings-display",
   "settings-icon-sources",
@@ -418,6 +421,7 @@ export function createControllerState(overrides: {
     }>;
     createdPlainToken?: string | null;
   };
+  authSecurity?: Partial<SettingsAuthSecurityController>;
   telegramBotCommands?: Partial<SettingsTelegramBotCommandsController>;
   rates?: ExchangeRates;
   activeRateProvider?: ExchangeRateSource;
@@ -589,6 +593,31 @@ export function createControllerState(overrides: {
       refetch: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
       ...overrides.telegramBotCommands,
     },
+    authSecurity: {
+      canManage: true,
+      disabled: false,
+      isLoading: false,
+      isSaving: false,
+      isClearingSecret: false,
+      isTesting: false,
+      secretConfigured: false,
+      hasChanges: false,
+      draft: { enabled: false, siteKey: "", secret: "" },
+      testDialogOpen: false,
+      testDialogSiteKey: "",
+      testResetSignal: 0,
+      testError: undefined,
+      setEnabled: fn,
+      setSiteKey: fn,
+      setSecret: fn,
+      discard: fn,
+      save: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+      clearSecret: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+      startTest: fn,
+      handleTestDialogOpenChange: fn,
+      handleTestTokenChange: fn,
+      ...overrides.authSecurity,
+    },
     password: {
       passwordDialogOpen: false,
       setPasswordDialogOpen: fn,
@@ -628,12 +657,14 @@ export function renderSettingsScreen(initialEntries = ["/settings"]) {
   return render(
     <div id="root">
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={initialEntries}>
-          <TooltipProvider delayDuration={0}>
-            <SettingsScreen />
-          </TooltipProvider>
-          <RouteProbe />
-        </MemoryRouter>
+        <ThemeProvider>
+          <MemoryRouter initialEntries={initialEntries}>
+            <TooltipProvider delayDuration={0}>
+              <SettingsScreen />
+            </TooltipProvider>
+            <RouteProbe />
+          </MemoryRouter>
+        </ThemeProvider>
       </QueryClientProvider>
     </div>,
   );

@@ -31,8 +31,7 @@ msgstr "'{title}'"
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/settings.ts:706
 msgid "settings.dingtalkTemplateExampleDefaultContent"
-msgstr ""
-"'{title}'\n"
+msgstr "'{title}'\n"
 "\n"
 "'{content}'\n"
 "\n"
@@ -41,8 +40,7 @@ msgstr ""
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/settings.ts:709
 msgid "settings.dingtalkTemplateExampleKeywordContent"
-msgstr ""
-"'{title}'\n"
+msgstr "'{title}'\n"
 "\n"
 "'{content}'\n"
 "\n"
@@ -143,8 +141,7 @@ msgstr "「{name}」已从上传图标中移除。"
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/settings.ts:712
 msgid "settings.dingtalkTemplateExampleCountContent"
-msgstr ""
-"【'{title}'】\n"
+msgstr "【'{title}'】\n"
 "\n"
 "'{content}'\n"
 "\n"
@@ -1013,8 +1010,7 @@ msgstr "例如：'{brand}' · '{title}'"
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/settings.ts:696
 msgid "settings.dingtalkContentTemplatePlaceholder"
-msgstr ""
-"例如：'{title}'\n"
+msgstr "例如：'{title}'\n"
 "\n"
 "'{content}'\n"
 "\n"

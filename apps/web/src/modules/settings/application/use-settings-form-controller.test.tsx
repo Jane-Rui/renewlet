@@ -49,6 +49,23 @@ describe("useSettingsFormController", () => {
     expect(result.current.canAccessPocketBaseAdmin).toBe(false);
   });
 
+  it("keeps auth security changes out of the main settings draft", async () => {
+    mocks.authSecuritySettings = {
+      data: { turnstile: { enabled: false, siteKey: "", secretConfigured: false } },
+      isLoading: false,
+    };
+    const { result } = renderSettingsFormController();
+
+    await waitFor(() => expect(result.current.authSecurity.draft.siteKey).toBe(""));
+    act(() => {
+      result.current.authSecurity.setSiteKey("site-key");
+    });
+
+    expect(result.current.authSecurity.hasChanges).toBe(true);
+    expect(result.current.hasUnsavedChanges).toBe(false);
+    expect(mocks.updateSettingsMutateAsync).not.toHaveBeenCalled();
+  });
+
   it("prefills an empty recipient email from the current account email without marking the form dirty", async () => {
     mocks.remoteSettings = {
       ...BASE_SETTINGS,
@@ -64,7 +81,7 @@ describe("useSettingsFormController", () => {
   });
 
   it("does not prefill or mutate external integration settings in demo mode", async () => {
-    mocks.appStatus = { setupRequired: false, setupEnabled: false, demoMode: true, isLoading: false };
+    mocks.appStatus = { setupRequired: false, setupEnabled: false, demoMode: true, turnstile: { enabled: false, siteKey: "" }, isLoading: false };
     mocks.remoteSettings = {
       ...BASE_SETTINGS,
       enabledChannels: [],

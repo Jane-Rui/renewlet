@@ -76,6 +76,9 @@ const ERROR_CODE_MESSAGES: Record<string, MessageKey> = {
   IMPORT_CONFIDENCE_INVALID: "error.code.IMPORT_CONFIDENCE_INVALID",
   IMPORT_SOURCE_MISMATCH: "error.code.IMPORT_SOURCE_MISMATCH",
   IMPORT_SOURCE_ID_DUPLICATE: "error.code.IMPORT_SOURCE_ID_DUPLICATE",
+  TURNSTILE_CONFIG_INCOMPLETE: "error.code.TURNSTILE_CONFIG_INCOMPLETE",
+  TURNSTILE_REQUIRED: "error.code.TURNSTILE_REQUIRED",
+  TURNSTILE_TEST_FAILED: "error.code.TURNSTILE_TEST_FAILED",
   AI_MODEL_REQUIRED: "error.code.AI_MODEL_REQUIRED",
   AI_BASE_URL_REQUIRED: "error.code.AI_BASE_URL_REQUIRED",
   AI_API_KEY_REQUIRED: "error.code.AI_API_KEY_REQUIRED",
@@ -157,6 +160,8 @@ export function getDisplayErrorMessage(error: unknown, fallback = translate(getA
  * 这里只根据非敏感状态给出可行动文案，其余一律使用泛化登录失败原因。
  */
 export function getAuthDisplayMessage(error: unknown, fallback = translate(getApiLocale(), "error.loginGeneric")): string {
+  if (error instanceof ApiError && error.code === "TURNSTILE_REQUIRED") return translate(getApiLocale(), "error.turnstileRequired");
+  if (error instanceof ApiError && error.code === "TURNSTILE_FAILED") return translate(getApiLocale(), "error.turnstileFailed");
   if (!isRecord(error)) return fallback;
 
   const status = typeof error["status"] === "number"

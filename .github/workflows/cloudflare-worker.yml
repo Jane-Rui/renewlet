@@ -37,7 +37,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v7.0.0
         with:
-          node-version: 24
+          node-version: 24.19.0
 
       - name: Enable Corepack
         run: corepack enable
@@ -92,7 +92,7 @@ jobs:
 
       - name: Apply D1 migrations
         if: steps.deployment-secrets.outputs.ready == 'true'
-        run: pnpm exec wrangler d1 migrations apply DB --remote --config "$CI_WRANGLER_CONFIG"
+        run: pnpm cloudflare:migrations:apply --config "$CI_WRANGLER_CONFIG"
 
       - name: Ensure Cloudflare Queues
         if: steps.deployment-secrets.outputs.ready == 'true'

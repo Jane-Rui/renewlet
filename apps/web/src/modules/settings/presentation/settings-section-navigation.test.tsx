@@ -50,6 +50,7 @@ describe("SettingsScreen section navigation", () => {
     const { container } = renderSettingsScreen();
     const sections = [
       ["settings-account", "账户"],
+      ["settings-access-security", "访问安全"],
       ["settings-appearance", "外观"],
       ["settings-display", "显示"],
       ["settings-icon-sources", "图标来源"],
@@ -172,6 +173,29 @@ describe("SettingsScreen section navigation", () => {
     await user.click(notificationLink);
 
     expect(notificationLink).toHaveAttribute("aria-current", "location");
+  });
+
+  it("scrolls to the access security section from the settings directory", async () => {
+    const user = userEvent.setup();
+    renderSettingsScreen();
+
+    const nav = screen.getByTestId("settings-section-nav-desktop");
+    const accessSecurityLink = within(nav).getByRole("link", { name: "访问安全" });
+    await user.click(accessSecurityLink);
+
+    expect(window.location.hash).toBe("#settings-access-security");
+    expect(accessSecurityLink).toHaveAttribute("aria-current", "location");
+  });
+
+  it("hides the access security directory item when the controller cannot manage it", () => {
+    mocks.useSettingsFormController.mockReturnValue(createControllerState({
+      canManageUsers: false,
+      authSecurity: { canManage: false },
+    }));
+    const { container } = renderSettingsScreen();
+
+    expect(container.querySelector("#settings-access-security")).toBeNull();
+    expect(within(screen.getByTestId("settings-section-nav-desktop")).queryByRole("link", { name: "访问安全" })).not.toBeInTheDocument();
   });
 
   it("updates the active section from the app scroll container without changing the hash", async () => {

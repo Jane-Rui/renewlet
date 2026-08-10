@@ -11,8 +11,9 @@ import { settingsLayout } from './settings-layout';
 const PROGRAMMATIC_SCROLL_IDLE_MS = 160;
 const BOTTOM_EDGE_TOLERANCE_PX = 4;
 
-const SETTINGS_SECTIONS = [
+export const SETTINGS_SECTIONS = [
   { id: "settings-account", labelKey: "settings.sectionNav.account" },
+  { id: "settings-access-security", labelKey: "settings.sectionNav.accessSecurity" },
   { id: "settings-appearance", labelKey: "settings.sectionNav.appearance" },
   { id: "settings-display", labelKey: "settings.sectionNav.display" },
   { id: "settings-icon-sources", labelKey: "settings.sectionNav.iconSources" },
@@ -29,19 +30,33 @@ const SETTINGS_SECTIONS = [
   { id: "settings-notifications", labelKey: "settings.sectionNav.notifications" },
 ] as const;
 
-type SettingsSectionId = typeof SETTINGS_SECTIONS[number]["id"];
+export type SettingsSectionDefinition = typeof SETTINGS_SECTIONS[number];
+export type SettingsSectionId = SettingsSectionDefinition["id"];
+export type SettingsSectionList = readonly SettingsSectionDefinition[];
+
+export function createSettingsSections({
+  canManageAccessSecurity,
+}: {
+  canManageAccessSecurity: boolean;
+}): SettingsSectionList {
+  return canManageAccessSecurity
+    ? SETTINGS_SECTIONS
+    : SETTINGS_SECTIONS.filter((section) => section.id !== "settings-access-security");
+}
+
 type ProgrammaticNavigation = {
   targetId: SettingsSectionId;
   idleTimer: number | null;
 };
 type SettingsSectionNavigationProps = {
+  sections: SettingsSectionList;
   activeSectionId: SettingsSectionId;
   onSectionClick: (id: SettingsSectionId) => void;
 };
 
-function getSectionFromHash(hash: string): SettingsSectionId | null {
+function getSectionFromHash(hash: string, sections: SettingsSectionList): SettingsSectionId | null {
   const id = hash.startsWith("#") ? hash.slice(1) : hash;
-  return SETTINGS_SECTIONS.some((section) => section.id === id) ? (id as SettingsSectionId) : null;
+  return sections.some((section) => section.id === id) ? (id as SettingsSectionId) : null;
 }
 
 function scrollToSettingsSection(id: SettingsSectionId) {
@@ -95,16 +110,16 @@ function getSectionElement(id: SettingsSectionId) {
   return element instanceof HTMLElement ? element : null;
 }
 
-function getFirstRenderedSection() {
-  for (const section of SETTINGS_SECTIONS) {
+function getFirstRenderedSection(sections: SettingsSectionList) {
+  for (const section of sections) {
     const element = getSectionElement(section.id);
     if (element) return element;
   }
   return null;
 }
 
-function getAnchorLinePx(root: HTMLElement) {
-  const firstSection = getFirstRenderedSection();
+function getAnchorLinePx(root: HTMLElement, sections: SettingsSectionList) {
+  const firstSection = getFirstRenderedSection(sections);
   const scrollMarginTop = firstSection
     ? parseCssLengthToPx(window.getComputedStyle(firstSection).scrollMarginTop) ?? 0
     : 0;
@@ -116,17 +131,18 @@ function isRootScrolledToBottom(root: HTMLElement) {
     && root.scrollHeight - root.scrollTop - root.clientHeight <= BOTTOM_EDGE_TOLERANCE_PX;
 }
 
-function resolveActiveSectionFromAnchor(root: HTMLElement): SettingsSectionId {
-  if (root.clientHeight <= 0) return SETTINGS_SECTIONS[0].id;
+function resolveActiveSectionFromAnchor(root: HTMLElement, sections: SettingsSectionList): SettingsSectionId {
+  const firstSectionId = sections[0]?.id ?? SETTINGS_SECTIONS[0].id;
+  if (root.clientHeight <= 0) return firstSectionId;
 
-  const lastSection = SETTINGS_SECTIONS[SETTINGS_SECTIONS.length - 1];
-  if (isRootScrolledToBottom(root)) return lastSection?.id ?? SETTINGS_SECTIONS[0].id;
+  const lastSection = sections[sections.length - 1];
+  if (isRootScrolledToBottom(root)) return lastSection?.id ?? firstSectionId;
 
   // 激活锚点直接复用 section 的真实 scroll-margin，避免点击定位和滚动高亮使用两套顶部基准。
-  const anchorLine = getAnchorLinePx(root);
-  let activeSectionId: SettingsSectionId = SETTINGS_SECTIONS[0].id;
+  const anchorLine = getAnchorLinePx(root, sections);
+  let activeSectionId: SettingsSectionId = firstSectionId;
 
-  for (const section of SETTINGS_SECTIONS) {
+  for (const section of sections) {
     const element = getSectionElement(section.id);
     if (!element) continue;
     if (element.getBoundingClientRect().top <= anchorLine) {
@@ -139,30 +155,31 @@ function resolveActiveSectionFromAnchor(root: HTMLElement): SettingsSectionId {
   return activeSectionId;
 }
 
-function getNextSectionId(id: SettingsSectionId) {
-  const currentIndex = SETTINGS_SECTIONS.findIndex((section) => section.id === id);
-  const nextSection = SETTINGS_SECTIONS[currentIndex + 1];
+function getNextSectionId(id: SettingsSectionId, sections: SettingsSectionList) {
+  const currentIndex = sections.findIndex((section) => section.id === id);
+  const nextSection = sections[currentIndex + 1];
   return nextSection?.id ?? null;
 }
 
-function isAnchorStillWithinSection(root: HTMLElement, id: SettingsSectionId) {
-  if (resolveActiveSectionFromAnchor(root) !== id) return false;
-  const nextSectionId = getNextSectionId(id);
+function isAnchorStillWithinSection(root: HTMLElement, id: SettingsSectionId, sections: SettingsSectionList) {
+  if (resolveActiveSectionFromAnchor(root, sections) !== id) return false;
+  const nextSectionId = getNextSectionId(id, sections);
   if (!nextSectionId) return true;
   const nextSection = getSectionElement(nextSectionId);
   if (!nextSection) return true;
-  return nextSection.getBoundingClientRect().top > getAnchorLinePx(root);
+  return nextSection.getBoundingClientRect().top > getAnchorLinePx(root, sections);
 }
 
-export function useSettingsSectionNavigation() {
-  const [activeSectionId, setActiveSectionId] = useState<SettingsSectionId>(SETTINGS_SECTIONS[0].id);
+export function useSettingsSectionNavigation(sections: SettingsSectionList = SETTINGS_SECTIONS) {
+  const firstSectionId = sections[0]?.id ?? SETTINGS_SECTIONS[0].id;
+  const [activeSectionId, setActiveSectionId] = useState<SettingsSectionId>(firstSectionId);
   const programmaticNavigationRef = useRef<ProgrammaticNavigation | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
 
   const applyAnchorActiveSection = useCallback(() => {
     const root = getAppScrollRoot();
-    if (root) setActiveSectionId(resolveActiveSectionFromAnchor(root));
-  }, []);
+    if (root) setActiveSectionId(resolveActiveSectionFromAnchor(root, sections));
+  }, [sections]);
 
   const scheduleAnchorActiveSection = useCallback(() => {
     if (scrollFrameRef.current !== null) return;
@@ -190,7 +207,7 @@ export function useSettingsSectionNavigation() {
 
   useEffect(() => {
     const syncActiveSectionFromHash = () => {
-      const sectionId = getSectionFromHash(window.location.hash);
+      const sectionId = getSectionFromHash(window.location.hash, sections);
       if (!sectionId) return;
       window.requestAnimationFrame(() => beginProgrammaticNavigation(sectionId));
     };
@@ -198,7 +215,13 @@ export function useSettingsSectionNavigation() {
     syncActiveSectionFromHash();
     window.addEventListener("hashchange", syncActiveSectionFromHash);
     return () => window.removeEventListener("hashchange", syncActiveSectionFromHash);
-  }, [beginProgrammaticNavigation]);
+  }, [beginProgrammaticNavigation, sections]);
+
+  useEffect(() => {
+    if (!sections.some((section) => section.id === activeSectionId)) {
+      setActiveSectionId(firstSectionId);
+    }
+  }, [activeSectionId, firstSectionId, sections]);
 
   useEffect(() => {
     const root = getAppScrollRoot();
@@ -212,7 +235,7 @@ export function useSettingsSectionNavigation() {
       const navigation = programmaticNavigationRef.current;
       if (!navigation) return;
       endProgrammaticNavigation({
-        applyAnchorSection: !isAnchorStillWithinSection(root, navigation.targetId),
+        applyAnchorSection: !isAnchorStillWithinSection(root, navigation.targetId, sections),
       });
     };
     const handleScroll = () => {
@@ -226,7 +249,7 @@ export function useSettingsSectionNavigation() {
         () => {
           const currentNavigation = programmaticNavigationRef.current;
           endProgrammaticNavigation({
-            applyAnchorSection: currentNavigation ? !isAnchorStillWithinSection(root, currentNavigation.targetId) : false,
+            applyAnchorSection: currentNavigation ? !isAnchorStillWithinSection(root, currentNavigation.targetId, sections) : false,
           });
         },
         PROGRAMMATIC_SCROLL_IDLE_MS,
@@ -268,7 +291,7 @@ export function useSettingsSectionNavigation() {
       }
       endProgrammaticNavigation();
     };
-  }, [endProgrammaticNavigation, scheduleAnchorActiveSection]);
+  }, [endProgrammaticNavigation, scheduleAnchorActiveSection, sections]);
 
   const handleSectionClick = useCallback((id: SettingsSectionId) => {
     window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#${id}`);
@@ -284,7 +307,7 @@ function SettingsSectionNavLink({
   onSectionClick,
   variant,
 }: {
-  section: typeof SETTINGS_SECTIONS[number];
+  section: SettingsSectionDefinition;
   active: boolean;
   onSectionClick: (id: SettingsSectionId) => void;
   variant: "desktop" | "mobileDrawer";
@@ -323,6 +346,7 @@ function SettingsSectionNavLink({
 }
 
 export function DesktopSettingsSectionNav({
+  sections,
   activeSectionId,
   onSectionClick,
 }: SettingsSectionNavigationProps) {
@@ -339,7 +363,7 @@ export function DesktopSettingsSectionNav({
           {t("settings.sectionNavTitle")}
         </p>
         <div className="grid gap-1">
-          {SETTINGS_SECTIONS.map((section) => (
+          {sections.map((section) => (
             <SettingsSectionNavLink
               key={section.id}
               section={section}
@@ -355,6 +379,7 @@ export function DesktopSettingsSectionNav({
 }
 
 export function MobileSettingsSectionDrawer({
+  sections,
   activeSectionId,
   onSectionClick,
   open,
@@ -397,7 +422,7 @@ export function MobileSettingsSectionDrawer({
 
             <nav aria-label={t("settings.sectionNavLabel")} className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
               <ul className="grid gap-1">
-                {SETTINGS_SECTIONS.map((section) => (
+                {sections.map((section) => (
                   <li key={section.id}>
                     <SettingsSectionNavLink
                       section={section}

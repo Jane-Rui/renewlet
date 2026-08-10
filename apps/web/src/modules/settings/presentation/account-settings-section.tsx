@@ -93,118 +93,114 @@ export function AccountSettingsSection({
 
   return (
     <>
-                  <section id={id} className={getSettingsSectionClassName(className)}>
-                    <h2 className="mb-6 text-lg font-semibold text-foreground">{t("settings.account")}</h2>
-                    <div className="grid gap-6 sm:grid-cols-2">
-                      <div className="grid gap-2">
-                        <Label htmlFor="username">{t("settings.username")}</Label>
-                        <Input
-                          id="username"
-                          value={accountEmail ?? ""}
-                          placeholder={accountEmail === null ? t("settings.emailLoading") : t("settings.emailMissing")}
-                          readOnly
-                          className="border-border bg-secondary"
-                        />
-                        <p className="text-xs text-muted-foreground">{t("settings.usernameHelp")}</p>
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                          {canManageUsers ? (
-                            <Link
-                              href="/admin/users"
-                              className="inline-flex text-xs text-primary hover:underline"
-                            >
-                              {t("settings.manageUsers")}
-                            </Link>
-                          ) : null}
-                          {canAccessPocketBaseAdmin ? (
-                            <a
-                              href="/_/"
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                            >
-                              {t("settings.pocketBaseAdmin")}
-                              <ExternalLink className="h-3 w-3" aria-hidden="true" />
-                            </a>
-                          ) : null}
-                        </div>
-                      </div>
-                      <div className="grid gap-2">
-                        <Label htmlFor="password">{t("auth.password")}</Label>
-                        <Input
-                          id="password"
-                          type="password"
-                          placeholder="••••••••"
-                          readOnly
-                          className="border-border bg-secondary"
-                        />
-                        <div className="flex items-center gap-3">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="border-primary/40 text-primary hover:bg-primary/10"
-                            onClick={() => setPasswordDialogOpen(true)}
-                            disabled={passwordDisabled}
-                          >
-                            {t("settings.changePassword")}
-                          </Button>
-                          {passwordResetEnabled ? (
-                            <Link
-                              href="/forgot-password"
-                              className="text-xs text-muted-foreground hover:text-foreground hover:underline"
-                            >
-                              {t("auth.forgotPassword")}
-                            </Link>
-                          ) : null}
-                        </div>
-                        <p className="text-xs text-muted-foreground">{t("settings.passwordHelp")}</p>
-                      </div>
-                    </div>
-                    <div className="mt-6 grid gap-4">
-                      {accountSecurityDemoDisabled ? (
-                        <p className="text-xs leading-5 text-muted-foreground">
-                          {t("settings.accountSecurityDemoDisabled")}
-                        </p>
-                      ) : null}
-                      <AccountMfaSection
-                        disabled={passwordDisabled}
-                        onSetupReady={(setup) => openAccountSecurityDialog({ type: "mfa_setup", setup })}
-                        onPasswordAction={openMfaPasswordAction}
-                      />
-                      <AccountPasskeysSection
-                        disabled={passwordDisabled}
-                        count={passkeys.length}
-                        isLoading={passkeysQuery.isLoading}
-                        onManagePasskeys={() => openAccountSecurityDialog({ type: "passkeys_manager" })}
-                      />
-                    </div>
-                  </section>
-      
-                  <PasswordChangeDialog
-                    open={passwordDialogOpen}
-                    onOpenChange={handlePasswordDialogOpenChange}
-                    currentPassword={currentPassword}
-                    onCurrentPasswordChange={setCurrentPassword}
-                    newPassword={newPassword}
-                    onNewPasswordChange={setNewPassword}
-                    confirmPassword={confirmPassword}
-                    onConfirmPasswordChange={setConfirmPassword}
-                    isUpdating={isUpdatingPassword}
-                    onSubmit={updatePassword}
-                  />
-                  <AccountSecurityDialogs
-                    state={accountSecurityDialog}
-                    onStateChange={openAccountSecurityDialog}
-                  />
-                  <AccountPasskeysManagerDialog
-                    accountEmail={accountEmail}
-                    disabled={passwordDisabled}
-                    open={accountSecurityDialog.type === "passkeys_manager"}
-                    onOpenChange={handlePasskeysManagerOpenChange}
-                    passkeys={passkeys}
-                    isLoading={passkeysQuery.isLoading}
-                  />
-      
+      <section id={id} className={getSettingsSectionClassName(className)}>
+        <h2 className="mb-6 text-lg font-semibold text-foreground">{t("settings.account")}</h2>
+        <div className="grid gap-6 sm:grid-cols-2">
+          <div className="grid gap-2">
+            <Label htmlFor="username">{t("settings.username")}</Label>
+            <Input
+              id="username"
+              value={accountEmail ?? ""}
+              placeholder={accountEmail === null ? t("settings.emailLoading") : t("settings.emailMissing")}
+              readOnly
+              className="border-border bg-secondary"
+            />
+            <p className="text-xs text-muted-foreground">{t("settings.usernameHelp")}</p>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              {canManageUsers ? (
+                <Link href="/admin/users" className="inline-flex text-xs text-primary hover:underline">
+                  {t("settings.manageUsers")}
+                </Link>
+              ) : null}
+              {canAccessPocketBaseAdmin ? (
+                <a
+                  href="/_/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                >
+                  {t("settings.pocketBaseAdmin")}
+                  <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                </a>
+              ) : null}
+            </div>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="password">{t("auth.password")}</Label>
+            <Input
+              id="password"
+              type="password"
+              placeholder="••••••••"
+              readOnly
+              className="border-border bg-secondary"
+            />
+            <div className="flex items-center gap-3">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="border-primary/40 text-primary hover:bg-primary/10"
+                onClick={() => setPasswordDialogOpen(true)}
+                disabled={passwordDisabled}
+              >
+                {t("settings.changePassword")}
+              </Button>
+              {passwordResetEnabled ? (
+                <Link
+                  href="/forgot-password"
+                  className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+                >
+                  {t("auth.forgotPassword")}
+                </Link>
+              ) : null}
+            </div>
+            <p className="text-xs text-muted-foreground">{t("settings.passwordHelp")}</p>
+          </div>
+        </div>
+        <div className="mt-6 grid gap-4">
+          {accountSecurityDemoDisabled ? (
+            <p className="text-xs leading-5 text-muted-foreground">
+              {t("settings.accountSecurityDemoDisabled")}
+            </p>
+          ) : null}
+          <AccountMfaSection
+            disabled={passwordDisabled}
+            onSetupReady={(setup) => openAccountSecurityDialog({ type: "mfa_setup", setup })}
+            onPasswordAction={openMfaPasswordAction}
+          />
+          <AccountPasskeysSection
+            disabled={passwordDisabled}
+            count={passkeys.length}
+            isLoading={passkeysQuery.isLoading}
+            onManagePasskeys={() => openAccountSecurityDialog({ type: "passkeys_manager" })}
+          />
+        </div>
+      </section>
+
+      <PasswordChangeDialog
+        open={passwordDialogOpen}
+        onOpenChange={handlePasswordDialogOpenChange}
+        currentPassword={currentPassword}
+        onCurrentPasswordChange={setCurrentPassword}
+        newPassword={newPassword}
+        onNewPasswordChange={setNewPassword}
+        confirmPassword={confirmPassword}
+        onConfirmPasswordChange={setConfirmPassword}
+        isUpdating={isUpdatingPassword}
+        onSubmit={updatePassword}
+      />
+      <AccountSecurityDialogs
+        state={accountSecurityDialog}
+        onStateChange={openAccountSecurityDialog}
+      />
+      <AccountPasskeysManagerDialog
+        accountEmail={accountEmail}
+        disabled={passwordDisabled}
+        open={accountSecurityDialog.type === "passkeys_manager"}
+        onOpenChange={handlePasskeysManagerOpenChange}
+        passkeys={passkeys}
+        isLoading={passkeysQuery.isLoading}
+      />
     </>
   );
 }
