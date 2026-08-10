@@ -331,7 +331,11 @@ func uniqueNotificationItems(items []notificationContentItem) []notificationCont
 		if item.RepeatReminder != nil {
 			repeatKey = item.RepeatReminder.Interval + "/" + item.RepeatReminder.Window
 		}
-		key := item.Type + "|" + item.SubscriptionID + "|" + item.TargetDate + "|" + repeatKey
+		collectionKey := ""
+		if item.CostSharing != nil {
+			collectionKey = item.CostSharing.MemberName + "/" + item.CostSharing.Amount + "/" + item.CostSharing.Currency
+		}
+		key := item.Type + "|" + item.SubscriptionID + "|" + item.TargetDate + "|" + repeatKey + "|" + collectionKey
 		if _, ok := seen[key]; ok {
 			continue
 		}

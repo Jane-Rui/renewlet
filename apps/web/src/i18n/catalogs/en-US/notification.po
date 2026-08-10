@@ -14,27 +14,32 @@ msgstr ""
 "Plural-Forms: \n"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:112
+#: src/i18n/descriptors/notification.ts:114
 msgid "notification.content.itemLine"
 msgstr "- {name}: {date}, {amount} {currency} ({extra})"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:120
+#: src/i18n/descriptors/notification.ts:122
 msgid "notification.items"
 msgstr "{count} items"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:122
+#: src/i18n/descriptors/notification.ts:126
+msgid "notification.targetCostSharingReminder"
+msgstr "{date} · collect {amount} from {member} · {days} days before"
+
+#. js-lingui-explicit-id
+#: src/i18n/descriptors/notification.ts:124
 msgid "notification.targetReminder"
 msgstr "{date} · {days} days before"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:123
+#: src/i18n/descriptors/notification.ts:125
 msgid "notification.targetRepeatReminder"
 msgstr "{date} · repeat every {hours, plural, one {# hour} other {# hours}}"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:111
+#: src/i18n/descriptors/notification.ts:113
 msgid "notification.content.extraWithRepeat"
 msgstr "{extra}; {repeat}"
 
@@ -149,12 +154,12 @@ msgid "media.variant.mono"
 msgstr "Mono"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:104
+#: src/i18n/descriptors/notification.ts:105
 msgid "notification.content.testTitle"
 msgstr "Renewlet test notification"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:103
+#: src/i18n/descriptors/notification.ts:104
 msgid "notification.content.title"
 msgstr "Renewlet subscription reminder"
 
@@ -224,12 +229,12 @@ msgid "media.uploadFailedRetry"
 msgstr "Upload failed. Try again or use another image."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:135
+#: src/i18n/descriptors/notification.ts:138
 msgid "notification.nextContent"
 msgstr "Next content"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:134
+#: src/i18n/descriptors/notification.ts:137
 msgid "notification.nextCheck"
 msgstr "Next check"
 
@@ -239,7 +244,7 @@ msgid "media.imageTypeInvalid"
 msgstr "Only PNG, JPG, WebP, SVG, or ICO images are supported."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:102
+#: src/i18n/descriptors/notification.ts:103
 msgid "notification.content.empty"
 msgstr "No subscriptions need reminders today. You can disable daily notifications in Settings or adjust reminder days for subscriptions."
 
@@ -254,7 +259,7 @@ msgid "media.providerFilter.all"
 msgstr "All"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:118
+#: src/i18n/descriptors/notification.ts:120
 msgid "notification.filter.all"
 msgstr "All"
 
@@ -274,22 +279,22 @@ msgid "media.noBuiltInMatch"
 msgstr "No built-in icon matched"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:136
+#: src/i18n/descriptors/notification.ts:139
 msgid "notification.latestRun"
 msgstr "Latest run"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:125
+#: src/i18n/descriptors/notification.ts:128
 msgid "notification.createdAt"
 msgstr "Created at"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:129
+#: src/i18n/descriptors/notification.ts:132
 msgid "notification.historyEmpty"
 msgstr "Schedule records will appear here after notification time arrives."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:143
+#: src/i18n/descriptors/notification.ts:146
 msgid "notification.refresh"
 msgstr "Refresh"
 
@@ -299,17 +304,17 @@ msgid "media.loadMoreUploadedLogo"
 msgstr "Load more"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:145
+#: src/i18n/descriptors/notification.ts:148
 msgid "notification.loadMore"
 msgstr "Load more"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:144
+#: src/i18n/descriptors/notification.ts:147
 msgid "notification.historyLoadFailed"
 msgstr "Could not load notification history. Please try again later."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:107
+#: src/i18n/descriptors/notification.ts:108
 msgid "notification.content.expiryBeforeDays"
 msgstr "expires soon, {days} days before"
 
@@ -319,12 +324,12 @@ msgid "notification.content.expiryBlock"
 msgstr "Upcoming expiries:"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:141
+#: src/i18n/descriptors/notification.ts:144
 msgid "notification.upcomingTab"
 msgstr "Upcoming"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:139
+#: src/i18n/descriptors/notification.ts:142
 msgid "notification.historyDescription"
 msgstr "Upcoming reminders are derived from current settings. Send history keeps the execution snapshot."
 
@@ -334,12 +339,12 @@ msgid "notification.content.renewalBlock"
 msgstr "Upcoming renewals:"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:114
+#: src/i18n/descriptors/notification.ts:116
 msgid "notification.status.sending"
 msgstr "Sending"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:142
+#: src/i18n/descriptors/notification.ts:145
 msgid "notification.historyTab"
 msgstr "History"
 
@@ -349,9 +354,14 @@ msgid "notification.testFailedDescription"
 msgstr "Send failed. Please try again later."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:140
+#: src/i18n/descriptors/notification.ts:143
 msgid "notification.historyDetailTitle"
 msgstr "Send details"
+
+#. js-lingui-explicit-id
+#: src/i18n/descriptors/notification.ts:111
+msgid "notification.content.costSharingBeforeDays"
+msgstr "collect from {member}, {days} days before"
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/notification.ts:82
@@ -364,14 +374,19 @@ msgid "media.imageTooLarge"
 msgstr "Image is too large. Choose an image under {size}MB."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:116
+#: src/i18n/descriptors/notification.ts:118
 msgid "notification.status.failed"
 msgstr "Failed"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:105
+#: src/i18n/descriptors/notification.ts:106
 msgid "notification.content.testBody"
 msgstr "If you received this message, this notification channel is working."
+
+#. js-lingui-explicit-id
+#: src/i18n/descriptors/notification.ts:102
+msgid "notification.content.costSharingBlock"
+msgstr "Cost sharing collections:"
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/notification.ts:36
@@ -399,12 +414,12 @@ msgid "media.uploadedLogoLoadFailed"
 msgstr "Could not load uploaded Logo"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:117
+#: src/i18n/descriptors/notification.ts:119
 msgid "notification.status.skipped"
 msgstr "Skipped"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:109
+#: src/i18n/descriptors/notification.ts:110
 msgid "notification.content.expiredStatus"
 msgstr "expired"
 
@@ -424,12 +439,12 @@ msgid "media.variant.color"
 msgstr "Color"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:115
+#: src/i18n/descriptors/notification.ts:117
 msgid "notification.status.sent"
 msgstr "Sent"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:106
+#: src/i18n/descriptors/notification.ts:107
 msgid "notification.content.beforeDays"
 msgstr "{days} days before"
 
@@ -459,7 +474,7 @@ msgid "media.rotate"
 msgstr "Rotate"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:133
+#: src/i18n/descriptors/notification.ts:136
 msgid "notification.noHistory"
 msgstr "No records yet"
 
@@ -474,12 +489,12 @@ msgid "media.changeIcon"
 msgstr "Change icon"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:126
+#: src/i18n/descriptors/notification.ts:129
 msgid "notification.updatedAt"
 msgstr "Updated at"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:130
+#: src/i18n/descriptors/notification.ts:133
 msgid "notification.blocker.noChannels"
 msgstr "No channels enabled"
 
@@ -494,17 +509,17 @@ msgid "media.logoNotFound"
 msgstr "No matching Logo found"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:131
+#: src/i18n/descriptors/notification.ts:134
 msgid "notification.blocker.noUpcoming"
 msgstr "No matches in the next 30 days"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:119
+#: src/i18n/descriptors/notification.ts:121
 msgid "notification.upcoming.empty"
 msgstr "No reminders will be sent automatically in the next 30 days."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:137
+#: src/i18n/descriptors/notification.ts:140
 msgid "notification.viewScheduleHistory"
 msgstr "View schedule and history"
 
@@ -529,7 +544,7 @@ msgid "media.loadingMore"
 msgstr "Loading more results..."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:121
+#: src/i18n/descriptors/notification.ts:123
 msgid "notification.dailyIncluded"
 msgstr "Included daily"
 
@@ -574,7 +589,7 @@ msgid "media.confirmCrop"
 msgstr "Confirm crop"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:113
+#: src/i18n/descriptors/notification.ts:115
 msgid "notification.status.pending"
 msgstr "Pending"
 
@@ -584,12 +599,12 @@ msgid "media.providerFilter.ariaLabel"
 msgstr "Filter built-in icon sources"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:127
+#: src/i18n/descriptors/notification.ts:130
 msgid "notification.attemptedChannels"
 msgstr "Attempted channels"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:128
+#: src/i18n/descriptors/notification.ts:131
 msgid "notification.succeededChannels"
 msgstr "Succeeded channels"
 
@@ -619,7 +634,7 @@ msgid "media.cropPreview"
 msgstr "Crop preview"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:108
+#: src/i18n/descriptors/notification.ts:109
 msgid "notification.content.trialBeforeDays"
 msgstr "trial ends, {days} days before"
 
@@ -649,7 +664,7 @@ msgid "media.readImageFailed"
 msgstr "Could not read the image. Please choose the file again."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:124
+#: src/i18n/descriptors/notification.ts:127
 msgid "notification.attempts"
 msgstr "{count} schedule attempts"
 
@@ -684,17 +699,17 @@ msgid "media.noUploadedLogo"
 msgstr "No custom Logo uploaded yet"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:138
+#: src/i18n/descriptors/notification.ts:141
 msgid "notification.historyTitle"
 msgstr "Notification schedule and send history"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:132
+#: src/i18n/descriptors/notification.ts:135
 msgid "notification.blocker.ok"
 msgstr "Configuration OK"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:110
+#: src/i18n/descriptors/notification.ts:112
 msgid "notification.content.repeatEvery"
 msgstr "repeat reminder, every {hours, plural, one {# hour} other {# hours}}"
 

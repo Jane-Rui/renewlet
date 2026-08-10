@@ -366,7 +366,7 @@ func validateImportSubscription(app core.App, user *core.Record, subscription im
 	record := core.NewRecord(collection)
 	setImportSubscriptionRecord(record, user.Id, subscription)
 	// 预览只校验不写库；复用 hooks 的核心规范化，保证 Docker 与普通订阅写入边界一致。
-	return normalizeSubscriptionRecord(record)
+	return normalizeSubscriptionRecordWithApp(app, record)
 }
 
 func setImportSubscriptionRecord(record *core.Record, userID string, subscription importSubscription) {

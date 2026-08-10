@@ -168,8 +168,9 @@ describe("SubscriptionDialog", () => {
   it("keeps cost sharing member rows in a bounded manager view", async () => {
     const user = setupUser();
     const onOpenChange = vi.fn();
-    let submittedMembers: CostSharingMember[] = [];
+    let submittedMembers: CostSharingMember[] = [], submittedCostSharing: Subscription["costSharing"];
     const onSubmit = vi.fn<(subscription: Subscription) => void>((subscription) => {
+      submittedCostSharing = subscription.costSharing;
       submittedMembers = subscription.costSharing?.members ?? [];
     });
 
@@ -183,12 +184,15 @@ describe("SubscriptionDialog", () => {
           subscription={makeSubscription({
             price: "50",
             currency: "CNY",
+            startDate: assertDateOnly("2026-01-01"),
+            nextBillingDate: assertDateOnly("2026-04-01"),
             costSharing: {
               enabled: true,
               splitMode: "custom",
+              collectionReminder: { enabled: true, reminderDays: -1 },
               members: [
-                { id: "partner", name: "伴侣", currency: "CNY", customAmount: "10" },
-                { id: "friend", name: "朋友", currency: "CNY", customAmount: "10" },
+                { id: "partner", name: "伴侣", currency: "CNY", customAmount: "10", joinedDate: assertDateOnly("2026-01-01") },
+                { id: "friend", name: "朋友", currency: "CNY", customAmount: "10", joinedDate: assertDateOnly("2026-03-01") },
               ],
             },
           })}
@@ -201,10 +205,7 @@ describe("SubscriptionDialog", () => {
     if (!form) throw new Error("Subscription dialog form was not rendered");
     const nameInput = screen.getByLabelText("服务名称");
     expect(screen.queryByLabelText("成员名称")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "管理成员" })).toBeInTheDocument();
-    expect(screen.getByTestId("cost-sharing-summary")).toHaveTextContent(/成员合计\s*¥20/);
-    expect(screen.getByTestId("cost-sharing-summary")).toHaveTextContent(/你的份额\s*¥30/);
-    expect(screen.getByTestId("cost-sharing-summary")).toHaveTextContent(/可回收金额\s*¥20/);
+    expect(screen.getByTestId("cost-sharing-summary")).toHaveTextContent(/成员合计\s*¥20 CNY\s*你的份额\s*¥30 CNY\s*可回收金额\s*¥20 CNY/);
     const formScrollRegion = document.querySelector<HTMLElement>("[data-subscription-dialog-scroll]");
     if (!formScrollRegion) throw new Error("Subscription dialog scroll region was not rendered");
     formScrollRegion.scrollTop = 320;
@@ -217,7 +218,6 @@ describe("SubscriptionDialog", () => {
     expect(subscriptionHeader).toHaveTextContent("编辑订阅");
     expect(subscriptionHeader?.closest('[role="dialog"]')).toHaveAttribute("data-state", "open");
     const memberDialog = screen.getByRole("dialog", { name: "管理共享成员" });
-    expect(memberDialog).toBeInTheDocument();
     expect(screen.getAllByRole("dialog", { hidden: true })).toHaveLength(2);
     expect(form).toContainElement(nameInput);
     expect(formScrollRegion.scrollTop).toBe(320);
@@ -225,14 +225,20 @@ describe("SubscriptionDialog", () => {
     const manager = within(memberDialog).getByTestId("cost-sharing-members-view");
     expect(within(manager).getAllByLabelText("成员名称")).toHaveLength(2);
     const memberNameInputs = within(manager).getAllByLabelText("成员名称");
+    expect(manager.querySelector('input[type="date"]')).toBeNull();
+    const joinedDateButtons = within(manager).getAllByRole("button", { name: /上车日期/ });
     expect(within(manager).queryByRole("button", { name: "设为我" })).not.toBeInTheDocument();
     expect(within(manager).queryByRole("button", { name: "设为付款人" })).not.toBeInTheDocument();
+    expect(joinedDateButtons[0]).toHaveTextContent("2026年1月1日");
     expect(memberNameInputs[0]!).toHaveFocus();
     await user.click(memberNameInputs[1]!);
     expect(memberNameInputs[1]).toHaveFocus();
     await user.clear(memberNameInputs[1]!);
     await user.type(memberNameInputs[1]!, "队友");
     expect(memberNameInputs[1]).toHaveValue("队友");
+    await user.click(joinedDateButtons[1]!);
+    await user.click(await screen.findByRole("button", { name: /2026年3月15日/ }));
+    expect(within(manager).getAllByRole("button", { name: /上车日期/ })[1]).toHaveTextContent("2026年3月15日");
     const amountInputs = within(manager).getAllByLabelText("应收金额");
     await user.clear(amountInputs[1]!);
     await user.type(amountInputs[1]!, "15");
@@ -245,22 +251,20 @@ describe("SubscriptionDialog", () => {
     expect(form).not.toHaveAttribute("aria-hidden");
     expect(screen.getByRole("button", { name: "管理成员" })).toHaveFocus();
     expect(screen.queryByLabelText("成员名称")).not.toBeInTheDocument();
-    expect(screen.getByTestId("cost-sharing-summary")).toHaveTextContent(/成员合计\s*¥25/);
-    expect(screen.getByTestId("cost-sharing-summary")).toHaveTextContent(/你的份额\s*¥25/);
-    expect(screen.getByTestId("cost-sharing-summary")).toHaveTextContent(/可回收金额\s*¥25/);
+    expect(screen.getByTestId("cost-sharing-summary")).toHaveTextContent(/成员合计\s*¥25 CNY\s*你的份额\s*¥25 CNY\s*可回收金额\s*¥25 CNY/);
 
     await user.click(screen.getByRole("button", { name: "管理成员" }));
     const reopenedMemberDialog = screen.getByRole("dialog", { name: "管理共享成员" });
-    expect(reopenedMemberDialog).toBeInTheDocument();
     await user.click(within(reopenedMemberDialog).getByRole("button", { name: "关闭" }));
     expect(screen.queryByRole("dialog", { name: "管理共享成员" })).not.toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "编辑订阅" })).toBeInTheDocument();
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
 
     await user.click(screen.getByRole("button", { name: "保存修改" }));
+    expect(submittedCostSharing?.collectionReminder).toEqual({ enabled: true, reminderDays: -1 });
     expect(submittedMembers).toEqual([
-      expect.objectContaining({ id: "partner", customAmount: "10" }),
-      expect.objectContaining({ id: "friend", name: "队友", customAmount: "15" }),
+      expect.objectContaining({ id: "partner", customAmount: "10", joinedDate: assertDateOnly("2026-01-01") }),
+      expect.objectContaining({ id: "friend", name: "队友", customAmount: "15", joinedDate: assertDateOnly("2026-03-15") }),
     ]);
   });
 
@@ -718,33 +722,13 @@ describe("SubscriptionDialog", () => {
   });
 
   it("shows repeat reminder controls when enabled for an edited subscription", () => {
-    const subscription: Subscription = {
-      id: "sub-1",
-      name: "Critical SaaS",
-      logo: undefined,
-      price: "99",
-      currency: "USD",
-      billingCycle: "monthly",
-      customDays: undefined,
-      customCycleUnit: undefined,
-      category: "productivity",
-      status: "active",
-      publicHidden: false,
-      pinned: false,
-      paymentMethod: "alipay",
-      startDate: assertDateOnly("2026-05-14"),
+    const subscription = makeSubscription({
       nextBillingDate: assertDateOnly("2026-05-17"),
       autoRenew: false,
-      autoCalculateNextBillingDate: false,
-      trialEndDate: undefined,
-      website: undefined,
-      notes: undefined,
       reminderDays: 3,
-      tags: [],
-      repeatReminderEnabled: true,
       repeatReminderInterval: "3h",
       repeatReminderWindow: "full",
-    };
+    });
 
     render(
       <TooltipProvider delayDuration={0}>

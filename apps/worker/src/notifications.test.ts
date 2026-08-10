@@ -175,6 +175,9 @@ function subscriptionRow(overrides: Partial<SubscriptionRow> = {}): Subscription
     repeat_reminder_enabled: 0,
     repeat_reminder_interval: "1h",
     repeat_reminder_window: "72h",
+    cost_sharing_json: "{}",
+    cost_sharing_collection_reminder_enabled: 0,
+    cost_sharing_next_collection_reminder_date: null,
     extra_json: "{}",
     created_at: "2026-01-01T00:00:00.000Z",
     updated_at: "2026-01-01T00:00:00.000Z",
@@ -479,13 +482,16 @@ describe("Cloudflare notifications", () => {
         renewalUpdateParams = params;
         return d1Run(1);
       }
-      if (method === "all" && sql.includes("FROM subscriptions")) {
+      if (method === "all" && sql.includes("FROM subscriptions") && sql.includes("UNION")) {
         events.push("notification-content");
         return d1All([subscriptionRow({
           start_date: "2026-01-08",
           next_billing_date: "2026-02-08",
           auto_renew: 1,
         })]);
+      }
+      if (method === "all" && sql.includes("FROM subscriptions")) {
+        return d1All([]);
       }
       if (method === "first" && sql.includes("FROM notification_jobs")) {
         return null;

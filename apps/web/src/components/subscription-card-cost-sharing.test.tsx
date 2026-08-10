@@ -79,6 +79,6 @@ describe("SubscriptionCard cost sharing", () => {
       </TooltipProvider>,
     );
 
-    expect(screen.getByText(/你的份额\s*¥0/)).toBeInTheDocument();
+    expect(screen.getByText(/你的份额\s*¥0 CNY/)).toBeInTheDocument();
   });
 });

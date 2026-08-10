@@ -12,7 +12,14 @@ import {
   MAX_SUBSCRIPTION_TAGS,
   type SubscriptionDraft,
 } from "@/types/subscription";
-import { costSharingCustomAmountsAreValid } from "@renewlet/shared/cost-sharing";
+import {
+  costSharingCollectionAnchorsAreSatisfied,
+  costSharingCustomAmountsAreValid,
+  isValidCostSharingCollectionReminderDays,
+  costSharingMemberJoinedDatesWithinRange,
+  resolveCostSharingMemberJoinedDateRange,
+  type CostSharingMemberJoinedDateRange,
+} from "@renewlet/shared/cost-sharing";
 import type { SubscriptionFormState } from "@/types/subscription-form";
 import {
   DEFAULT_NOTIFICATION_REMINDER_DAYS,
@@ -171,6 +178,46 @@ export function getSubscriptionDateValidationKind(formData: Pick<
   return null;
 }
 
+export function costSharingCollectionReminderIsAllowedForBillingCycle(formData: Pick<
+  SubscriptionFormState,
+  "billingCycle" | "oneTimeMode"
+>): boolean {
+  return !(formData.billingCycle === "one-time" && formData.oneTimeMode === "buyout");
+}
+
+export function resolveCostSharingJoinedDateRangeForForm(formData: Pick<
+  SubscriptionFormState,
+  "billingCycle" | "oneTimeMode" | "oneTimeTermCount" | "oneTimeTermUnit" | "startDate" | "nextBillingDate"
+>): CostSharingMemberJoinedDateRange {
+  return resolveCostSharingMemberJoinedDateRange(costSharingJoinedDateRangeInputForForm(formData));
+}
+
+export function costSharingJoinedDatesWithinFormRange(formData: Pick<
+  SubscriptionFormState,
+  "billingCycle" | "oneTimeMode" | "oneTimeTermCount" | "oneTimeTermUnit" | "startDate" | "nextBillingDate" | "costSharing"
+>): boolean {
+  return costSharingMemberJoinedDatesWithinRange(formData.costSharing, costSharingJoinedDateRangeInputForForm(formData));
+}
+
+function costSharingJoinedDateRangeInputForForm(formData: Pick<
+  SubscriptionFormState,
+  "billingCycle" | "oneTimeMode" | "oneTimeTermCount" | "oneTimeTermUnit" | "startDate" | "nextBillingDate"
+>) {
+  const oneTimeTermCount = formData.billingCycle === "one-time" && formData.oneTimeMode === "term"
+    ? parsePositiveIntegerInput(formData.oneTimeTermCount)
+    : null;
+  const nextBillingDate = formData.billingCycle === "one-time" && formData.oneTimeMode === "term" && formData.startDate && oneTimeTermCount
+    ? calculateOneTimeTermEndDate(formData.startDate, oneTimeTermCount, formData.oneTimeTermUnit)
+    : formData.nextBillingDate;
+  return {
+    subscriptionStartDate: formData.startDate ?? null,
+    nextBillingDate: nextBillingDate ?? null,
+    billingCycle: formData.billingCycle,
+    oneTimeTermCount,
+    oneTimeTermUnit: formData.billingCycle === "one-time" && formData.oneTimeMode === "term" ? formData.oneTimeTermUnit : null,
+  };
+}
+
 export function subscriptionDateValidationMessageKey(kind: SubscriptionDateValidationKind): MessageKey {
   switch (kind) {
     case "purchaseDateRequired":
@@ -214,6 +261,21 @@ export function getSubscriptionDraftValidationError(formData: SubscriptionFormSt
   }
   if (formData.costSharing?.enabled) {
     const price = parseMoneyInput(formData.price);
+    const collectionReminder = formData.costSharing.collectionReminder;
+    if (collectionReminder?.enabled) {
+      if (!costSharingCollectionReminderIsAllowedForBillingCycle(formData)) {
+        return translate(locale, "subscription.validation.costSharingCollectionReminderOneTimeBuyoutInvalid");
+      }
+      if (!isValidCostSharingCollectionReminderDays(collectionReminder.reminderDays)) {
+        return translate(locale, "subscription.validation.costSharingCollectionReminderInvalid");
+      }
+      if (!costSharingCollectionAnchorsAreSatisfied(formData.costSharing, formData.startDate ?? null)) {
+        return translate(locale, "subscription.validation.costSharingCollectionReminderAnchorRequired");
+      }
+    }
+    if (!costSharingJoinedDatesWithinFormRange(formData)) {
+      return translate(locale, "subscription.validation.costSharingMemberJoinedDateRangeInvalid");
+    }
     if (
       price === null ||
       formData.costSharing.members.length === 0 ||

@@ -77,6 +77,13 @@ class SettingsTestStatement {
     return null;
   }
 
+  async all<T>(): Promise<D1Result<T>> {
+    if (this.sql.includes("FROM subscriptions")) {
+      return d1Result<T>([]);
+    }
+    throw new Error(`unexpected settings query: ${this.sql}`);
+  }
+
   async run(): Promise<D1Result> {
     if (this.sql.includes("INSERT INTO settings")) {
       const [userId, settingsJson] = this.values as [string, string, string, string];

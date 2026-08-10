@@ -167,27 +167,24 @@ describe("Cloudflare import", () => {
     dbMocks.newId.mockReturnValue("sub_new");
   });
 
-  it("reports storage-shape errors during preview before D1 writes", async () => {
+  it("rejects invalid subscription date order during preview before D1 writes", async () => {
     const { env } = envFixture();
-    const response = await previewImport(requestFor("/api/app/import/preview", importPayload([
+    await expect(previewImport(requestFor("/api/app/import/preview", importPayload([
       importSubscription({ startDate: "2026-07-01", nextBillingDate: "2026-06-01" }),
-    ])), env);
-    const json = await readSuccessData<{ summary: { errors: number }; items: Array<{ action: string; errors: string[] }> }>(response);
-
-    expect(response.status).toBe(200);
-    expect(json.summary.errors).toBe(1);
-    expect(json.items[0]?.action).toBe("error");
-    expect(json.items[0]?.errors[0]).toBe("IMPORT_SUBSCRIPTION_INVALID:nextBillingDate");
+    ])), env)).rejects.toMatchObject({
+      status: 400,
+      code: "INVALID_PAYLOAD",
+    } satisfies Partial<HttpError>);
   });
 
-  it("does not write D1 when apply payload fails preview storage validation", async () => {
+  it("does not write D1 when apply payload fails subscription schema validation", async () => {
     const { env, db } = envFixture();
 
     await expect(applyImport(requestFor("/api/app/import/apply", importPayload([
       importSubscription({ startDate: "2026-07-01", nextBillingDate: "2026-06-01" }),
     ])), env)).rejects.toMatchObject({
       status: 400,
-      code: "IMPORT_PREVIEW_FAILED",
+      code: "INVALID_PAYLOAD",
     } satisfies Partial<HttpError>);
 
     expect(db.batch).not.toHaveBeenCalled();
@@ -304,9 +301,10 @@ describe("Cloudflare import", () => {
     const costSharing = {
       enabled: true,
       splitMode: "custom",
+      collectionReminder: { enabled: true, reminderDays: -1 },
       members: [
-        { id: "partner", name: "Partner", customAmount: "7" },
-        { id: "child", name: "Child", customAmount: "5" },
+        { id: "partner", name: "Partner", customAmount: "7", joinedDate: "2026-05-21" },
+        { id: "child", name: "Child", customAmount: "5", joinedDate: "2026-05-21" },
       ],
     };
     const response = await applyImport(requestFor("/api/app/import/apply", importPayload([
@@ -318,6 +316,8 @@ describe("Cloudflare import", () => {
     const insert = statements.find((statement) => statement.sql.includes("INSERT INTO subscriptions"));
     expect(insert?.sql).toContain("cost_sharing_json");
     expect(JSON.parse(insert?.values[28] as string)).toEqual(costSharing);
+    expect(insert?.values[29]).toBe(1);
+    expect(insert?.values[30] as string).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
   it("refreshes scheduler state after applying subscription imports", async () => {
@@ -374,6 +374,9 @@ describe("Cloudflare import", () => {
         repeat_reminder_enabled: 0,
         repeat_reminder_interval: "1h",
         repeat_reminder_window: "72h",
+        cost_sharing_json: "{}",
+        cost_sharing_collection_reminder_enabled: 0,
+        cost_sharing_next_collection_reminder_date: null,
         extra_json: JSON.stringify({ import: { source: "wallos", sourceId: "usr:sub", confidence: "high" } }),
         created_at: "2026-06-01T00:00:00.000Z",
         updated_at: "2026-06-01T00:00:00.000Z",

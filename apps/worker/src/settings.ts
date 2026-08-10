@@ -5,6 +5,7 @@ import { HttpError, readJson, requestLocale, successJson } from "./http";
 import { requireAuth } from "./auth";
 import { serverText } from "./server-i18n";
 import { refreshSubscriptionSchedulerState } from "./subscription-scheduler-state";
+import { refreshCostSharingCollectionReminderMirrors } from "./subscriptions";
 import type { Env } from "./types";
 
 /**
@@ -31,6 +32,7 @@ export async function updateSettings(request: Request, env: Env): Promise<Respon
   const next = mergeSettingsPatch(current, patch);
   await rejectInstalledTelegramBotSettingsChange(env, auth.user.id, current, next, locale);
   const settings = await putSettings(env, auth.user.id, next);
+  await refreshCostSharingCollectionReminderMirrors(env, auth.user.id, settings);
   await refreshSubscriptionSchedulerState(env, auth.user.id, { resetAutoRenewCheck: false });
   return successJson(settingsPayloadSchema.parse({ settings }));
 }

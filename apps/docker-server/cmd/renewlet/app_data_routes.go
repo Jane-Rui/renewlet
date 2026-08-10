@@ -159,6 +159,9 @@ func handleSettingsUpdate(app core.App, e *core.RequestEvent) error {
 		if err != nil {
 			return e.InternalServerError(serverText(locale, "common.internalError"), err)
 		}
+		if err := refreshCostSharingCollectionReminderMirrorsForUser(app, e.Auth.Id, next, costSharingCollectionReminderReferenceDate(next, time.Now().UTC())); err != nil {
+			return e.InternalServerError(serverText(locale, "common.internalError"), err)
+		}
 		if _, err := refreshSubscriptionSchedulerState(app, e.Auth.Id, false); err != nil {
 			return e.InternalServerError(serverText(locale, "common.internalError"), err)
 		}
@@ -167,6 +170,9 @@ func handleSettingsUpdate(app core.App, e *core.RequestEvent) error {
 	record.Set("settings", next)
 	if err := app.Save(record); err != nil {
 		return e.BadRequestError(validationErrorMessage(locale, "common.invalidRequestBody", err), err)
+	}
+	if err := refreshCostSharingCollectionReminderMirrorsForUser(app, e.Auth.Id, next, costSharingCollectionReminderReferenceDate(next, time.Now().UTC())); err != nil {
+		return e.InternalServerError(serverText(locale, "common.internalError"), err)
 	}
 	if _, err := refreshSubscriptionSchedulerState(app, e.Auth.Id, false); err != nil {
 		return e.InternalServerError(serverText(locale, "common.internalError"), err)

@@ -82,6 +82,20 @@ export function getIntlCurrencySymbol(currency: string, locale: Locale = DEFAULT
   }
 }
 
+export function getIntlCurrencyNarrowSymbol(currency: string, locale: Locale = DEFAULT_LOCALE): string {
+  try {
+    const parts = new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency,
+      currencyDisplay: "narrowSymbol",
+      maximumFractionDigits: 0,
+    }).formatToParts(0);
+    return parts.find((part) => part.type === "currency")?.value ?? currency;
+  } catch {
+    return currency;
+  }
+}
+
 export interface IntlCurrencyIdentityLabel {
   code: string;
   name: string;

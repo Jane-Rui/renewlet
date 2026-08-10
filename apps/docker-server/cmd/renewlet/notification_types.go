@@ -130,14 +130,19 @@ type notificationSubscription struct {
 	Currency               string `json:"currency"`
 	Status                 string `json:"status"`
 	BillingCycle           string `json:"billingCycle"`
+	CustomDays             int    `json:"customDays,omitempty"`
+	CustomCycleUnit        string `json:"customCycleUnit,omitempty"`
 	OneTimeTermCount       int    `json:"oneTimeTermCount,omitempty"`
 	OneTimeTermUnit        string `json:"oneTimeTermUnit,omitempty"`
+	StartDate              string `json:"startDate,omitempty"`
 	NextBillingDate        string `json:"nextBillingDate"`
 	TrialEndDate           string `json:"trialEndDate,omitempty"`
 	ReminderDays           int    `json:"reminderDays"`
 	RepeatReminderEnabled  bool   `json:"repeatReminderEnabled"`
 	RepeatReminderInterval string `json:"repeatReminderInterval"`
 	RepeatReminderWindow   string `json:"repeatReminderWindow"`
+	// 通知投影读取完整 costSharing JSON；索引镜像只负责把候选行带进 collector。
+	CostSharing costSharingPayload
 }
 
 type repeatReminderSnapshot struct {
@@ -147,17 +152,25 @@ type repeatReminderSnapshot struct {
 
 // notificationContentItem 是一条实际会进入通知内容和历史 result 的提醒项。
 type notificationContentItem struct {
-	Type           string                  `json:"type"`
-	SubscriptionID string                  `json:"subscriptionId"`
-	Name           string                  `json:"name"`
-	LogoURL        string                  `json:"-"`
-	Price          string                  `json:"price"`
-	Currency       string                  `json:"currency"`
-	Status         string                  `json:"status"`
-	TargetDate     string                  `json:"targetDate"`
-	ReminderDays   int                     `json:"reminderDays"`
-	DaysUntil      int                     `json:"daysUntil"`
-	RepeatReminder *repeatReminderSnapshot `json:"repeatReminder,omitempty"`
+	Type           string                          `json:"type"`
+	SubscriptionID string                          `json:"subscriptionId"`
+	Name           string                          `json:"name"`
+	LogoURL        string                          `json:"-"`
+	Price          string                          `json:"price"`
+	Currency       string                          `json:"currency"`
+	Status         string                          `json:"status"`
+	TargetDate     string                          `json:"targetDate"`
+	ReminderDays   int                             `json:"reminderDays"`
+	DaysUntil      int                             `json:"daysUntil"`
+	RepeatReminder *repeatReminderSnapshot         `json:"repeatReminder,omitempty"`
+	CostSharing    *notificationCostSharingPayload `json:"costSharing,omitempty"`
+}
+
+type notificationCostSharingPayload struct {
+	MemberName string `json:"memberName"`
+	// Amount/Currency 是通知历史事实：equal 为订阅币种，custom 为成员配置币种，后端不做汇率猜测。
+	Amount   string `json:"amount"`
+	Currency string `json:"currency"`
 }
 
 // notificationMessage 是渠道发送层消费的统一消息。

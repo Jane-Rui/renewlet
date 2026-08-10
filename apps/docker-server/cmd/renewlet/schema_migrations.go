@@ -24,6 +24,8 @@ func runSchemaDataMigrations(app core.App) error {
 		{Name: "subscription_scheduler_states_v1", Run: backfillSubscriptionSchedulerStates},
 		{Name: "legacy_hash_only_calendar_feeds_v1", Run: deleteLegacyHashOnlyCalendarFeeds},
 		{Name: "cost_sharing_current_user_payer_shape_v1", Run: migrateCostSharingCurrentUserPayerShape},
+		{Name: "cost_sharing_collection_reminder_mirror_v2", Run: backfillCostSharingCollectionReminderMirrors},
+		{Name: "cost_sharing_collection_reminder_inherited_cycle_v3", Run: migrateCostSharingCollectionReminderInheritedCycle},
 		{Name: "invalid_subscription_logos_v1", Run: cleanupInvalidSubscriptionLogos},
 	}
 	for _, migration := range migrations {

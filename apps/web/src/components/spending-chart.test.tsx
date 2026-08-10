@@ -157,7 +157,7 @@ describe("SpendingChart", () => {
       }),
     ]);
     expect(screen.getByTestId("chart-tooltip")).toHaveTextContent("生产力");
-    expect(screen.getByTestId("chart-tooltip")).toHaveTextContent("¥20 / 月");
+    expect(screen.getByTestId("chart-tooltip")).toHaveTextContent("¥20 CNY / 月");
   });
 
   it("keeps the legend outside Recharts so it cannot shrink the pie plot area", () => {

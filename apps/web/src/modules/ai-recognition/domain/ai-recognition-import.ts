@@ -1,7 +1,7 @@
 import { importPayloadSchema, type ImportSubscription } from "@/lib/api/schemas/import-export";
 import type { AiRecognizedSubscriptionDraft } from "@/lib/api/schemas/ai-recognition";
 import { normalizeAIRecognitionUsefulNotes } from "@renewlet/shared/ai-recognition-notes";
-import type { DateOnly } from "@/lib/time/date-only";
+import { assertDateOnly, type DateOnly } from "@/lib/time/date-only";
 import type { ConfigItem, CustomConfig } from "@/types/config";
 import type { AppSettings, BillingCycle, CustomCycleUnit } from "@/types/subscription";
 import {
@@ -66,7 +66,7 @@ function buildAIImportSubscription(draft: AiRecognizedSubscriptionDraft, state: 
     draft.startDate !== null;
   const startDate = billingCycle === "one-time" || autoCalculateNextBillingDate
     ? requiredDate(draft.startDate)
-    : draft.startDate ?? null;
+    : optionalDate(draft.startDate);
   const nextBillingDate = requiredDate(draft.nextBillingDate);
   const websiteWarnings: string[] = [];
   const website = normalizeWebsite(draft.website?.value, websiteWarnings);
@@ -94,7 +94,7 @@ function buildAIImportSubscription(draft: AiRecognizedSubscriptionDraft, state: 
     nextBillingDate,
     autoRenew: false,
     autoCalculateNextBillingDate,
-    trialEndDate: draft.status === "trial" ? draft.trialEndDate : null,
+    trialEndDate: draft.status === "trial" ? optionalDate(draft.trialEndDate) : null,
     website: website ?? null,
     notes,
     tags: draft.tags,
@@ -175,9 +175,13 @@ function configMatchKey(value: string): string {
   return value.normalize("NFKC").trim().toLowerCase().replace(/[\s_\-—–/\\|&+，,、.。:：()（）[\]【】]+/g, "");
 }
 
-function requiredDate(value: DateOnly | string | null): DateOnly | string {
-  if (value) return value;
+function requiredDate(value: DateOnly | string | null): DateOnly {
+  if (value) return assertDateOnly(value);
   throw new Error("AI_RECOGNITION_DRAFT_DATE_REQUIRED");
+}
+
+function optionalDate(value: DateOnly | string | null): DateOnly | null {
+  return value ? assertDateOnly(value) : null;
 }
 
 function nextAISourceId(draft: AiRecognizedSubscriptionDraft, state: AIImportBuildState): string {

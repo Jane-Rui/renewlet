@@ -44,19 +44,35 @@ func listNotificationScheduleCandidateSubscriptions(app core.App, userID string,
 		"localDate": schedule.ScheduledLocalDate,
 		"maxDate":   addDateOnly(schedule.ScheduledLocalDate, maxReminderDays),
 	}
-	conditions := []string{
-		"(nextBillingDate >= {:localDate} && nextBillingDate <= {:maxDate})",
-		"(trialEndDate >= {:localDate} && trialEndDate <= {:maxDate})",
+	branches := []string{
+		"user = {:user} && reminderDays != {:disabled} && nextBillingDate >= {:localDate} && nextBillingDate <= {:maxDate}",
+		"user = {:user} && reminderDays != {:disabled} && trialEndDate >= {:localDate} && trialEndDate <= {:maxDate}",
 	}
 	if includeExpired && settings.ShowExpired {
-		conditions = append(conditions, "nextBillingDate < {:localDate}")
+		branches = append(branches, "user = {:user} && reminderDays != {:disabled} && nextBillingDate < {:localDate}")
 	}
-	// cron 只读“可能进入本次窗口”的候选，精确 reminderDays、trial/expired/one-time 语义仍交给 collect* 二次过滤。
-	return listNotificationSubscriptionsByFilter(
-		app,
-		"user = {:user} && reminderDays != {:disabled} && ("+strings.Join(conditions, " || ")+")",
-		params,
-	)
+	branches = append(branches, "user = {:user} && costSharingCollectionReminderEnabled = true && costSharingNextCollectionReminderDate != '' && costSharingNextCollectionReminderDate <= {:localDate}")
+	// 每个分支都对应独立索引候选；cron 热路径不解析 costSharing JSON，精确日期和成员周期由 collector 统一过滤。
+	return listNotificationSubscriptionsByIndexedBranches(app, branches, params)
+}
+
+func listNotificationSubscriptionsByIndexedBranches(app core.App, filters []string, params dbx.Params) ([]notificationSubscription, error) {
+	out := []notificationSubscription{}
+	seen := map[string]struct{}{}
+	for _, filter := range filters {
+		rows, err := listNotificationSubscriptionsByFilter(app, filter, params)
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			if _, ok := seen[row.ID]; ok {
+				continue
+			}
+			seen[row.ID] = struct{}{}
+			out = append(out, row)
+		}
+	}
+	return out, nil
 }
 
 func listRepeatReminderCandidateSubscriptions(app core.App, userID string, settings appSettings, now time.Time) ([]notificationSubscription, error) {
@@ -82,15 +98,27 @@ func notificationSubscriptionFromRecord(row *core.Record) notificationSubscripti
 		Currency:               row.GetString("currency"),
 		Status:                 row.GetString("status"),
 		BillingCycle:           row.GetString("billingCycle"),
+		CustomDays:             row.GetInt("customDays"),
+		CustomCycleUnit:        row.GetString("customCycleUnit"),
 		OneTimeTermCount:       row.GetInt("oneTimeTermCount"),
 		OneTimeTermUnit:        row.GetString("oneTimeTermUnit"),
+		StartDate:              row.GetString("startDate"),
 		NextBillingDate:        row.GetString("nextBillingDate"),
 		TrialEndDate:           row.GetString("trialEndDate"),
 		ReminderDays:           row.GetInt("reminderDays"),
 		RepeatReminderEnabled:  row.GetBool("repeatReminderEnabled"),
 		RepeatReminderInterval: normalizeRepeatReminderInterval(row.GetString("repeatReminderInterval")),
 		RepeatReminderWindow:   normalizeRepeatReminderWindow(row.GetString("repeatReminderWindow")),
+		CostSharing:            notificationCostSharingFromRecord(row),
 	}
+}
+
+func notificationCostSharingFromRecord(row *core.Record) costSharingPayload {
+	payload, ok := costSharingPayloadFromValue(row.Get("costSharing"))
+	if !ok {
+		return costSharingPayload{}
+	}
+	return payload
 }
 
 func normalizeNotificationReminderDays(value int) int {
@@ -166,43 +194,148 @@ func collectNotificationItemsForSchedule(schedule localScheduleOccurrence, setti
 func collectNotificationItems(localDate string, settings appSettings, subscriptions []notificationSubscription, includeExpired bool) []notificationContentItem {
 	items := []notificationContentItem{}
 	for _, sub := range subscriptions {
-		if isDisabledReminderDays(sub.ReminderDays) {
-			// -2 表示单订阅静默；在内容收集入口跳过，保证渠道通知和历史 payload 都不包含这条订阅。
-			continue
-		}
-		reminderDays, ok := effectiveReminderDays(sub, settings)
-		if !ok {
-			continue
-		}
 		if isValidDateOnly(sub.NextBillingDate) {
-			daysUntilNext := daysBetweenDateOnly(localDate, sub.NextBillingDate)
-			if sub.BillingCycle == "one-time" && sub.OneTimeTermCount <= 0 {
-				// one-time 买断记录没有权益到期日；购买日不能被通知系统解释成续费或过期边界。
-				continue
-			}
-			if sub.BillingCycle == "one-time" {
-				if daysUntilNext == reminderDays {
-					items = append(items, newNotificationContentItem("expiry", sub, sub.NextBillingDate, daysUntilNext, reminderDays, nil))
-				} else if daysUntilNext < 0 && settings.ShowExpired && includeExpired {
-					items = append(items, newNotificationContentItem("expired", sub, sub.NextBillingDate, daysUntilNext, reminderDays, nil))
-				}
-			} else if daysUntilNext < 0 {
-				if settings.ShowExpired && includeExpired {
-					items = append(items, newNotificationContentItem("expired", sub, sub.NextBillingDate, daysUntilNext, reminderDays, nil))
-				}
-			} else if daysUntilNext == reminderDays {
-				items = append(items, newNotificationContentItem("renewal", sub, sub.NextBillingDate, daysUntilNext, reminderDays, nil))
+			items = append(items, collectSubscriptionReminderItems(localDate, settings, sub, includeExpired)...)
+			if !(sub.BillingCycle == "one-time" && sub.OneTimeTermCount <= 0) {
+				items = append(items, collectCostSharingCollectionReminderItems(localDate, settings, sub)...)
 			}
 		}
 
-		if sub.Status == "trial" && isValidDateOnly(sub.TrialEndDate) {
-			daysUntilTrialEnd := daysBetweenDateOnly(localDate, sub.TrialEndDate)
-			if daysUntilTrialEnd == reminderDays {
-				items = append(items, newNotificationContentItem("trial", sub, sub.TrialEndDate, daysUntilTrialEnd, reminderDays, nil))
-			}
-		}
+		items = append(items, collectTrialReminderItems(localDate, settings, sub)...)
 	}
 	return items
+}
+
+func collectSubscriptionReminderItems(localDate string, settings appSettings, sub notificationSubscription, includeExpired bool) []notificationContentItem {
+	if isDisabledReminderDays(sub.ReminderDays) {
+		// -2 表示单订阅静默；只关闭普通续费/到期提醒，不影响独立的家庭共享收款提醒。
+		return []notificationContentItem{}
+	}
+	reminderDays, ok := effectiveReminderDays(sub, settings)
+	if !ok {
+		return []notificationContentItem{}
+	}
+	daysUntilNext := daysBetweenDateOnly(localDate, sub.NextBillingDate)
+	if sub.BillingCycle == "one-time" && sub.OneTimeTermCount <= 0 {
+		// one-time 买断记录没有权益到期日；购买日不能被通知系统解释成续费或过期边界。
+		return []notificationContentItem{}
+	}
+	if sub.BillingCycle == "one-time" {
+		if daysUntilNext == reminderDays {
+			return []notificationContentItem{newNotificationContentItem("expiry", sub, sub.NextBillingDate, daysUntilNext, reminderDays, nil)}
+		}
+		if daysUntilNext < 0 && settings.ShowExpired && includeExpired {
+			return []notificationContentItem{newNotificationContentItem("expired", sub, sub.NextBillingDate, daysUntilNext, reminderDays, nil)}
+		}
+		return []notificationContentItem{}
+	}
+	if daysUntilNext < 0 {
+		if settings.ShowExpired && includeExpired {
+			return []notificationContentItem{newNotificationContentItem("expired", sub, sub.NextBillingDate, daysUntilNext, reminderDays, nil)}
+		}
+		return []notificationContentItem{}
+	}
+	if daysUntilNext == reminderDays {
+		return []notificationContentItem{newNotificationContentItem("renewal", sub, sub.NextBillingDate, daysUntilNext, reminderDays, nil)}
+	}
+	return []notificationContentItem{}
+}
+
+func collectTrialReminderItems(localDate string, settings appSettings, sub notificationSubscription) []notificationContentItem {
+	if isDisabledReminderDays(sub.ReminderDays) || sub.Status != "trial" || !isValidDateOnly(sub.TrialEndDate) {
+		return []notificationContentItem{}
+	}
+	reminderDays, ok := effectiveReminderDays(sub, settings)
+	if !ok {
+		return []notificationContentItem{}
+	}
+	daysUntilTrialEnd := daysBetweenDateOnly(localDate, sub.TrialEndDate)
+	if daysUntilTrialEnd != reminderDays {
+		return []notificationContentItem{}
+	}
+	return []notificationContentItem{newNotificationContentItem("trial", sub, sub.TrialEndDate, daysUntilTrialEnd, reminderDays, nil)}
+}
+
+func collectCostSharingCollectionReminderItems(localDate string, settings appSettings, sub notificationSubscription) []notificationContentItem {
+	reminderDays, ok := effectiveCostSharingCollectionReminderDays(sub, settings)
+	if !ok {
+		return []notificationContentItem{}
+	}
+	items := make([]notificationContentItem, 0, len(sub.CostSharing.Members))
+	for _, member := range sub.CostSharing.Members {
+		targetDate, ok := costSharingCollectionTargetForLocalDate(member, sub, localDate, reminderDays)
+		if !ok {
+			continue
+		}
+		daysUntilTarget := daysBetweenDateOnly(localDate, targetDate)
+		amount, currency, ok := costSharingCollectionAmountForMember(sub, member)
+		if !ok {
+			continue
+		}
+		items = append(items, newCostSharingNotificationContentItem(sub, member.Name, amount, currency, targetDate, daysUntilTarget, reminderDays))
+	}
+	return items
+}
+
+func effectiveCostSharingCollectionReminderDays(sub notificationSubscription, settings appSettings) (int, bool) {
+	reminder := sub.CostSharing.CollectionReminder
+	if !sub.CostSharing.Enabled || len(sub.CostSharing.Members) == 0 || reminder == nil || !reminder.Enabled || reminder.ReminderDays == nil {
+		return 0, false
+	}
+	// 收款提醒独立于普通 reminderDays：订阅 -2 静默不关闭家庭收款，-1 只继承全局提醒天数。
+	days := *reminder.ReminderDays
+	if isInheritReminderDays(days) {
+		return normalizeNotificationReminderDays(settings.NotificationReminderDays), true
+	}
+	if days < 0 || days > maxReminderDays {
+		return 0, false
+	}
+	return days, true
+}
+
+func costSharingCollectionTargetForLocalDate(member costSharingMember, sub notificationSubscription, localDate string, reminderDays int) (string, bool) {
+	reminder := sub.CostSharing.CollectionReminder
+	if reminder == nil {
+		return "", false
+	}
+	anchor := costSharingMemberCollectionAnchor(member, sub.StartDate)
+	if anchor == "" {
+		return "", false
+	}
+	targetThreshold := addDateOnly(localDate, reminderDays)
+	targetDate, ok := nextCostSharingCollectionTargetDate(anchor, costSharingCollectionBillingFromNotificationSubscription(sub), targetThreshold)
+	if !ok || daysBetweenDateOnly(localDate, targetDate) != reminderDays {
+		return "", false
+	}
+	return targetDate, true
+}
+
+func costSharingCollectionBillingFromNotificationSubscription(sub notificationSubscription) costSharingCollectionBilling {
+	return costSharingCollectionBilling{
+		BillingCycle:     sub.BillingCycle,
+		CustomDays:       sub.CustomDays,
+		CustomCycleUnit:  sub.CustomCycleUnit,
+		OneTimeTermCount: sub.OneTimeTermCount,
+		OneTimeTermUnit:  sub.OneTimeTermUnit,
+		StartDate:        sub.StartDate,
+		NextBillingDate:  sub.NextBillingDate,
+	}
+}
+
+func costSharingCollectionAmountForMember(sub notificationSubscription, member costSharingMember) (string, string, bool) {
+	currency := strings.TrimSpace(member.Currency)
+	if currency == "" {
+		currency = sub.Currency
+	}
+	if sub.CostSharing.SplitMode == "custom" {
+		if member.CustomAmount == nil {
+			return "", "", false
+		}
+		// custom 模式只使用成员配置的金额和币种；后端不猜汇率，也不把订阅币种强行换算过去。
+		return moneyForRecord(*member.CustomAmount), currency, true
+	}
+	participantCount := len(sub.CostSharing.Members) + 1
+	return divideMoneyString(sub.Price, participantCount), sub.Currency, true
 }
 
 func collectRepeatNotificationItems(schedule localScheduleOccurrence, settings appSettings, subscriptions []notificationSubscription) []notificationContentItem {
@@ -261,6 +394,16 @@ func newNotificationContentItem(itemType string, sub notificationSubscription, t
 	}
 }
 
+func newCostSharingNotificationContentItem(sub notificationSubscription, memberName string, amount string, currency string, targetDate string, daysUntil int, reminderDays int) notificationContentItem {
+	item := newNotificationContentItem("costSharing", sub, targetDate, daysUntil, reminderDays, nil)
+	item.CostSharing = &notificationCostSharingPayload{
+		MemberName: memberName,
+		Amount:     moneyForRecord(amount),
+		Currency:   currency,
+	}
+	return item
+}
+
 func repeatReminderOccurrenceMatches(scheduledInstant time.Time, settings appSettings, reminderDays int, targetDate string, repeat *repeatReminderSnapshot) bool {
 	targetInstant, err := getScheduleInstant(targetDate, settings.NotificationTimeLocal, settings.Timezone)
 	if err != nil {
@@ -295,6 +438,7 @@ func buildNotificationContent(now time.Time, settings appSettings, items []notif
 	expiries := []string{}
 	trials := []string{}
 	expired := []string{}
+	collections := []string{}
 	for _, item := range items {
 		line := formatNotificationItemLine(item, locale)
 		switch item.Type {
@@ -304,6 +448,8 @@ func buildNotificationContent(now time.Time, settings appSettings, items []notif
 			trials = append(trials, line)
 		case "expired":
 			expired = append(expired, line)
+		case "costSharing":
+			collections = append(collections, line)
 		default:
 			renewals = append(renewals, line)
 		}
@@ -321,6 +467,9 @@ func buildNotificationContent(now time.Time, settings appSettings, items []notif
 	}
 	if len(expired) > 0 {
 		blocks = append(blocks, serverText(locale, "notification.content.expiredBlock")+"\n"+strings.Join(expired, "\n"))
+	}
+	if len(collections) > 0 {
+		blocks = append(blocks, serverText(locale, "notification.content.costSharingBlock")+"\n"+strings.Join(collections, "\n"))
 	}
 	hasPayload := len(blocks) > 0
 	content := serverText(locale, "notification.content.empty")
@@ -344,15 +493,26 @@ func formatNotificationItemLine(item notificationContentItem, locale appLocale) 
 		extra = serverFormat(locale, "notification.content.expiryReminderDays", map[string]interface{}{"days": item.ReminderDays})
 	} else if item.Type == "expired" {
 		extra = serverText(locale, "notification.content.expiredStatus")
+	} else if item.Type == "costSharing" && item.CostSharing != nil {
+		extra = serverFormat(locale, "notification.content.costSharingReminderDays", map[string]interface{}{
+			"member": item.CostSharing.MemberName,
+			"days":   item.ReminderDays,
+		})
 	}
 	if item.RepeatReminder != nil {
 		extra += serverText(locale, "notification.content.repeatSeparator") + formatRepeatReminderText(item.RepeatReminder.Interval, locale)
 	}
+	amount := item.Price
+	currency := item.Currency
+	if item.Type == "costSharing" && item.CostSharing != nil {
+		amount = item.CostSharing.Amount
+		currency = item.CostSharing.Currency
+	}
 	return serverFormat(locale, "notification.content.itemLine", map[string]interface{}{
 		"name":       item.Name,
 		"targetDate": item.TargetDate,
-		"amount":     formatAmount(item.Price),
-		"currency":   item.Currency,
+		"amount":     formatAmount(amount),
+		"currency":   currency,
 		"extra":      extra,
 	})
 }

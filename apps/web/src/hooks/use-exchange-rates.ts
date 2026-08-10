@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getApiLocale } from "@/i18n/api-locale";
 import { translate } from "@/i18n/messages";
-import { getIntlCurrencySymbol } from "@/lib/currency-data";
+import { getIntlCurrencyNarrowSymbol, getIntlCurrencySymbol } from "@/lib/currency-data";
 import type {
   ExchangeRateCoverageWarning,
   ExchangeRateProvider,
@@ -150,9 +150,12 @@ export function createUseExchangeRates(store: ExchangeRateStore) {
       currency: string,
       maxFractionDigits = 3,
     ): string => {
-      const symbol = getCurrencySymbol(currency);
-      return `${symbol}${formatNumberMaxFractionDigits(amount, maxFractionDigits)}`;
-    }, [getCurrencySymbol]);
+      const currencyCode = currency.trim().toUpperCase() || currency;
+      const symbol = getIntlCurrencyNarrowSymbol(currencyCode);
+      const formattedAmount = formatNumberMaxFractionDigits(amount, maxFractionDigits);
+      if (!symbol || symbol.trim().toUpperCase() === currencyCode) return `${formattedAmount} ${currencyCode}`;
+      return `${symbol}${formattedAmount} ${currencyCode}`;
+    }, []);
 
     return {
       rates,

@@ -7,7 +7,7 @@
  */
 import { DEFAULT_LOCALE, type Locale } from "@/i18n/locales";
 import { toMonthlyAmount } from "@/lib/subscription-billing";
-import { compareDateOnly, type DateOnly } from "@/lib/time/date-only";
+import { assertDateOnly, compareDateOnly, type DateOnly } from "@/lib/time/date-only";
 import type { SubscriptionListFilters } from "@/services/subscription-service";
 import type { BillingCycle, Category, Subscription, SubscriptionStatus } from "@/types/subscription";
 import { compareMoney } from "@renewlet/shared/money";
@@ -276,8 +276,8 @@ export function buildSubscriptionListFilters(
   if (advancedFilters.selectedBillingCycles.length > 0) query.billingCycle = advancedFilters.selectedBillingCycles;
   if (advancedFilters.selectedPaymentMethods.length > 0) query.paymentMethod = advancedFilters.selectedPaymentMethods;
   if (advancedFilters.selectedCurrencies.length > 0) query.currency = advancedFilters.selectedCurrencies;
-  if (advancedFilters.nextBillingFrom) query.nextBillingFrom = advancedFilters.nextBillingFrom;
-  if (advancedFilters.nextBillingTo) query.nextBillingTo = advancedFilters.nextBillingTo;
+  if (advancedFilters.nextBillingFrom) query.nextBillingFrom = assertDateOnly(advancedFilters.nextBillingFrom);
+  if (advancedFilters.nextBillingTo) query.nextBillingTo = assertDateOnly(advancedFilters.nextBillingTo);
   const pinned = booleanFilterToQuery(advancedFilters.pinnedFilter);
   if (pinned !== undefined) query.pinned = pinned;
   const publicHidden = booleanFilterToQuery(advancedFilters.publicHiddenFilter);

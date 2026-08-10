@@ -181,6 +181,7 @@ export function subscriptionToImportSubscription(subscription: Subscription, sou
     repeatReminderEnabled: subscription.repeatReminderEnabled,
     repeatReminderInterval: subscription.repeatReminderInterval,
     repeatReminderWindow: subscription.repeatReminderWindow,
+    costSharing: subscription.costSharing ?? null,
     extra,
   };
 }
@@ -219,6 +220,7 @@ export function subscriptionToExportRow(subscription: Subscription): RenewletExp
     repeatReminderEnabled: subscription.repeatReminderEnabled,
     repeatReminderInterval: subscription.repeatReminderInterval,
     repeatReminderWindow: subscription.repeatReminderWindow,
+    ...(subscription.costSharing ? { costSharing: subscription.costSharing } : {}),
     extra: subscription.extra ?? {},
   };
 }

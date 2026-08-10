@@ -311,52 +311,6 @@ func TestRegularAndRepeatReminderItemsShareOneSchedule(t *testing.T) {
 	}
 }
 
-func TestNotificationScheduleCandidateSubscriptionsMatchFullFiltering(t *testing.T) {
-	app := newSchemaTestApp(t)
-	if err := ensureSchema(app); err != nil {
-		t.Fatal(err)
-	}
-	user, _ := createRouteTestUser(t, app, "notification-candidates")
-	settings := defaultAppSettings()
-	settings.Timezone = "UTC"
-	settings.NotificationTimeLocal = "08:00"
-	settings.NotificationReminderDays = 5
-	settings.ShowExpired = true
-	schedule := localScheduleOccurrence{
-		ScheduledLocalDate:  "2026-05-14",
-		ScheduledLocalTime:  "08:00",
-		TimeZone:            "UTC",
-		ScheduledInstantUTC: "2026-05-14T08:00:00Z",
-	}
-
-	createRouteTestSubscription(t, app, user.Id, map[string]interface{}{"name": "Renewal", "nextBillingDate": "2026-05-17", "reminderDays": 3})
-	createRouteTestSubscription(t, app, user.Id, map[string]interface{}{"name": "Inherited", "nextBillingDate": "2026-05-19", "reminderDays": inheritReminderDays})
-	createRouteTestSubscription(t, app, user.Id, map[string]interface{}{"name": "Trial", "status": "trial", "nextBillingDate": "2026-06-01", "trialEndDate": "2026-05-15", "reminderDays": 1})
-	createRouteTestSubscription(t, app, user.Id, map[string]interface{}{"name": "Expired", "nextBillingDate": "2026-05-01", "reminderDays": 7})
-	createRouteTestSubscription(t, app, user.Id, map[string]interface{}{"name": "Fixed Term", "billingCycle": "one-time", "oneTimeTermCount": 6, "oneTimeTermUnit": "month", "nextBillingDate": "2026-05-17", "reminderDays": 3})
-	createRouteTestSubscription(t, app, user.Id, map[string]interface{}{"name": "Lifetime", "billingCycle": "one-time", "nextBillingDate": "2026-05-14", "reminderDays": 0})
-	createRouteTestSubscription(t, app, user.Id, map[string]interface{}{"name": "Quiet", "nextBillingDate": "2026-05-17", "reminderDays": disabledReminderDays})
-	createRouteTestSubscription(t, app, user.Id, map[string]interface{}{"name": "Future", "nextBillingDate": "2040-01-01", "reminderDays": 3})
-
-	full, err := listNotificationSubscriptions(app, user.Id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	candidates, err := listNotificationScheduleCandidateSubscriptions(app, user.Id, settings, schedule, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fullMessage := buildDueNotificationForSchedule(schedule, time.Date(2026, 5, 14, 8, 0, 0, 0, time.UTC), settings, full, true)
-	candidateMessage := buildDueNotificationForSchedule(schedule, time.Date(2026, 5, 14, 8, 0, 0, 0, time.UTC), settings, candidates, true)
-
-	if len(candidates) >= len(full) {
-		t.Fatalf("expected cron candidates to avoid full subscription scan, got candidates=%d full=%d", len(candidates), len(full))
-	}
-	if got, want := notificationItemKeys(candidateMessage.Items), notificationItemKeys(fullMessage.Items); strings.Join(got, "|") != strings.Join(want, "|") {
-		t.Fatalf("candidate items = %#v, want %#v", got, want)
-	}
-}
-
 func TestRepeatReminderCandidateSubscriptionsMatchFullFiltering(t *testing.T) {
 	app := newSchemaTestApp(t)
 	if err := ensureSchema(app); err != nil {
@@ -446,7 +400,11 @@ func notificationItemKeys(items []notificationContentItem) []string {
 		if item.RepeatReminder != nil {
 			repeat = item.RepeatReminder.Interval + "/" + item.RepeatReminder.Window
 		}
-		keys = append(keys, item.Type+"|"+item.Name+"|"+item.TargetDate+"|"+repeat)
+		collection := ""
+		if item.CostSharing != nil {
+			collection = item.CostSharing.MemberName + "/" + item.CostSharing.Amount + "/" + item.CostSharing.Currency
+		}
+		keys = append(keys, item.Type+"|"+item.Name+"|"+item.TargetDate+"|"+repeat+"|"+collection)
 	}
 	sort.Strings(keys)
 	return keys

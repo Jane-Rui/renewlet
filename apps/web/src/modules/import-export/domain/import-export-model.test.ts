@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS } from "@/types/subscription";
-import { sanitizeSettingsForExport } from "./import-export-model";
+import type { Subscription } from "@/types/subscription";
+import { assertDateOnly } from "@/lib/time/date-only";
+import { sanitizeSettingsForExport, subscriptionToExportRow, subscriptionToImportSubscription } from "./import-export-model";
 
 describe("sanitizeSettingsForExport", () => {
   it("strips external notification secrets unless explicitly included", () => {
@@ -43,5 +45,46 @@ describe("sanitizeSettingsForExport", () => {
     expect(withSecrets.dingtalkKeyword).toBe("自定义关键词");
     expect(withSecrets.dingtalkTitleTemplate).toBe("自定义标题");
     expect(withSecrets.dingtalkContentTemplate).toBe("自定义正文");
+  });
+});
+
+describe("subscription export model", () => {
+  it("preserves cost sharing collection reminders in import and export rows", () => {
+    const subscription = {
+      id: "sub-family",
+      name: "Family Plan",
+      logo: undefined,
+      price: "30",
+      currency: "USD",
+      billingCycle: "monthly",
+      customDays: undefined,
+      customCycleUnit: undefined,
+      category: "productivity",
+      status: "active",
+      pinned: false,
+      publicHidden: false,
+      paymentMethod: undefined,
+      startDate: assertDateOnly("2026-01-01"),
+      nextBillingDate: assertDateOnly("2026-02-01"),
+      autoRenew: false,
+      autoCalculateNextBillingDate: false,
+      trialEndDate: undefined,
+      website: undefined,
+      notes: undefined,
+      tags: [],
+      reminderDays: -2,
+      repeatReminderEnabled: false,
+      repeatReminderInterval: "1h",
+      repeatReminderWindow: "72h",
+      costSharing: {
+        enabled: true,
+        splitMode: "equal",
+        collectionReminder: { enabled: true, reminderDays: -1 },
+        members: [{ id: "partner", name: "Partner", currency: "USD" }],
+      },
+    } satisfies Subscription;
+
+    expect(subscriptionToImportSubscription(subscription).costSharing).toEqual(subscription.costSharing);
+    expect(subscriptionToExportRow(subscription).costSharing).toEqual(subscription.costSharing);
   });
 });

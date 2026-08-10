@@ -395,7 +395,7 @@ export function SettingsScreen() {
                           aria-describedby={field.describedBy}
                         />
                         <span className="text-sm text-muted-foreground">
-                          {getCurrencySymbol(settings.defaultCurrency)} {t("settings.perMonth")}
+                          {getCurrencySymbol(settings.defaultCurrency)} {settings.defaultCurrency} {t("settings.perMonth")}
                         </span>
                       </div>
                     )}
@@ -508,7 +508,6 @@ export function SettingsScreen() {
                 handleSubscriptionPriceReferenceEnabledChange={(checked) => updateSetting("subscriptionPriceReferenceEnabled", checked)}
                 handleSubscriptionPriceReferenceCurrencyChange={(value) => updateSetting("subscriptionPriceReferenceCurrency", value as SubscriptionPriceReferenceCurrency)}
                 handleExchangeRateProviderChange={handleExchangeRateProviderChange}
-                getCurrencySymbol={getCurrencySymbol}
               />
 
               <CalendarFeedSection

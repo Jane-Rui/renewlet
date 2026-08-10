@@ -16,7 +16,7 @@ import { getSettings, listSubscriptions, mergeSettingsPatch, newId, nowIso, pars
 import { requestLocale, readJsonWithLimit, HttpError, successJson, type AppLocale } from "./http";
 import { serverText } from "./server-i18n";
 import { requireAuth } from "./auth";
-import { normalizeSubscriptionBodyForStorage, subscriptionRowValues, toSubscriptionRow, type SubscriptionBody } from "./subscriptions";
+import { normalizeSubscriptionBodyForStorage, refreshCostSharingCollectionReminderMirrors, subscriptionRowValues, toSubscriptionRow, type SubscriptionBody } from "./subscriptions";
 import { refreshSubscriptionDerivedState } from "./subscription-derived-state";
 import { refreshSubscriptionSchedulerState } from "./subscription-scheduler-state";
 import { exchangeRateSnapshotUpsertStatement } from "./exchange-rate-snapshots";
@@ -27,8 +27,9 @@ const INSERT_SUBSCRIPTION_SQL = `
     id, user_id, name, logo, price, currency, billing_cycle, custom_days, custom_cycle_unit, one_time_term_count, one_time_term_unit,
     category, status, pinned, public_hidden, payment_method,
     start_date, next_billing_date, auto_renew, auto_calculate_next_billing_date, trial_end_date, website, notes, tags_json,
-    reminder_days, repeat_reminder_enabled, repeat_reminder_interval, repeat_reminder_window, cost_sharing_json, extra_json, created_at, updated_at
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    reminder_days, repeat_reminder_enabled, repeat_reminder_interval, repeat_reminder_window, cost_sharing_json,
+    cost_sharing_collection_reminder_enabled, cost_sharing_next_collection_reminder_date, extra_json, created_at, updated_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 const UPDATE_SUBSCRIPTION_SQL = `
@@ -37,7 +38,8 @@ const UPDATE_SUBSCRIPTION_SQL = `
     one_time_term_count = ?, one_time_term_unit = ?, category = ?, status = ?,
     pinned = ?, public_hidden = ?, payment_method = ?, start_date = ?, next_billing_date = ?, auto_renew = ?, auto_calculate_next_billing_date = ?,
     trial_end_date = ?, website = ?, notes = ?, tags_json = ?, reminder_days = ?, repeat_reminder_enabled = ?,
-    repeat_reminder_interval = ?, repeat_reminder_window = ?, cost_sharing_json = ?, extra_json = ?, updated_at = ?
+    repeat_reminder_interval = ?, repeat_reminder_window = ?, cost_sharing_json = ?,
+    cost_sharing_collection_reminder_enabled = ?, cost_sharing_next_collection_reminder_date = ?, extra_json = ?, updated_at = ?
   WHERE user_id = ? AND id = ?
 `;
 
@@ -75,6 +77,8 @@ export async function applyImport(request: Request, env: Env): Promise<Response>
   const timestamp = nowIso();
   const statements: D1PreparedStatement[] = [];
   const existingMatches = buildExistingImportMatches(existing);
+  const settingsForRows = await getSettings(env, auth.user.id);
+  let finalSettingsForMirrors = settingsForRows;
   let wroteSubscriptions = false;
   let wroteSettings = false;
   for (const item of preview.items) {
@@ -83,12 +87,14 @@ export async function applyImport(request: Request, env: Env): Promise<Response>
     if (!source) continue;
     const { row: existingRow } = resolveExistingImportMatch(existingMatches, source.extra.import, source);
     // import preview 已按 shared 写入 schema 收敛；apply 只消费这份 allowlist body，避免预览通过后 D1 写入才暴露字段错误。
+    // toSubscriptionRow 会同步 costSharing 收款提醒镜像列；导入不能只写 JSON 而让 cron 索引候选漏行。
     const row = toSubscriptionRow(
       existingRow?.id ?? newId("sub"),
       auth.user.id,
       source,
       existingRow?.created_at ?? timestamp,
       timestamp,
+      { settings: settingsForRows },
     );
     if (existingRow) {
       wroteSubscriptions = true;
@@ -120,6 +126,8 @@ export async function applyImport(request: Request, env: Env): Promise<Response>
         row.repeat_reminder_interval,
         row.repeat_reminder_window,
         row.cost_sharing_json,
+        row.cost_sharing_collection_reminder_enabled,
+        row.cost_sharing_next_collection_reminder_date,
         row.extra_json,
         timestamp,
         auth.user.id,
@@ -133,8 +141,9 @@ export async function applyImport(request: Request, env: Env): Promise<Response>
 
   if (body.payload.settings) {
     wroteSettings = true;
-    const current = await getSettings(env, auth.user.id);
+    const current = settingsForRows;
     const next = mergeSettingsPatch(current, body.payload.settings);
+    finalSettingsForMirrors = next;
     // settings merge 先套默认值和清洗规则，再写 JSON；导入文件不能绕过设置页契约塞入未知字段。
     statements.push(env.DB.prepare(`
       INSERT INTO settings (user_id, settings_json, created_at, updated_at)
@@ -159,6 +168,9 @@ export async function applyImport(request: Request, env: Env): Promise<Response>
   if (statements.length > 0) {
     // D1 batch 在同一事务里执行；导入要么整体写入，要么让调用方看到明确失败。
     await env.DB.batch(statements);
+  }
+  if (wroteSubscriptions || wroteSettings) {
+    await refreshCostSharingCollectionReminderMirrors(env, auth.user.id, finalSettingsForMirrors);
   }
   if (wroteSubscriptions) {
     await refreshSubscriptionDerivedState(env, auth.user.id, { resetAutoRenewCheck: true });

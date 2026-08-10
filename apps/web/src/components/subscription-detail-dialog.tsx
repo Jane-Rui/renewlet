@@ -117,7 +117,6 @@ function SubscriptionDetailContent({
     ? null
     : t("subscription.priceReference", {
         amount: formatCurrency(priceReference.amount, priceReference.currency),
-        currency: priceReference.currency,
       });
   const renewalLabel = isOneTime
     ? t("subscription.renewal.oneTime")

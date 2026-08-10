@@ -68,7 +68,7 @@ export const SubscriptionCalendar = ({ subscriptions, onEditSubscription }: Subs
   const defaultCurrency = settings?.defaultCurrency ?? 'CNY';
   const priceReferenceCurrency = settings ? resolveSubscriptionPriceReferenceCurrency(settings) : null;
   const today = todayDateOnlyInTimeZone(new Date(), settings?.timezone ?? "UTC");
-  const { convert, getCurrencySymbol, loading: ratesLoading, sourceDate: ratesSourceDate } = useExchangeRates(settings?.exchangeRateProvider);
+  const { convert, loading: ratesLoading, sourceDate: ratesSourceDate } = useExchangeRates(settings?.exchangeRateProvider);
   const currencyRatesReady = Boolean(ratesSourceDate) && !ratesLoading;
 
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -531,7 +531,7 @@ export const SubscriptionCalendar = ({ subscriptions, onEditSubscription }: Subs
                           <TooltipContent side="top" className="text-xs">
                             <p className="font-medium">{sub.name}</p>
                             <p className="text-muted-foreground">
-                              {getCurrencySymbol(sub.currency)}{sub.price}
+                              {formatCurrency(sub.price, sub.currency)}
                             </p>
                             <p className="text-muted-foreground/70">{t("calendar.viewDetails")}</p>
                           </TooltipContent>

@@ -390,7 +390,7 @@ func processNotificationCronUser(app core.App, options notificationCronOptions, 
 		if existingJob.GetString("status") == notificationStatusSkipped {
 			reason = "already_skipped"
 		}
-		if _, err := refreshSubscriptionSchedulerStateWithOptions(app, userID, subscriptionSchedulerRefreshOptions{Now: options.Now, SkipCurrentNotificationWindow: true}); err != nil {
+		if err := refreshNotificationSettledDerivedState(app, userID, settings, schedule.localScheduleOccurrence, options); err != nil {
 			return notificationCronUserResult{}, err
 		}
 		return notificationCronUserResult{UserID: userID, Action: "skipped", Reason: reason}, nil
@@ -463,7 +463,7 @@ func processNotificationCronUser(app core.App, options notificationCronOptions, 
 		if err := finalizeNotificationJob(app, existingJob, userID, schedule, notificationStatusSkipped, "", result); err != nil {
 			return notificationCronUserResult{}, err
 		}
-		if _, err := refreshSubscriptionSchedulerStateWithOptions(app, userID, subscriptionSchedulerRefreshOptions{Now: options.Now, SkipCurrentNotificationWindow: true}); err != nil {
+		if err := refreshNotificationSettledDerivedState(app, userID, settings, schedule.localScheduleOccurrence, options); err != nil {
 			return notificationCronUserResult{}, err
 		}
 		return notificationCronUserResult{UserID: userID, Action: "skipped", Reason: finalReason}, nil
@@ -475,7 +475,7 @@ func processNotificationCronUser(app core.App, options notificationCronOptions, 
 		if err := finalizeNotificationJob(app, existingJob, userID, schedule, notificationStatusSent, "", result); err != nil {
 			return notificationCronUserResult{}, err
 		}
-		if _, err := refreshSubscriptionSchedulerStateWithOptions(app, userID, subscriptionSchedulerRefreshOptions{Now: options.Now, SkipCurrentNotificationWindow: true}); err != nil {
+		if err := refreshNotificationSettledDerivedState(app, userID, settings, schedule.localScheduleOccurrence, options); err != nil {
 			return notificationCronUserResult{}, err
 		}
 		return notificationCronUserResult{UserID: userID, Action: "sent"}, nil
@@ -502,10 +502,19 @@ func processNotificationCronUser(app core.App, options notificationCronOptions, 
 	action := "sent"
 	if status == notificationStatusFailed {
 		action = "failed"
-	} else if _, err := refreshSubscriptionSchedulerStateWithOptions(app, userID, subscriptionSchedulerRefreshOptions{Now: options.Now, SkipCurrentNotificationWindow: true}); err != nil {
+	} else if err := refreshNotificationSettledDerivedState(app, userID, settings, schedule.localScheduleOccurrence, options); err != nil {
 		return notificationCronUserResult{}, err
 	}
 	return notificationCronUserResult{UserID: userID, Action: action, Reason: reason}, nil
+}
+
+func refreshNotificationSettledDerivedState(app core.App, userID string, settings appSettings, schedule localScheduleOccurrence, options notificationCronOptions) error {
+	// 已处理的收款提醒必须以“下一个本地日期”推进镜像；失败任务不走这里，保留原 due 日期给重试。
+	if err := refreshCostSharingCollectionReminderMirrorsForUser(app, userID, settings, addDateOnly(schedule.ScheduledLocalDate, 1)); err != nil {
+		return err
+	}
+	_, err := refreshSubscriptionSchedulerStateWithOptions(app, userID, subscriptionSchedulerRefreshOptions{Now: options.Now, SkipCurrentNotificationWindow: true})
+	return err
 }
 
 // resolveCronOptions 填充 cron 默认参数。

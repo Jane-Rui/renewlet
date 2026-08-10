@@ -201,7 +201,6 @@ function SubscriptionCardComponent({
     ? null
     : t("subscription.priceReference", {
         amount: formatCurrency(priceReference.amount, priceReference.currency),
-        currency: priceReference.currency,
       });
   const costSharingSummary = calculateCostSharingSummary(subscription.costSharing, subscription.price, {
     baseCurrency: subscription.currency,
