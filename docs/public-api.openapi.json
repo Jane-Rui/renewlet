@@ -793,6 +793,13 @@
                                 "type": "string",
                                 "maxLength": 500
                               },
+                              "joinedDate": {
+                                "type": "string",
+                                "format": "date",
+                                "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                                "description": "Renewlet date-only string in YYYY-MM-DD format. No time or time zone.",
+                                "example": "2026-01-01"
+                              },
                               "currency": {
                                 "type": "string",
                                 "pattern": "^[A-Z]{3}$"
@@ -810,6 +817,24 @@
                             ],
                             "additionalProperties": false
                           }
+                        },
+                        "collectionReminder": {
+                          "type": "object",
+                          "properties": {
+                            "enabled": {
+                              "type": "boolean"
+                            },
+                            "reminderDays": {
+                              "type": "integer",
+                              "minimum": -1,
+                              "maximum": 3650
+                            }
+                          },
+                          "required": [
+                            "enabled",
+                            "reminderDays"
+                          ],
+                          "additionalProperties": false
                         }
                       },
                       "required": [
@@ -1081,6 +1106,13 @@
                               "type": "string",
                               "maxLength": 500
                             },
+                            "joinedDate": {
+                              "type": "string",
+                              "format": "date",
+                              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                              "description": "Renewlet date-only string in YYYY-MM-DD format. No time or time zone.",
+                              "example": "2026-01-01"
+                            },
                             "currency": {
                               "type": "string",
                               "pattern": "^[A-Z]{3}$"
@@ -1098,6 +1130,24 @@
                           ],
                           "additionalProperties": false
                         }
+                      },
+                      "collectionReminder": {
+                        "type": "object",
+                        "properties": {
+                          "enabled": {
+                            "type": "boolean"
+                          },
+                          "reminderDays": {
+                            "type": "integer",
+                            "minimum": -1,
+                            "maximum": 3650
+                          }
+                        },
+                        "required": [
+                          "enabled",
+                          "reminderDays"
+                        ],
+                        "additionalProperties": false
                       }
                     },
                     "required": [
@@ -1450,6 +1500,13 @@
                                     "type": "string",
                                     "maxLength": 500
                                   },
+                                  "joinedDate": {
+                                    "type": "string",
+                                    "format": "date",
+                                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                                    "description": "Renewlet date-only string in YYYY-MM-DD format. No time or time zone.",
+                                    "example": "2026-01-01"
+                                  },
                                   "currency": {
                                     "type": "string",
                                     "pattern": "^[A-Z]{3}$"
@@ -1467,6 +1524,24 @@
                                 ],
                                 "additionalProperties": false
                               }
+                            },
+                            "collectionReminder": {
+                              "type": "object",
+                              "properties": {
+                                "enabled": {
+                                  "type": "boolean"
+                                },
+                                "reminderDays": {
+                                  "type": "integer",
+                                  "minimum": -1,
+                                  "maximum": 3650
+                                }
+                              },
+                              "required": [
+                                "enabled",
+                                "reminderDays"
+                              ],
+                              "additionalProperties": false
                             }
                           },
                           "required": [
