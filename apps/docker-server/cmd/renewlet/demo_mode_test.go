@@ -245,6 +245,17 @@ func TestDemoModeCreatesRepairsSeedsAndDisablesSetup(t *testing.T) {
 	if got := countUserRecords(t, app, "settings", demo.Id); got != 1 {
 		t.Fatalf("expected one demo settings row, got %d", got)
 	}
+	settingsRecord, err := app.FindFirstRecordByFilter("settings", "user = {:user}", dbx.Params{"user": demo.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	demoSettings := settingsFromRecord(settingsRecord)
+	if !demoSettings.SubscriptionPriceReferenceEnabled || demoSettings.SubscriptionPriceReferenceCurrency != "CNY" {
+		t.Fatalf("expected demo subscription price reference to default to CNY, got enabled=%v currency=%q", demoSettings.SubscriptionPriceReferenceEnabled, demoSettings.SubscriptionPriceReferenceCurrency)
+	}
+	if len(demoSettings.EnabledChannels) != 0 {
+		t.Fatalf("expected demo settings not to enable notification channels, got %#v", demoSettings.EnabledChannels)
+	}
 	if got := countUserRecords(t, app, "custom_configs", demo.Id); got != 0 {
 		t.Fatalf("expected demo reset not to seed custom config rows, got %d", got)
 	}
