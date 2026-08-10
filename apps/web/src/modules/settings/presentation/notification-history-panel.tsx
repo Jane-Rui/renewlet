@@ -130,8 +130,31 @@ function getUpcomingBatchKey(batch: UpcomingNotificationBatch) {
   return `${batch.scheduledLocalDate}-${batch.scheduledLocalTime}-${batch.timeZone}`;
 }
 
+function formatUpcomingItemTarget(
+  item: UpcomingNotificationBatch["items"][number],
+  t: ReturnType<typeof useI18n>["t"],
+  formatCurrency: ReturnType<typeof useI18n>["formatCurrency"],
+) {
+  if (item.type === "costSharing" && item.costSharing) {
+    return t("notification.targetCostSharingReminder", {
+      date: item.targetDate,
+      member: item.costSharing.memberName,
+      amount: formatCurrency(item.costSharing.amount, item.costSharing.currency),
+      days: item.reminderDays,
+    });
+  }
+  if (item.type === "expired") return t("notification.dailyIncluded");
+  if (item.repeatReminder) {
+    return t("notification.targetRepeatReminder", {
+      date: item.targetDate,
+      hours: repeatIntervalHours(item.repeatReminder.interval),
+    });
+  }
+  return t("notification.targetReminder", { date: item.targetDate, days: item.reminderDays });
+}
+
 function UpcomingBatchCard({ batch }: { batch: UpcomingNotificationBatch }) {
-  const { t } = useI18n();
+  const { t, formatCurrency } = useI18n();
   return (
     <div className="min-w-0 rounded-lg border border-border bg-secondary/30 p-3 sm:p-4">
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
@@ -154,11 +177,7 @@ function UpcomingBatchCard({ batch }: { batch: UpcomingNotificationBatch }) {
           <div key={`${item.subscriptionId}-${item.type}-${item.targetDate}-${index}`} className="flex min-w-0 flex-col gap-1 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-3">
             <TruncatedTooltipText text={item.name} className="min-w-0 flex-1 text-foreground" />
             <span className="break-words text-xs text-muted-foreground sm:shrink-0 sm:text-right">
-              {item.type === "expired"
-                ? t("notification.dailyIncluded")
-                : item.repeatReminder
-                  ? t("notification.targetRepeatReminder", { date: item.targetDate, hours: repeatIntervalHours(item.repeatReminder.interval) })
-                : t("notification.targetReminder", { date: item.targetDate, days: item.reminderDays })}
+              {formatUpcomingItemTarget(item, t, formatCurrency)}
             </span>
           </div>
         ))}

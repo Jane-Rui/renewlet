@@ -15,6 +15,7 @@ import { SubscriptionPaymentMethodSelect } from "@/components/subscription-payme
 import { SubscriptionTagInput } from "@/components/subscription-tag-input";
 import type {
   BillingCycle,
+  CostSharing,
   RepeatReminderInterval,
   RepeatReminderWindow,
   SubscriptionStatus,
@@ -57,6 +58,14 @@ function inheritedReminderFields(): Pick<SubscriptionFormState, "reminderType" |
   };
 }
 
+function disableCollectionReminder(costSharing: CostSharing | undefined): CostSharing | undefined {
+  if (!costSharing?.collectionReminder?.enabled) return costSharing;
+  return {
+    ...costSharing,
+    collectionReminder: { ...costSharing.collectionReminder, enabled: false },
+  };
+}
+
 export const SubscriptionFormFields = memo(function SubscriptionFormFields({
   idPrefix,
   config,
@@ -94,6 +103,7 @@ export const SubscriptionFormFields = memo(function SubscriptionFormFields({
           autoRenew: nextBillingCycle === "one-time" ? false : prev.autoRenew,
           autoCalculate: nextBillingCycle === "one-time" ? false : prev.autoCalculate,
           nextBillingDate: nextBillingCycle === "one-time" ? prev.startDate : prev.nextBillingDate,
+          costSharing: nextBillingCycle === "one-time" ? disableCollectionReminder(prev.costSharing) : prev.costSharing,
           ...(nextBillingCycle === "one-time"
             ? disabledReminderFields()
             : leavingImplicitBuyoutReminder
@@ -110,6 +120,7 @@ export const SubscriptionFormFields = memo(function SubscriptionFormFields({
           oneTimeTermUnit: nextOneTimeMode === "term" ? prev.oneTimeTermUnit || "month" : prev.oneTimeTermUnit,
           autoCalculate: false,
           nextBillingDate: nextOneTimeMode === "buyout" ? prev.startDate : prev.nextBillingDate,
+          costSharing: nextOneTimeMode === "buyout" ? disableCollectionReminder(prev.costSharing) : prev.costSharing,
           ...(nextOneTimeMode === "buyout" ? disabledReminderFields() : inheritedReminderFields()),
         };
       }
@@ -662,6 +673,8 @@ export const SubscriptionFormFields = memo(function SubscriptionFormFields({
         error={errors.costSharing}
         currencyOptions={currencyOptions}
         currencyConvert={costSharingCurrencyConvert}
+        notificationReminderDays={notificationReminderDays}
+        collectionReminderAllowed={!isOneTimeBuyout}
         onManageMembers={onManageCostSharingMembers}
         manageMembersButtonRef={costSharingManageMembersButtonRef}
       />

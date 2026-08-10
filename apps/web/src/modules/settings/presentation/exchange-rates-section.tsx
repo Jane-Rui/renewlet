@@ -23,6 +23,7 @@ import type {
 } from '@/lib/api/schemas/exchange-rates';
 import type { ReportExchangeRateBasisStatus } from '@/hooks/use-report-exchange-rates';
 import type { RawErrorResponseDetails } from "@/lib/raw-error-response";
+import { getIntlCurrencyNarrowSymbol } from "@/lib/currency-data";
 import { cn } from '@/lib/utils';
 import type { CustomConfig } from '@/types/config';
 import type { AppSettings } from '@/types/subscription';
@@ -54,7 +55,6 @@ export interface ExchangeRatesSectionProps {
   handleSubscriptionPriceReferenceEnabledChange: (checked: boolean) => void;
   handleSubscriptionPriceReferenceCurrencyChange: (value: string) => void;
   handleExchangeRateProviderChange: (value: ExchangeRateProvider) => void | Promise<void>;
-  getCurrencySymbol: (currency: string) => string;
 }
 
 export function ExchangeRatesSection({
@@ -79,7 +79,6 @@ export function ExchangeRatesSection({
   handleSubscriptionPriceReferenceEnabledChange,
   handleSubscriptionPriceReferenceCurrencyChange,
   handleExchangeRateProviderChange,
-  getCurrencySymbol,
 }: ExchangeRatesSectionProps) {
   const { t, formatDateTime, formatNumber } = useI18n();
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -91,6 +90,8 @@ export function ExchangeRatesSection({
     return t("settings.exchangeRateProvider.exchangeApi");
   };
   const providerLabel = getProviderLabel(activeRateProvider);
+  const defaultCurrencyCode = settings.defaultCurrency.trim().toUpperCase() || settings.defaultCurrency;
+  const defaultCurrencyNarrowSymbol = getIntlCurrencyNarrowSymbol(defaultCurrencyCode);
   const providerUrl = activeRateProvider === "frankfurter"
     ? "https://frankfurter.dev/"
     : activeRateProvider === "floatrates"
@@ -331,12 +332,12 @@ export function ExchangeRatesSection({
                 <div key={currency.value} className="flex flex-col gap-1.5 rounded-lg bg-secondary/50 p-2.5">
                   <span className="text-xs font-medium text-muted-foreground">1 {currency.value}</span>
                   <span className="text-base font-semibold tabular-nums text-foreground">
-                    ≈ {getCurrencySymbol(settings.defaultCurrency)}
+                    ≈ {defaultCurrencyNarrowSymbol}
                     {formatNumber(directQuote, {
                       minimumFractionDigits: fractionDigits,
                       maximumFractionDigits: fractionDigits,
                     })}{" "}
-                    {settings.defaultCurrency}
+                    {defaultCurrencyCode}
                   </span>
                 </div>
               );

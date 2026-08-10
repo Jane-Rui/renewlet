@@ -143,4 +143,50 @@ describe("Cloudflare notification scheduler gate", () => {
     expect(subscriptionQueries[0]).not.toContain("auto_renew = 1");
     expect(subscriptionQueries[0]).not.toMatch(/WHERE user_id = \?\s+ORDER BY created_at DESC, id DESC\s+LIMIT \?/s);
   });
+
+  it("settles max-retried failed jobs by refreshing mirrors and scheduler state", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-09T08:00:00.000Z"));
+    let mirrorRefreshCount = 0;
+    let schedulerRefreshCount = 0;
+    const env = fakeEnv(({ sql, method }) => {
+      if (method === "all" && sql.includes("FROM subscription_scheduler_state AS scheduler")) return d1All([{ user_id: "usr_due" }]);
+      if (method === "first" && sql.includes("SELECT settings_json FROM settings")) {
+        return { settings_json: JSON.stringify(settings({ enabledChannels: ["webhook"] })) };
+      }
+      if (method === "first" && sql.includes("FROM subscription_scheduler_state")) return schedulerState(0);
+      if (method === "all" && sql.includes("UNION") && sql.includes("cost_sharing_next_collection_reminder_date")) return d1All([]);
+      if (method === "first" && sql.includes("FROM notification_jobs")) {
+        return {
+          id: "job_due",
+          user_id: "usr_due",
+          scheduled_local_date: "2026-01-09",
+          scheduled_local_time: "08:00",
+          time_zone: "UTC",
+          scheduled_instant_utc: "2026-01-09T08:00:00Z",
+          status: "failed",
+          attempts: 3,
+          last_error: "webhook: failed",
+          result_json: JSON.stringify({ source: "cron", channels: { attempted: ["webhook"], succeeded: [], failed: [{ channel: "webhook", error: "failed" }] } }),
+          created_at: "2026-01-09T08:00:00Z",
+          updated_at: "2026-01-09T08:00:00Z",
+        };
+      }
+      if (method === "all" && sql.includes("SELECT id, user_id") && sql.includes("FROM subscriptions WHERE user_id = ?")) {
+        mirrorRefreshCount += 1;
+        return d1All([]);
+      }
+      if (method === "first" && sql.includes("SUM(CASE WHEN auto_renew")) return { auto_renew_count: 0, repeat_reminder_count: 0 };
+      if (method === "run" && sql.includes("subscription_scheduler_state")) {
+        schedulerRefreshCount += 1;
+        return d1Run(1);
+      }
+      throw new Error(`unexpected ${method} query: ${sql}`);
+    });
+
+    await expect(runScheduledNotifications(env)).resolves.toBeUndefined();
+
+    expect(mirrorRefreshCount).toBe(1);
+    expect(schedulerRefreshCount).toBe(1);
+  });
 });

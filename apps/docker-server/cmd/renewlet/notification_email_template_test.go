@@ -148,6 +148,40 @@ func TestBuildEmailHTMLMessageRendersLongReminderListAsCompactLedgerRows(t *test
 	)
 }
 
+func TestBuildEmailHTMLMessageRendersCostSharingCollectionReminder(t *testing.T) {
+	t.Setenv("APP_URL", "")
+	settings := defaultAppSettings()
+	settings.Locale = string(localeZhCN)
+	message := notificationMessage{
+		Title:     "Renewlet 订阅提醒",
+		Content:   "家庭共享收款：Family Plan",
+		Timestamp: "2026-05-14 08:00:00 Asia/Shanghai",
+		Items: []notificationContentItem{{
+			Type:         "costSharing",
+			Name:         "Family Plan",
+			Price:        "30",
+			Currency:     "USD",
+			TargetDate:   "2026-05-17",
+			ReminderDays: 3,
+			CostSharing: &notificationCostSharingPayload{
+				MemberName: "Partner",
+				Amount:     "10",
+				Currency:   "USD",
+			},
+		}},
+		HasPayload: true,
+	}
+
+	body := mustBuildEmailHTML(t, settings, message)
+
+	assertContainsAll(t, body,
+		"家庭共享收款",
+		"收款日期 · 2026-05-17 · 向 Partner 收款，提前 3 天提醒",
+		">10</p>",
+		">USD</p>",
+	)
+}
+
 func TestBuildEmailHTMLMessageRendersEnglishTestNotification(t *testing.T) {
 	t.Setenv("APP_URL", "")
 	settings := defaultAppSettings()

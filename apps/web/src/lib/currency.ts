@@ -6,19 +6,41 @@
  * - 集中到这里方便统一展示规则与异常兜底
  */
 import { DEFAULT_LOCALE } from "@/i18n/locales";
+import { getIntlCurrencyNarrowSymbol } from "@/lib/currency-data";
 import { moneyToNumber } from "@renewlet/shared/money";
 
 /** currency 来自用户配置和导入数据，非法值只能降级展示，不能让统计页崩溃。 */
 export function formatCurrency(amount: number | string, currency: string, locale = DEFAULT_LOCALE): string {
+  const currencyCode = normalizeCurrencyCode(currency);
+  return `${formatCurrencySymbolAmount(amount, currencyCode, locale)} ${currencyCode}`;
+}
+
+export function formatCurrencySymbolAmount(amount: number | string, currency: string, locale = DEFAULT_LOCALE): string {
   const numericAmount = moneyToNumber(amount);
+  const formattedAmount = formatCurrencyNumber(numericAmount, locale);
+  const prefix = getCurrencyAmountPrefix(currency, locale);
+  // 金额前缀只取窄符号；ISO code 由 `formatCurrency` 或相邻货币选择器承担，避免恢复 `US$`/`AU$` 这类地区前缀。
+  return prefix ? `${prefix}${formattedAmount}` : formattedAmount;
+}
+
+export function getCurrencyAmountPrefix(currency: string, locale = DEFAULT_LOCALE): string {
+  const currencyCode = normalizeCurrencyCode(currency);
+  const symbol = getIntlCurrencyNarrowSymbol(currencyCode, locale).trim();
+  if (!symbol || symbol.toUpperCase() === currencyCode) return "";
+  return symbol;
+}
+
+function normalizeCurrencyCode(currency: string): string {
+  return currency.trim().toUpperCase() || currency;
+}
+
+function formatCurrencyNumber(amount: number, locale: string): string {
   try {
     return new Intl.NumberFormat(locale, {
-      style: "currency",
-      currency,
       minimumFractionDigits: 0,
       maximumFractionDigits: 2,
-    }).format(numericAmount);
+    }).format(amount);
   } catch {
-    return `${currency} ${Number.isInteger(numericAmount) ? numericAmount.toFixed(0) : numericAmount.toFixed(2)}`;
+    return Number.isInteger(amount) ? amount.toFixed(0) : amount.toFixed(2);
   }
 }

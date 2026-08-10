@@ -319,7 +319,7 @@ describe("Statistics page", () => {
     renderStatistics();
 
     expect(screen.getByText("停用月节省")).toBeInTheDocument();
-    expect(screen.getByText("¥30")).toBeInTheDocument();
+    expect(screen.getByText("¥30 CNY")).toBeInTheDocument();
 
     await user.hover(screen.getByRole("button", { name: "说明：停用月节省" }));
 
@@ -360,11 +360,11 @@ describe("Statistics page", () => {
 
     expect(overviewHeadingRow).toContainElement(personalCostBasisSwitch);
     expect(overviewHeadingRow).toHaveClass("sm:flex-row", "sm:justify-between");
-    expect(screen.getAllByText("¥100").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("¥100 CNY").length).toBeGreaterThan(0);
 
     await user.click(personalCostBasisSwitch);
 
-    expect(await screen.findAllByText("¥40")).not.toHaveLength(0);
+    expect(await screen.findAllByText("¥40 CNY")).not.toHaveLength(0);
   });
 
   it("disables position animation for all chart tooltips", () => {
@@ -501,7 +501,7 @@ describe("Statistics page", () => {
       const tooltip = getLastTrendTooltip();
       expect(tooltip).toHaveTextContent("2026年1月");
       expect(tooltip).toHaveTextContent("未来扣费");
-      expect(tooltip).toHaveTextContent("¥130");
+      expect(tooltip).toHaveTextContent("¥130 CNY");
       expect(tooltip).toHaveTextContent("Annual");
       expect(tooltip).toHaveTextContent("1月20日");
       expect(tooltip).toHaveTextContent("Monthly");
@@ -529,7 +529,7 @@ describe("Statistics page", () => {
       expect(tooltipDateBadge).not.toHaveClass("w-max");
       expect(tooltipDateBadge).not.toHaveClass("w-full");
       expect(screen.getByRole("list", { name: "未来 12 个月费用走势明细" })).toHaveTextContent(
-        "构成 Annual ¥120，1月20日；Monthly ¥10，1月15日",
+        "构成 Annual ¥120 CNY，1月20日；Monthly ¥10 CNY，1月15日",
       );
       expect(screen.getByRole("heading", { name: "2026年1月 明细" })).toBeInTheDocument();
       expect(screen.getByText("2 个订阅")).toBeInTheDocument();
@@ -610,7 +610,7 @@ describe("Statistics page", () => {
         throw new Error("Expected trend details ledger to include a compact summary header.");
       }
       expect(januaryLedgerHeader).toHaveClass("grid", "border-b", "border-border/60", "bg-secondary/15");
-      expect(within(januaryLedger).getByText("¥91")).toHaveClass("text-xl", "sm:text-2xl", "tabular-nums");
+      expect(within(januaryLedger).getByText("¥91 CNY")).toHaveClass("text-xl", "sm:text-2xl", "tabular-nums");
       expect(januaryDetails).toHaveClass("grid", "max-h-72", "min-w-0", "overflow-y-auto");
       expect(within(januaryDetails).getAllByRole("listitem")).toHaveLength(7);
       expect(januaryDetails).toHaveTextContent("Service 1");
@@ -644,7 +644,7 @@ describe("Statistics page", () => {
       expect(detailDateBadge).toHaveClass("inline-flex", "w-[6em]", "max-w-full", "h-6", "truncate", "rounded-full");
       expect(detailDateBadge).not.toHaveClass("w-max");
       expect(detailDateBadge).not.toHaveClass("w-full");
-      expect(within(longNameAction).getByText("¥16")).toHaveClass("shrink-0", "whitespace-nowrap", "tabular-nums");
+      expect(within(longNameAction).getByText("¥16 CNY")).toHaveClass("shrink-0", "whitespace-nowrap", "tabular-nums");
       expect(within(longNameAction).getByText("18%")).toHaveClass("tabular-nums");
       expect(longNameAction).toHaveTextContent("占比 18%");
 
@@ -705,7 +705,7 @@ describe("Statistics page", () => {
     renderStatistics();
 
     expect(screen.getByText("停用年节省")).toBeInTheDocument();
-    expect(screen.getByText("¥360")).toBeInTheDocument();
+    expect(screen.getByText("¥360 CNY")).toBeInTheDocument();
 
     const annualHelp = screen.getByRole("button", { name: "说明：停用年节省" });
     for (let attempt = 0; attempt < 10 && document.activeElement !== annualHelp; attempt += 1) {

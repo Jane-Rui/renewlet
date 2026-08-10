@@ -352,7 +352,7 @@ describe("SubscriptionCard", () => {
   it("shows the configured reference amount under the billing cycle for foreign-currency subscriptions", () => {
     renderSubscriptionCard({ price: "10", currency: "USD" }, {}, { priceReferenceCurrency: "CNY" });
 
-    const priceBlock = screen.getByText("US$10").parentElement;
+    const priceBlock = screen.getByText("$10 USD").parentElement;
     if (!priceBlock) throw new Error("Missing subscription price block");
 
     expect(within(priceBlock).getByText("每月")).toBeInTheDocument();

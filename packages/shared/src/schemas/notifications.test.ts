@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   notificationChannelSchema,
+  notificationContentItemResponseSchema,
   notificationJobResultResponseSchema,
   notificationsTestBodySchema,
 } from "./notifications";
@@ -106,6 +107,35 @@ describe("notification schemas", () => {
         succeeded: null,
         failed: null,
       },
+    }).success).toBe(false);
+  });
+
+  it("accepts cost sharing notification items only with their collection payload", () => {
+    const item = {
+      type: "costSharing",
+      subscriptionId: "sub-family",
+      name: "Family Plan",
+      price: "30",
+      currency: "USD",
+      status: "active",
+      targetDate: "2026-06-23",
+      reminderDays: 3,
+      daysUntil: 3,
+      costSharing: {
+        memberName: "Partner",
+        amount: "10",
+        currency: "USD",
+      },
+    };
+
+    expect(notificationContentItemResponseSchema.parse(item).costSharing).toEqual(item.costSharing);
+    expect(notificationContentItemResponseSchema.safeParse({
+      ...item,
+      costSharing: undefined,
+    }).success).toBe(false);
+    expect(notificationContentItemResponseSchema.safeParse({
+      ...item,
+      type: "renewal",
     }).success).toBe(false);
   });
 });

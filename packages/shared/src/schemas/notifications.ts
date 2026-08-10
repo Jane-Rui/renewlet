@@ -38,8 +38,14 @@ export const localScheduleOccurrenceResponseSchema = z.object({
   scheduledInstantUtc: z.string().min(1),
 }).strict();
 
+const notificationCostSharingPayloadResponseSchema = z.object({
+  memberName: z.string().trim().min(1).max(80),
+  amount: moneyStringSchema,
+  currency: z.string().trim().regex(/^[A-Z]{3}$/),
+}).strict();
+
 export const notificationContentItemResponseSchema = z.object({
-  type: z.enum(["renewal", "trial", "expired", "expiry"]),
+  type: z.enum(["renewal", "trial", "expired", "expiry", "costSharing"]),
   subscriptionId: z.string(),
   name: z.string(),
   price: moneyStringSchema,
@@ -52,7 +58,24 @@ export const notificationContentItemResponseSchema = z.object({
     interval: z.enum(REPEAT_REMINDER_INTERVALS),
     window: z.enum(REPEAT_REMINDER_WINDOWS),
   }).strict().optional(),
-}).strict();
+  // costSharing item 逐成员保存应收信息；后端不做汇率猜测，只写入订阅币种或成员配置币种。
+  costSharing: notificationCostSharingPayloadResponseSchema.optional(),
+}).strict().superRefine((value, ctx) => {
+  if (value.type === "costSharing" && !value.costSharing) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["costSharing"],
+      message: "Cost sharing payload is required",
+    });
+  }
+  if (value.type !== "costSharing" && value.costSharing) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["costSharing"],
+      message: "Cost sharing payload is only allowed for cost sharing items",
+    });
+  }
+});
 
 export const upcomingNotificationBatchResponseSchema = localScheduleOccurrenceResponseSchema.extend({
   items: z.array(notificationContentItemResponseSchema),

@@ -88,11 +88,14 @@ type emailCatalog struct {
 	UpcomingExpiries      string `json:"upcomingExpiries"`
 	TrialEnding           string `json:"trialEnding"`
 	Expired               string `json:"expired"`
+	CollectionReminders   string `json:"collectionReminders"`
 	BillingDate           string `json:"billingDate"`
 	ExpiryDate            string `json:"expiryDate"`
 	TrialEnds             string `json:"trialEnds"`
 	ExpiredSince          string `json:"expiredSince"`
+	CollectionDate        string `json:"collectionDate"`
 	UpdateNextBillingDate string `json:"updateNextBillingDate"`
+	CollectFrom           string `json:"collectFrom"`
 	DayBefore             string `json:"dayBefore"`
 	DaysBefore            string `json:"daysBefore"`
 	RepeatEvery           string `json:"repeatEvery"`
@@ -277,11 +280,14 @@ func loadEmailCatalog(locale appLocale) emailCatalog {
 		UpcomingExpiries:      serverText(locale, "email.upcomingExpiries"),
 		TrialEnding:           serverText(locale, "email.trialEnding"),
 		Expired:               serverText(locale, "email.expired"),
+		CollectionReminders:   serverText(locale, "email.collectionReminders"),
 		BillingDate:           serverText(locale, "email.billingDate"),
 		ExpiryDate:            serverText(locale, "email.expiryDate"),
 		TrialEnds:             serverText(locale, "email.trialEnds"),
 		ExpiredSince:          serverText(locale, "email.expiredSince"),
+		CollectionDate:        serverText(locale, "email.collectionDate"),
 		UpdateNextBillingDate: serverText(locale, "email.updateNextBillingDate"),
+		CollectFrom:           serverText(locale, "email.collectFrom"),
 		DayBefore:             serverText(locale, "email.dayBefore"),
 		DaysBefore:            serverText(locale, "email.daysBefore"),
 		RepeatEvery:           serverText(locale, "email.repeatEvery"),
@@ -293,10 +299,11 @@ func loadEmailCatalog(locale appLocale) emailCatalog {
 
 func buildEmailTemplateGroups(items []notificationContentItem, locale appLocale, copy emailCatalog) []emailTemplateGroup {
 	grouped := map[string][]notificationContentItem{
-		"renewal": {},
-		"expiry":  {},
-		"trial":   {},
-		"expired": {},
+		"renewal":     {},
+		"expiry":      {},
+		"trial":       {},
+		"expired":     {},
+		"costSharing": {},
 	}
 	for _, item := range items {
 		itemType := item.Type
@@ -309,7 +316,7 @@ func buildEmailTemplateGroups(items []notificationContentItem, locale appLocale,
 
 	// subscription logoUrl 不进入邮件模板；外链图片会让邮件客户端暴露私有资产或第三方请求痕迹。
 	// 邮件分组顺序固定，避免 map iteration 导致同一批提醒在不同运行中顺序抖动。
-	order := []string{"renewal", "expiry", "trial", "expired"}
+	order := []string{"renewal", "expiry", "trial", "expired", "costSharing"}
 	groups := make([]emailTemplateGroup, 0, len(order))
 	for _, itemType := range order {
 		rawItems := grouped[itemType]
@@ -326,8 +333,8 @@ func buildEmailTemplateGroups(items []notificationContentItem, locale appLocale,
 				Name:       item.Name,
 				DateLabel:  emailItemDateLabel(item.Type, copy),
 				TargetDate: item.TargetDate,
-				Amount:     formatAmount(item.Price),
-				Currency:   item.Currency,
+				Amount:     formatAmount(emailItemAmount(item)),
+				Currency:   emailItemCurrency(item),
 				Detail:     emailItemDetail(item, locale, copy),
 			})
 		}
@@ -521,6 +528,8 @@ func firstNonEmptyLine(input string) string {
 
 func emailGroupLabel(itemType string, copy emailCatalog) string {
 	switch itemType {
+	case "costSharing":
+		return copy.CollectionReminders
 	case "expiry":
 		return copy.UpcomingExpiries
 	case "trial":
@@ -534,6 +543,8 @@ func emailGroupLabel(itemType string, copy emailCatalog) string {
 
 func emailItemDateLabel(itemType string, copy emailCatalog) string {
 	switch itemType {
+	case "costSharing":
+		return copy.CollectionDate
 	case "expiry":
 		return copy.ExpiryDate
 	case "trial":
@@ -546,6 +557,9 @@ func emailItemDateLabel(itemType string, copy emailCatalog) string {
 }
 
 func emailItemDetail(item notificationContentItem, _ appLocale, copy emailCatalog) string {
+	if item.Type == "costSharing" && item.CostSharing != nil {
+		return formatCatalogCopy(copy.CollectFrom, map[string]interface{}{"member": item.CostSharing.MemberName, "days": item.ReminderDays})
+	}
 	if item.Type == "expired" {
 		return copy.UpdateNextBillingDate
 	}
@@ -556,6 +570,20 @@ func emailItemDetail(item notificationContentItem, _ appLocale, copy emailCatalo
 		return formatCatalogCopy(copy.DayBefore, map[string]interface{}{"days": item.ReminderDays})
 	}
 	return formatCatalogCopy(copy.DaysBefore, map[string]interface{}{"days": item.ReminderDays})
+}
+
+func emailItemAmount(item notificationContentItem) string {
+	if item.Type == "costSharing" && item.CostSharing != nil {
+		return item.CostSharing.Amount
+	}
+	return item.Price
+}
+
+func emailItemCurrency(item notificationContentItem) string {
+	if item.Type == "costSharing" && item.CostSharing != nil {
+		return item.CostSharing.Currency
+	}
+	return item.Currency
 }
 
 func formatCatalogCopy(message string, params map[string]interface{}) string {

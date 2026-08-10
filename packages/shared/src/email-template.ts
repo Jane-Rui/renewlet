@@ -40,6 +40,11 @@ export interface NotificationEmailItem {
     interval: RepeatReminderInterval | string;
     window: RepeatReminderWindow | string;
   };
+  costSharing?: {
+    memberName: string;
+    amount: MoneyString;
+    currency: string;
+  };
 }
 
 /** 渠道层传入邮件模板的统一消息，不包含任何 SMTP token 或 provider 响应。 */
@@ -114,11 +119,14 @@ export interface EmailCopy {
   upcomingExpiries: string;
   trialEnding: string;
   expired: string;
+  collectionReminders: string;
   billingDate: string;
   expiryDate: string;
   trialEnds: string;
   expiredSince: string;
+  collectionDate: string;
   updateNextBillingDate: string;
+  collectFrom: string;
   dayBefore: string;
   daysBefore: string;
   repeatEvery: string;
@@ -268,11 +276,14 @@ function loadEmailCopy(locale: Locale): EmailCopy {
     upcomingExpiries: text("email.upcomingExpiries"),
     trialEnding: text("email.trialEnding"),
     expired: text("email.expired"),
+    collectionReminders: text("email.collectionReminders"),
     billingDate: text("email.billingDate"),
     expiryDate: text("email.expiryDate"),
     trialEnds: text("email.trialEnds"),
     expiredSince: text("email.expiredSince"),
+    collectionDate: text("email.collectionDate"),
     updateNextBillingDate: text("email.updateNextBillingDate"),
+    collectFrom: text("email.collectFrom"),
     dayBefore: text("email.dayBefore"),
     daysBefore: text("email.daysBefore"),
     repeatEvery: text("email.repeatEvery"),
@@ -283,13 +294,13 @@ function loadEmailCopy(locale: Locale): EmailCopy {
 }
 
 function buildEmailTemplateGroups(items: NotificationEmailItem[], copy: EmailCopy): EmailTemplateGroup[] {
-  const grouped: Record<string, NotificationEmailItem[]> = { renewal: [], expiry: [], trial: [], expired: [] };
+  const grouped: Record<string, NotificationEmailItem[]> = { renewal: [], expiry: [], trial: [], expired: [], costSharing: [] };
   for (const item of items) {
     // 邮件不会渲染 logo URL；外链图片会让邮件客户端暴露私有资产或第三方请求痕迹。
     const itemType = grouped[item.type] ? item.type : "renewal";
     grouped[itemType]?.push(item);
   }
-  return (["renewal", "expiry", "trial", "expired"] as const)
+  return (["renewal", "expiry", "trial", "expired", "costSharing"] as const)
     .map((itemType) => {
       const rawItems = grouped[itemType] ?? [];
       return {
@@ -299,8 +310,8 @@ function buildEmailTemplateGroups(items: NotificationEmailItem[], copy: EmailCop
           name: item.name,
           dateLabel: emailItemDateLabel(item.type, copy),
           targetDate: item.targetDate,
-          amount: formatAmount(item.price),
-          currency: item.currency,
+          amount: formatAmount(emailItemAmount(item)),
+          currency: emailItemCurrency(item),
           detail: emailItemDetail(item, copy),
         })),
       };
@@ -437,6 +448,7 @@ function firstNonEmptyLine(input: string): string {
 }
 
 function emailGroupLabel(itemType: string, copy: EmailCopy): string {
+  if (itemType === "costSharing") return copy.collectionReminders;
   if (itemType === "expiry") return copy.upcomingExpiries;
   if (itemType === "trial") return copy.trialEnding;
   if (itemType === "expired") return copy.expired;
@@ -444,6 +456,7 @@ function emailGroupLabel(itemType: string, copy: EmailCopy): string {
 }
 
 function emailItemDateLabel(itemType: string, copy: EmailCopy): string {
+  if (itemType === "costSharing") return copy.collectionDate;
   if (itemType === "expiry") return copy.expiryDate;
   if (itemType === "trial") return copy.trialEnds;
   if (itemType === "expired") return copy.expiredSince;
@@ -451,6 +464,9 @@ function emailItemDateLabel(itemType: string, copy: EmailCopy): string {
 }
 
 function emailItemDetail(item: NotificationEmailItem, copy: EmailCopy): string {
+  if (item.type === "costSharing" && item.costSharing) {
+    return formatCatalogCopy(copy.collectFrom, { member: item.costSharing.memberName, days: item.reminderDays });
+  }
   if (item.type === "expired") return copy.updateNextBillingDate;
   if (item.repeatReminder && copy.repeatEvery) {
     return formatCatalogCopy(copy.repeatEvery, { hours: repeatReminderIntervalHours(item.repeatReminder.interval) });
@@ -459,6 +475,14 @@ function emailItemDetail(item: NotificationEmailItem, copy: EmailCopy): string {
     return formatCatalogCopy(copy.dayBefore, { days: item.reminderDays });
   }
   return formatCatalogCopy(copy.daysBefore, { days: item.reminderDays });
+}
+
+function emailItemAmount(item: NotificationEmailItem): MoneyString {
+  return item.type === "costSharing" && item.costSharing ? item.costSharing.amount : item.price;
+}
+
+function emailItemCurrency(item: NotificationEmailItem): string {
+  return item.type === "costSharing" && item.costSharing ? item.costSharing.currency : item.currency;
 }
 
 function splitEmailContentLines(input: string, copy: EmailCopy): string[] {

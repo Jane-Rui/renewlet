@@ -155,7 +155,7 @@ describe("SubscriptionDetailDialog", () => {
 
     const dialog = screen.getByRole("dialog", { name: "Fastmail" });
     expect(dialog).toHaveAccessibleDescription("查看 Fastmail 的价格、周期、日期、标签、网站和备注。");
-    expect(within(dialog).getByText("US$159")).toBeInTheDocument();
+    expect(within(dialog).getByText("$159 USD")).toBeInTheDocument();
     expect(within(dialog).getByText("≈ ¥1,113 CNY")).toHaveClass(
       "text-xs",
       "tabular-nums",
@@ -200,7 +200,7 @@ describe("SubscriptionDetailDialog", () => {
 
     const dialog = screen.getByRole("dialog", { name: "Fastmail" });
 
-    expect(within(dialog).getByText("¥159")).toBeInTheDocument();
+    expect(within(dialog).getByText("¥159 CNY")).toBeInTheDocument();
     expect(within(dialog).queryByText(/^≈/)).not.toBeInTheDocument();
 
     renderDetailDialog({ priceReferenceCurrency: null });

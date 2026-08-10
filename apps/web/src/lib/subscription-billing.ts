@@ -7,7 +7,7 @@
  *
  * 注意： 这里不做汇率换算；金额币种归一化由统计模型处理。
  */
-import type { BillingCycle, CustomCycleUnit, Subscription } from "@/types/subscription";
+import type { BillingCycle, CustomCycleUnit } from "@/types/subscription";
 import type { DateOnly } from "@/lib/time/date-only";
 import { localizedLabel, type Locale } from "@/i18n/locales";
 import { translate } from "@/i18n/messages";
@@ -63,7 +63,7 @@ export function customCycleUnitLabelKey(unit: CustomCycleUnit): `subscription.cu
   return `subscription.customCycleUnit.${unit}`;
 }
 
-export function formatBillingCycleLabel(subscription: Pick<Subscription, "billingCycle" | "customDays" | "customCycleUnit">, locale: Locale): string {
+export function formatBillingCycleLabel(subscription: { billingCycle: BillingCycle; customDays?: number | undefined; customCycleUnit?: CustomCycleUnit | undefined }, locale: Locale): string {
   if (subscription.billingCycle !== "custom") {
     return localizedLabel(CYCLE_LABELS[subscription.billingCycle], locale);
   }

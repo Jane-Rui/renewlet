@@ -25,12 +25,27 @@ const goRoutesPath = path.join(rootDir, "apps/docker-server/cmd/renewlet/routes.
 const workerRoutesPath = path.join(rootDir, "apps/worker/src/index.ts");
 const publicApiTag = "Public API";
 const publicApiMoneyPropertyNames = new Set(["price", "customAmount"]);
+const publicApiDateOnlyPropertyNames = new Set(["joinedDate"]);
+const allowedEmptyComponentSchemaPaths = new Set([
+  "components.schemas.PublicApiErrorResponse.properties.error.properties.details",
+  "components.schemas.PublicApiSubscriptionsListResponse.properties.data.properties.subscriptions.items.properties.extra.additionalProperties",
+  "components.schemas.PublicApiSubscriptionResponse.properties.data.properties.subscription.properties.extra.additionalProperties",
+  "components.schemas.PublicApiDueResponse.properties.data.properties.items.items.properties.subscription.properties.extra.additionalProperties",
+]);
 // 这是 OpenAPI 投影，不是新的金额事实源；真实校验仍在 shared moneyStringSchema，避免文档层绕过 canonicalize。
 const moneyDecimalStringSchema = {
   type: "string",
   pattern: `^(?:(?:0|[1-9][0-9]{0,${MAX_MONEY_STRING.length - 2}})(?:\\.[0-9]{0,${MONEY_DECIMAL_SCALE - 1}}[1-9])?|${MAX_MONEY_STRING})$`,
   description: `Canonical Renewlet decimal money string. Non-negative, max ${MAX_MONEY_STRING}, up to ${MONEY_DECIMAL_SCALE} fractional digits, no scientific notation.`,
   example: "12.34",
+};
+// DateOnly transform 会让 Zod JSON Schema 输出 `{}`；Public API 文档必须保住 wire shape，避免客户端误以为是任意值。
+const dateOnlyStringSchema = {
+  type: "string",
+  format: "date",
+  pattern: "^\\d{4}-\\d{2}-\\d{2}$",
+  description: "Renewlet date-only string in YYYY-MM-DD format. No time or time zone.",
+  example: "2026-01-01",
 };
 
 const statusDescriptions = {
@@ -63,9 +78,15 @@ function isEmptyJsonSchema(value) {
 
 function applyPublicApiJsonSchemaOverrides({ jsonSchema, path: schemaPath }) {
   const propertyName = schemaPath.at(-1);
-  if (!isEmptyJsonSchema(jsonSchema) || typeof propertyName !== "string" || !publicApiMoneyPropertyNames.has(propertyName)) return;
-  // moneyStringSchema 带 canonicalize transform，Zod 只能输出 `{}`；OpenAPI 投影必须保住 decimal string 契约。
-  Object.assign(jsonSchema, moneyDecimalStringSchema);
+  if (!isEmptyJsonSchema(jsonSchema) || typeof propertyName !== "string") return;
+  if (publicApiMoneyPropertyNames.has(propertyName)) {
+    // moneyStringSchema 带 canonicalize transform，Zod 只能输出 `{}`；OpenAPI 投影必须保住 decimal string 契约。
+    Object.assign(jsonSchema, moneyDecimalStringSchema);
+    return;
+  }
+  if (publicApiDateOnlyPropertyNames.has(propertyName)) {
+    Object.assign(jsonSchema, dateOnlyStringSchema);
+  }
 }
 
 function schemaFor(name) {
@@ -178,6 +199,25 @@ function buildOpenApiDocument() {
       ),
     },
   };
+}
+
+function collectEmptyComponentSchemaPaths(value, schemaPath = []) {
+  if (Array.isArray(value) || !value || typeof value !== "object") return [];
+  const currentPath = schemaPath.join(".");
+  const matches = currentPath.startsWith("components.schemas.") && isEmptyJsonSchema(value) ? [currentPath] : [];
+  return Object.entries(value).reduce(
+    (paths, [key, child]) => paths.concat(collectEmptyComponentSchemaPaths(child, schemaPath.concat(key))),
+    matches,
+  );
+}
+
+function validateOpenApiProjection(document) {
+  // 空 schema 只允许用于明确 unknown 的扩展通道；业务字段为空通常说明 Zod transform 没有被投影成真实 wire shape。
+  const unexpectedEmptySchemas = collectEmptyComponentSchemaPaths(document)
+    .filter((schemaPath) => !allowedEmptyComponentSchemaPaths.has(schemaPath));
+  if (unexpectedEmptySchemas.length > 0) {
+    throw new Error(`Public API OpenAPI has unexpected empty component schemas:\n${unexpectedEmptySchemas.join("\n")}`);
+  }
 }
 
 function routeKey(endpoint) {
@@ -308,8 +348,11 @@ function writeOrCheck(outputs) {
 
 checkRuntimeRoutes();
 
+const openApiDocument = buildOpenApiDocument();
+validateOpenApiProjection(openApiDocument);
+
 const outputs = [
-  { path: openApiPath, source: stableJson(buildOpenApiDocument()) },
+  { path: openApiPath, source: stableJson(openApiDocument) },
   { path: markdownPath, source: buildMarkdown() },
 ];
 

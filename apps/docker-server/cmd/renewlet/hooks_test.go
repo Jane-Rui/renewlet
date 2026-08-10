@@ -363,6 +363,52 @@ func TestNormalizeSubscriptionRecordValidatesCostSharing(t *testing.T) {
 	if payload.SplitMode != "custom" || len(payload.Members) != 2 || payload.Members[0].CustomAmount == nil || *payload.Members[0].CustomAmount != "40" {
 		t.Fatalf("unexpected normalized cost sharing payload: %#v", payload)
 	}
+	if valid.GetBool("costSharingCollectionReminderEnabled") || valid.GetString("costSharingNextCollectionReminderDate") != "" {
+		t.Fatalf("expected disabled collection reminder mirror, enabled=%v next=%q", valid.GetBool("costSharingCollectionReminderEnabled"), valid.GetString("costSharingNextCollectionReminderDate"))
+	}
+
+	withCollectionReminder := base("100", `{
+		"enabled": true,
+		"splitMode": "equal",
+		"collectionReminder": {"enabled": true, "reminderDays": -1},
+		"members": [
+			{"id": "partner", "name": "Partner", "currency": "USD"}
+		]
+	}`)
+	if err := normalizeSubscriptionRecord(withCollectionReminder); err != nil {
+		t.Fatalf("expected collection reminder to be accepted: %v", err)
+	}
+	if !withCollectionReminder.GetBool("costSharingCollectionReminderEnabled") || withCollectionReminder.GetString("costSharingNextCollectionReminderDate") == "" {
+		t.Fatalf("expected collection reminder mirror, enabled=%v next=%q", withCollectionReminder.GetBool("costSharingCollectionReminderEnabled"), withCollectionReminder.GetString("costSharingNextCollectionReminderDate"))
+	}
+
+	oneTimeBuyoutCollectionReminder := base("100", `{
+		"enabled": true,
+		"splitMode": "equal",
+		"collectionReminder": {"enabled": true, "reminderDays": -1},
+		"members": [
+			{"id": "partner", "name": "Partner", "currency": "USD"}
+		]
+	}`)
+	oneTimeBuyoutCollectionReminder.Set("billingCycle", "one-time")
+	oneTimeBuyoutCollectionReminder.Set("oneTimeTermCount", 0)
+	if err := normalizeSubscriptionRecord(oneTimeBuyoutCollectionReminder); err == nil || !strings.Contains(err.Error(), "COST_SHARING_COLLECTION_REMINDER_ONE_TIME_BUYOUT_INVALID") {
+		t.Fatalf("expected one-time buyout collection reminder to fail, got %v", err)
+	}
+	oneTimeTermCollectionReminder := base("100", `{
+		"enabled": true,
+		"splitMode": "equal",
+		"collectionReminder": {"enabled": true, "reminderDays": -1},
+		"members": [
+			{"id": "partner", "name": "Partner", "currency": "USD"}
+		]
+	}`)
+	oneTimeTermCollectionReminder.Set("billingCycle", "one-time")
+	oneTimeTermCollectionReminder.Set("oneTimeTermCount", 6)
+	oneTimeTermCollectionReminder.Set("oneTimeTermUnit", "month")
+	if err := normalizeSubscriptionRecord(oneTimeTermCollectionReminder); err != nil {
+		t.Fatalf("expected fixed-term one-time collection reminder to be accepted: %v", err)
+	}
 
 	flexibleTotal := base("100", `{
 		"enabled": true,
@@ -387,6 +433,42 @@ func TestNormalizeSubscriptionRecordValidatesCostSharing(t *testing.T) {
 	}`)
 	if err := normalizeSubscriptionRecord(legacyIdentityFields); err == nil || !strings.Contains(err.Error(), "COST_SHARING_JSON_INVALID") {
 		t.Fatalf("expected legacy cost sharing identity fields to fail, got %v", err)
+	}
+
+	invalidCollectionDays := base("100", `{
+		"enabled": true,
+		"splitMode": "equal",
+		"collectionReminder": {"enabled": true, "reminderDays": -2},
+		"members": [
+			{"id": "partner", "name": "Partner", "currency": "USD"}
+		]
+	}`)
+	if err := normalizeSubscriptionRecord(invalidCollectionDays); err == nil || !strings.Contains(err.Error(), "COST_SHARING_COLLECTION_REMINDER_DAYS_INVALID") {
+		t.Fatalf("expected invalid collection reminder days to fail, got %v", err)
+	}
+
+	invalidJoinedDateRange := base("100", `{
+		"enabled": true,
+		"splitMode": "equal",
+		"collectionReminder": {"enabled": true, "reminderDays": -1},
+		"members": [
+			{"id": "partner", "name": "Partner", "joinedDate": "2026-06-15", "currency": "USD"}
+		]
+	}`)
+	if err := normalizeSubscriptionRecord(invalidJoinedDateRange); err == nil || !strings.Contains(err.Error(), "COST_SHARING_MEMBER_JOINED_DATE_OUT_OF_RANGE") {
+		t.Fatalf("expected joined date outside subscription range to fail, got %v", err)
+	}
+
+	disabledWithCollectionReminder := base("100", `{
+		"enabled": false,
+		"splitMode": "equal",
+		"collectionReminder": {"enabled": true, "reminderDays": -1},
+		"members": [
+			{"id": "partner", "name": "Partner", "currency": "USD"}
+		]
+	}`)
+	if err := normalizeSubscriptionRecord(disabledWithCollectionReminder); err == nil || !strings.Contains(err.Error(), "COST_SHARING_COLLECTION_REMINDER_INVALID") {
+		t.Fatalf("expected disabled cost sharing collection reminder to fail, got %v", err)
 	}
 }
 

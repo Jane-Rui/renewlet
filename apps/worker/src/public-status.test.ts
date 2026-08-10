@@ -237,6 +237,9 @@ function subscriptionRow(overrides: Partial<SubscriptionRow> = {}): Subscription
     repeat_reminder_enabled: 0,
     repeat_reminder_interval: "1h",
     repeat_reminder_window: "72h",
+    cost_sharing_json: "{}",
+    cost_sharing_collection_reminder_enabled: 0,
+    cost_sharing_next_collection_reminder_date: null,
     extra_json: JSON.stringify({ secret: true }),
     created_at: "2026-05-01T00:00:00.000Z",
     updated_at: "2026-06-01T00:00:00.000Z",
@@ -326,7 +329,7 @@ describe("public status worker handlers", () => {
       subscriptions: [
         subscriptionRow({ id: "sub_hidden", name: "Hidden Plan", public_hidden: 1 }),
         subscriptionRow({ id: "sub_visible", name: "Visible Plan", created_at: "2026-05-01T00:00:00.000Z" }),
-        subscriptionRow({ id: "sub_overdue", name: "Legacy Overdue", next_billing_date: "2000-01-01", created_at: "2026-06-03T00:00:00.000Z" }),
+        subscriptionRow({ id: "sub_overdue", name: "Legacy Overdue", start_date: "1999-01-01", next_billing_date: "2000-01-01", created_at: "2026-06-03T00:00:00.000Z" }),
         subscriptionRow({ id: "sub_later", name: "Later Plan", next_billing_date: "2099-08-01", created_at: "2026-06-02T00:00:00.000Z" }),
         subscriptionRow({ id: "sub_pinned", name: "Pinned Plan", pinned: 1, next_billing_date: "2026-09-01", created_at: "2026-05-15T00:00:00.000Z" }),
       ],

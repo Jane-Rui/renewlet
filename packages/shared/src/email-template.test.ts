@@ -1,6 +1,6 @@
 // 共享邮件模板测试保护 Go/Worker 共同语义，避免两种运行面邮件正文和主题分叉。
 import { describe, expect, it } from "vitest";
-import { EMAIL_MAX_HTML_BYTES, buildNotificationEmail, type NotificationEmailMessage, type NotificationEmailSettings } from "./email-template";
+import { EMAIL_MAX_HTML_BYTES, buildNotificationEmail, type NotificationEmailItem, type NotificationEmailMessage, type NotificationEmailSettings } from "./email-template";
 
 function settings(overrides: Partial<NotificationEmailSettings> = {}): NotificationEmailSettings {
   return {
@@ -118,6 +118,29 @@ describe("buildNotificationEmail", () => {
     expect(email.html).not.toContain("class=\"email-amount\"");
     expect(email.html).not.toContain("padding:4px 8px; border-radius:6px;");
     expect(email.html).not.toContain("email-card-bottom-safe-area");
+  });
+
+  it("renders cost sharing collection reminders with member payload amounts", () => {
+    const email = buildNotificationEmail(settings(), {
+      title: "Renewlet 订阅提醒",
+      content: "家庭共享收款：Family Plan",
+      timestamp: "2026-05-14 08:00:00 Asia/Shanghai",
+      hasPayload: true,
+      items: [{
+        ...item("costSharing", "Family Plan", "30", "USD", "2026-05-17", 3),
+        costSharing: {
+          memberName: "Partner",
+          amount: "10",
+          currency: "USD",
+        },
+      }],
+    });
+
+    expect(email.text).toContain("家庭共享收款");
+    expect(email.html).toContain("家庭共享收款");
+    expect(email.html).toContain("收款日期 · 2026-05-17 · 向 Partner 收款，提前 3 天提醒");
+    expect(email.html).toContain(">10</p>");
+    expect(email.html).toContain(">USD</p>");
   });
 
   it("renders en-US test notifications and settings CTA", () => {
@@ -265,7 +288,7 @@ function testMessage(): NotificationEmailMessage {
   };
 }
 
-function item(type: "renewal" | "trial" | "expired" | "expiry", name: string, price: string, currency: string, targetDate: string, reminderDays: number) {
+function item(type: NotificationEmailItem["type"], name: string, price: string, currency: string, targetDate: string, reminderDays: number) {
   return {
     type,
     subscriptionId: type,

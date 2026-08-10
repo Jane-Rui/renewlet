@@ -53,9 +53,9 @@ export const errorFieldByFormKey: Partial<Record<keyof SubscriptionFormState, ke
 } satisfies Partial<Record<keyof SubscriptionFormState, keyof SubscriptionFormErrors>>;
 
 const structuralErrorFieldsByFormKey: Partial<Record<keyof SubscriptionFormState, readonly (keyof SubscriptionFormErrors)[]>> = {
-  // 这些字段会重塑日期/提醒控件含义；旧提交错误必须失效，下一次提交再按当前形态重新生成。
-  billingCycle: ["billingCycle", "dates", "customDays", "oneTimeTerm", "reminderDays"],
-  oneTimeMode: ["dates", "oneTimeTerm", "reminderDays"],
+  // 这些字段会重塑日期、普通提醒和家庭收款提醒含义；旧提交错误必须失效，下一次提交再按当前形态重新生成。
+  billingCycle: ["billingCycle", "dates", "customDays", "oneTimeTerm", "reminderDays", "costSharing"],
+  oneTimeMode: ["dates", "oneTimeTerm", "reminderDays", "costSharing"],
   autoCalculate: ["dates"],
 };
 

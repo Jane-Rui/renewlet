@@ -33,6 +33,8 @@ import {
   parsePositiveIntegerInput,
   getSubscriptionDateValidationKind,
   subscriptionDateValidationMessageKey,
+  costSharingCollectionReminderIsAllowedForBillingCycle,
+  costSharingJoinedDatesWithinFormRange,
   toSubscriptionDraft,
 } from "@/lib/subscription-form";
 import { useCustomConfig } from "@/contexts/CustomConfigContext";
@@ -46,7 +48,11 @@ import type { SubscriptionFormState } from "@/types/subscription-form";
 import { useI18n } from "@/i18n/I18nProvider";
 import { todayDateOnlyInTimeZone } from "@/lib/time/date-only";
 import { getSystemTimeZone } from "@/lib/time/time-zone";
-import { costSharingCustomAmountsAreValid } from "@renewlet/shared/cost-sharing";
+import {
+  costSharingCollectionAnchorsAreSatisfied,
+  costSharingCustomAmountsAreValid,
+  isValidCostSharingCollectionReminderDays,
+} from "@renewlet/shared/cost-sharing";
 import { createCurrencySelectOptions } from "@/lib/searchable-options";
 
 type CreateDialogProps = {
@@ -153,6 +159,7 @@ export function SubscriptionDialog(props: SubscriptionDialogProps) {
     }),
     [config.currencies, formData.currency, locale],
   );
+  const isOneTimeBuyout = formData.billingCycle === "one-time" && formData.oneTimeMode === "buyout";
 
   const openCostSharingMembers = useCallback(() => {
     setCostSharingMemberDialogOpen(true);
@@ -181,6 +188,21 @@ export function SubscriptionDialog(props: SubscriptionDialogProps) {
     // 父弹窗被外层关闭时，嵌套成员管理器必须同步结束，避免下次打开继承子弹窗焦点上下文。
     setCostSharingMemberDialogOpen(false);
   }, [props.open, setCostSharingMemberDialogOpen]);
+
+  useEffect(() => {
+    if (costSharingCollectionReminderIsAllowedForBillingCycle(formData) || !formData.costSharing?.collectionReminder?.enabled) return;
+    // 买断 one-time 没有可推进的收款周期；草稿进入该模式时立即关闭，避免提交阶段出现一个不会生效的开关。
+    setFormData((prev) => {
+      if (costSharingCollectionReminderIsAllowedForBillingCycle(prev) || !prev.costSharing?.collectionReminder?.enabled) return prev;
+      return {
+        ...prev,
+        costSharing: {
+          ...prev.costSharing,
+          collectionReminder: { ...prev.costSharing.collectionReminder, enabled: false },
+        },
+      };
+    });
+  }, [formData.billingCycle, formData.oneTimeMode, formData.costSharing?.collectionReminder?.enabled, setFormData]);
 
   useSubscriptionFormAutoDates(formData, setFormData, billingReferenceDate);
 
@@ -230,11 +252,24 @@ export function SubscriptionDialog(props: SubscriptionDialogProps) {
     }
     if (nextFormData.costSharing?.enabled) {
       const price = parseMoneyInput(nextFormData.price);
-      if (
+      const collectionReminder = nextFormData.costSharing.collectionReminder;
+      if (collectionReminder?.enabled) {
+        if (!costSharingCollectionReminderIsAllowedForBillingCycle(nextFormData)) {
+          errors.costSharing = t("subscription.validation.costSharingCollectionReminderOneTimeBuyoutInvalid");
+        } else if (!isValidCostSharingCollectionReminderDays(collectionReminder.reminderDays)) {
+          errors.costSharing = t("subscription.validation.costSharingCollectionReminderInvalid");
+        } else if (!costSharingCollectionAnchorsAreSatisfied(nextFormData.costSharing, nextFormData.startDate ?? null)) {
+          errors.costSharing = t("subscription.validation.costSharingCollectionReminderAnchorRequired");
+        }
+      }
+      if (!errors.costSharing && !costSharingJoinedDatesWithinFormRange(nextFormData)) {
+        errors.costSharing = t("subscription.validation.costSharingMemberJoinedDateRangeInvalid");
+      }
+      if (!errors.costSharing && (
         price === null ||
         nextFormData.costSharing.members.length === 0 ||
         !costSharingCustomAmountsAreValid(nextFormData.costSharing)
-      ) {
+      )) {
         errors.costSharing = t("subscription.validation.costSharingInvalid");
       }
     }
@@ -427,6 +462,9 @@ export function SubscriptionDialog(props: SubscriptionDialogProps) {
         update={updateCostSharingFormField}
         currencyOptions={currencyOptions}
         currencyConvert={convertCurrency}
+        notificationReminderDays={notificationReminderDays}
+        collectionReminderAllowed={!isOneTimeBuyout}
+        error={formErrors.costSharing}
         manageMembersButtonRef={costSharingManageMembersButtonRef}
         initialMemberNameInputRef={costSharingFirstMemberNameInputRef}
         title={t("subscription.costSharing.manageMembersTitle")}
@@ -449,6 +487,9 @@ type CostSharingMemberDialogProps = {
   update: <K extends keyof SubscriptionFormState>(key: K, value: SubscriptionFormState[K]) => void;
   currencyOptions: ReturnType<typeof createCurrencySelectOptions>;
   currencyConvert?: ((amount: number | string, fromCurrency: string, toCurrency: string) => number) | undefined;
+  notificationReminderDays: number;
+  collectionReminderAllowed: boolean;
+  error?: string | undefined;
   manageMembersButtonRef: RefObject<HTMLButtonElement | null>;
   initialMemberNameInputRef: RefObject<HTMLInputElement | null>;
   title: string;
@@ -468,6 +509,9 @@ function CostSharingMemberDialog({
   update,
   currencyOptions,
   currencyConvert,
+  notificationReminderDays,
+  collectionReminderAllowed,
+  error,
   manageMembersButtonRef,
   initialMemberNameInputRef,
   title,
@@ -510,6 +554,9 @@ function CostSharingMemberDialog({
             update={update}
             currencyOptions={currencyOptions}
             currencyConvert={currencyConvert}
+            notificationReminderDays={notificationReminderDays}
+            collectionReminderAllowed={collectionReminderAllowed}
+            error={error}
             initialMemberNameInputRef={initialMemberNameInputRef}
           />
           <div

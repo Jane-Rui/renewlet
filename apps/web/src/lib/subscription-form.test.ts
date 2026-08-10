@@ -355,6 +355,134 @@ describe("subscription-form", () => {
     expect(toSubscriptionDraft(form)?.costSharing).toEqual(form.costSharing);
   });
 
+  it("keeps valid cost sharing collection reminder settings in the draft", () => {
+    const form = createSubscriptionFormState({
+      name: "Family Plan",
+      price: "100",
+      currency: "USD",
+      startDate: assertDateOnly("2026-01-01"),
+      nextBillingDate: assertDateOnly("2026-02-01"),
+      costSharing: {
+        enabled: true,
+        splitMode: "equal",
+        collectionReminder: { enabled: true, reminderDays: -1 },
+        members: [
+          { id: "partner", name: "Partner", currency: "USD" },
+        ],
+      },
+    });
+
+    expect(getSubscriptionDraftValidationError(form)).toBeNull();
+    expect(toSubscriptionDraft(form)?.costSharing).toEqual(form.costSharing);
+  });
+
+  it("rejects collection reminders for one-time buyout drafts", () => {
+    const form = createSubscriptionFormState({
+      name: "Lifetime Family Plan",
+      price: "100",
+      currency: "USD",
+      billingCycle: "one-time",
+      oneTimeMode: "buyout",
+      startDate: assertDateOnly("2026-01-01"),
+      nextBillingDate: undefined,
+      costSharing: {
+        enabled: true,
+        splitMode: "equal",
+        collectionReminder: { enabled: true, reminderDays: -1 },
+        members: [
+          { id: "partner", name: "Partner", currency: "USD" },
+        ],
+      },
+    });
+
+    expect(getSubscriptionDraftValidationError(form)).toBe("长期有效的一次性购买不支持收款提醒");
+    expect(toSubscriptionDraft(form)).toBeNull();
+  });
+
+  it("rejects disabled reminder sentinel for cost sharing collection reminders", () => {
+    const form = createSubscriptionFormState({
+      name: "Family Plan",
+      price: "100",
+      currency: "USD",
+      startDate: assertDateOnly("2026-01-01"),
+      nextBillingDate: assertDateOnly("2026-02-01"),
+      costSharing: {
+        enabled: true,
+        splitMode: "equal",
+        collectionReminder: { enabled: true, reminderDays: -2 },
+        members: [
+          { id: "partner", name: "Partner", currency: "USD" },
+        ],
+      },
+    });
+
+    expect(getSubscriptionDraftValidationError(form)).toBe("收款提醒天数必须是继承默认值或 0 到 3650 之间的整数");
+    expect(toSubscriptionDraft(form)).toBeNull();
+  });
+
+  it("requires member joined dates when collection reminders have no subscription start date", () => {
+    const form = createSubscriptionFormState({
+      name: "Family Plan",
+      price: "100",
+      currency: "USD",
+      startDate: undefined,
+      nextBillingDate: assertDateOnly("2026-02-01"),
+      costSharing: {
+        enabled: true,
+        splitMode: "equal",
+        collectionReminder: { enabled: true, reminderDays: -1 },
+        members: [
+          { id: "partner", name: "Partner", currency: "USD" },
+        ],
+      },
+    });
+
+    expect(getSubscriptionDraftValidationError(form)).toBe("请为成员设置上车日期，或先填写订阅开始日期");
+    expect(toSubscriptionDraft(form)).toBeNull();
+  });
+
+  it("rejects member joined dates outside the subscription date range", () => {
+    const form = createSubscriptionFormState({
+      name: "Family Plan",
+      price: "100",
+      currency: "USD",
+      startDate: assertDateOnly("2026-01-01"),
+      nextBillingDate: assertDateOnly("2026-02-01"),
+      costSharing: {
+        enabled: true,
+        splitMode: "equal",
+        collectionReminder: { enabled: true, reminderDays: -1 },
+        members: [
+          { id: "partner", name: "Partner", currency: "USD", joinedDate: assertDateOnly("2026-02-02") },
+        ],
+      },
+    });
+
+    expect(getSubscriptionDraftValidationError(form)).toBe("成员上车日期必须在订阅日期范围内");
+    expect(toSubscriptionDraft(form)).toBeNull();
+  });
+
+  it("accepts member joined dates as collection reminder anchors", () => {
+    const form = createSubscriptionFormState({
+      name: "Family Plan",
+      price: "100",
+      currency: "USD",
+      startDate: undefined,
+      nextBillingDate: assertDateOnly("2026-02-01"),
+      costSharing: {
+        enabled: true,
+        splitMode: "equal",
+        collectionReminder: { enabled: true, reminderDays: 0 },
+        members: [
+          { id: "partner", name: "Partner", currency: "USD", joinedDate: assertDateOnly("2026-01-01") },
+        ],
+      },
+    });
+
+    expect(getSubscriptionDraftValidationError(form)).toBeNull();
+    expect(toSubscriptionDraft(form)?.costSharing).toEqual(form.costSharing);
+  });
+
   it("allows custom cost sharing totals to differ from the subscription price", () => {
     const form = createSubscriptionFormState({
       name: "Broken Family Plan",

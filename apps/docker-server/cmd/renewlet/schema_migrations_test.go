@@ -5,10 +5,12 @@ package main
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tools/types"
 )
 
 func TestEnsureSchemaNoopDoesNotResaveCollections(t *testing.T) {
@@ -110,6 +112,73 @@ func TestSchemaDataMigrationsBackfillSchedulerWithoutListProjection(t *testing.T
 	}
 	if projection.Count != 1 {
 		t.Fatalf("list projection count after lazy refresh = %d, want 1", projection.Count)
+	}
+}
+
+func TestSchemaDataMigrationsBackfillCostSharingCollectionReminderMirrors(t *testing.T) {
+	app := newSchemaTestApp(t)
+	if err := ensureCollectionsSchema(app); err != nil {
+		t.Fatal(err)
+	}
+	user := createSchemaTestUser(t, app, "schema-cost-sharing-backfill@example.com")
+	record := createSchemaTestSubscriptionNoValidate(t, app, user.Id, map[string]interface{}{
+		"name":         "Legacy Family Collection",
+		"startDate":    "2026-05-14",
+		"reminderDays": disabledReminderDays,
+		"costSharing": types.JSONRaw(`{
+			"enabled": true,
+			"splitMode": "equal",
+			"collectionReminder": {"enabled": true, "intervalMonths": 1, "reminderDays": -1},
+			"members": [{"id": "partner", "name": "Partner", "currency": "USD"}]
+		}`),
+	})
+	buyout := createSchemaTestSubscriptionNoValidate(t, app, user.Id, map[string]interface{}{
+		"name":            "Legacy Buyout Collection",
+		"billingCycle":    "one-time",
+		"startDate":       "2026-05-14",
+		"nextBillingDate": "2026-05-14",
+		"reminderDays":    disabledReminderDays,
+		"costSharing": types.JSONRaw(`{
+			"enabled": true,
+			"splitMode": "equal",
+			"collectionReminder": {"enabled": true, "intervalMonths": 1, "reminderDays": -1},
+			"members": [{"id": "partner", "name": "Partner", "currency": "USD"}]
+		}`),
+	})
+
+	if err := runSchemaDataMigrations(app); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := app.FindRecordById("subscriptions", record.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reloaded.GetBool("costSharingCollectionReminderEnabled") || reloaded.GetString("costSharingNextCollectionReminderDate") == "" {
+		t.Fatalf("expected collection reminder mirror backfill, enabled=%v next=%q", reloaded.GetBool("costSharingCollectionReminderEnabled"), reloaded.GetString("costSharingNextCollectionReminderDate"))
+	}
+	reloadedBuyout, err := app.FindRecordById("subscriptions", buyout.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloadedBuyout.GetBool("costSharingCollectionReminderEnabled") || reloadedBuyout.GetString("costSharingNextCollectionReminderDate") != "" {
+		t.Fatalf("expected buyout collection mirror disabled, enabled=%v next=%q", reloadedBuyout.GetBool("costSharingCollectionReminderEnabled"), reloadedBuyout.GetString("costSharingNextCollectionReminderDate"))
+	}
+	data, err := jsonBytesFromValue(reloaded.Get("costSharing"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "collectionReminder") {
+		t.Fatalf("expected public costSharing JSON to remain intact, got %s", data)
+	}
+	if strings.Contains(string(data), "intervalMonths") {
+		t.Fatalf("expected deprecated collection interval to be removed, got %s", data)
+	}
+	buyoutData, err := jsonBytesFromValue(reloadedBuyout.Get("costSharing"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(buyoutData), "intervalMonths") {
+		t.Fatalf("expected deprecated buyout collection interval to be removed, got %s", buyoutData)
 	}
 }
 

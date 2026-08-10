@@ -14,27 +14,32 @@ msgstr ""
 "Plural-Forms: \n"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:112
+#: src/i18n/descriptors/notification.ts:114
 msgid "notification.content.itemLine"
 msgstr "- {name}：{date}，{amount} {currency}（{extra}）"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:120
+#: src/i18n/descriptors/notification.ts:122
 msgid "notification.items"
 msgstr "{count} 项"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:122
+#: src/i18n/descriptors/notification.ts:126
+msgid "notification.targetCostSharingReminder"
+msgstr "{date} · 向 {member} 收 {amount} · 提前 {days} 天"
+
+#. js-lingui-explicit-id
+#: src/i18n/descriptors/notification.ts:124
 msgid "notification.targetReminder"
 msgstr "{date} · 提前 {days} 天"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:123
+#: src/i18n/descriptors/notification.ts:125
 msgid "notification.targetRepeatReminder"
 msgstr "{date} · 重复提醒 {hours}小时"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:111
+#: src/i18n/descriptors/notification.ts:113
 msgid "notification.content.extraWithRepeat"
 msgstr "{extra}；{repeat}"
 
@@ -149,12 +154,12 @@ msgid "media.variant.mono"
 msgstr "Mono"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:104
+#: src/i18n/descriptors/notification.ts:105
 msgid "notification.content.testTitle"
 msgstr "Renewlet 测试通知"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:103
+#: src/i18n/descriptors/notification.ts:104
 msgid "notification.content.title"
 msgstr "Renewlet 订阅提醒"
 
@@ -224,12 +229,12 @@ msgid "media.uploadFailedRetry"
 msgstr "上传失败，请重试或改用其他图片"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:135
+#: src/i18n/descriptors/notification.ts:138
 msgid "notification.nextContent"
 msgstr "下一次有内容"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:134
+#: src/i18n/descriptors/notification.ts:137
 msgid "notification.nextCheck"
 msgstr "下一次检查"
 
@@ -239,7 +244,7 @@ msgid "media.imageTypeInvalid"
 msgstr "仅支持 PNG、JPG、WebP、SVG 或 ICO 图片"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:102
+#: src/i18n/descriptors/notification.ts:103
 msgid "notification.content.empty"
 msgstr "今天没有需要提醒的订阅（你可以在设置页关闭“每日通知”，或调整各订阅的提醒天数）。"
 
@@ -254,7 +259,7 @@ msgid "media.providerFilter.all"
 msgstr "全部"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:118
+#: src/i18n/descriptors/notification.ts:120
 msgid "notification.filter.all"
 msgstr "全部"
 
@@ -274,22 +279,22 @@ msgid "media.noBuiltInMatch"
 msgstr "内置图标未命中"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:136
+#: src/i18n/descriptors/notification.ts:139
 msgid "notification.latestRun"
 msgstr "最近执行"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:125
+#: src/i18n/descriptors/notification.ts:128
 msgid "notification.createdAt"
 msgstr "创建时间"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:129
+#: src/i18n/descriptors/notification.ts:132
 msgid "notification.historyEmpty"
 msgstr "到达通知时间后，这里会显示调度记录。"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:143
+#: src/i18n/descriptors/notification.ts:146
 msgid "notification.refresh"
 msgstr "刷新"
 
@@ -299,17 +304,17 @@ msgid "media.loadMoreUploadedLogo"
 msgstr "加载更多"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:145
+#: src/i18n/descriptors/notification.ts:148
 msgid "notification.loadMore"
 msgstr "加载更多"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:144
+#: src/i18n/descriptors/notification.ts:147
 msgid "notification.historyLoadFailed"
 msgstr "加载通知历史失败，请稍后重试。"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:107
+#: src/i18n/descriptors/notification.ts:108
 msgid "notification.content.expiryBeforeDays"
 msgstr "即将到期，提前 {days} 天提醒"
 
@@ -319,12 +324,12 @@ msgid "notification.content.expiryBlock"
 msgstr "即将到期："
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:141
+#: src/i18n/descriptors/notification.ts:144
 msgid "notification.upcomingTab"
 msgstr "即将提醒"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:139
+#: src/i18n/descriptors/notification.ts:142
 msgid "notification.historyDescription"
 msgstr "即将提醒按当前设置实时推导，发送历史保留当时执行快照。"
 
@@ -334,12 +339,12 @@ msgid "notification.content.renewalBlock"
 msgstr "即将续费："
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:114
+#: src/i18n/descriptors/notification.ts:116
 msgid "notification.status.sending"
 msgstr "发送中"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:142
+#: src/i18n/descriptors/notification.ts:145
 msgid "notification.historyTab"
 msgstr "发送历史"
 
@@ -349,9 +354,14 @@ msgid "notification.testFailedDescription"
 msgstr "发送失败，请稍后重试"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:140
+#: src/i18n/descriptors/notification.ts:143
 msgid "notification.historyDetailTitle"
 msgstr "发送详情"
+
+#. js-lingui-explicit-id
+#: src/i18n/descriptors/notification.ts:111
+msgid "notification.content.costSharingBeforeDays"
+msgstr "向 {member} 收款，提前 {days} 天提醒"
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/notification.ts:82
@@ -364,14 +374,19 @@ msgid "media.imageTooLarge"
 msgstr "图片过大，请选择不超过 {size}MB 的图片"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:116
+#: src/i18n/descriptors/notification.ts:118
 msgid "notification.status.failed"
 msgstr "失败"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:105
+#: src/i18n/descriptors/notification.ts:106
 msgid "notification.content.testBody"
 msgstr "如果你收到了这条消息，说明该通知渠道配置可用。"
+
+#. js-lingui-explicit-id
+#: src/i18n/descriptors/notification.ts:102
+msgid "notification.content.costSharingBlock"
+msgstr "家庭共享收款："
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/notification.ts:36
@@ -399,12 +414,12 @@ msgid "media.uploadedLogoLoadFailed"
 msgstr "已上传 Logo 加载失败"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:117
+#: src/i18n/descriptors/notification.ts:119
 msgid "notification.status.skipped"
 msgstr "已跳过"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:109
+#: src/i18n/descriptors/notification.ts:110
 msgid "notification.content.expiredStatus"
 msgstr "已过期"
 
@@ -424,12 +439,12 @@ msgid "media.variant.color"
 msgstr "彩色"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:115
+#: src/i18n/descriptors/notification.ts:117
 msgid "notification.status.sent"
 msgstr "成功"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:106
+#: src/i18n/descriptors/notification.ts:107
 msgid "notification.content.beforeDays"
 msgstr "提前 {days} 天提醒"
 
@@ -459,7 +474,7 @@ msgid "media.rotate"
 msgstr "旋转"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:133
+#: src/i18n/descriptors/notification.ts:136
 msgid "notification.noHistory"
 msgstr "暂无记录"
 
@@ -474,12 +489,12 @@ msgid "media.changeIcon"
 msgstr "更换图标"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:126
+#: src/i18n/descriptors/notification.ts:129
 msgid "notification.updatedAt"
 msgstr "更新时间"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:130
+#: src/i18n/descriptors/notification.ts:133
 msgid "notification.blocker.noChannels"
 msgstr "未启用渠道"
 
@@ -494,17 +509,17 @@ msgid "media.logoNotFound"
 msgstr "未找到相关 Logo"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:131
+#: src/i18n/descriptors/notification.ts:134
 msgid "notification.blocker.noUpcoming"
 msgstr "未来 30 天无命中"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:119
+#: src/i18n/descriptors/notification.ts:121
 msgid "notification.upcoming.empty"
 msgstr "未来 30 天没有会自动发送的提醒。"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:137
+#: src/i18n/descriptors/notification.ts:140
 msgid "notification.viewScheduleHistory"
 msgstr "查看调度与历史"
 
@@ -529,7 +544,7 @@ msgid "media.loadingMore"
 msgstr "正在补充更多结果..."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:121
+#: src/i18n/descriptors/notification.ts:123
 msgid "notification.dailyIncluded"
 msgstr "每日包含"
 
@@ -574,7 +589,7 @@ msgid "media.confirmCrop"
 msgstr "确认裁剪"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:113
+#: src/i18n/descriptors/notification.ts:115
 msgid "notification.status.pending"
 msgstr "等待中"
 
@@ -584,12 +599,12 @@ msgid "media.providerFilter.ariaLabel"
 msgstr "筛选内置图标来源"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:127
+#: src/i18n/descriptors/notification.ts:130
 msgid "notification.attemptedChannels"
 msgstr "累计尝试渠道"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:128
+#: src/i18n/descriptors/notification.ts:131
 msgid "notification.succeededChannels"
 msgstr "累计成功渠道"
 
@@ -619,7 +634,7 @@ msgid "media.cropPreview"
 msgstr "裁剪预览"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:108
+#: src/i18n/descriptors/notification.ts:109
 msgid "notification.content.trialBeforeDays"
 msgstr "试用结束，提前 {days} 天提醒"
 
@@ -649,7 +664,7 @@ msgid "media.readImageFailed"
 msgstr "读取图片失败，请重新选择文件"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:124
+#: src/i18n/descriptors/notification.ts:127
 msgid "notification.attempts"
 msgstr "调度尝试 {count} 次"
 
@@ -684,17 +699,17 @@ msgid "media.noUploadedLogo"
 msgstr "还没有上传过自定义 Logo"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:138
+#: src/i18n/descriptors/notification.ts:141
 msgid "notification.historyTitle"
 msgstr "通知调度与发送历史"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:132
+#: src/i18n/descriptors/notification.ts:135
 msgid "notification.blocker.ok"
 msgstr "配置正常"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:110
+#: src/i18n/descriptors/notification.ts:112
 msgid "notification.content.repeatEvery"
 msgstr "重复提醒，每 {hours} 小时"
 

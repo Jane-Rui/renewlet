@@ -418,6 +418,53 @@ describe("NotificationHistoryPanel", () => {
     expect(screen.getByText("2026-05-17 · 重复提醒 1小时")).toBeInTheDocument();
   });
 
+  it("labels upcoming cost sharing collection reminder items", async () => {
+    const user = userEvent.setup();
+    const data = createSkippedHistoryResponse();
+    data.upcoming = [{
+      scheduledLocalDate: assertDateOnly("2026-05-16"),
+      scheduledLocalTime: assertLocalTime("09:00"),
+      timeZone: "UTC",
+      scheduledInstantUtc: "2026-05-16T09:00:00Z",
+      items: [{
+        type: "costSharing",
+        subscriptionId: "sub-family",
+        name: "Family Plan",
+        price: "30",
+        currency: "USD",
+        status: "active",
+        targetDate: assertDateOnly("2026-05-17"),
+        reminderDays: 1,
+        daysUntil: 1,
+        costSharing: {
+          memberName: "Partner",
+          amount: "10",
+          currency: "USD",
+        },
+      }],
+    }];
+
+    render(
+      <TooltipProvider delayDuration={0}>
+        <NotificationHistoryPanel
+          data={data}
+          isLoading={false}
+          isFetching={false}
+          error={null}
+          status="all"
+          setStatus={vi.fn()}
+          loadMore={vi.fn()}
+          refetch={vi.fn()}
+        />
+      </TooltipProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "查看调度与历史" }));
+
+    expect(screen.getByText("Family Plan")).toBeInTheDocument();
+    expect(screen.getByText("2026-05-17 · 向 Partner 收 $10 USD · 提前 1 天")).toBeInTheDocument();
+  });
+
   it("virtualizes large upcoming schedule previews without changing history interactions", async () => {
     const user = userEvent.setup();
     const setStatus = vi.fn();
