@@ -375,15 +375,7 @@ func processNotificationCronUser(app core.App, options notificationCronOptions, 
 		}, nil
 	}
 
-	// 确认本 tick 会写历史或发送后再推进续订并读取 payload 候选，避免非 due 分钟触碰大订阅表。
-	if _, err := renewAutoSubscriptionsForUser(app, userID, settings.Timezone, options.Now); err != nil {
-		return notificationCronUserResult{}, err
-	}
-	subscriptions, err := listNotificationScheduleCandidateSubscriptions(app, userID, settings, schedule.localScheduleOccurrence, true)
-	if err != nil {
-		return notificationCronUserResult{}, err
-	}
-	due := buildDueNotificationForSchedule(schedule.localScheduleOccurrence, options.Now, settings, subscriptions, true)
+	// due 窗口先处理已有 job 状态；只有需要生成内容或重试发送时才读取订阅候选。
 	existingJob, _ := getNotificationJob(app, userID, schedule.ScheduledLocalDate, schedule.ScheduledLocalTime, schedule.TimeZone)
 	if existingJob != nil && (existingJob.GetString("status") == notificationStatusSent || existingJob.GetString("status") == notificationStatusSkipped) {
 		reason := "already_sent"
@@ -407,12 +399,27 @@ func processNotificationCronUser(app core.App, options notificationCronOptions, 
 		attempts = existingJob.GetInt("attempts")
 	}
 	if !options.Force && existingJob != nil && existingJob.GetString("status") == notificationStatusFailed && options.MaxRetries == 0 {
+		// 重试关闭时把本窗口视作已处理，避免旧 failed job 每分钟继续触发候选查询和收款镜像解析。
+		if err := refreshNotificationSettledDerivedState(app, userID, settings, schedule.localScheduleOccurrence, options); err != nil {
+			return notificationCronUserResult{}, err
+		}
 		return notificationCronUserResult{UserID: userID, Action: "skipped", Reason: "retries_disabled"}, nil
 	}
 	if !options.Force && existingJob != nil && existingJob.GetString("status") == notificationStatusFailed && attempts >= options.MaxRetries {
-		// 失败任务保留给历史页解释失败原因；超过重试预算后不再自动扰动外部通知渠道。
+		// 超过重试预算后不再扰动外部渠道，同时推进 due-index，防止同一 failed 窗口长期占住 cron 热路径。
+		if err := refreshNotificationSettledDerivedState(app, userID, settings, schedule.localScheduleOccurrence, options); err != nil {
+			return notificationCronUserResult{}, err
+		}
 		return notificationCronUserResult{UserID: userID, Action: "skipped", Reason: "max_retries_reached"}, nil
 	}
+	if _, err := renewAutoSubscriptionsForUser(app, userID, settings.Timezone, options.Now); err != nil {
+		return notificationCronUserResult{}, err
+	}
+	subscriptions, err := listNotificationScheduleCandidateSubscriptions(app, userID, settings, schedule.localScheduleOccurrence, true)
+	if err != nil {
+		return notificationCronUserResult{}, err
+	}
+	due := buildDueNotificationForSchedule(schedule.localScheduleOccurrence, options.Now, settings, subscriptions, true)
 
 	finalReason := ""
 	if len(settings.EnabledChannels) == 0 {

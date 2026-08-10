@@ -1,10 +1,12 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/types"
 )
 
@@ -172,6 +174,82 @@ func TestNotificationScheduleCandidateSubscriptionsMatchFullFiltering(t *testing
 	}
 }
 
+func TestNotificationCronSettlesExhaustedCostSharingFailedJob(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		attempts   int
+		maxRetries string
+		wantReason string
+	}{
+		{name: "max retries reached", attempts: 3, wantReason: "max_retries_reached"},
+		{name: "retries disabled", attempts: 1, maxRetries: "0", wantReason: "retries_disabled"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.maxRetries != "" {
+				t.Setenv("NOTIFICATION_MAX_RETRIES", tc.maxRetries)
+			}
+			app := newSchemaTestApp(t)
+			if err := ensureSchema(app); err != nil {
+				t.Fatal(err)
+			}
+			user, _ := createRouteTestUser(t, app, "cost-sharing-exhausted-"+strings.ReplaceAll(tc.name, " ", "-"))
+			settings := defaultAppSettings()
+			settings.Timezone = "UTC"
+			settings.NotificationTimeLocal = "08:00"
+			settings.EnabledChannels = []string{"webhook"}
+			createNotificationCronRouteTestSettings(t, app, user, settings)
+			costSharing := types.JSONRaw(`{"enabled":true,"splitMode":"equal","collectionReminder":{"enabled":true,"reminderDays":3},"members":[{"id":"partner","name":"Partner","joinedDate":"2026-04-17","currency":"USD"}]}`)
+			subscription := createRouteTestSubscription(t, app, user.Id, map[string]interface{}{
+				"name":                                  "Family Collection Exhausted",
+				"price":                                 "30",
+				"nextBillingDate":                       "2026-05-17",
+				"reminderDays":                          disabledReminderDays,
+				"costSharing":                           costSharing,
+				"costSharingCollectionReminderEnabled":  true,
+				"costSharingNextCollectionReminderDate": "2026-05-14",
+			})
+			now := time.Date(2026, 5, 14, 8, 0, 0, 0, time.UTC)
+			refreshNotificationSchedulerForTest(t, app, user.Id, now)
+			createFailedCronJobForTest(t, app, user.Id, settings, now, tc.attempts)
+
+			sendCount := 0
+			originalSender := notificationSenders["webhook"]
+			notificationSenders["webhook"] = notificationSenderFunc(func(_ core.App, _ appSettings, _ notificationMessage) error {
+				sendCount++
+				return errors.New("still failing")
+			})
+			t.Cleanup(func() {
+				notificationSenders["webhook"] = originalSender
+			})
+
+			result, err := runNotificationCron(app, notificationCronOptions{Now: now, WindowMinutes: 2})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Skipped != 1 || len(result.Results) != 1 || result.Results[0].Reason != tc.wantReason {
+				t.Fatalf("expected exhausted failed job to settle as %s, got %#v", tc.wantReason, result)
+			}
+			if sendCount != 0 {
+				t.Fatalf("expected exhausted failed job not to send again, sent %d times", sendCount)
+			}
+			reloaded, err := app.FindRecordById("subscriptions", subscription.Id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := reloaded.GetString("costSharingNextCollectionReminderDate"); got != "2026-06-14" {
+				t.Fatalf("expected collection reminder mirror to advance, got %q", got)
+			}
+			job, err := getNotificationJob(app, user.Id, "2026-05-14", "08:00", "UTC")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if job.GetString("status") != notificationStatusFailed || job.GetInt("attempts") != tc.attempts {
+				t.Fatalf("expected failed job history to remain unchanged, status=%q attempts=%d", job.GetString("status"), job.GetInt("attempts"))
+			}
+		})
+	}
+}
+
 func TestUpcomingBatchKeepsSameDayCostSharingMembers(t *testing.T) {
 	batches := map[string]*upcomingNotificationBatch{}
 	occurrence := localScheduleOccurrence{
@@ -202,5 +280,37 @@ func TestUpcomingBatchKeepsSameDayCostSharingMembers(t *testing.T) {
 	}
 	if got := notificationItemKeys(batch.Items); strings.Join(got, "|") != "costSharing|Family Plan|2026-05-17||Child/10/USD|costSharing|Family Plan|2026-05-17||Partner/10/USD" {
 		t.Fatalf("unexpected collection reminder keys: %#v", got)
+	}
+}
+
+func createFailedCronJobForTest(t *testing.T, app core.App, userID string, settings appSettings, now time.Time, attempts int) {
+	t.Helper()
+	schedule := getLocalScheduleDecision(now, settings.Timezone, settings.NotificationTimeLocal, 2, false)
+	job, _, err := createNotificationJob(app, userID, schedule, notificationStatusFailed, attempts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := createJobResult(
+		"some_channels_failed",
+		schedule.localScheduleOccurrence,
+		settings,
+		notificationMessage{
+			Title:      "Renewlet",
+			Content:    "failed",
+			Timestamp:  "2026-05-14 08:00:00 UTC",
+			HasPayload: true,
+		},
+		notificationCronOptions{Now: now, WindowMinutes: 2},
+		jobChannels{
+			Attempted: []string{"webhook"},
+			Failed:    []channelFailure{{Channel: "webhook", Error: "still failing"}},
+		},
+	)
+	job.Set("status", notificationStatusFailed)
+	job.Set("attempts", attempts)
+	job.Set("lastError", "webhook: still failing")
+	job.Set("result", result)
+	if err := app.Save(job); err != nil {
+		t.Fatal(err)
 	}
 }
