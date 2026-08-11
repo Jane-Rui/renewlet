@@ -43,11 +43,12 @@ import { RawErrorResponseDialog } from '@/components/raw-error-response-dialog';
 import { NotificationHistoryPanel } from './notification-history-panel';
 import { Settings2, FolderKanban, Activity, CreditCard, Coins, Palette } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { CURRENCY_OPTIONS, MAX_REMINDER_DAYS, type NotificationChannel, type PublicStatusCurrency, type SubscriptionPriceReferenceCurrency } from '@/types/subscription';
+import { MAX_REMINDER_DAYS, type NotificationChannel, type PublicStatusCurrency, type SubscriptionPriceReferenceCurrency } from '@/types/subscription';
 import { isBuiltInPaymentMethodValue } from '@/types/config';
 import { assertLocalTime } from '@/lib/time/local-time';
 import { getSupportedTimeZones } from '@/lib/time/time-zone';
-import { createCurrencySelectOptions, createTimeZoneSelectOptions } from '@/lib/searchable-options';
+import { createTimeZoneSelectOptions } from '@/lib/searchable-options';
+import { useManagedCurrencyOptions } from '@/hooks/use-managed-currency-options';
 import { useSettingsFormController } from '../application/use-settings-form-controller';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { Locale } from '@/i18n/locales';
@@ -154,9 +155,8 @@ export function SettingsScreen() {
     updatePassword,
   } = password;
   const timezoneOptions = createTimeZoneSelectOptions(getSupportedTimeZones());
-  const defaultCurrencyOptions = createCurrencySelectOptions({
+  const defaultCurrencyOptions = useManagedCurrencyOptions({
     currencies: customConfig.currencies,
-    currencyOptions: CURRENCY_OPTIONS,
     includeDisabledCurrent: settings.defaultCurrency,
     locale,
   });
@@ -166,18 +166,19 @@ export function SettingsScreen() {
   const explicitPublicStatusCurrency = settings.publicStatusCurrency === "inherit"
     ? null
     : settings.publicStatusCurrency;
+  const managedPublicStatusCurrencyOptions = useManagedCurrencyOptions({
+    currencies: customConfig.currencies,
+    includeDisabledCurrent: explicitPublicStatusCurrency,
+    locale,
+  });
+  // inherit/default 是设置项哨兵，不属于真实货币；只能在宿主层 prepend，后续货币继续服从货币管理顺序。
   const publicStatusCurrencyOptions: SearchableSelectOption[] = [
     {
       value: "inherit",
       label: t("settings.publicStatusCurrencyInherit", { currency: settings.defaultCurrency }),
       keywords: ["inherit", settings.defaultCurrency],
     },
-    ...createCurrencySelectOptions({
-      currencies: customConfig.currencies,
-      currencyOptions: CURRENCY_OPTIONS,
-      ...(explicitPublicStatusCurrency ? { includeDisabledCurrent: explicitPublicStatusCurrency } : {}),
-      locale,
-    }),
+    ...managedPublicStatusCurrencyOptions,
   ];
   const effectiveSubscriptionPriceReferenceCurrency = settings.subscriptionPriceReferenceCurrency === "default"
     ? settings.defaultCurrency
@@ -185,18 +186,18 @@ export function SettingsScreen() {
   const explicitSubscriptionPriceReferenceCurrency = settings.subscriptionPriceReferenceCurrency === "default"
     ? null
     : settings.subscriptionPriceReferenceCurrency;
+  const managedSubscriptionPriceReferenceCurrencyOptions = useManagedCurrencyOptions({
+    currencies: customConfig.currencies,
+    includeDisabledCurrent: explicitSubscriptionPriceReferenceCurrency,
+    locale,
+  });
   const subscriptionPriceReferenceCurrencyOptions: SearchableSelectOption[] = [
     {
       value: "default",
       label: t("settings.subscriptionPriceReferenceCurrencyDefault", { currency: settings.defaultCurrency }),
       keywords: ["default", settings.defaultCurrency],
     },
-    ...createCurrencySelectOptions({
-      currencies: customConfig.currencies,
-      currencyOptions: CURRENCY_OPTIONS,
-      ...(explicitSubscriptionPriceReferenceCurrency ? { includeDisabledCurrent: explicitSubscriptionPriceReferenceCurrency } : {}),
-      locale,
-    }),
+    ...managedSubscriptionPriceReferenceCurrencyOptions,
   ];
   const localSubscriptionPriceReferenceCurrencyPreference =
     getLocalSubscriptionPriceReferenceCurrencyPreference()?.currency ?? null;

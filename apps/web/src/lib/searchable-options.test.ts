@@ -52,6 +52,28 @@ describe("searchable option keywords", () => {
     expect(rankSearchText(keywords, "$ 美元 (USD)")).toBeGreaterThan(0);
   });
 
+  it("keeps single-character currency searches on high-signal prefixes only", () => {
+    for (const value of ["USD", "UAH", "UGX", "UYU", "UZS"]) {
+      expect(rankSearchText(getCurrencyKeywords(value), "u")).toBeGreaterThan(0);
+    }
+
+    for (const value of ["AUD", "GBP", "TRY", "NGN", "PHP", "AFN", "ALL"]) {
+      expect(rankSearchText(getCurrencyKeywords(value), "u")).toBe(0);
+    }
+  });
+
+  it("does not let generic currency aliases match short searches", () => {
+    const usdKeywords = getCurrencyKeywords("USD");
+
+    expect(usdKeywords).not.toEqual(expect.arrayContaining(["全球", "global", "currency"]));
+    expect(rankSearchText(["全球", "global", "currency"], "u")).toBe(0);
+  });
+
+  it("keeps two-character contains search available for config labels", () => {
+    expect(rankSearchText(["ERN Eritrean Nakfa"], "re")).toBeGreaterThan(0);
+    expect(rankSearchText(["KRW South Korean Won"], "re")).toBeGreaterThan(0);
+  });
+
   it("does not match short currency code queries as loose subsequences", () => {
     expect(rankSearchText(getCurrencyKeywords("NGN"), "ngn")).toBeGreaterThan(0);
     expect(rankSearchText(getCurrencyKeywords("HKD"), "ngn")).toBe(0);
@@ -107,8 +129,8 @@ describe("currency select options", () => {
   it("keeps a disabled current currency as a non-selectable context item", () => {
     const options = createCurrencySelectOptions({
       currencies: [
-        currencyConfig("USD", false),
         currencyConfig("CNY"),
+        currencyConfig("USD", false),
         currencyConfig("EUR"),
       ],
       currencyOptions: CURRENCY_OPTIONS,
@@ -117,12 +139,12 @@ describe("currency select options", () => {
     });
 
     expect(options.map((option) => [option.value, option.disabled])).toEqual([
-      ["USD", true],
       ["CNY", undefined],
+      ["USD", true],
       ["EUR", undefined],
     ]);
-    expect(options[0]?.label).toContain("已禁用");
-    expect(options[0]?.label).toContain("$ 美元 (USD)");
-    expect(options[0]?.label).not.toContain("美元 ($)");
+    expect(options[1]?.label).toContain("已禁用");
+    expect(options[1]?.label).toContain("$ 美元 (USD)");
+    expect(options[1]?.label).not.toContain("美元 ($)");
   });
 });

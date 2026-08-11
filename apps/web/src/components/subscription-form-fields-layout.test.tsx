@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { useManagedCurrencyOptions } from "@/hooks/use-managed-currency-options";
 import { assertDateOnly } from "@/lib/time/date-only";
 import { createSubscriptionFormState, type SubscriptionFormState } from "@/types/subscription-form";
 import { SubscriptionFormFields, type SubscriptionFormErrors } from "./subscription-form-fields";
@@ -37,6 +38,11 @@ function Harness({
     nextBillingDate: assertDateOnly("2026-02-01"),
     ...formOverrides,
   }));
+  const currencyOptions = useManagedCurrencyOptions({
+    currencies: config.currencies,
+    includeDisabledCurrent: formData.currency,
+    locale: "zh-CN",
+  });
 
   return (
     <TooltipProvider delayDuration={0}>
@@ -45,6 +51,7 @@ function Harness({
         config={config}
         formData={formData}
         setFormData={setFormData}
+        currencyOptions={currencyOptions}
         showLogoField={false}
         onLogoUploadStatusChange={vi.fn()}
         errors={formErrors}

@@ -32,7 +32,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { Subscription, SubscriptionStatus } from '@/types/subscription';
-import { BILLING_CYCLES, CURRENCY_OPTIONS, CYCLE_LABELS, DEFAULT_NOTIFICATION_REMINDER_DAYS, DEFAULT_SETTINGS } from '@/types/subscription';
+import { BILLING_CYCLES, CYCLE_LABELS, DEFAULT_NOTIFICATION_REMINDER_DAYS, DEFAULT_SETTINGS } from '@/types/subscription';
 import { Search, Plus, Grid, List as ListIcon, Download, Upload, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -54,7 +54,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import type { MessageKey } from '@/i18n/messages';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { useSubscriptionDetailDialog } from '@/hooks/use-subscription-detail-dialog';
-import { createCurrencySelectOptions } from '@/lib/searchable-options';
+import { useManagedCurrencyOptions } from '@/hooks/use-managed-currency-options';
 import { todayDateOnlyInTimeZone } from '@/lib/time/date-only';
 import {
   SubscriptionTagFilterDrawer,
@@ -220,20 +220,10 @@ function SubscriptionGrid({
     ],
     [config.paymentMethods, label, t],
   );
-  const currencyFilterOptions = useMemo(() => {
-    if (config.currencies.length > 0) {
-      return createCurrencySelectOptions({
-        currencies: config.currencies,
-        currencyOptions: CURRENCY_OPTIONS,
-        locale,
-      });
-    }
-
-    return Array.from(new Set([defaultCurrency, ...subscriptions.map((subscription) => subscription.currency)]))
-      .filter(Boolean)
-      .sort()
-      .map((currency) => ({ value: currency, label: currency }));
-  }, [config.currencies, defaultCurrency, locale, subscriptions]);
+  const currencyFilterOptions = useManagedCurrencyOptions({
+    currencies: config.currencies,
+    locale,
+  });
   const { convert, loading: ratesLoading, sourceDate: ratesSourceDate } = useExchangeRates(exchangeRateProvider);
   const currencyRatesReady = Boolean(ratesSourceDate) && !ratesLoading;
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');

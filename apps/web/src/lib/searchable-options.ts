@@ -2,10 +2,10 @@
  * 可搜索下拉选项构建工具。
  *
  * 架构位置：
- * - Settings/订阅表单中的货币、时区等下拉共用这里的关键词和排序策略。
+ * - Settings/订阅表单中的货币、时区等下拉共用这里的关键词和匹配策略。
  * - UI 组件只负责展示和交互，不复制搜索算法。
  *
- * 注意： 搜索评分需要稳定，改动会直接影响用户输入时的选项排序。
+ * 注意： 搜索评分只决定命中与否；展示顺序由调用方传入的业务顺序决定。
  */
 import { formatTimeZoneOffset } from "@/lib/time/time-zone";
 import { getIntlCurrencyIdentityLabel } from "@/lib/currency-data";
@@ -28,8 +28,22 @@ const CURRENCY_REGION_KEYWORDS: Record<CurrencyRegion, string[]> = {
   americas: ["美洲", "america", "americas", "north america", "south america"],
   oceania: ["大洋洲", "oceania"],
   africa: ["非洲", "africa"],
-  global: ["全球", "global", "currency"],
+  global: [],
 };
+
+const SEARCH_SEPARATOR_PATTERN = /[\s/_().,$￥¥€£₩₹₺₪฿₱+\-:]+/g;
+const CURRENCY_SYMBOL_QUERY_PATTERN = /^[,$￥¥€£₩₹₺₪฿₱]+$/;
+const SHORT_SEARCH_MAX_LENGTH = 1;
+
+interface SearchPattern {
+  normalized: string;
+  compact: string;
+  hasCompact: boolean;
+  parts: string[];
+  currencySymbolOnly: boolean;
+  short: boolean;
+  canUseSubsequenceFallback: boolean;
+}
 
 /** 归一化搜索文本，去掉重音并统一小写，提升跨语言搜索命中率。 */
 export function normalizeSearchText(input: string): string {
@@ -42,23 +56,52 @@ export function normalizeSearchText(input: string): string {
 
 function compactSearchText(input: string): string {
   // 紧凑匹配会移除空白、分隔符和常见货币符号，让 `US D`、`USD`、`$` 类输入尽量落到同一搜索口径。
-  return normalizeSearchText(input).replace(/[\s/_().,$￥¥€£₩₹₺₪฿₱]+/g, "");
+  return normalizeSearchText(input).replace(SEARCH_SEPARATOR_PATTERN, "");
+}
+
+function createSearchPattern(search: string): SearchPattern | null {
+  const normalized = normalizeSearchText(search);
+  if (!normalized) return null;
+
+  const compact = compactSearchText(normalized);
+  const hasCompact = compact.length > 0;
+  const parts = normalized.split(/\s+/).filter(Boolean);
+
+  return {
+    normalized,
+    compact,
+    hasCompact,
+    parts,
+    currencySymbolOnly: CURRENCY_SYMBOL_QUERY_PATTERN.test(normalized),
+    short: isShortSearchQuery(normalized, compact),
+    canUseSubsequenceFallback: hasCompact && shouldUseSubsequenceFallback(compact),
+  };
+}
+
+function isShortSearchQuery(normalizedSearch: string, compactSearch: string): boolean {
+  const searchLength = Array.from(compactSearch || normalizedSearch.replace(/\s+/g, "")).length;
+  return searchLength > 0 && searchLength <= SHORT_SEARCH_MAX_LENGTH;
+}
+
+function searchTokens(normalizedValue: string): string[] {
+  return normalizedValue.split(SEARCH_SEPARATOR_PATTERN).filter(Boolean);
+}
+
+function startsWithSearchToken(normalizedValue: string, pattern: SearchPattern): boolean {
+  return searchTokens(normalizedValue).some((token) => (
+    token.startsWith(pattern.normalized)
+    || (pattern.hasCompact && compactSearchText(token).startsWith(pattern.compact))
+  ));
 }
 
 /**
  * 对候选文本计算搜索匹配分数。
  *
- * 评分保留前缀、包含、多词包含；较长 query 才使用子序列兜底，避免短代码误命中。
+ * 评分保留精确、前缀和 token 前缀；只有非短查询才允许包含、多词包含和子序列兜底。
  */
 export function rankSearchText(values: readonly string[], search: string): number {
-  const normalizedSearch = normalizeSearchText(search);
-  if (!normalizedSearch) return 1;
-
-  const compactSearch = compactSearchText(normalizedSearch);
-  const hasCompactSearch = compactSearch.length > 0;
-  // 短 query 使用子序列会误命中太多三字母货币代码，因此只给较长输入兜底。
-  const canUseSubsequenceFallback = hasCompactSearch && shouldUseSubsequenceFallback(compactSearch);
-  const searchParts = normalizedSearch.split(/\s+/).filter(Boolean);
+  const pattern = createSearchPattern(search);
+  if (!pattern) return 1;
 
   let best = 0;
   for (const raw of values) {
@@ -66,14 +109,51 @@ export function rankSearchText(values: readonly string[], search: string): numbe
     const compactValue = compactSearchText(raw);
     if (!value && !compactValue) continue;
 
-    if (value === normalizedSearch || (hasCompactSearch && compactValue === compactSearch)) best = Math.max(best, 1);
-    else if (value.startsWith(normalizedSearch) || (hasCompactSearch && compactValue.startsWith(compactSearch))) best = Math.max(best, 0.9);
-    else if (value.includes(normalizedSearch) || (hasCompactSearch && compactValue.includes(compactSearch))) best = Math.max(best, 0.7);
-    else if (searchParts.length > 1 && searchParts.every((part) => value.includes(part))) best = Math.max(best, 0.55);
-    else if (canUseSubsequenceFallback && isSubsequence(compactSearch, compactValue)) best = Math.max(best, 0.35);
+    if (
+      value === pattern.normalized
+      || (pattern.hasCompact && compactValue === pattern.compact)
+    ) {
+      best = Math.max(best, 1);
+    } else if (
+      value.startsWith(pattern.normalized)
+      || (pattern.hasCompact && compactValue.startsWith(pattern.compact))
+    ) {
+      best = Math.max(best, 0.9);
+    } else if (startsWithSearchToken(value, pattern)) {
+      best = Math.max(best, 0.85);
+    } else if (pattern.currencySymbolOnly && value.includes(pattern.normalized)) {
+      best = Math.max(best, 0.8);
+    } else if (pattern.short) {
+      // 短查询不能用包含/子序列扩散命中，否则货币列表会被 currency/global 这类低信息别名污染。
+      continue;
+    } else if (
+      value.includes(pattern.normalized)
+      || (pattern.hasCompact && compactValue.includes(pattern.compact))
+    ) {
+      best = Math.max(best, 0.7);
+    } else if (pattern.parts.length > 1 && pattern.parts.every((part) => value.includes(part))) {
+      best = Math.max(best, 0.55);
+    } else if (pattern.canUseSubsequenceFallback && isSubsequence(pattern.compact, compactValue)) {
+      best = Math.max(best, 0.35);
+    }
   }
 
   return best;
+}
+
+/** 统一 option 搜索字段，避免组件和领域列表各自拼接 value/label/keywords 后规则分叉。 */
+export function rankSearchableOption(
+  option: Pick<SearchableSelectOption, "value" | "label" | "keywords">,
+  search: string,
+): number {
+  return rankSearchText([option.value, option.label, ...(option.keywords ?? [])], search);
+}
+
+export function matchesSearchableOption(
+  option: Pick<SearchableSelectOption, "value" | "label" | "keywords">,
+  search: string,
+): boolean {
+  return rankSearchableOption(option, search) > 0;
 }
 
 function shouldUseSubsequenceFallback(compactSearch: string): boolean {
@@ -127,7 +207,7 @@ export function createCurrencyKeywords(
   ]);
 }
 
-/** 当前值即使已被禁用也保留为 disabled 选项，避免编辑旧订阅时丢失显示上下文。 */
+/** 当前值即使已被禁用也按货币管理位置保留为 disabled 选项，避免编辑旧订阅时丢失显示上下文。 */
 export function createCurrencySelectOptions(params: {
   currencies: readonly ConfigItem[];
   currencyOptions: readonly CurrencyOption[];
@@ -136,30 +216,19 @@ export function createCurrencySelectOptions(params: {
 }): SearchableSelectOption[] {
   const locale = params.locale ?? DEFAULT_LOCALE;
   const optionByValue = new Map(params.currencyOptions.map((option) => [option.value, option]));
-  const enabled = params.currencies.filter((currency) => currency.enabled !== false);
-  const selected = params.includeDisabledCurrent
-    ? params.currencies.find((currency) => currency.value === params.includeDisabledCurrent)
-    : undefined;
-  const selectedEnabled = enabled.some((currency) => currency.value === params.includeDisabledCurrent);
+  const currentValue = params.includeDisabledCurrent;
 
   const items: SearchableSelectOption[] = [];
-  if (selected && !selectedEnabled) {
-    const option = optionByValue.get(selected.value);
-    const label = option ? localizedLabel(option.labels, locale) : localizedLabel(selected.labels, locale);
-    items.push({
-      value: selected.value,
-      label: translateStaticMessage(locale, "common.optionDisabled", { label }),
-      disabled: true,
-      keywords: option ? createCurrencyKeywords(option) : uniq([selected.value, localizedLabel(selected.labels, "zh-CN"), localizedLabel(selected.labels, "en-US")]),
-    });
-  }
 
-  for (const item of enabled) {
+  for (const item of params.currencies) {
+    const disabled = item.enabled === false;
+    if (disabled && item.value !== currentValue) continue;
     const option = optionByValue.get(item.value);
     const label = option ? localizedLabel(option.labels, locale) : localizedLabel(item.labels, locale);
     items.push({
       value: item.value,
-      label,
+      label: disabled ? translateStaticMessage(locale, "common.optionDisabled", { label }) : label,
+      ...(disabled ? { disabled: true } : {}),
       keywords: option ? createCurrencyKeywords(option) : uniq([item.value, localizedLabel(item.labels, "zh-CN"), localizedLabel(item.labels, "en-US")]),
     });
   }

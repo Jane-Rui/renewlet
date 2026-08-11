@@ -167,35 +167,6 @@ export const getDefaultPaymentMethods = (): ConfigItem[] => {
   }));
 };
 
-/** 旧版本默认启用的常用币种（仅用于识别旧默认快照后重建为当前默认）。 */
-const LEGACY_DEFAULT_ENABLED_CURRENCIES = new Set<string>(['CNY', 'USD', 'EUR', 'JPY', 'GBP']);
-const LEGACY_DEFAULT_CURRENCY_PRIORITY = ['CNY', 'USD', 'EUR', 'GBP', 'HKD', 'JPY', 'KRW'] as const;
-const LEGACY_30_CURRENCY_ORDER = [
-  'CNY', 'HKD', 'JPY', 'KRW', 'SGD', 'INR', 'IDR', 'MYR', 'THB', 'PHP',
-  'EUR', 'GBP', 'CHF', 'SEK', 'NOK', 'DKK', 'PLN', 'CZK', 'HUF', 'RON',
-  'ISK', 'TRY', 'ILS', 'USD', 'CAD', 'MXN', 'BRL', 'AUD', 'NZD', 'ZAR',
-] as const;
-const LEGACY_30_CURRENCY_PRIORITY_ORDER = [
-  ...LEGACY_DEFAULT_CURRENCY_PRIORITY,
-  ...LEGACY_30_CURRENCY_ORDER.filter(
-    (code) => !LEGACY_DEFAULT_CURRENCY_PRIORITY.includes(code as (typeof LEGACY_DEFAULT_CURRENCY_PRIORITY)[number]),
-  ),
-];
-
-function legacyFullCurrencyPriorityOrder(options: readonly CurrencyOption[]): string[] {
-  const supportedValues = new Set(options.map((option) => option.value));
-  const priorityValues = LEGACY_DEFAULT_CURRENCY_PRIORITY.filter((code) => supportedValues.has(code));
-  const prioritySet = new Set<string>(priorityValues);
-  return [
-    ...priorityValues,
-    ...options.map((option) => option.value).filter((value) => !prioritySet.has(value)),
-  ];
-}
-
-function currencyOptionValues(options: readonly CurrencyOption[]): string[] {
-  return options.map((option) => option.value);
-}
-
 /**
  * 获取默认货币配置（用于新用户初始化/重置兜底）。
  *
@@ -214,10 +185,6 @@ export const getDefaultCurrencies = (
     enabled: true,
   }));
 };
-
-function getDefaultCurrencyValues(options: readonly CurrencyOption[]): string[] {
-  return orderCurrencyItemsByCommonPriority(options).map((item) => item.value);
-}
 
 function makeDefaultCurrencyItem(option: CurrencyOption): ConfigItem {
   return {
@@ -338,54 +305,6 @@ export function normalizePaymentMethods(items: ConfigItem[]): ConfigItem[] {
   return normalized;
 }
 
-function matchesCurrencySnapshot(
-  items: ConfigItem[],
-  values: readonly string[],
-  isEnabled: (value: string) => boolean,
-): boolean {
-  if (items.length !== values.length) return false;
-
-  for (let i = 0; i < values.length; i += 1) {
-    const value = values[i];
-    const item = items[i];
-    if (!value || !item) return false;
-    if (item.value !== value) return false;
-    if ((item.enabled !== false) !== isEnabled(value)) return false;
-  }
-
-  return true;
-}
-
-function alwaysEnabled(_value: string): boolean {
-  return true;
-}
-
-function wasLegacyDefaultEnabled(value: string): boolean {
-  return LEGACY_DEFAULT_ENABLED_CURRENCIES.has(value);
-}
-
-interface CurrencySnapshotSpec {
-  getValues: (options: readonly CurrencyOption[]) => readonly string[];
-  isEnabled: (value: string) => boolean;
-}
-
-const DEFAULT_CURRENCY_SNAPSHOT_SPECS: readonly CurrencySnapshotSpec[] = [
-  { getValues: getDefaultCurrencyValues, isEnabled: alwaysEnabled },
-  { getValues: legacyFullCurrencyPriorityOrder, isEnabled: alwaysEnabled },
-  { getValues: currencyOptionValues, isEnabled: alwaysEnabled },
-  { getValues: () => LEGACY_30_CURRENCY_PRIORITY_ORDER, isEnabled: alwaysEnabled },
-  { getValues: () => LEGACY_30_CURRENCY_ORDER, isEnabled: wasLegacyDefaultEnabled },
-  { getValues: () => LEGACY_30_CURRENCY_PRIORITY_ORDER, isEnabled: wasLegacyDefaultEnabled },
-];
-
-/** 判断当前 currencies 是否为旧版本默认列表（用于切换到当前 146 币种默认范围）。 */
-function isLegacyDefaultCurrencies(items: ConfigItem[], options: readonly CurrencyOption[]): boolean {
-  for (const snapshot of DEFAULT_CURRENCY_SNAPSHOT_SPECS) {
-    if (matchesCurrencySnapshot(items, snapshot.getValues(options), snapshot.isEnabled)) return true;
-  }
-  return false;
-}
-
 /**
  * 规范化货币列表（服务端/客户端统一兜底）。
  *
@@ -393,13 +312,13 @@ function isLegacyDefaultCurrencies(items: ConfigItem[], options: readonly Curren
  * - 货币列表受汇率来源共同支持范围控制：不允许“删掉某些货币”导致跨端不一致
  * - 自动补齐缺失货币（新增项默认 enabled=true）
  * - enabled 字段缺失时默认视为 true（与 UI 行为一致）
- * - 仅在检测到“旧默认列表”时重建为当前默认（全部启用 + 新置顶排序），避免覆盖用户已自定义的排序/开关
+ * - 非空列表的顺序就是货币管理持久顺序，不能用支持列表或常用币种再排序
  */
 export function normalizeCurrencies(
   items: ConfigItem[],
   options: readonly CurrencyOption[] = CURRENCY_OPTIONS,
 ): ConfigItem[] {
-  if (isLegacyDefaultCurrencies(items, options)) {
+  if (items.length === 0) {
     return getDefaultCurrencies(options);
   }
 
@@ -408,7 +327,7 @@ export function normalizeCurrencies(
   const seen = new Set<string>();
   const normalized: ConfigItem[] = [];
 
-  // 先保留用户的顺序（仅过滤掉不在支持范围内的 value，并去重）
+  // 货币管理数组是全站展示顺序事实源；归一化只校正支持范围和 label，不重排用户保存过的顺序。
   for (const item of items) {
     const option = optionByValue.get(item.value);
     if (!option) continue;
@@ -422,8 +341,12 @@ export function normalizeCurrencies(
     });
   }
 
-  // 补齐缺失项（默认启用，追加到末尾，避免扰动用户排序）
-  for (const option of options) {
+  if (normalized.length === 0) {
+    return getDefaultCurrencies(options);
+  }
+
+  // 新增支持币种没有用户排序，只能按默认货币管理顺序追加到末尾，避免原始支持列表污染展示顺序。
+  for (const option of orderCurrencyItemsByCommonPriority(options)) {
     if (seen.has(option.value)) continue;
     normalized.push(makeDefaultCurrencyItem(option));
     seen.add(option.value);

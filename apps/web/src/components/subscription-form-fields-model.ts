@@ -1,5 +1,6 @@
 import type { Dispatch, Ref, SetStateAction } from "react";
 import type { UploadStatus as LogoUploadStatus } from "@/components/logo-picker";
+import type { SearchableSelectOption } from "@/lib/searchable-options";
 import type { CustomConfig } from "@/types/config";
 import type { SubscriptionFormState } from "@/types/subscription-form";
 
@@ -9,6 +10,8 @@ export interface SubscriptionFormFieldsProps {
   config: CustomConfig;
   formData: SubscriptionFormState;
   setFormData: Dispatch<SetStateAction<SubscriptionFormState>>;
+  /** 由表单宿主统一生成，字段组件不能重建货币列表，否则会绕开设置页货币管理顺序。 */
+  currencyOptions: SearchableSelectOption[];
   availableTags?: readonly string[] | undefined;
   showLogoField?: boolean | undefined;
   onLogoUploadStatusChange: (status: LogoUploadStatus) => void;

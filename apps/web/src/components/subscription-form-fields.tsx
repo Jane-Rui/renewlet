@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo } from "react";
+import { memo, useCallback } from "react";
 import { FormField, FormFieldRow } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,7 +23,6 @@ import type {
 import {
   DISABLED_REMINDER_DAYS,
   INHERIT_REMINDER_DAYS,
-  CURRENCY_OPTIONS,
   CUSTOM_CYCLE_UNITS,
   CYCLE_LABELS,
   REMINDER_DAYS_OPTIONS,
@@ -32,7 +31,6 @@ import {
   REPEAT_REMINDER_WINDOW_OPTIONS,
 } from "@/types/subscription";
 import type { SubscriptionFormReminderType, SubscriptionFormState } from "@/types/subscription-form";
-import { createCurrencySelectOptions } from "@/lib/searchable-options";
 import { toReminderDays } from "@/lib/subscription-form";
 import { customCycleUnitLabelKey } from "@/lib/subscription-billing";
 import { useI18n } from "@/i18n/I18nProvider";
@@ -71,6 +69,7 @@ export const SubscriptionFormFields = memo(function SubscriptionFormFields({
   config,
   formData,
   setFormData,
+  currencyOptions,
   availableTags = [],
   showLogoField = true,
   onLogoUploadStatusChange,
@@ -154,19 +153,6 @@ export const SubscriptionFormFields = memo(function SubscriptionFormFields({
   const id = (name: string) => `${idPrefix}${name}`;
   const categoryId = id("category");
 
-  // 货币选项受“设置 → 货币管理（启用/禁用）”控制：
-  // - 默认只展示 enabled=true 的货币
-  // - 若当前值是“已禁用货币”（例如历史订阅数据），仍展示一个不可选项用于回显，避免选择器空白
-  const currencyOptions = useMemo(
-    () =>
-      createCurrencySelectOptions({
-        currencies: config.currencies,
-        currencyOptions: CURRENCY_OPTIONS,
-        includeDisabledCurrent: formData.currency,
-        locale,
-      }),
-    [config.currencies, formData.currency, locale],
-  );
   const statusLabel = config.statuses.find((status) => status.value === formData.status)?.labels;
   const categoryLabel = config.categories.find((category) => category.value === formData.category)?.labels;
   const paymentMethodLabel =

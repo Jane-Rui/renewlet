@@ -259,6 +259,7 @@ vi.mock("@/components/ui/searchable-select", () => ({
         role="combobox"
         aria-label={ariaLabel}
         data-testid="searchable-select"
+        data-option-values={options.map((option) => option.value).join("|")}
         disabled={disabled}
         onClick={() => {
           if (next) onValueChange(next.value);

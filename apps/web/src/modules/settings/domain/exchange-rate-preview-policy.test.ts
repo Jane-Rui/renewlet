@@ -18,114 +18,54 @@ const currency = (value: string, enabled = true): ConfigItem => ({
 const values = (items: readonly ConfigItem[]) => items.map((item) => item.value);
 
 describe("getExchangeRatePreviewCurrencies", () => {
-  it("uses the primary common-currency order when CNY is the default currency", () => {
-    // 汇率预览使用固定常用货币顺序，不继承用户配置顺序，保证设置页信息密度稳定。
+  it("uses the currency manager order and skips the reporting currency", () => {
     const currencies = [
+      currency("PHP"),
+      currency("CNY"),
+      currency("USD"),
+      currency("EUR"),
       currency("AED"),
-      currency("AFN"),
+      currency("GBP"),
+    ];
+
+    expect(values(getExchangeRatePreviewCurrencies(currencies, "CNY"))).toEqual([
+      "PHP", "USD", "EUR", "AED", "GBP",
+    ]);
+  });
+
+  it("does not force CNY or common currencies ahead when another reporting currency is selected", () => {
+    const currencies = [
+      currency("USD"),
+      currency("PHP"),
+      currency("CNY"),
+      currency("EUR"),
+    ];
+
+    expect(values(getExchangeRatePreviewCurrencies(currencies, "USD"))).toEqual([
+      "PHP", "CNY", "EUR",
+    ]);
+  });
+
+  it("skips disabled and duplicate currencies while respecting the preview limit", () => {
+    const currencies = [
+      currency("CNY"),
+      currency("PHP"),
+      currency("AED", false),
+      currency("USD"),
       currency("USD"),
       currency("EUR"),
       currency("GBP"),
-      currency("AUD"),
-      currency("TRY"),
-      currency("NGN"),
-      currency("ARS"),
-      currency("PHP"),
-      currency("JPY"),
     ];
 
-    expect(values(getExchangeRatePreviewCurrencies(currencies, "CNY"))).toEqual([
-      "USD", "EUR", "GBP", "AUD", "TRY", "NGN", "ARS", "PHP",
+    expect(values(getExchangeRatePreviewCurrencies(currencies, "CNY", 3))).toEqual([
+      "PHP", "USD", "EUR",
     ]);
   });
 
-  it("fills disabled primary currencies from the common fallback pool", () => {
-    // 主推荐币种被禁用时从 fallback 池补齐，而不是展示不可用币种占位。
+  it("returns an empty preview when all managed candidates are unavailable", () => {
     const currencies = [
-      "USD", "EUR", "GBP", "AUD", "TRY", "NGN", "ARS", "PHP",
-      "JPY", "CNY", "CAD", "CHF", "HKD", "SGD", "NZD", "SEK", "NOK",
-    ].map((value) => currency(
-      value,
-      !["USD", "EUR", "GBP", "AUD", "TRY", "NGN", "ARS", "PHP"].includes(value),
-    ));
-
-    expect(values(getExchangeRatePreviewCurrencies(currencies, "CNY"))).toEqual([
-      "JPY", "CAD", "CHF", "HKD", "SGD", "NZD", "SEK", "NOK",
-    ]);
-  });
-
-  it("shows CNY first when USD is the default currency", () => {
-    const currencies = [
-      "USD", "EUR", "GBP", "AUD", "TRY", "NGN", "ARS", "PHP", "JPY", "CNY",
-    ].map((value) => currency(value));
-
-    expect(values(getExchangeRatePreviewCurrencies(currencies, "USD"))).toEqual([
-      "CNY", "EUR", "GBP", "AUD", "TRY", "NGN", "ARS", "PHP",
-    ]);
-  });
-
-  it("shows CNY first and skips the default currency when another common currency is selected", () => {
-    const currencies = [
-      "USD", "EUR", "GBP", "AUD", "TRY", "NGN", "ARS", "PHP", "JPY", "CNY",
-    ].map((value) => currency(value));
-
-    expect(values(getExchangeRatePreviewCurrencies(currencies, "EUR"))).toEqual([
-      "CNY", "USD", "GBP", "AUD", "TRY", "NGN", "ARS", "PHP",
-    ]);
-  });
-
-  it("skips disabled CNY and fills the preview to the requested limit", () => {
-    const currencies = [
-      currency("CNY", false),
-      ...["USD", "EUR", "GBP", "AUD", "TRY", "NGN", "ARS", "PHP", "JPY"]
-        .map((value) => currency(value)),
-    ];
-
-    expect(values(getExchangeRatePreviewCurrencies(currencies, "USD"))).toEqual([
-      "EUR", "GBP", "AUD", "TRY", "NGN", "ARS", "PHP", "JPY",
-    ]);
-  });
-
-  it("skips missing CNY without duplicating fallback entries", () => {
-    const currencies = [
-      "USD", "EUR", "GBP", "AUD", "TRY", "NGN", "ARS", "PHP", "JPY",
-    ].map((value) => currency(value));
-
-    expect(values(getExchangeRatePreviewCurrencies(currencies, "USD"))).toEqual([
-      "EUR", "GBP", "AUD", "TRY", "NGN", "ARS", "PHP", "JPY",
-    ]);
-  });
-
-  it("does not inherit a custom or alphabetical config order", () => {
-    const currencies = [
-      "PHP", "ARS", "NGN", "TRY", "AUD", "GBP", "EUR", "USD", "AED", "AFN",
-    ].map((value) => currency(value));
-
-    expect(values(getExchangeRatePreviewCurrencies(currencies, "CNY"))).toEqual([
-      "USD", "EUR", "GBP", "AUD", "TRY", "NGN", "ARS", "PHP",
-    ]);
-  });
-
-  it("skips missing currencies without duplicating fallback entries", () => {
-    const currencies = [
-      currency("USD"),
-      currency("USD"),
-      currency("GBP"),
-      currency("JPY"),
-      currency("CAD"),
-      currency("CHF"),
-    ];
-
-    expect(values(getExchangeRatePreviewCurrencies(currencies, "CNY"))).toEqual([
-      "USD", "GBP", "JPY", "CAD", "CHF",
-    ]);
-  });
-
-  it("returns an empty preview when all candidate currencies are unavailable", () => {
-    const currencies = [
+      currency("CNY"),
       currency("USD", false),
-      currency("EUR", false),
-      currency("AFN"),
     ];
 
     expect(getExchangeRatePreviewCurrencies(currencies, "CNY")).toEqual([]);

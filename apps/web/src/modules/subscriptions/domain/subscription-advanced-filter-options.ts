@@ -1,4 +1,4 @@
-import { rankSearchText } from "@/lib/searchable-options";
+import { matchesSearchableOption } from "@/lib/searchable-options";
 
 export interface SubscriptionAdvancedFilterOption<T extends string = string> {
   value: T;
@@ -27,10 +27,6 @@ interface AdvancedSelectionPreviewParams<T extends string = string> {
 }
 
 const ADVANCED_SELECTION_PREVIEW_LIMIT = 3;
-
-function optionSearchValues(option: SubscriptionAdvancedFilterOption): string[] {
-  return [option.value, option.label, ...(option.keywords ?? [])];
-}
 
 export function getAdvancedOptionLabel(
   options: readonly SubscriptionAdvancedFilterOption[],
@@ -68,14 +64,6 @@ export function getAdvancedOptionListSearchResults<T extends string = string>({
   const trimmedSearch = searchQuery.trim();
   if (!trimmedSearch) return [];
 
-  // 搜索只过滤当前可选全集，不能改变真实选中集合或把已选项抽到独立分组。
-  return options
-    .map((option, index) => ({
-      option,
-      index,
-      rank: rankSearchText(optionSearchValues(option), trimmedSearch),
-    }))
-    .filter((item) => item.rank > 0)
-    .sort((left, right) => right.rank - left.rank || left.index - right.index)
-    .map((item) => item.option);
+  // 搜索只过滤当前可选全集，不能重排货币/支付方式这类由用户配置决定的业务顺序。
+  return options.filter((option) => matchesSearchableOption(option, trimmedSearch));
 }

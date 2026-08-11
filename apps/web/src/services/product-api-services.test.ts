@@ -48,12 +48,18 @@ describe("product API services", () => {
     const emptyConfig = { categories: [], statuses: [], paymentMethods: [], currencies: [] };
     mocks.apiFetch.mockResolvedValue({ config: emptyConfig });
 
-    await customConfigService.get();
-    await customConfigService.save(DEFAULT_CUSTOM_CONFIG);
+    const loadedConfig = await customConfigService.get();
+    const savedConfig = await customConfigService.save(DEFAULT_CUSTOM_CONFIG);
 
     expect(mocks.apiFetch.mock.calls[0]?.[0]).toBe("/api/app/custom-config");
     expect(mocks.apiFetch.mock.calls[1]?.[0]).toBe("/api/app/custom-config");
     expect(mocks.apiFetch.mock.calls[1]?.[2]).toMatchObject({ method: "PUT" });
+    expect(loadedConfig?.currencies.slice(0, 4).map((currency) => currency.value)).toEqual([
+      "CNY", "USD", "EUR", "GBP",
+    ]);
+    expect(savedConfig.currencies.slice(0, 4).map((currency) => currency.value)).toEqual([
+      "CNY", "USD", "EUR", "GBP",
+    ]);
     for (const [url] of mocks.apiFetch.mock.calls) {
       expect(String(url)).not.toContain("/api/collections/custom_configs/records");
     }
