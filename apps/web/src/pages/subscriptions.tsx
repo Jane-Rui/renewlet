@@ -53,7 +53,7 @@ import { useExchangeRates } from '@/hooks/use-exchange-rates';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { MessageKey } from '@/i18n/messages';
 import { useMediaQuery } from '@/hooks/use-media-query';
-import { useDeferredDialogCleanup } from '@/hooks/use-deferred-dialog-cleanup';
+import { useSubscriptionDetailDialog } from '@/hooks/use-subscription-detail-dialog';
 import { createCurrencySelectOptions } from '@/lib/searchable-options';
 import { todayDateOnlyInTimeZone } from '@/lib/time/date-only';
 import {
@@ -239,8 +239,6 @@ function SubscriptionGrid({
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [aiRecognitionDialogOpen, setAIRecognitionDialogOpen] = useState(false);
-  const [detailSubscriptionId, setDetailSubscriptionId] = useState<string | null>(null);
-  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
   const isMobileTagFilter = useMediaQuery("(max-width: 767px)");
   const {
     searchQuery,
@@ -306,16 +304,13 @@ function SubscriptionGrid({
   const priceReferenceCurrency = resolveSubscriptionPriceReferenceCurrency(settings);
   const { exportToJSON, exportToJSONWithSecrets, exportToCSV } =
     useSubscriptionExport(filteredSubscriptions, displaySourceSubscriptions, config, settings, locale, timeZone, convert);
-  const selectedDetailSubscription = useMemo(
-    () => displaySourceSubscriptions.find((item) => item.id === detailSubscriptionId) ?? null,
-    [detailSubscriptionId, displaySourceSubscriptions],
-  );
   const today = useMemo(() => todayDateOnlyInTimeZone(new Date(), timeZone), [timeZone]);
-  const { scheduleCleanup: scheduleDetailCleanup, cancelCleanup: cancelDetailCleanup } =
-    useDeferredDialogCleanup(() => {
-      // 详情弹窗关闭动画期间仍要保留内容快照，避免 Dialog/Drawer fade-out 时标题和备注闪空。
-      setDetailSubscriptionId(null);
-    });
+  const {
+    detailDialogOpen,
+    selectedDetailSubscription,
+    handleViewDetails,
+    handleDetailDialogOpenChange,
+  } = useSubscriptionDetailDialog(displaySourceSubscriptions);
   const statusFilterLabel =
     statusFilter === "all"
       ? t("subscriptions.allStatuses")
@@ -333,19 +328,6 @@ function SubscriptionGrid({
   const handleLoadMore = useCallback(() => {
     void fetchNextPage();
   }, [fetchNextPage]);
-  const handleViewDetails = useCallback((id: string) => {
-    cancelDetailCleanup();
-    setDetailSubscriptionId(id);
-    setDetailDialogOpen(true);
-  }, [cancelDetailCleanup]);
-  const handleDetailDialogOpenChange = useCallback((nextOpen: boolean) => {
-    setDetailDialogOpen(nextOpen);
-    if (nextOpen) {
-      cancelDetailCleanup();
-      return;
-    }
-    scheduleDetailCleanup();
-  }, [cancelDetailCleanup, scheduleDetailCleanup]);
   const handleEditFromDetail = useCallback((subscription: Subscription) => {
     handleEditSubscription(subscription.id);
   }, [handleEditSubscription]);

@@ -6,7 +6,8 @@
 import type { NotificationEmailMessage } from "@renewlet/shared/email-template";
 import type { ApiAppSettings } from "@renewlet/shared/schemas/settings";
 import type { AppLocale } from "./http";
-import { DEFAULT_SERVER_I18N_LOCALE, serverFormat, serverText } from "./server-i18n";
+import { firstNonEmptyText, notificationHttpErrorMessage, requiredSetting } from "./notification-channel-utils";
+import { DEFAULT_SERVER_I18N_LOCALE, serverText } from "./server-i18n";
 import { NotificationChannelError } from "./notification-errors";
 import { sendNotificationJson } from "./notification-http";
 import {
@@ -24,7 +25,7 @@ type ServerChanResponse = {
 };
 
 export async function sendServerChan(settings: ApiAppSettings, message: NotificationEmailMessage, locale: AppLocale): Promise<void> {
-  const sendKey = required(settings.serverchanSendKey, serverText(locale, "service.serverchanSendKey"), locale);
+  const sendKey = requiredSetting(settings.serverchanSendKey, serverText(locale, "service.serverchanSendKey"), locale);
   const endpoint = serverChanEndpoint(sendKey, locale);
   const response = await sendNotificationJson(endpoint, {
     title: message.title,
@@ -59,9 +60,9 @@ async function requireServerChanSuccess(response: Response, locale: AppLocale, s
     throw serverChanBusinessError(response, rawBody, locale, sendKey);
   }
   if (payload.code !== 0) {
-    const detail = redactUpstreamSecrets(firstText(payload.message, payload.detail), [sendKey]) || serverText(locale, "service.serverchanResponseInvalid");
+    const detail = redactUpstreamSecrets(firstNonEmptyText(payload.message, payload.detail), [sendKey]) || serverText(locale, "service.serverchanResponseInvalid");
     throw new NotificationChannelError(
-      serverHttpError("ServerChan", response.status, detail, locale),
+      notificationHttpErrorMessage("ServerChan", response.status, detail, locale),
       createUpstreamErrorDetails({
         responseText: detail,
         providerResponse,
@@ -73,11 +74,11 @@ async function requireServerChanSuccess(response: Response, locale: AppLocale, s
 async function serverChanHTTPError(response: Response, locale: AppLocale, sendKey: string, endpoint: string): Promise<NotificationChannelError> {
   const providerResponse = await upstreamProviderResponseFromFetchResponse(response, { secrets: [sendKey] });
   const parsed = parseServerChanPayload(providerResponse.body);
-  const detail = redactUpstreamSecrets(firstText(parsed?.message, parsed?.detail), [sendKey])
+  const detail = redactUpstreamSecrets(firstNonEmptyText(parsed?.message, parsed?.detail), [sendKey])
     || providerMessageFromResponse(providerResponse)
     || serverText(locale, "service.serverchanResponseInvalid");
   return new NotificationChannelError(
-    serverHttpError("ServerChan", response.status, detail, locale),
+    notificationHttpErrorMessage("ServerChan", response.status, detail, locale),
     createUpstreamErrorDetails({
       responseText: detail,
       providerResponse,
@@ -89,7 +90,7 @@ function serverChanBusinessError(response: Response, rawBody: string, locale: Ap
   const providerResponse = upstreamProviderResponseFromBody(response, rawBody, false, [sendKey]);
   const detail = providerMessageFromResponse(providerResponse) || serverText(locale, "service.serverchanResponseInvalid");
   return new NotificationChannelError(
-    serverHttpError("ServerChan", response.status, detail, locale),
+    notificationHttpErrorMessage("ServerChan", response.status, detail, locale),
     createUpstreamErrorDetails({
       responseText: detail,
       providerResponse,
@@ -104,24 +105,4 @@ function parseServerChanPayload(value: string | null | undefined): ServerChanRes
   } catch {
     return null;
   }
-}
-
-function serverHttpError(channel: string, status: number, detail: string, locale: AppLocale): string {
-  return serverFormat(locale, "notification.httpSendFailed", {
-    channel,
-    status,
-    detail: detail.trim().slice(0, 800),
-  });
-}
-
-function firstText(...values: unknown[]): string {
-  for (const value of values) {
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return "";
-}
-
-function required(value: string, label: string, locale: AppLocale): string {
-  if (value.trim()) return value.trim();
-  throw new Error(serverFormat(locale, "common.requiredField", { label }));
 }

@@ -46,6 +46,7 @@
     "./ics": "./src/ics.ts",
     "./subscription-billing": "./src/subscription-billing.ts",
     "./subscription-renewal": "./src/subscription-renewal.ts",
+    "./settings-normalization": "./src/settings-normalization.ts",
     "./settings-defaults": "./src/settings-defaults.ts",
     "./runtime": "./src/runtime.ts"
   },

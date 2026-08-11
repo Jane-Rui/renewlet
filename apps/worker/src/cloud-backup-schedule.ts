@@ -4,6 +4,7 @@ import {
 } from "@renewlet/shared/schemas/cloud-backup";
 import type { ApiAppSettings } from "@renewlet/shared/schemas/settings";
 import { createDefaultAppSettings } from "@renewlet/shared/settings-defaults";
+import { addDays, dateOnlyInZone, localTimeInZone, safeTimeZone } from "./time";
 
 type CloudBackupScheduleTarget = {
   policy: CloudBackupPolicy;
@@ -38,27 +39,27 @@ export function createDefaultFallbackSettings(): ApiAppSettings {
 }
 
 function latestCloudBackupScheduledInstant(now: Date, timezone: string, policy: CloudBackupPolicy): Date | null {
-  const safeTimezone = validTimeZone(timezone) ? timezone : "UTC";
+  const safeTimezone = safeTimeZone(timezone);
   // 云备份定时使用用户 IANA timezone；非法设置回退 UTC，避免 scheduled 任务永久跳过。
   const localDate = dateOnlyInZone(now, safeTimezone);
   let scheduledDate = localDate;
   if (policy.scheduleFrequency === "weekly") {
-    scheduledDate = dateMinusDays(localDate, weekdayDistanceBack(weekdayNameInZone(now, safeTimezone), policy.scheduleWeekday));
+    scheduledDate = addDays(localDate, -weekdayDistanceBack(weekdayNameInZone(now, safeTimezone), policy.scheduleWeekday));
   }
   let scheduled = new Date(zonedWallTimeToUtc(scheduledDate, policy.scheduleTime, safeTimezone));
   if (scheduled.getTime() > now.getTime()) {
-    scheduledDate = dateMinusDays(scheduledDate, policy.scheduleFrequency === "weekly" ? 7 : 1);
+    scheduledDate = addDays(scheduledDate, policy.scheduleFrequency === "weekly" ? -7 : -1);
     scheduled = new Date(zonedWallTimeToUtc(scheduledDate, policy.scheduleTime, safeTimezone));
   }
   return Number.isNaN(scheduled.getTime()) ? null : scheduled;
 }
 
 function nextCloudBackupScheduledInstant(now: Date, timezone: string, policy: CloudBackupPolicy): Date | null {
-  const safeTimezone = validTimeZone(timezone) ? timezone : "UTC";
+  const safeTimezone = safeTimeZone(timezone);
   const localDate = dateOnlyInZone(now, safeTimezone);
   if (policy.scheduleFrequency === "weekly") {
     for (let offset = 0; offset <= 7; offset += 1) {
-      const scheduledDate = datePlusDays(localDate, offset);
+      const scheduledDate = addDays(localDate, offset);
       if (weekdayNameForDateOnly(scheduledDate) !== policy.scheduleWeekday) continue;
       const scheduled = new Date(zonedWallTimeToUtc(scheduledDate, policy.scheduleTime, safeTimezone));
       if (!Number.isNaN(scheduled.getTime()) && scheduled.getTime() > now.getTime()) return scheduled;
@@ -67,22 +68,8 @@ function nextCloudBackupScheduledInstant(now: Date, timezone: string, policy: Cl
   }
   const todayScheduled = new Date(zonedWallTimeToUtc(localDate, policy.scheduleTime, safeTimezone));
   if (!Number.isNaN(todayScheduled.getTime()) && todayScheduled.getTime() > now.getTime()) return todayScheduled;
-  const tomorrow = new Date(zonedWallTimeToUtc(datePlusDays(localDate, 1), policy.scheduleTime, safeTimezone));
+  const tomorrow = new Date(zonedWallTimeToUtc(addDays(localDate, 1), policy.scheduleTime, safeTimezone));
   return Number.isNaN(tomorrow.getTime()) ? null : tomorrow;
-}
-
-function validTimeZone(timezone: string): boolean {
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format(new Date());
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function dateOnlyInZone(date: Date, timezone: string): string {
-  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
-  return `${parts.find((part) => part.type === "year")?.value}-${parts.find((part) => part.type === "month")?.value}-${parts.find((part) => part.type === "day")?.value}`;
 }
 
 function weekdayNameInZone(date: Date, timezone: string): CloudBackupScheduleWeekday {
@@ -109,18 +96,6 @@ function weekdayDistanceBack(current: CloudBackupScheduleWeekday, target: CloudB
   return (order.indexOf(current) - order.indexOf(target) + 7) % 7;
 }
 
-function dateMinusDays(date: string, days: number): string {
-  const parsed = new Date(`${date}T00:00:00.000Z`);
-  parsed.setUTCDate(parsed.getUTCDate() - days);
-  return parsed.toISOString().slice(0, 10);
-}
-
-function datePlusDays(date: string, days: number): string {
-  const parsed = new Date(`${date}T00:00:00.000Z`);
-  parsed.setUTCDate(parsed.getUTCDate() + days);
-  return parsed.toISOString().slice(0, 10);
-}
-
 function zonedWallTimeToUtc(date: string, time: string, timezone: string): string {
   const [hour = "0", minute = "0"] = time.split(":");
   const guess = new Date(`${date}T${hour.padStart(2, "0")}:${minute.padStart(2, "0")}:00.000Z`);
@@ -131,9 +106,4 @@ function zonedWallTimeToUtc(date: string, time: string, timezone: string): strin
     if (shownDate === date && shownTime === time) return utc;
   }
   return guess.toISOString();
-}
-
-function localTimeInZone(date: Date, timezone: string): string {
-  const parts = new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hour12: false, hourCycle: "h23" }).formatToParts(date);
-  return `${parts.find((part) => part.type === "hour")?.value}:${parts.find((part) => part.type === "minute")?.value}`;
 }

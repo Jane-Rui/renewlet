@@ -10,6 +10,7 @@ import { isUnsafeOutboundHostLiteral } from "./outbound-url-policy";
 import { serverFormat, serverText } from "./server-i18n";
 import { plainNotificationMessage } from "./telegram-format";
 import { requireNotificationHttpOk, sendNotificationJson } from "./notification-http";
+import { requiredSetting } from "./notification-channel-utils";
 
 const DISCORD_CONTENT_MAX_CHARS = 2000;
 
@@ -21,7 +22,7 @@ type DiscordWebhookPayload = {
 };
 
 export async function sendDiscord(settings: ApiAppSettings, message: NotificationEmailMessage, locale: AppLocale): Promise<void> {
-  const rawWebhook = required(settings.discordWebhookUrl, serverText(locale, "service.discordWebhookURL"), locale);
+  const rawWebhook = requiredSetting(settings.discordWebhookUrl, serverText(locale, "service.discordWebhookURL"), locale);
   const endpoint = discordWebhookEndpoint(rawWebhook, locale);
   const payload: DiscordWebhookPayload = {
     content: truncateChars(plainNotificationMessage(message), DISCORD_CONTENT_MAX_CHARS),
@@ -82,9 +83,4 @@ function discordWebhookToken(endpoint: string): string {
 
 function truncateChars(value: string, limit: number): string {
   return Array.from(value).slice(0, Math.max(0, limit)).join("");
-}
-
-function required(value: string, label: string, locale: AppLocale): string {
-  if (value.trim()) return value.trim();
-  throw new Error(serverFormat(locale, "common.requiredField", { label }));
 }

@@ -20,6 +20,7 @@ import { HttpError, ok, readJson, requestLocale, successJson } from "./http";
 import { serverFormat, serverText } from "./server-i18n";
 import { calendarFeedBuiltInCategoryLabelKey, calendarFeedBuiltInPaymentMethodLabelKey } from "./calendar-feed-built-in-labels";
 import { requestOrigin } from "./request-origin";
+import { dateOnlyInZone } from "./time";
 import type { CalendarFeedRow, Env, SubscriptionRow } from "./types";
 
 type CalendarFeedScope = CalendarFeedRow["scope"];
@@ -499,15 +500,6 @@ function toCalendarSubscription(row: SubscriptionRow): CalendarSubscription {
     customCycleUnit: row.custom_cycle_unit ?? undefined,
     reminderDays: row.reminder_days,
   };
-}
-
-function dateOnlyInZone(date: Date, timezone: string): string {
-  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
-  return `${part(parts, "year")}-${part(parts, "month")}-${part(parts, "day")}`;
-}
-
-function part(parts: Intl.DateTimeFormatPart[], type: Intl.DateTimeFormatPartTypes): string {
-  return parts.find((item) => item.type === type)?.value ?? "00";
 }
 
 function formatAmount(amount: string): string {

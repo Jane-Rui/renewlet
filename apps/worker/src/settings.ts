@@ -1,6 +1,7 @@
 import { customConfigPayloadSchema } from "@renewlet/shared/schemas/custom-config";
 import { settingsPayloadSchema, settingsUpdateBodySchema } from "@renewlet/shared/schemas/settings";
-import { ensureSettings, getCustomConfig, getTelegramBotBinding, mergeSettingsPatch, putCustomConfig, putSettings } from "./db";
+import { mergeAppSettingsPatch } from "@renewlet/shared/settings-normalization";
+import { ensureSettings, getCustomConfig, getTelegramBotBinding, putCustomConfig, putSettings } from "./db";
 import { HttpError, readJson, requestLocale, successJson } from "./http";
 import { requireAuth } from "./auth";
 import { serverText } from "./server-i18n";
@@ -29,7 +30,7 @@ export async function updateSettings(request: Request, env: Env): Promise<Respon
   const patch = await readJson(request, settingsUpdateBodySchema, locale);
   const current = await ensureSettings(env, auth.user.id, locale);
   // PATCH 语义由“当前设置 + 局部字段”合成，最终仍过完整 schema，防止删除隐式默认项。
-  const next = mergeSettingsPatch(current, patch);
+  const next = mergeAppSettingsPatch(current, patch);
   await rejectInstalledTelegramBotSettingsChange(env, auth.user.id, current, next, locale);
   const settings = await putSettings(env, auth.user.id, next);
   await refreshCostSharingCollectionReminderMirrors(env, auth.user.id, settings);

@@ -12,7 +12,7 @@
  * - 首页统计由 `useDashboardStats` 生成，CRUD 弹窗状态由 `useSubscriptionCrud` 管理。
  */
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import Link from '@/components/router-link';
 import type { Subscription } from "@/types/subscription";
 import { Header } from "@/components/header";
@@ -36,7 +36,7 @@ import { collectSubscriptionTags } from "@/modules/subscriptions/domain/subscrip
 import { resolveSubscriptionPriceReferenceCurrency } from "@/modules/subscriptions/domain/subscription-price-reference";
 import { useI18n } from "@/i18n/I18nProvider";
 import { DEFAULT_NOTIFICATION_REMINDER_DAYS } from "@/types/subscription";
-import { useDeferredDialogCleanup } from "@/hooks/use-deferred-dialog-cleanup";
+import { useSubscriptionDetailDialog } from "@/hooks/use-subscription-detail-dialog";
 import { todayDateOnlyInTimeZone } from "@/lib/time/date-only";
 import { cn } from "@/lib/utils";
 
@@ -61,17 +61,12 @@ export default function Index() {
   const paymentMethodByValue = useMemo(() => new Map(config.paymentMethods.map((method) => [method.value, method])), [config.paymentMethods]);
   const availableTags = useMemo(() => collectSubscriptionTags(subscriptions), [subscriptions]);
   const today = useMemo(() => todayDateOnlyInTimeZone(new Date(), timeZone), [timeZone]);
-  const [detailSubscriptionId, setDetailSubscriptionId] = useState<string | null>(null);
-  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
-  const selectedDetailSubscription = useMemo(
-    () => subscriptions.find((item) => item.id === detailSubscriptionId) ?? null,
-    [detailSubscriptionId, subscriptions],
-  );
-  const { scheduleCleanup: scheduleDetailCleanup, cancelCleanup: cancelDetailCleanup } =
-    useDeferredDialogCleanup(() => {
-      // 详情弹窗关闭动画期间仍要保留内容快照，避免 Dialog/Drawer fade-out 时标题和备注闪空。
-      setDetailSubscriptionId(null);
-    });
+  const {
+    detailDialogOpen,
+    selectedDetailSubscription,
+    handleViewDetails,
+    handleDetailDialogOpenChange,
+  } = useSubscriptionDetailDialog(subscriptions);
   const { activeSubscriptions, totalMonthly, upcomingCount, trialCount } = useDashboardStats(
     subscriptions,
     defaultCurrency,
@@ -89,19 +84,6 @@ export default function Index() {
     handleSaveSubscription,
     handleEditDialogOpenChange,
   } = useSubscriptionCrud(subscriptions);
-  const handleViewDetails = useCallback((id: string) => {
-    cancelDetailCleanup();
-    setDetailSubscriptionId(id);
-    setDetailDialogOpen(true);
-  }, [cancelDetailCleanup]);
-  const handleDetailDialogOpenChange = useCallback((nextOpen: boolean) => {
-    setDetailDialogOpen(nextOpen);
-    if (nextOpen) {
-      cancelDetailCleanup();
-      return;
-    }
-    scheduleDetailCleanup();
-  }, [cancelDetailCleanup, scheduleDetailCleanup]);
   const handleEditFromDetail = useCallback((subscription: Subscription) => {
     handleEditSubscription(subscription.id);
   }, [handleEditSubscription]);

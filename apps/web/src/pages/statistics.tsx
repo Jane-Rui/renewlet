@@ -38,7 +38,7 @@ import { useSubscriptionCrud } from '@/modules/subscriptions/application/use-sub
 import { collectSubscriptionTags } from '@/modules/subscriptions/domain/subscription-filters';
 import { resolveSubscriptionPriceReferenceCurrency } from '@/modules/subscriptions/domain/subscription-price-reference';
 import { useI18n } from '@/i18n/I18nProvider';
-import { useDeferredDialogCleanup } from '@/hooks/use-deferred-dialog-cleanup';
+import { useSubscriptionDetailDialog } from '@/hooks/use-subscription-detail-dialog';
 import { todayDateOnlyInTimeZone } from '@/lib/time/date-only';
 
 /** 空订阅数组：用于在数据未加载完成时提供稳定引用，避免 useMemo 依赖抖动。 */
@@ -145,8 +145,6 @@ const Statistics = () => {
   const timeZone = settings?.timezone ?? "UTC";
   const { locale, t, formatCurrency, formatDateTime, formatNumber } = useI18n();
   const [personalCostBasis, setPersonalCostBasis] = useState(false);
-  const [detailSubscriptionId, setDetailSubscriptionId] = useState<string | null>(null);
-  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
 
   const { convert, loading: ratesLoading, refresh: refreshRates, lastUpdated, error: ratesError, sourceDate: ratesSourceDate } = useReportExchangeRates(settings?.exchangeRateProvider);
   const currencyRatesReady = Boolean(ratesSourceDate) && !ratesLoading;
@@ -161,29 +159,13 @@ const Statistics = () => {
     handleEditDialogOpenChange,
   } = useSubscriptionCrud(subscriptions);
   const availableTags = useMemo(() => collectSubscriptionTags(subscriptions), [subscriptions]);
-  const selectedDetailSubscription = useMemo(
-    () => subscriptions.find((item) => item.id === detailSubscriptionId) ?? null,
-    [detailSubscriptionId, subscriptions],
-  );
   const today = useMemo(() => todayDateOnlyInTimeZone(new Date(), timeZone), [timeZone]);
-  const { scheduleCleanup: scheduleDetailCleanup, cancelCleanup: cancelDetailCleanup } =
-    useDeferredDialogCleanup(() => {
-      // 详情弹窗关闭动画期间仍要保留内容快照，避免 Dialog/Drawer fade-out 时标题和备注闪空。
-      setDetailSubscriptionId(null);
-    });
-  const handleViewTrendSubscriptionDetails = useCallback((id: string) => {
-    cancelDetailCleanup();
-    setDetailSubscriptionId(id);
-    setDetailDialogOpen(true);
-  }, [cancelDetailCleanup]);
-  const handleDetailDialogOpenChange = useCallback((nextOpen: boolean) => {
-    setDetailDialogOpen(nextOpen);
-    if (nextOpen) {
-      cancelDetailCleanup();
-      return;
-    }
-    scheduleDetailCleanup();
-  }, [cancelDetailCleanup, scheduleDetailCleanup]);
+  const {
+    detailDialogOpen,
+    selectedDetailSubscription,
+    handleViewDetails: handleViewTrendSubscriptionDetails,
+    handleDetailDialogOpenChange,
+  } = useSubscriptionDetailDialog(subscriptions);
   const handleEditFromDetail = useCallback((subscription: Subscription) => {
     handleEditSubscription(subscription.id);
   }, [handleEditSubscription]);

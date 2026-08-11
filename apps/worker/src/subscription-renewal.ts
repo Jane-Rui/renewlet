@@ -7,7 +7,9 @@ import {
 import { getSettings, nowIso, SUBSCRIPTION_COLUMNS } from "./db";
 import { refreshSubscriptionDerivedState } from "./subscription-derived-state";
 import { getSubscriptionSchedulerState, listAutoRenewDueUsers, markAutoRenewCheckedForLocalDate, refreshSubscriptionSchedulerState } from "./subscription-scheduler-state";
+import { dateOnlyInZone } from "./time";
 import type { Env, SubscriptionRow, SubscriptionSchedulerStateRow } from "./types";
+export { dateOnlyInZone } from "./time";
 
 const RENEWAL_MAINTENANCE_PAGE_SIZE = 500;
 const RECURRING_BILLING_CYCLE_SQL = "billing_cycle IN ('weekly', 'monthly', 'quarterly', 'semi-annual', 'annual', 'custom')";
@@ -23,12 +25,6 @@ export function advanceSubscriptionRenewal(
   mode: RenewalMode,
 ): SubscriptionRenewalResult | null {
   return advanceSharedSubscriptionRenewal(subscriptionRenewalInputFromRow(row), today, mode);
-}
-
-/** Worker 续订维护按用户设置时区生成 date-only today；不能用 UTC 日期替代用户本地账单日。 */
-export function dateOnlyInZone(date: Date, timezone: string): string {
-  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
-  return `${part(parts, "year")}-${part(parts, "month")}-${part(parts, "day")}`;
 }
 
 /** scheduled 顶层先跑全用户自动续订，再进入通知调度，避免过期旧日期进入本轮提醒。 */
@@ -119,8 +115,4 @@ async function persistRenewalResult(env: Env, userId: string, id: string, result
     UPDATE subscriptions SET next_billing_date = ?, status = ?, updated_at = ?
     WHERE user_id = ? AND id = ?
   `).bind(result.nextBillingDate, result.status, timestamp, userId, id).run();
-}
-
-function part(parts: Intl.DateTimeFormatPart[], type: Intl.DateTimeFormatPartTypes): string {
-  return parts.find((item) => item.type === type)?.value ?? "00";
 }

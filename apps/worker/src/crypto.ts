@@ -1,4 +1,5 @@
 import { scrypt as nodeScrypt } from "node:crypto";
+import { base64Url, base64UrlToBytes, timingSafeEqualBytes } from "./encoding";
 
 const PASSWORD_SALT_BYTES = 16;
 const PASSWORD_HASH_BYTES = 32;
@@ -54,10 +55,10 @@ export async function verifyPassword(password: string, stored: string): Promise<
   const keyBytes = parsePositiveInteger(keyBytesText);
   if (!n || !r || !p || !keyBytes) return false;
   if (n !== SCRYPT_N || r !== SCRYPT_R || p !== SCRYPT_P || keyBytes !== PASSWORD_HASH_BYTES) return false;
-  const expected = fromBase64Url(hashText);
+  const expected = base64UrlToBytes(hashText);
   if (expected.length !== PASSWORD_HASH_BYTES) return false;
-  const actual = await scrypt(password, fromBase64Url(saltText), n, r, p, SCRYPT_MAXMEM_BYTES);
-  return timingSafeEqual(actual, expected);
+  const actual = await scrypt(password, base64UrlToBytes(saltText), n, r, p, SCRYPT_MAXMEM_BYTES);
+  return timingSafeEqualBytes(actual, expected);
 }
 
 async function scrypt(
@@ -84,28 +85,6 @@ async function scrypt(
       },
     );
   });
-}
-
-function timingSafeEqual(left: Uint8Array, right: Uint8Array): boolean {
-  if (left.length !== right.length) return false;
-  // Workers 没有 Node timingSafeEqual；这里保持固定字节扫描，避免首个差异位置泄漏。
-  let diff = 0;
-  for (let i = 0; i < left.length; i++) diff |= (left[i] ?? 0) ^ (right[i] ?? 0);
-  return diff === 0;
-}
-
-function base64Url(data: Uint8Array): string {
-  let binary = "";
-  for (const byte of data) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
-}
-
-function fromBase64Url(input: string): Uint8Array {
-  const normalized = input.replaceAll("-", "+").replaceAll("_", "/").padEnd(Math.ceil(input.length / 4) * 4, "=");
-  const binary = atob(normalized);
-  const data = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) data[i] = binary.charCodeAt(i);
-  return data;
 }
 
 function parsePositiveInteger(input: string): number | null {
