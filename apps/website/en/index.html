@@ -47,7 +47,7 @@
             "name": "Renewlet",
             "url": "%RENEWLET_WEBSITE_URL%",
             "logo": "%RENEWLET_WEBSITE_LOGO_URL%",
-            "sameAs": ["https://github.com/zhiyingzzhou/renewlet"]
+            "sameAs": ["%RENEWLET_WEBSITE_REPOSITORY_URL%"]
           },
           {
             "@type": "WebSite",
@@ -67,8 +67,8 @@
             "operatingSystem": "Docker, Cloudflare Workers",
             "softwareVersion": "%RENEWLET_WEBSITE_SOFTWARE_VERSION%",
             "url": "%RENEWLET_WEBSITE_EN_URL%",
-            "codeRepository": "https://github.com/zhiyingzzhou/renewlet",
-            "license": "https://github.com/zhiyingzzhou/renewlet/blob/main/LICENSE",
+            "codeRepository": "%RENEWLET_WEBSITE_REPOSITORY_URL%",
+            "license": "%RENEWLET_WEBSITE_LICENSE_URL%",
             "description": "Renewlet is a self-hosted subscription ledger for services, renewal dates, budgets, notifications, and calendar feeds."
           }
         ]
@@ -78,6 +78,7 @@
   </head>
   <body>
     <div id="root"></div>
+    %RENEWLET_WEBSITE_ANALYTICS_SCRIPT%
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

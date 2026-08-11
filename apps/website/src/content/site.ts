@@ -10,28 +10,31 @@ import {
   Sparkles,
 } from 'lucide-react'
 
+import type { WebsiteRepositoryLinks } from '../lib/website-metadata'
+
+declare const __RENEWLET_WEBSITE_REPOSITORY_LINKS__: WebsiteRepositoryLinks
+
 export type Locale = 'zh' | 'en'
 
 export type LocalizedText = Record<Locale, string>
 export type LocalizedUrl = string | LocalizedText
+export type WebsiteLinks = WebsiteRepositoryLinks & {
+  demo: string
+}
 
 export const locales: Record<Locale, { label: string; ariaLabel: string }> = {
   zh: { label: '中', ariaLabel: '切换到中文' },
   en: { label: 'EN', ariaLabel: 'Switch to English' },
 }
 
-export const links = {
-  demo: 'https://demo.renewlet.cc/',
-  github: 'https://github.com/zhiyingzzhou/renewlet',
-  docs: 'https://github.com/zhiyingzzhou/renewlet#readme',
-  docsZh: 'https://github.com/zhiyingzzhou/renewlet/blob/main/README.zh-CN.md',
-  cloudflare: {
-    zh: 'https://github.com/zhiyingzzhou/renewlet/blob/main/docs/cloudflare-workers-deploy.zh-CN.md',
-    en: 'https://github.com/zhiyingzzhou/renewlet/blob/main/docs/cloudflare-workers-deploy.md',
-  },
-  docker: 'https://github.com/zhiyingzzhou/renewlet/blob/main/README.zh-CN.md#快速部署',
-  license: 'https://github.com/zhiyingzzhou/renewlet/blob/main/LICENSE',
+export function createSiteLinks(repositoryLinks: WebsiteRepositoryLinks): WebsiteLinks {
+  return {
+    demo: 'https://demo.renewlet.cc/',
+    ...repositoryLinks,
+  }
 }
+
+export const links = createSiteLinks(__RENEWLET_WEBSITE_REPOSITORY_LINKS__)
 
 export const copy = {
   nav: {
@@ -272,30 +275,34 @@ export type DeployOption = {
   action: LocalizedText
 }
 
-export const deployOptions: DeployOption[] = [
-  {
-    key: 'docker',
-    icon: Container,
-    title: { zh: 'Docker 单容器', en: 'Single Docker container' },
-    body: {
-      zh: '适合 VPS、NAS 和 homelab，数据持久化到本机目录。',
-      en: 'Best for VPS, NAS, and homelab installs with local persistent data.',
+export function createDeployOptions(siteLinks: Pick<WebsiteLinks, 'cloudflare' | 'docker'> = links): DeployOption[] {
+  return [
+    {
+      key: 'docker',
+      icon: Container,
+      title: { zh: 'Docker 单容器', en: 'Single Docker container' },
+      body: {
+        zh: '适合 VPS、NAS 和 homelab，数据持久化到本机目录。',
+        en: 'Best for VPS, NAS, and homelab installs with local persistent data.',
+      },
+      href: siteLinks.docker,
+      action: { zh: '看 Docker 部署', en: 'Read Docker setup' },
     },
-    href: links.docker,
-    action: { zh: '看 Docker 部署', en: 'Read Docker setup' },
-  },
-  {
-    key: 'cloudflare',
-    icon: Cloud,
-    title: { zh: 'Cloudflare Workers', en: 'Cloudflare Workers' },
-    body: {
-      zh: '一键部署到 Cloudflare，升级按文档同步生成仓库。',
-      en: 'One-click deploy to Cloudflare; update by syncing the generated repo.',
+    {
+      key: 'cloudflare',
+      icon: Cloud,
+      title: { zh: 'Cloudflare Workers', en: 'Cloudflare Workers' },
+      body: {
+        zh: '一键部署到 Cloudflare，升级按文档同步生成仓库。',
+        en: 'One-click deploy to Cloudflare; update by syncing the generated repo.',
+      },
+      href: siteLinks.cloudflare,
+      action: { zh: '查看 Cloudflare 部署', en: 'Read Cloudflare deploy' },
     },
-    href: links.cloudflare,
-    action: { zh: '查看 Cloudflare 部署', en: 'Read Cloudflare deploy' },
-  },
-]
+  ]
+}
+
+export const deployOptions: DeployOption[] = createDeployOptions()
 
 export function text(value: LocalizedText, locale: Locale) {
   return value[locale]

@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
+import { links, localizedUrl } from '../../content/site'
 import { DeployDialog } from './DeployDialog'
 
 describe('DeployDialog', () => {
@@ -14,10 +15,8 @@ describe('DeployDialog', () => {
     const cloudflareLink = screen.getByRole('link', { name: /Cloudflare Workers/i })
 
     expect(dockerLink).toBeInTheDocument()
-    expect(cloudflareLink).toHaveAttribute(
-      'href',
-      expect.stringContaining('docs/cloudflare-workers-deploy.zh-CN.md'),
-    )
+    expect(dockerLink).toHaveAttribute('href', links.docker)
+    expect(cloudflareLink).toHaveAttribute('href', localizedUrl(links.cloudflare, 'zh'))
     for (const link of [dockerLink, cloudflareLink]) {
       expect(link).toHaveAttribute('target', '_blank')
       expect(link).toHaveAttribute('rel', 'noopener noreferrer')

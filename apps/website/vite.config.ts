@@ -33,6 +33,9 @@ function websiteMetadataPlugin(): Plugin {
 
 export default defineConfig({
   base: deployment.viteBase,
+  define: {
+    __RENEWLET_WEBSITE_REPOSITORY_LINKS__: JSON.stringify(deployment.repositoryLinks),
+  },
   build: {
     rollupOptions: {
       // 中文根路径与英文 /en/ 都是可索引 HTML 入口；不要退回只靠前端按钮切语言。

@@ -48,6 +48,8 @@ jobs:
         env:
           RENEWLET_WEBSITE_BASE_URL: ${{ steps.pages.outputs.base_url }}
           RENEWLET_WEBSITE_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+          RENEWLET_WEBSITE_REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}
+          RENEWLET_WEBSITE_ANALYTICS_SCRIPT: ${{ vars.RENEWLET_WEBSITE_ANALYTICS_SCRIPT }}
         run: pnpm --filter @renewlet/website build
 
       - name: Upload Pages artifact

@@ -1,15 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  latestStableReleaseVersionFromFileNames,
-} from './release-version'
+import { latestStableReleaseVersionFromFileNames } from './release-version'
 import {
   renderRobotsTxt,
   renderSitemapXml,
   replaceWebsiteMetadataPlaceholders,
+  resolveWebsiteAnalyticsScript,
   resolveWebsiteDeployment,
   websiteUrl,
 } from './website-metadata'
+
+const UMAMI_ANALYTICS_SCRIPT =
+  '<script defer src="https://umami.olyq.org/script.js" ' +
+  'data-website-id="0da844f3-a2aa-419d-934a-dce961733c41"></script>'
 
 describe('resolveWebsiteDeployment', () => {
   it('uses root asset paths for a GitHub Pages custom domain', () => {
@@ -19,7 +22,7 @@ describe('resolveWebsiteDeployment', () => {
       RENEWLET_WEBSITE_BASE_PATH: '',
     })
 
-    expect(deployment).toEqual({
+    expect(deployment).toMatchObject({
       basePath: '',
       baseUrl: 'https://renewlet.cc',
       viteBase: '/',
@@ -33,7 +36,7 @@ describe('resolveWebsiteDeployment', () => {
       RENEWLET_WEBSITE_BASE_PATH: '/renewlet',
     })
 
-    expect(deployment).toEqual({
+    expect(deployment).toMatchObject({
       basePath: '/renewlet',
       baseUrl: 'https://zhiyingzzhou.github.io/renewlet',
       viteBase: '/renewlet/',
@@ -67,6 +70,61 @@ describe('resolveWebsiteDeployment', () => {
     })
 
     expect(deployment.baseUrl).toBe('http://localhost:4173')
+  })
+
+  it('uses the default public repository URL for local builds', () => {
+    const deployment = resolveWebsiteDeployment()
+
+    expect(deployment.repositoryUrl).toBe('https://github.com/zhiyingzzhou/renewlet')
+    expect(deployment.repositoryLinks.license).toBe('https://github.com/zhiyingzzhou/renewlet/blob/main/LICENSE')
+  })
+
+  it('normalizes the configured repository URL and derives repository links from it', () => {
+    const deployment = resolveWebsiteDeployment({
+      RENEWLET_WEBSITE_REPOSITORY_URL: 'https://github.example.com/acme/renewlet/',
+    })
+
+    expect(deployment.repositoryUrl).toBe('https://github.example.com/acme/renewlet')
+    expect(deployment.repositoryLinks).toEqual({
+      github: 'https://github.example.com/acme/renewlet',
+      docs: 'https://github.example.com/acme/renewlet#readme',
+      docsZh: 'https://github.example.com/acme/renewlet/blob/main/README.zh-CN.md',
+      cloudflare: {
+        zh: 'https://github.example.com/acme/renewlet/blob/main/docs/cloudflare-workers-deploy.zh-CN.md',
+        en: 'https://github.example.com/acme/renewlet/blob/main/docs/cloudflare-workers-deploy.md',
+      },
+      docker: 'https://github.example.com/acme/renewlet/blob/main/README.zh-CN.md#快速部署',
+      license: 'https://github.example.com/acme/renewlet/blob/main/LICENSE',
+    })
+  })
+
+  it('upgrades public repository HTTP URLs to HTTPS', () => {
+    const deployment = resolveWebsiteDeployment({
+      RENEWLET_WEBSITE_REPOSITORY_URL: 'http://github.example.com/acme/renewlet',
+    })
+
+    expect(deployment.repositoryUrl).toBe('https://github.example.com/acme/renewlet')
+  })
+
+  it('keeps analytics disabled when the script is missing', () => {
+    const deployment = resolveWebsiteDeployment({
+      RENEWLET_WEBSITE_ANALYTICS_SCRIPT: '',
+    })
+
+    expect(deployment.analyticsScript).toBe('')
+  })
+
+  it('normalizes analytics script HTML when it is configured', () => {
+    const deployment = resolveWebsiteDeployment({
+      RENEWLET_WEBSITE_ANALYTICS_SCRIPT:
+        '<script data-website-id="site-123" ' +
+        'src="http://analytics.example.com/script.js?tracker=renewlet#frag" defer></script>',
+    })
+
+    expect(deployment.analyticsScript).toBe(
+      '<script defer src="https://analytics.example.com/script.js?tracker=renewlet" ' +
+        'data-website-id="site-123"></script>',
+    )
   })
 })
 
@@ -103,6 +161,8 @@ describe('website metadata rendering', () => {
       '%RENEWLET_WEBSITE_DASHBOARD_ZH_URL%',
       '%RENEWLET_WEBSITE_DASHBOARD_EN_URL%',
       '%RENEWLET_WEBSITE_SOFTWARE_VERSION%',
+      '%RENEWLET_WEBSITE_REPOSITORY_URL%',
+      '%RENEWLET_WEBSITE_LICENSE_URL%',
     ].join('\n')
 
     expect(replaceWebsiteMetadataPlaceholders(html, customDomainDeployment, { softwareVersion: '0.1.9' })).toBe(
@@ -113,8 +173,78 @@ describe('website metadata rendering', () => {
         'https://renewlet.cc/assets/renewlet/images/dashboard-zh.png',
         'https://renewlet.cc/assets/renewlet/images/dashboard-en.png',
         '0.1.9',
+        'https://github.com/zhiyingzzhou/renewlet',
+        'https://github.com/zhiyingzzhou/renewlet/blob/main/LICENSE',
       ].join('\n'),
     )
+  })
+
+  it('injects the configured repository URL into JSON-LD placeholders', () => {
+    const deployment = resolveWebsiteDeployment({
+      RENEWLET_WEBSITE_REPOSITORY_URL: 'https://github.example.com/acme/renewlet/',
+    })
+    const html = [
+      '"sameAs": ["%RENEWLET_WEBSITE_REPOSITORY_URL%"]',
+      '"codeRepository": "%RENEWLET_WEBSITE_REPOSITORY_URL%"',
+      '"license": "%RENEWLET_WEBSITE_LICENSE_URL%"',
+    ].join('\n')
+
+    expect(replaceWebsiteMetadataPlaceholders(html, deployment, { softwareVersion: '0.1.9' })).toBe(
+      [
+        '"sameAs": ["https://github.example.com/acme/renewlet"]',
+        '"codeRepository": "https://github.example.com/acme/renewlet"',
+        '"license": "https://github.example.com/acme/renewlet/blob/main/LICENSE"',
+      ].join('\n'),
+    )
+  })
+
+  it('removes the analytics placeholder when the script is not configured', () => {
+    const html = '<body>%RENEWLET_WEBSITE_ANALYTICS_SCRIPT%</body>'
+
+    const rendered = replaceWebsiteMetadataPlaceholders(html, customDomainDeployment, { softwareVersion: '0.1.9' })
+
+    expect(rendered).toBe('<body></body>')
+    expect(rendered).not.toContain('%RENEWLET_WEBSITE_ANALYTICS_SCRIPT%')
+    expect(rendered).not.toContain('umami')
+    expect(rendered).not.toContain('script src')
+  })
+
+  it('injects analytics when the script is configured', () => {
+    const deployment = resolveWebsiteDeployment({
+      RENEWLET_WEBSITE_ANALYTICS_SCRIPT: UMAMI_ANALYTICS_SCRIPT,
+    })
+
+    expect(
+      replaceWebsiteMetadataPlaceholders('%RENEWLET_WEBSITE_ANALYTICS_SCRIPT%', deployment, {
+        softwareVersion: '0.1.9',
+      }),
+    ).toBe(UMAMI_ANALYTICS_SCRIPT)
+  })
+
+  it('normalizes whitespace and attribute order for configured analytics script HTML', () => {
+    expect(
+      resolveWebsiteAnalyticsScript(`
+        <script
+          data-website-id="0da844f3-a2aa-419d-934a-dce961733c41"
+          src="https://umami.olyq.org/script.js"
+          defer
+        ></script>
+      `),
+    ).toBe(UMAMI_ANALYTICS_SCRIPT)
+  })
+
+  it('rejects invalid analytics script HTML', () => {
+    for (const invalidScript of [
+      '<div></div>',
+      '<script src="https://umami.olyq.org/script.js"></script>' +
+        '<script src="https://example.com/other.js"></script>',
+      '<script src="https://umami.olyq.org/script.js">alert(1)</script>',
+      '<script src="https://umami.olyq.org/script.js" onload="alert(1)"></script>',
+      '<script defer></script>',
+      '<script src="javascript:alert(1)"></script>',
+    ]) {
+      expect(() => resolveWebsiteAnalyticsScript(invalidScript)).toThrow()
+    }
   })
 })
 
