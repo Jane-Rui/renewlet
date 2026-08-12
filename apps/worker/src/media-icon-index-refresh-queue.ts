@@ -22,6 +22,7 @@ import { sendUpstreamRequest, UpstreamRequestError } from "./upstream-http";
 import {
   createUpstreamHTTPError,
   providerMessageFromResponse,
+  readUpstreamResponseTextUpToLimit,
   UpstreamOperationError,
   upstreamProviderResponseFromFetchResponse,
 } from "./upstream-response";
@@ -142,7 +143,7 @@ function registryFetcher(env: Env): BuiltInIconRegistryFetcher {
       timeoutMs: REGISTRY_FETCH_TIMEOUT_MS,
     });
     if (!response.ok) throw await registryHTTPError(response, label);
-    return JSON.parse(await readResponseTextUpToLimit(response, label, REGISTRY_JSON_LIMIT_BYTES));
+    return JSON.parse(await readUpstreamResponseTextUpToLimit(response, label, REGISTRY_JSON_LIMIT_BYTES));
   };
 }
 
@@ -180,29 +181,6 @@ function transientRefreshError(error: unknown, seen = new WeakSet<object>()): bo
   if (cause && transientRefreshError(cause, seen)) return true;
   const errors = "errors" in error ? (error as { errors?: unknown }).errors : undefined;
   return Array.isArray(errors) && errors.some((item) => transientRefreshError(item, seen));
-}
-
-async function readResponseTextUpToLimit(response: Response, label: string, limitBytes: number): Promise<string> {
-  const declaredLength = Number.parseInt(response.headers.get("content-length") ?? "", 10);
-  if (Number.isFinite(declaredLength) && declaredLength > limitBytes) {
-    throw new Error(`${label} response too large`);
-  }
-  const reader = response.body?.getReader();
-  if (!reader) return "";
-  const decoder = new TextDecoder();
-  let total = 0;
-  let text = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > limitBytes) {
-      await reader.cancel().catch(() => undefined);
-      throw new Error(`${label} response too large`);
-    }
-    text += decoder.decode(value, { stream: true });
-  }
-  return text + decoder.decode();
 }
 
 function ackMessage(message: Message<unknown>): void {

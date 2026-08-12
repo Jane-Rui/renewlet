@@ -8,6 +8,7 @@ import type { MessageKey } from "@/i18n/messages";
 import type { AiRecognizedSubscriptionDraft } from "@/lib/api/schemas/ai-recognition";
 import { todayDateOnlyInTimeZone } from "@/lib/time/date-only";
 import { useSubscriptionFormAutoDates } from "@/hooks/use-subscription-form-auto-dates";
+import { useManagedCurrencyOptions } from "@/hooks/use-managed-currency-options";
 import {
   aiDraftToSubscriptionFormState,
   subscriptionFormStateToAIDraftPatch,
@@ -52,7 +53,7 @@ export function AIDraftEditorPanel({
   onChange,
   onRemove,
 }: AIDraftEditorPanelProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const onChangeRef = useRef(onChange);
   const draftSourceRef = useRef(pickAIDraftSourceFields(draft));
   const initializedKeyRef = useRef<string | null>(null);
@@ -66,6 +67,12 @@ export function AIDraftEditorPanel({
     [config, draftId, settings],
   );
   const [formData, setFormData] = useState(() => aiDraftToSubscriptionFormState(draft, { settings, config }));
+  // AI 草稿编辑器绕过 SubscriptionDialog，但货币顺序仍必须服从货币管理同一事实源。
+  const currencyOptions = useManagedCurrencyOptions({
+    currencies: config.currencies,
+    includeDisabledCurrent: formData.currency,
+    locale,
+  });
   const blockingFormErrors = useMemo(
     () => blockingIssuesToFormErrors(blockingIssues, t),
     [blockingIssues, t],
@@ -158,6 +165,7 @@ export function AIDraftEditorPanel({
           config={config}
           formData={formData}
           setFormData={setFormData}
+          currencyOptions={currencyOptions}
           availableTags={availableTags}
           errors={blockingFormErrors}
           showLogoField={false}

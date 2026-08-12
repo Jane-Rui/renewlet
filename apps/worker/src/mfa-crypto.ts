@@ -1,10 +1,12 @@
 import { accountSecurityKeyRing } from "./account-security-key";
+import { base64Url, base64UrlToArrayBuffer, timingSafeEqualBytes } from "./encoding";
 import type { Env } from "./types";
 
 const DEFAULT_SESSION_TTL_DAYS = 30;
 
 export const mfaTextEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
+export { base64Url };
 
 export async function encryptMfaSecret(env: Env, plaintext: string): Promise<string> {
   const key = await aesGcmKey(env);
@@ -40,12 +42,7 @@ export async function passkeyChallengeHash(env: Env, token: string): Promise<str
 export function timingSafeEqual(left: string, right: string): boolean {
   const leftBytes = mfaTextEncoder.encode(left);
   const rightBytes = mfaTextEncoder.encode(right);
-  if (leftBytes.length !== rightBytes.length) return false;
-  let diff = 0;
-  for (let index = 0; index < leftBytes.length; index += 1) {
-    diff |= (leftBytes[index] ?? 0) ^ (rightBytes[index] ?? 0);
-  }
-  return diff === 0;
+  return timingSafeEqualBytes(leftBytes, rightBytes);
 }
 
 export function sessionTtlDays(env: Env): number {
@@ -53,18 +50,8 @@ export function sessionTtlDays(env: Env): number {
   return Number.isInteger(value) && value > 0 ? value : DEFAULT_SESSION_TTL_DAYS;
 }
 
-export function base64Url(data: Uint8Array): string {
-  let binary = "";
-  for (const byte of data) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
-}
-
 export function fromBase64Url(input: string): ArrayBuffer {
-  const normalized = input.replaceAll("-", "+").replaceAll("_", "/").padEnd(Math.ceil(input.length / 4) * 4, "=");
-  const binary = atob(normalized);
-  const data = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) data[index] = binary.charCodeAt(index);
-  return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
+  return base64UrlToArrayBuffer(input);
 }
 
 async function aesGcmKey(env: Env): Promise<CryptoKey> {

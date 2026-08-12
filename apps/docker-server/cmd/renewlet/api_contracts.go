@@ -369,8 +369,51 @@ type systemRestartRequest struct{}
 // calendarFeedCreateRequest 只允许空对象，用于显式拒绝前端/客户端误传 token 等敏感字段。
 type calendarFeedCreateRequest struct{}
 
-// subscriptionRenewRequest 只允许空对象；手动续订的对象由 URL id 和当前登录用户共同确定。
-type subscriptionRenewRequest struct{}
+// subscriptionRenewRequest 是手动续订的显式 payload；URL id 和当前登录用户仍是 owner 写入边界。
+type subscriptionRenewRequest struct {
+	Mode                         string                    `json:"mode"`
+	Price                        string                    `json:"price"`
+	Currency                     string                    `json:"currency"`
+	StartDate                    optionalJSONField[string] `json:"startDate"`
+	NextBillingDate              string                    `json:"nextBillingDate"`
+	AutoCalculateNextBillingDate bool                      `json:"autoCalculateNextBillingDate"`
+}
+
+func (r *subscriptionRenewRequest) Validate(locale appLocale) error {
+	r.Mode = strings.TrimSpace(r.Mode)
+	if r.Mode != "continue" && r.Mode != "restart" {
+		return errors.New(serverText(locale, "common.invalidRequestParameters"))
+	}
+	price, err := canonicalMoneyString(r.Price)
+	if err != nil {
+		return errors.New(serverText(locale, "common.invalidRequestParameters"))
+	}
+	r.Price = price
+	// shared/Worker 都把货币当作大写 ISO 边界；Docker 不能在这里自动 upper，否则两端会接受不同请求。
+	r.Currency = strings.TrimSpace(r.Currency)
+	if !currencyCodeRe.MatchString(r.Currency) {
+		return errors.New(serverText(locale, "common.invalidRequestParameters"))
+	}
+	if r.StartDate.Set && !r.StartDate.Null {
+		r.StartDate.Value = strings.TrimSpace(r.StartDate.Value)
+	}
+	r.NextBillingDate = strings.TrimSpace(r.NextBillingDate)
+	if r.Mode == "restart" && (!r.StartDate.Set || r.StartDate.Null || r.StartDate.Value == "") {
+		return errors.New(serverText(locale, "common.invalidRequestParameters"))
+	}
+	if r.StartDate.Set && !r.StartDate.Null && r.StartDate.Value != "" {
+		if err := requireDateOnly(r.StartDate.Value, "START_DATE"); err != nil {
+			return errors.New(serverText(locale, "common.invalidRequestParameters"))
+		}
+	}
+	if err := requireDateOnly(r.NextBillingDate, "NEXT_BILLING_DATE"); err != nil {
+		return errors.New(serverText(locale, "common.invalidRequestParameters"))
+	}
+	if r.StartDate.Set && !r.StartDate.Null && r.StartDate.Value != "" && r.NextBillingDate < r.StartDate.Value {
+		return errors.New(serverText(locale, "common.invalidRequestParameters"))
+	}
+	return nil
+}
 
 // systemBuildInfo 是前端版本弹窗展示的构建元数据；发布构建由 CI ldflags 注入。
 type systemBuildInfo struct {

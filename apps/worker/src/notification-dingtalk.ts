@@ -9,7 +9,8 @@ import type { AppLocale } from "./http";
 import { assertSafeOutboundUrl } from "./outbound-url-policy";
 import { sendNotificationJson } from "./notification-http";
 import { NotificationChannelError } from "./notification-errors";
-import { serverFormat, serverText } from "./server-i18n";
+import { notificationHttpErrorMessage, requiredSetting } from "./notification-channel-utils";
+import { serverText } from "./server-i18n";
 import {
   createUpstreamErrorDetails,
   providerMessageFromResponse,
@@ -44,7 +45,7 @@ const DINGTALK_BRAND = "Renewlet";
 const textEncoder = new TextEncoder();
 
 export async function sendDingTalk(settings: ApiAppSettings, message: NotificationEmailMessage, locale: AppLocale): Promise<void> {
-  const rawWebhook = required(settings.dingtalkWebhookUrl, serverText(locale, "service.dingtalkWebhookURL"), locale);
+  const rawWebhook = requiredSetting(settings.dingtalkWebhookUrl, serverText(locale, "service.dingtalkWebhookURL"), locale);
   const endpoint = await dingtalkEndpoint(rawWebhook, settings.dingtalkSecret, locale);
   const secrets = dingTalkSecrets(rawWebhook, endpoint.toString(), settings.dingtalkSecret);
   const response = await sendNotificationJson(endpoint, dingTalkPayload(settings, message), "DingTalk", locale, { secrets });
@@ -132,7 +133,7 @@ async function requireDingTalkSuccess(response: Response, locale: AppLocale, sec
   if (!response.ok) {
     const detail = dingTalkErrorDetail(providerResponse, locale, secrets);
     throw new NotificationChannelError(
-      serverHttpError("DingTalk", response.status, detail, locale),
+      notificationHttpErrorMessage("DingTalk", response.status, detail, locale),
       createUpstreamErrorDetails({ responseText: detail, providerResponse }),
     );
   }
@@ -141,14 +142,14 @@ async function requireDingTalkSuccess(response: Response, locale: AppLocale, sec
   if (!payload || typeof payload.errcode !== "number") {
     const detail = providerMessageFromResponse(providerResponse) ?? serverText(locale, "service.dingtalkResponseInvalid");
     throw new NotificationChannelError(
-      serverHttpError("DingTalk", response.status, detail, locale),
+      notificationHttpErrorMessage("DingTalk", response.status, detail, locale),
       createUpstreamErrorDetails({ responseText: detail, providerResponse }),
     );
   }
   if (payload.errcode !== 0) {
     const detail = redactUpstreamSecrets(dingTalkResponseMessage(payload), secrets) || serverText(locale, "service.dingtalkResponseInvalid");
     throw new NotificationChannelError(
-      serverHttpError("DingTalk", response.status, detail, locale),
+      notificationHttpErrorMessage("DingTalk", response.status, detail, locale),
       createUpstreamErrorDetails({ responseText: detail, providerResponse }),
     );
   }
@@ -194,17 +195,4 @@ function base64FromArrayBuffer(buffer: ArrayBuffer): string {
     binary += String.fromCharCode(...bytes.slice(index, index + chunkSize));
   }
   return btoa(binary);
-}
-
-function serverHttpError(channel: string, status: number, detail: string, locale: AppLocale): string {
-  return serverFormat(locale, "notification.httpSendFailed", {
-    channel,
-    status,
-    detail: detail.trim().slice(0, 800),
-  });
-}
-
-function required(value: string, label: string, locale: AppLocale): string {
-  if (value.trim()) return value.trim();
-  throw new Error(serverFormat(locale, "common.requiredField", { label }));
 }

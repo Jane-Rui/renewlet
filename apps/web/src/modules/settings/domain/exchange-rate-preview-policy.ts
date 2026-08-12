@@ -1,60 +1,26 @@
 import type { ConfigItem } from "@/types/config";
 import type { ExchangeRates } from "@/lib/api/schemas/exchange-rates";
-import { COMMON_CURRENCY_PRIORITY } from "@/lib/currency-data";
 
 const EXCHANGE_RATE_PREVIEW_LIMIT = 8;
-const EXCHANGE_RATE_CNY_REFERENCE_CURRENCY = "CNY";
-
-const EXCHANGE_RATE_PRIMARY_PREVIEW_CURRENCIES = COMMON_CURRENCY_PRIORITY.filter(
-  (currency) => currency !== EXCHANGE_RATE_CNY_REFERENCE_CURRENCY,
-);
-
-const EXCHANGE_RATE_FALLBACK_PREVIEW_CURRENCIES = [
-  "JPY", "CAD", "CHF", "HKD", "SGD", "NZD", "SEK", "NOK", "DKK",
-  "PLN", "MXN", "BRL", "INR", "IDR", "THB", "MYR", "ZAR", "AED", "SAR",
-] as const;
-
-const EXCHANGE_RATE_PREVIEW_CURRENCY_ORDER = [
-  ...EXCHANGE_RATE_PRIMARY_PREVIEW_CURRENCIES,
-  ...EXCHANGE_RATE_FALLBACK_PREVIEW_CURRENCIES,
-] as const;
-
-function getExchangeRatePreviewCurrencyOrder(defaultCurrency: string): readonly string[] {
-  if (defaultCurrency === EXCHANGE_RATE_CNY_REFERENCE_CURRENCY) {
-    return EXCHANGE_RATE_PREVIEW_CURRENCY_ORDER;
-  }
-
-  return [
-    EXCHANGE_RATE_CNY_REFERENCE_CURRENCY,
-    ...EXCHANGE_RATE_PREVIEW_CURRENCY_ORDER,
-  ];
-}
 
 export function getExchangeRatePreviewCurrencies(
   currencies: readonly ConfigItem[],
   defaultCurrency: string,
   limit = EXCHANGE_RATE_PREVIEW_LIMIT,
 ): ConfigItem[] {
-  const currencyByValue = new Map<string, ConfigItem>();
-  for (const currency of currencies) {
-    if (!currencyByValue.has(currency.value)) {
-      currencyByValue.set(currency.value, currency);
-    }
-  }
-
   const previewCurrencies: ConfigItem[] = [];
   const seen = new Set<string>();
-  const previewCurrencyOrder = getExchangeRatePreviewCurrencyOrder(defaultCurrency);
+  const normalizedDefaultCurrency = defaultCurrency.trim().toUpperCase();
 
-  // 汇率预览是产品级常用币种策略；非 CNY 统计货币下优先保留 CNY，降低中文用户跨币种预算的心算成本。
-  for (const currencyValue of previewCurrencyOrder) {
+  for (const currency of currencies) {
     if (previewCurrencies.length >= limit) break;
-    if (seen.has(currencyValue) || currencyValue === defaultCurrency) continue;
+    const currencyValue = currency.value.trim().toUpperCase();
+    if (!currencyValue || seen.has(currencyValue) || currencyValue === normalizedDefaultCurrency) continue;
 
     seen.add(currencyValue);
-    const currency = currencyByValue.get(currencyValue);
-    if (!currency || currency.enabled === false) continue;
+    if (currency.enabled === false) continue;
 
+    // 汇率预览是设置页中的货币列表展示，也必须服从货币管理顺序；默认统计货币只作为报价目标跳过。
     previewCurrencies.push(currency);
   }
 

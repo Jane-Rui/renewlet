@@ -191,6 +191,18 @@ export async function readUpstreamResponseBody(response: Response, limitBytes = 
   };
 }
 
+export async function readUpstreamResponseTextUpToLimit(response: Response, label: string, limitBytes: number): Promise<string> {
+  const limit = Math.max(0, Math.floor(limitBytes));
+  const declaredLength = Number.parseInt(response.headers.get("content-length") ?? "", 10);
+  if (Number.isFinite(declaredLength) && declaredLength > limit) {
+    throw new Error(`${label} response too large`);
+  }
+  // registry/feed 响应属于不可信上游；复用统一 reader 后再把截断升级成硬失败，避免解析半截 JSON/XML。
+  const body = await readUpstreamResponseBody(response, limit);
+  if (body.truncated) throw new Error(`${label} response too large`);
+  return body.text;
+}
+
 function concatUint8Arrays(chunks: Uint8Array[]): Uint8Array {
   const total = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
   const out = new Uint8Array(total);

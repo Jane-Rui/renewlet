@@ -108,6 +108,69 @@ describe("SearchableSelect", () => {
     });
   });
 
+  it("keeps filtered results in caller order instead of ranking exact matches first", async () => {
+    const user = userEvent.setup();
+    const currencyOptions: SearchableSelectOption[] = [
+      { value: "CNY", label: "¥ 人民币 (CNY) with USD reference", keywords: ["reference usd"] },
+      { value: "USD", label: "$ 美元 (USD)", keywords: ["美元", "US Dollar"] },
+      { value: "EUR", label: "€ 欧元 (EUR)", keywords: ["Euro"] },
+    ];
+
+    renderWithTooltipProvider(
+      <SearchableSelect
+        value=""
+        onValueChange={vi.fn()}
+        options={currencyOptions}
+        searchPlaceholder="搜索货币"
+      />,
+    );
+
+    await user.click(screen.getByRole("combobox"));
+    await user.type(screen.getByPlaceholderText("搜索货币"), "usd");
+
+    const listbox = screen.getByRole("listbox");
+    await within(listbox).findByText("$ 美元 (USD)");
+    const renderedLabels = Array.from(listbox.querySelectorAll<HTMLElement>("[cmdk-item]"))
+      .map((item) => item.textContent);
+    expect(renderedLabels).toEqual([
+      "¥ 人民币 (CNY) with USD reference",
+      "$ 美元 (USD)",
+    ]);
+  });
+
+  it("filters single-character currency searches without generic substring noise", async () => {
+    const user = userEvent.setup();
+    const currencyOptions: SearchableSelectOption[] = [
+      { value: "GBP", label: "£ 英镑 (GBP)", keywords: ["pound sterling", "global", "currency"] },
+      { value: "AUD", label: "AU$ 澳大利亚元 (AUD)", keywords: ["Australian dollar"] },
+      { value: "USD", label: "$ 美元 (USD)", keywords: ["美元", "US Dollar"] },
+      { value: "TRY", label: "₺ 土耳其里拉 (TRY)", keywords: ["Turkish lira"] },
+      { value: "UGX", label: "UGX 乌干达先令", keywords: ["Ugandan Shilling"] },
+      { value: "PHP", label: "₱ 菲律宾比索 (PHP)", keywords: ["Philippine peso", "currency"] },
+    ];
+
+    renderWithTooltipProvider(
+      <SearchableSelect
+        value=""
+        onValueChange={vi.fn()}
+        options={currencyOptions}
+        searchPlaceholder="搜索货币"
+      />,
+    );
+
+    await user.click(screen.getByRole("combobox"));
+    await user.type(screen.getByPlaceholderText("搜索货币"), "u");
+
+    const listbox = screen.getByRole("listbox");
+    await within(listbox).findByText("$ 美元 (USD)");
+    const renderedLabels = Array.from(listbox.querySelectorAll<HTMLElement>("[cmdk-item]"))
+      .map((item) => item.textContent);
+    expect(renderedLabels).toEqual([
+      "$ 美元 (USD)",
+      "UGX 乌干达先令",
+    ]);
+  });
+
   it("does not select disabled items", async () => {
     const user = userEvent.setup();
     const onValueChange = vi.fn();
@@ -198,14 +261,14 @@ describe("SearchableSelect", () => {
 
   it("keeps the selected option visible when it is outside the initial limit", async () => {
     const user = userEvent.setup();
-    const manyOptions = Array.from({ length: 150 }, (_, index) => ({
+    const manyOptions = Array.from({ length: 15 }, (_, index) => ({
       value: `item-${index}`,
       label: `选项 ${index}`,
     }));
 
     renderWithTooltipProvider(
       <SearchableSelect
-        value="item-149"
+        value="item-12"
         onValueChange={vi.fn()}
         options={manyOptions}
         searchPlaceholder="搜索选项"
@@ -216,8 +279,24 @@ describe("SearchableSelect", () => {
     await user.click(screen.getByRole("combobox"));
 
     const listbox = screen.getByRole("listbox");
-    expect(within(listbox).getByText("选项 149")).toBeInTheDocument();
-    expect(within(listbox).getByText("选项 0")).toBeInTheDocument();
+    const renderedLabels = Array.from(listbox.querySelectorAll<HTMLElement>("[cmdk-item]"))
+      .map((item) => item.textContent);
+    expect(renderedLabels).toEqual([
+      "选项 0",
+      "选项 1",
+      "选项 2",
+      "选项 3",
+      "选项 4",
+      "选项 5",
+      "选项 6",
+      "选项 7",
+      "选项 8",
+      "选项 9",
+      "选项 10",
+      "选项 11",
+      "选项 12",
+    ]);
+    expect(within(listbox).queryByText("选项 13")).not.toBeInTheDocument();
   });
 
   it("shows a tooltip for a truncated selected option", async () => {

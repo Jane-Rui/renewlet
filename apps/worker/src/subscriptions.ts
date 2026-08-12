@@ -6,6 +6,8 @@
 import {
   subscriptionCreateBodySchema,
   subscriptionPayloadSchema,
+  subscriptionRenewBodySchema,
+  type SubscriptionRenewBody,
   subscriptionsListPayloadSchema,
   subscriptionsListQuerySchema,
   subscriptionUpdateBodySchema,
@@ -13,8 +15,9 @@ import {
 import { boolToInt, getSettings, getSubscription, newId, nowIso, parseJsonObject, parseStringArray, parseSubscriptionCursor, SUBSCRIPTION_COLUMNS, subscriptionCursor, toApiSubscription } from "./db";
 import { listSubscriptionsForQuery } from "./subscription-list-filters";
 import { advanceSubscriptionRenewal, dateOnlyInZone } from "./subscription-renewal";
+import type { SubscriptionRenewalResult } from "@renewlet/shared/subscription-renewal";
 import { refreshSubscriptionDerivedState } from "./subscription-derived-state";
-import { HttpError, ok, readJson, readOptionalJson, requestLocale, successJson } from "./http";
+import { HttpError, ok, readJson, requestLocale, successJson } from "./http";
 import { serverText } from "./server-i18n";
 import { requireAuth } from "./auth";
 import type { Env, SubscriptionRow } from "./types";
@@ -26,7 +29,6 @@ const subscriptionStorageBodySchema = subscriptionCreateBodySchema.refine((body)
   path: ["nextBillingDate"],
   message: "NEXT_BILLING_DATE_BEFORE_START_DATE",
 });
-const emptyBodySchema = z.object({}).strict();
 
 /** 读取当前用户订阅页；cursor 只决定分页位置，权限始终来自 Worker session。 */
 export async function readSubscriptions(request: Request, env: Env): Promise<Response> {
@@ -163,25 +165,69 @@ export async function deleteSubscription(request: Request, env: Env, id: string)
 export async function renewSubscription(request: Request, env: Env, id: string): Promise<Response> {
   const locale = requestLocale(request);
   const auth = await requireAuth(request, env);
-  await readOptionalJson(request, emptyBodySchema, locale);
+  const body = await readJson(request, subscriptionRenewBodySchema, locale);
   const existing = await getSubscription(env, auth.user.id, id);
   if (!existing) throw new HttpError(404, serverText(locale, "subscription.notFound"), "NOT_FOUND");
 
   const settings = await getSettings(env, auth.user.id);
-  const result = advanceSubscriptionRenewal(existing, dateOnlyInZone(new Date(), settings.timezone), "manual");
+  const today = dateOnlyInZone(new Date(), settings.timezone);
+  const result = advanceSubscriptionRenewal(existing, today, "manual");
   if (!result) throw new HttpError(400, serverText(locale, "common.invalidPayload"), "SUBSCRIPTION_RENEW_NOT_ALLOWED");
 
   const timestamp = nowIso();
-  const merged = { ...existing, next_billing_date: result.nextBillingDate, status: result.status, updated_at: timestamp } satisfies SubscriptionRow;
+  // Worker 没有 PocketBase hook；续订也必须先收敛成完整写入 body，才能重新执行 costSharing/date 镜像规则。
+  const merged = renewSubscriptionRow(existing, body, result, timestamp, settings, today, locale);
   await env.DB.prepare(`
-    UPDATE subscriptions SET next_billing_date = ?, status = ?, updated_at = ?
+    UPDATE subscriptions SET
+      price = ?, currency = ?, start_date = ?, next_billing_date = ?, auto_calculate_next_billing_date = ?,
+      cost_sharing_collection_reminder_enabled = ?, cost_sharing_next_collection_reminder_date = ?, status = ?, updated_at = ?
     WHERE user_id = ? AND id = ?
-  `).bind(merged.next_billing_date, merged.status, timestamp, auth.user.id, id).run();
+  `).bind(
+    merged.price,
+    merged.currency,
+    merged.start_date,
+    merged.next_billing_date,
+    merged.auto_calculate_next_billing_date,
+    merged.cost_sharing_collection_reminder_enabled,
+    merged.cost_sharing_next_collection_reminder_date,
+    merged.status,
+    timestamp,
+    auth.user.id,
+    id,
+  ).run();
   await refreshSubscriptionDerivedState(env, auth.user.id, { resetAutoRenewCheck: true });
   return successJson(subscriptionPayloadSchema.parse({ subscription: toApiSubscription(merged) }));
 }
 
 export type SubscriptionBody = ReturnType<typeof subscriptionCreateBodySchema.parse>;
+
+function renewSubscriptionRow(
+  existing: SubscriptionRow,
+  body: SubscriptionRenewBody,
+  continueResult: SubscriptionRenewalResult,
+  timestamp: string,
+  settings: Pick<ApiAppSettings, "timezone" | "notificationReminderDays">,
+  referenceDate: string,
+  locale: ReturnType<typeof requestLocale>,
+): SubscriptionRow {
+  if (body.mode === "restart" && !body.startDate) {
+    throw new HttpError(400, "INVALID_RENEW_START_DATE", "INVALID_PAYLOAD");
+  }
+  const existingBody = toBody(existing);
+  // continue 忽略请求里的日期，restart 才写入用户选择的新日期；两者都保留其它订阅字段并重新过 shared 写入 schema。
+  const mergedBody = parseSubscriptionBodyForStorage({
+    ...existingBody,
+    price: body.price,
+    currency: body.currency,
+    startDate: body.mode === "restart" ? body.startDate : existingBody.startDate,
+    nextBillingDate: body.mode === "restart" ? body.nextBillingDate : continueResult.nextBillingDate,
+    autoCalculateNextBillingDate: body.mode === "restart"
+      ? body.autoCalculateNextBillingDate
+      : existingBody.autoCalculateNextBillingDate,
+    status: body.mode === "restart" && existing.status === "expired" ? "active" : continueResult.status,
+  }, locale);
+  return toSubscriptionRow(existing.id, existing.user_id, mergedBody, existing.created_at, timestamp, { settings, referenceDate });
+}
 
 export function normalizeSubscriptionBodyForStorage(body: unknown): SubscriptionBody {
   const parsed = subscriptionStorageBodySchema.parse(body);

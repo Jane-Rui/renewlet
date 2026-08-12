@@ -35,6 +35,7 @@ import type { Env, MediaIconIndexRow } from "./types";
 import {
   createUpstreamHTTPError,
   providerMessageFromResponse,
+  readUpstreamResponseTextUpToLimit,
   upstreamErrorDetailsFromError,
   upstreamProviderResponseFromFetchResponse,
 } from "./upstream-response";
@@ -490,7 +491,7 @@ async function fetchGitHubAtomFeed(
   if (!response.ok) throw await githubAtomFeedError(response, label);
   // provider check 故意读 GitHub Atom feed 而不是 REST API；错误 raw 仍只随当前管理员操作返回，不进入持久状态。
   return {
-    text: await readResponseTextUpToLimit(response, label, GITHUB_ATOM_FEED_LIMIT_BYTES),
+    text: await readUpstreamResponseTextUpToLimit(response, label, GITHUB_ATOM_FEED_LIMIT_BYTES),
     etag: nextEtag,
     notModified: false,
   };
@@ -557,29 +558,6 @@ function decodePathSegment(value: string): string {
 
 function gitHubAtomFeedUrl(owner: string, repo: string, feedPath: string): string {
   return `${GITHUB_WEB_BASE}/${owner}/${repo}/${feedPath.replace(/^\/+|\/+$/g, "")}.atom`;
-}
-
-async function readResponseTextUpToLimit(response: Response, label: string, limitBytes: number): Promise<string> {
-  const declaredLength = Number.parseInt(response.headers.get("content-length") ?? "", 10);
-  if (Number.isFinite(declaredLength) && declaredLength > limitBytes) {
-    throw new Error(`${label} response too large`);
-  }
-  const reader = response.body?.getReader();
-  if (!reader) return "";
-  const decoder = new TextDecoder();
-  let total = 0;
-  let text = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > limitBytes) {
-      await reader.cancel().catch(() => undefined);
-      throw new Error(`${label} response too large`);
-    }
-    text += decoder.decode(value, { stream: true });
-  }
-  return text + decoder.decode();
 }
 
 function providerStatuses(

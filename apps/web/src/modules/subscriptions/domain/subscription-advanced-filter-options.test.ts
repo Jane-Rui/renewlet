@@ -79,6 +79,31 @@ describe("advanced option list sections", () => {
     expect(getAdvancedOptionListSearchResults({ options, searchQuery: "$" })).toEqual([usd]);
   });
 
+  it("keeps search results in input order even when a later option has a stronger match", () => {
+    const options = [
+      option("CNY", "¥ 人民币 (CNY) with USD reference", ["reference usd"]),
+      option("USD", "$ 美元 (USD)", ["美元", "$", "US Dollar"]),
+      option("EUR", "€ 欧元 (EUR)", ["Euro"]),
+    ];
+
+    expect(getAdvancedOptionListSearchResults({ options, searchQuery: "usd" }).map((item) => item.value))
+      .toEqual(["CNY", "USD"]);
+  });
+
+  it("keeps single-character currency search results relevant and in manager order", () => {
+    const options = [
+      option("GBP", "£ 英镑 (GBP)", ["pound sterling", "global", "currency"]),
+      option("AUD", "AU$ 澳大利亚元 (AUD)", ["Australian dollar"]),
+      option("USD", "$ 美元 (USD)", ["美元", "US Dollar"]),
+      option("TRY", "₺ 土耳其里拉 (TRY)", ["Turkish lira"]),
+      option("UGX", "UGX 乌干达先令", ["Ugandan Shilling"]),
+      option("PHP", "₱ 菲律宾比索 (PHP)", ["Philippine peso", "currency"]),
+    ];
+
+    expect(getAdvancedOptionListSearchResults({ options, searchQuery: "u" }).map((item) => item.value))
+      .toEqual(["USD", "UGX"]);
+  });
+
   it("returns an empty list when search has no match", () => {
     const options = [option("CNY"), option("USD")];
 

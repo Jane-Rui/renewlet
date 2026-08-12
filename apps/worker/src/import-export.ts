@@ -12,7 +12,8 @@ import {
   type ImportSubscription,
 } from "@renewlet/shared/schemas/import-export";
 import { customConfigSchema } from "@renewlet/shared/schemas/custom-config";
-import { getSettings, listSubscriptions, mergeSettingsPatch, newId, nowIso, parseJsonObject } from "./db";
+import { mergeAppSettingsPatch } from "@renewlet/shared/settings-normalization";
+import { getSettings, listSubscriptions, newId, nowIso, parseJsonObject } from "./db";
 import { requestLocale, readJsonWithLimit, HttpError, successJson, type AppLocale } from "./http";
 import { serverText } from "./server-i18n";
 import { requireAuth } from "./auth";
@@ -142,7 +143,7 @@ export async function applyImport(request: Request, env: Env): Promise<Response>
   if (body.payload.settings) {
     wroteSettings = true;
     const current = settingsForRows;
-    const next = mergeSettingsPatch(current, body.payload.settings);
+    const next = mergeAppSettingsPatch(current, body.payload.settings);
     finalSettingsForMirrors = next;
     // settings merge 先套默认值和清洗规则，再写 JSON；导入文件不能绕过设置页契约塞入未知字段。
     statements.push(env.DB.prepare(`

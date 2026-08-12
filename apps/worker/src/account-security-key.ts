@@ -1,4 +1,5 @@
 import type { Env } from "./types";
+import { arrayBufferFromBytes, base64Url, base64UrlToArrayBuffer } from "./encoding";
 
 const ACCOUNT_SECURITY_KEY_OBJECT = "system/account-security/key.v1.json";
 const ACCOUNT_SECURITY_KEY_VERSION = 1;
@@ -48,10 +49,6 @@ async function loadAccountSecurityKeyRing(env: Env): Promise<AccountSecurityKeyR
   };
 }
 
-function arrayBufferFromBytes(bytes: Uint8Array): ArrayBuffer {
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-}
-
 async function readOrCreateAccountSecurityMasterKey(env: Env): Promise<Uint8Array> {
   const existing = await readAccountSecurityMasterKey(env);
   if (existing) return existing;
@@ -80,7 +77,7 @@ async function readAccountSecurityMasterKey(env: Env): Promise<Uint8Array | null
   if (parsed.version !== ACCOUNT_SECURITY_KEY_VERSION || typeof parsed.key !== "string") {
     throw new Error("invalid account security key");
   }
-  const key = fromBase64Url(parsed.key);
+  const key = base64UrlToArrayBuffer(parsed.key);
   if (key.byteLength !== ACCOUNT_SECURITY_KEY_BYTES) {
     throw new Error("invalid account security key");
   }
@@ -102,20 +99,6 @@ async function deriveKeyBytes(key: CryptoKey, info: string): Promise<ArrayBuffer
     salt: textEncoder.encode(ACCOUNT_SECURITY_KEY_SALT),
     info: textEncoder.encode(info),
   }, key, ACCOUNT_SECURITY_KEY_BYTES * 8);
-}
-
-function base64Url(data: Uint8Array): string {
-  let binary = "";
-  for (const byte of data) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
-}
-
-function fromBase64Url(input: string): ArrayBuffer {
-  const normalized = input.replaceAll("-", "+").replaceAll("_", "/").padEnd(Math.ceil(input.length / 4) * 4, "=");
-  const binary = atob(normalized);
-  const data = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) data[index] = binary.charCodeAt(index);
-  return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
 }
 
 export function resetAccountSecurityKeyRingForTest(): void {

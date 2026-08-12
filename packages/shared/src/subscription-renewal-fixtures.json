@@ -16,6 +16,22 @@
     "expectedStatus": "active"
   },
   {
+    "name": "monthly-end-of-month-manual-continue",
+    "input": {
+      "billingCycle": "monthly",
+      "status": "expired",
+      "startDate": "2026-01-31",
+      "nextBillingDate": "2026-02-28",
+      "autoRenew": false,
+      "autoCalculateNextBillingDate": true
+    },
+    "today": "2026-08-12",
+    "mode": "manual",
+    "eligible": true,
+    "expectedNextBillingDate": "2026-08-31",
+    "expectedStatus": "active"
+  },
+  {
     "name": "annual-leap-day-auto",
     "input": {
       "billingCycle": "annual",
@@ -177,6 +193,24 @@
     "mode": "auto",
     "eligible": true,
     "expectedNextBillingDate": "2026-05-31",
+    "expectedStatus": "active"
+  },
+  {
+    "name": "custom-month-manual-continue",
+    "input": {
+      "billingCycle": "custom",
+      "status": "expired",
+      "startDate": "2026-01-31",
+      "nextBillingDate": "2026-03-31",
+      "autoRenew": false,
+      "autoCalculateNextBillingDate": true,
+      "customDays": 2,
+      "customCycleUnit": "month"
+    },
+    "today": "2026-08-12",
+    "mode": "manual",
+    "eligible": true,
+    "expectedNextBillingDate": "2026-09-30",
     "expectedStatus": "active"
   },
   {

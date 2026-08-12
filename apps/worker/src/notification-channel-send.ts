@@ -16,7 +16,8 @@ import {
   redactUpstreamSecrets,
 } from "./upstream-response";
 import { requireNotificationHttpOk, sendNotificationJson, sendNotificationRequest } from "./notification-http";
-import { serverFormat, serverText } from "./server-i18n";
+import { requiredSetting } from "./notification-channel-utils";
+import { serverText } from "./server-i18n";
 import type { Env } from "./types";
 import type { AppLocale } from "./http";
 import type { Channel, SendSummary } from "./notification-jobs";
@@ -91,8 +92,8 @@ export async function sendChannel(
 }
 
 async function sendTelegramChannel({ settings, message, locale }: NotificationSenderContext): Promise<void> {
-  const token = required(settings.telegramBotToken, serverText(locale, "service.telegramBotToken"), locale);
-  const chatId = required(settings.telegramChatId, serverText(locale, "service.telegramChatID"), locale);
+  const token = requiredSetting(settings.telegramBotToken, serverText(locale, "service.telegramBotToken"), locale);
+  const chatId = requiredSetting(settings.telegramChatId, serverText(locale, "service.telegramChatID"), locale);
   // Telegram 样式只在 sendMessage 边界生效；其它渠道继续消费纯文本，避免跨渠道模板语义互相污染。
   const telegramMessage = telegramNotificationMessage(message, settings.telegramMessageFormat);
   await postJson(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -103,7 +104,7 @@ async function sendTelegramChannel({ settings, message, locale }: NotificationSe
 }
 
 async function sendNotifyxChannel({ settings, message, locale }: NotificationSenderContext): Promise<void> {
-  const apiKey = required(settings.notifyxApiKey, serverText(locale, "service.notifyxAPIKey"), locale);
+  const apiKey = requiredSetting(settings.notifyxApiKey, serverText(locale, "service.notifyxAPIKey"), locale);
   await postJson(`https://www.notifyx.cn/api/v1/send/${encodeURIComponent(apiKey)}`, {
     title: message.title,
     content: message.content,
@@ -112,7 +113,7 @@ async function sendNotifyxChannel({ settings, message, locale }: NotificationSen
 }
 
 async function sendWeChatChannel({ settings, message, locale }: NotificationSenderContext): Promise<void> {
-  const rawUrl = required(settings.wechatWebhookUrl, serverText(locale, "service.wechatWebhookURL"), locale);
+  const rawUrl = requiredSetting(settings.wechatWebhookUrl, serverText(locale, "service.wechatWebhookURL"), locale);
   await postJson(await safeHttpsUrl(rawUrl, locale), {
     msgtype: settings.wechatMessageType,
     [settings.wechatMessageType]: settings.wechatMessageType === "markdown"
@@ -125,13 +126,13 @@ async function sendWeChatChannel({ settings, message, locale }: NotificationSend
 }
 
 async function sendBarkChannel({ settings, message, locale }: NotificationSenderContext): Promise<void> {
-  const deviceKey = required(settings.barkDeviceKey, serverText(locale, "service.barkDeviceKey"), locale);
+  const deviceKey = requiredSetting(settings.barkDeviceKey, serverText(locale, "service.barkDeviceKey"), locale);
   const response = await sendNotificationRequest(await barkUrl(settings, message, locale), { method: "GET" }, "Bark", locale, { secrets: [deviceKey, settings.barkServerUrl] });
   await requireNotificationHttpOk(response, "Bark", locale, { secrets: [deviceKey, settings.barkServerUrl] });
 }
 
 async function sendWebhook(settings: ApiAppSettings, message: NotificationEmailMessage, locale: AppLocale): Promise<void> {
-  const rawEndpoint = required(settings.webhookUrl, serverText(locale, "service.webhookURL"), locale);
+  const rawEndpoint = requiredSetting(settings.webhookUrl, serverText(locale, "service.webhookURL"), locale);
   const endpoint = await safeHttpsUrl(rawEndpoint, locale);
   const headers = parseHeaders(settings.webhookHeaders);
   const secrets = [rawEndpoint, ...headersSecrets(headers)];
@@ -190,7 +191,7 @@ async function safeHttpsUrl(raw: string, locale: AppLocale): Promise<string> {
 
 async function barkUrl(settings: ApiAppSettings, message: NotificationEmailMessage, locale: AppLocale): Promise<string> {
   const server = (await safeHttpsUrl(settings.barkServerUrl || "https://api.day.app", locale)).replace(/\/+$/, "");
-  const key = required(settings.barkDeviceKey, serverText(locale, "service.barkDeviceKey"), locale);
+  const key = requiredSetting(settings.barkDeviceKey, serverText(locale, "service.barkDeviceKey"), locale);
   const url = new URL(`${server}/${encodeURIComponent(key)}/${encodeURIComponent(message.title)}/${encodeURIComponent(message.content)}`);
   if (settings.barkSilentPush) url.searchParams.set("isArchive", "1");
   return url.toString();
@@ -215,11 +216,6 @@ function headersSecrets(headers: Headers): string[] {
     }
   });
   return out;
-}
-
-function required(value: string, label: string, locale: AppLocale): string {
-  if (value.trim()) return value.trim();
-  throw new Error(serverFormat(locale, "common.requiredField", { label }));
 }
 
 export function renderWebhookPayloadTemplate(template: string, message: NotificationEmailMessage, locale: AppLocale): string {

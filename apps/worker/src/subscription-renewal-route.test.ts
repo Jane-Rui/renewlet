@@ -63,7 +63,7 @@ function envFixture(row: SubscriptionRow | null) {
             return { success: true, meta: {}, results: [] as T[] } as D1Result<T>;
           }),
           run: vi.fn(async () => {
-            if (sql.includes("UPDATE subscriptions SET next_billing_date")) {
+            if (sql.includes("UPDATE subscriptions SET") && sql.includes("WHERE user_id = ? AND id = ?")) {
               updateParams = params;
               return { success: true, meta: { changes: 1 } };
             }
@@ -140,22 +140,66 @@ afterEach(() => {
 });
 
 describe("Cloudflare subscription renewal route", () => {
+  const continueBody = {
+    mode: "continue",
+    price: "15.500000",
+    currency: "EUR",
+    startDate: null,
+    nextBillingDate: "2026-08-12",
+    autoCalculateNextBillingDate: false,
+  };
+
   it("advances a manual expired subscription and keeps the lookup owner-scoped", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-02-01T08:00:00.000Z"));
     authMocks.requireAuth.mockResolvedValue({ user: { id: "usr_owner" }, session: { id: "ses" } });
     const fixture = envFixture(subscriptionRow());
 
-    const response = await renewSubscription(requestFixture(), fixture.env, "sub_manual");
-    const json = await readSuccessData<{ subscription: { autoRenew: boolean; nextBillingDate: string; status: string } }>(response);
+    const response = await renewSubscription(requestFixture(continueBody), fixture.env, "sub_manual");
+    const json = await readSuccessData<{ subscription: { autoRenew: boolean; price: string; currency: string; nextBillingDate: string; status: string } }>(response);
 
     expect(response.status).toBe(200);
     expect(fixture.subscriptionLookupParams).toEqual(["usr_owner", "sub_manual"]);
-    expect(fixture.updateParams?.[0]).toBe("2026-02-28");
-    expect(fixture.updateParams?.[1]).toBe("active");
+    expect(fixture.updateParams?.[0]).toBe("15.5");
+    expect(fixture.updateParams?.[1]).toBe("EUR");
+    expect(fixture.updateParams?.[2]).toBe("2026-01-31");
+    expect(fixture.updateParams?.[3]).toBe("2026-02-28");
+    expect(fixture.updateParams?.[4]).toBe(1);
+    expect(fixture.updateParams?.[7]).toBe("active");
     expect(json.subscription).toMatchObject({
       autoRenew: false,
+      price: "15.5",
+      currency: "EUR",
       nextBillingDate: "2026-02-28",
+      status: "active",
+    });
+  });
+
+  it("restarts an expired subscription from a new start date", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-12T08:00:00.000Z"));
+    authMocks.requireAuth.mockResolvedValue({ user: { id: "usr_owner" }, session: { id: "ses" } });
+    const fixture = envFixture(subscriptionRow({ auto_calculate_next_billing_date: 0 }));
+
+    const response = await renewSubscription(requestFixture({
+      mode: "restart",
+      price: "20",
+      currency: "USD",
+      startDate: "2026-08-12",
+      nextBillingDate: "2026-09-12",
+      autoCalculateNextBillingDate: true,
+    }), fixture.env, "sub_manual");
+    const json = await readSuccessData<{ subscription: { startDate: string | null; nextBillingDate: string; autoCalculateNextBillingDate: boolean; status: string } }>(response);
+
+    expect(response.status).toBe(200);
+    expect(fixture.updateParams?.[0]).toBe("20");
+    expect(fixture.updateParams?.[2]).toBe("2026-08-12");
+    expect(fixture.updateParams?.[3]).toBe("2026-09-12");
+    expect(fixture.updateParams?.[4]).toBe(1);
+    expect(json.subscription).toMatchObject({
+      startDate: "2026-08-12",
+      nextBillingDate: "2026-09-12",
+      autoCalculateNextBillingDate: true,
       status: "active",
     });
   });
@@ -166,7 +210,7 @@ describe("Cloudflare subscription renewal route", () => {
     authMocks.requireAuth.mockResolvedValue({ user: { id: "usr_owner" }, session: { id: "ses" } });
     const fixture = envFixture(subscriptionRow({ auto_renew: 1 }));
 
-    await expect(renewSubscription(requestFixture({}), fixture.env, "sub_manual"))
+    await expect(renewSubscription(requestFixture(continueBody), fixture.env, "sub_manual"))
       .rejects.toMatchObject({ status: 400, code: "SUBSCRIPTION_RENEW_NOT_ALLOWED" });
 
     expect(fixture.updateParams).toBeNull();
@@ -181,12 +225,59 @@ describe("Cloudflare subscription renewal route", () => {
       auto_calculate_next_billing_date: 0,
     }));
 
-    const response = await renewSubscription(requestFixture({}), fixture.env, "sub_manual");
+    const response = await renewSubscription(requestFixture(continueBody), fixture.env, "sub_manual");
     const json = await readSuccessData<{ subscription: { startDate: string | null; nextBillingDate: string } }>(response);
 
     expect(response.status).toBe(200);
-    expect(fixture.updateParams?.[0]).toBe("2026-02-28");
+    expect(fixture.updateParams?.[3]).toBe("2026-02-28");
     expect(json.subscription.startDate).toBeNull();
     expect(json.subscription.nextBillingDate).toBe("2026-02-28");
+  });
+
+  it("rejects restart dates that would put existing cost-sharing members outside the new range", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-12T08:00:00.000Z"));
+    authMocks.requireAuth.mockResolvedValue({ user: { id: "usr_owner" }, session: { id: "ses" } });
+    const fixture = envFixture(subscriptionRow({
+      cost_sharing_json: JSON.stringify({
+        enabled: true,
+        splitMode: "equal",
+        members: [{ id: "member-1", name: "Member", joinedDate: "2026-03-01" }],
+        collectionReminder: { enabled: true, reminderDays: -1 },
+      }),
+    }));
+
+    await expect(renewSubscription(requestFixture({
+      mode: "restart",
+      price: "20",
+      currency: "USD",
+      startDate: "2026-08-12",
+      nextBillingDate: "2026-09-12",
+      autoCalculateNextBillingDate: true,
+    }), fixture.env, "sub_manual")).rejects.toMatchObject({ status: 400, code: "INVALID_PAYLOAD" });
+
+    expect(fixture.updateParams).toBeNull();
+  });
+
+  it("rejects empty, unknown, and invalid renew payloads", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-01T08:00:00.000Z"));
+    authMocks.requireAuth.mockResolvedValue({ user: { id: "usr_owner" }, session: { id: "ses" } });
+    const fixture = envFixture(subscriptionRow());
+
+    for (const body of [
+      undefined,
+      {},
+      { ...continueBody, extra: true },
+      { ...continueBody, price: "1e3" },
+      { ...continueBody, currency: "usd" },
+      { ...continueBody, mode: "restart", startDate: null },
+      { ...continueBody, mode: "restart", startDate: "2026-04-01", nextBillingDate: "2026-03-01" },
+    ]) {
+      await expect(renewSubscription(requestFixture(body), fixture.env, "sub_manual"))
+        .rejects.toMatchObject({ status: 400 });
+    }
+
+    expect(fixture.updateParams).toBeNull();
   });
 });

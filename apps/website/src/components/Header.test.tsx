@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { links } from '../content/site'
 import { Header } from './Header'
 
 describe('Header', () => {
@@ -22,10 +23,13 @@ describe('Header', () => {
   it('opens external header links in a new tab', () => {
     render(<Header locale="zh" onLocaleChange={vi.fn()} />)
 
-    for (const link of [
-      screen.getByRole('link', { name: /^文档$/i }),
-      screen.getByRole('link', { name: /^GitHub$/i }),
-    ]) {
+    const docsLink = screen.getByRole('link', { name: /^文档$/i })
+    const githubLink = screen.getByRole('link', { name: /^GitHub$/i })
+
+    expect(docsLink).toHaveAttribute('href', links.docsZh)
+    expect(githubLink).toHaveAttribute('href', links.github)
+
+    for (const link of [docsLink, githubLink]) {
       expect(link).toHaveAttribute('target', '_blank')
       expect(link).toHaveAttribute('rel', 'noopener noreferrer')
     }

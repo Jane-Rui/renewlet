@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { assertDateOnly } from "@/lib/time/date-only";
+import type { CustomConfig } from "@/types/config";
 import { DEFAULT_SETTINGS, type Subscription } from "@/types/subscription";
 import Subscriptions from "./subscriptions";
 
@@ -63,7 +64,7 @@ const mocks = vi.hoisted(() => ({
     })),
     statuses: [],
     paymentMethods: [],
-    currencies: [],
+    currencies: [] as CustomConfig["currencies"],
   },
 }));
 
@@ -197,6 +198,16 @@ function visibleSubscriptionNames() {
   return screen.getAllByTestId("subscription-card").map((card) => card.textContent ?? "");
 }
 
+function expectAdvancedOptionRowsContainCodes(container: HTMLElement, codes: string[]) {
+  const rows = Array.from(container.querySelectorAll<HTMLElement>("[data-advanced-option-row]"));
+  expect(rows).toHaveLength(codes.length);
+  codes.forEach((code, index) => {
+    const row = rows[index];
+    expect(row).toBeDefined();
+    expect(row!).toHaveTextContent(code);
+  });
+}
+
 // 这里锁的是“外框限高 + 中间唯一滚动区”的结构契约，不是装饰性 Tailwind 快照。
 function expectDesktopFilterPopoverFrame(contentTestId: string, scrollTestId: string) {
   const popover = screen.getByTestId(contentTestId);
@@ -246,6 +257,7 @@ describe("Subscriptions page category filters", () => {
   });
 
   beforeEach(() => {
+    mocks.customConfig.currencies = [];
     mocks.useSubscriptions.mockImplementation(() => {
       const infinite = mocks.useInfiniteSubscriptions();
       return { data: infinite.subscriptions ?? [], isPending: false };
@@ -393,5 +405,33 @@ describe("Subscriptions page category filters", () => {
     expect(within(desktopCategoryFilter).getByRole("button", { name: "分类" })).toBeInTheDocument();
     expect(within(desktopTagFilter).getByRole("button", { name: "标签" })).toBeInTheDocument();
     expect(screen.queryByTestId("desktop-selected-tags")).not.toBeInTheDocument();
+  });
+
+  it("keeps desktop advanced currency options in persisted manager order", async () => {
+    const user = userEvent.setup();
+    mocks.customConfig.currencies = [
+      { id: "AUD", value: "AUD", labels: { "zh-CN": "AUD", "en-US": "AUD" }, enabled: true },
+      { id: "CAD", value: "CAD", labels: { "zh-CN": "CAD", "en-US": "CAD" }, enabled: true },
+      { id: "USD", value: "USD", labels: { "zh-CN": "USD", "en-US": "USD" }, enabled: true },
+      { id: "EUR", value: "EUR", labels: { "zh-CN": "EUR", "en-US": "EUR" }, enabled: true },
+    ];
+    mockMobileTagFilterMatch(false);
+    renderSubscriptionsPage();
+
+    await user.click(within(screen.getByTestId("desktop-advanced-filter")).getByRole("button"));
+    await user.click(within(screen.getByTestId("desktop-advanced-filter-panel")).getByTestId("advanced-currency-entry"));
+
+    const currencyList = within(screen.getByTestId("advanced-currency-dialog")).getByTestId("advanced-currency-picker");
+    expectAdvancedOptionRowsContainCodes(
+      within(currencyList).getByTestId("advanced-currency-picker-all-options"),
+      ["AUD", "CAD", "USD", "EUR"],
+    );
+
+    await user.type(within(currencyList).getByPlaceholderText(/Filter currencies|筛选货币/), "$");
+
+    expectAdvancedOptionRowsContainCodes(
+      within(currencyList).getByTestId("advanced-currency-picker-search-results"),
+      ["AUD", "CAD", "USD"],
+    );
   });
 });

@@ -47,6 +47,11 @@
     min-height: 0;
   }
 
+  /* 短动作 Dialog 只跟随内容收高；继续套长表单 90vh frame 会在 footer 后撑出空白。 */
+  .h5-dialog-auto-frame {
+    min-height: 0;
+  }
+
   /* AI 输入页要固定外框但不能像草稿审阅那样铺满 90vh；内层 tabs 才是滚动主人。 */
   .h5-ai-recognition-input-dialog-frame {
     height: min(40rem, calc(var(--app-viewport-height) - 2rem - env(safe-area-inset-top) - env(safe-area-inset-bottom)));
@@ -288,6 +293,7 @@
   @media (max-width: 767px) {
     /* visual viewport 顶部偏移来自运行时，专治 iOS 键盘/地址栏把 fixed Dialog 顶错位。 */
     .h5-dialog-frame,
+    .h5-dialog-auto-frame,
     .h5-ai-recognition-input-dialog-frame,
     .h5-ai-recognition-workbench-frame {
       top: calc(var(--app-visual-viewport-offset-top) + 1rem + env(safe-area-inset-top));

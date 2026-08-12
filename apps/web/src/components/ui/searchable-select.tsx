@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { TruncatedTooltipText } from "@/components/ui/truncated-tooltip-text";
 import { cn } from "@/lib/utils";
-import { rankSearchText, type SearchableSelectOption } from "@/lib/searchable-options";
+import { matchesSearchableOption, type SearchableSelectOption } from "@/lib/searchable-options";
 import { getApiLocale } from "@/i18n/api-locale";
 import { translate } from "@/i18n/messages";
 
@@ -60,36 +60,33 @@ export function SearchableSelect({
 }: SearchableSelectProps) {
   const [open, setOpen] = React.useState(false);
   const [search, setSearch] = React.useState("");
-  const selectedOption = React.useMemo(
-    () => options.find((option) => option.value === value),
+  const selectedIndex = React.useMemo(
+    () => options.findIndex((option) => option.value === value),
     [options, value],
   );
+  const selectedOption = selectedIndex >= 0 ? options[selectedIndex] : undefined;
   const locale = getApiLocale();
   const resolvedPlaceholder = placeholder ?? translate(locale, "common.selectPlaceholder");
   const resolvedSearchPlaceholder = searchPlaceholder ?? translate(locale, "common.searchPlaceholder");
   const resolvedEmptyMessage = emptyMessage ?? translate(locale, "common.noMatches");
   const visibleOptions = React.useMemo(() => {
     const trimmedSearch = search.trim();
-    if (trimmedSearch || initialRenderLimit <= 0 || options.length <= initialRenderLimit) {
+    if (trimmedSearch) {
+      // 搜索只过滤候选项，不能让 cmdk 的评分排序覆盖调用方传入的业务顺序。
+      return options.filter((option) => matchesSearchableOption(option, trimmedSearch));
+    }
+    if (initialRenderLimit <= 0 || options.length <= initialRenderLimit) {
       return options;
     }
 
-    const limited = options.slice(0, initialRenderLimit);
-    if (selectedOption && !limited.some((option) => option.value === selectedOption.value)) {
-      // 初始只渲染前 N 项以降低大列表开销，但当前值必须保留，否则触发器和列表选中态会脱节。
-      return [selectedOption, ...limited];
-    }
-    return limited;
-  }, [initialRenderLimit, options, search, selectedOption]);
+    const visibleLimit = selectedIndex >= initialRenderLimit ? selectedIndex + 1 : initialRenderLimit;
+    // 长列表首屏限量只是性能优化；货币等业务选择器的顺序必须继续完全服从调用方传入顺序。
+    return options.slice(0, visibleLimit);
+  }, [initialRenderLimit, options, search, selectedIndex]);
 
   React.useEffect(() => {
     if (!open) setSearch("");
   }, [open]);
-
-  const filter = React.useCallback((itemValue: string, searchValue: string, keywords?: string[]) => {
-    const rank = rankSearchText([itemValue, ...(keywords ?? [])], searchValue);
-    return rank;
-  }, []);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -137,7 +134,7 @@ export function SearchableSelect({
       >
         <Command
           loop
-          filter={filter}
+          shouldFilter={false}
           className="h5-mobile-searchable-select-command flex max-h-[22rem] w-full flex-col bg-popover text-popover-foreground"
         >
           <div className="flex items-center border-b border-border px-3">

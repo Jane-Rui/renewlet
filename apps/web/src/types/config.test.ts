@@ -10,6 +10,7 @@ import {
   normalizeStatuses,
   type ConfigItem,
 } from "./config";
+import { normalizeCustomConfig } from "@/modules/custom-config/domain/normalize-custom-config";
 
 const legacyCategory = (value: string): ConfigItem => ({
   id: value,
@@ -129,7 +130,7 @@ describe("status config defaults", () => {
   });
 });
 
-const legacyCurrency = (value: string, enabled = true): ConfigItem => ({
+const configCurrency = (value: string, enabled = true): ConfigItem => ({
   id: value,
   value,
   labels: {
@@ -139,21 +140,7 @@ const legacyCurrency = (value: string, enabled = true): ConfigItem => ({
   enabled,
 });
 
-const legacyThirtyCurrencyOrder = [
-  "CNY", "HKD", "JPY", "KRW", "SGD", "INR", "IDR", "MYR", "THB", "PHP",
-  "EUR", "GBP", "CHF", "SEK", "NOK", "DKK", "PLN", "CZK", "HUF", "RON",
-  "ISK", "TRY", "ILS", "USD", "CAD", "MXN", "BRL", "AUD", "NZD", "ZAR",
-];
-const previousDefaultPriority = ["CNY", "USD", "EUR", "GBP", "HKD", "JPY", "KRW"];
-const legacyThirtyPriorityOrder = [
-  ...previousDefaultPriority,
-  ...legacyThirtyCurrencyOrder.filter((value) => !previousDefaultPriority.includes(value)),
-];
-const previousFullDefaultOrder = [
-  ...previousDefaultPriority,
-  ...CURRENCY_OPTIONS.map((option) => option.value).filter((value) => !previousDefaultPriority.includes(value)),
-];
-const previousFullRawOrder = CURRENCY_OPTIONS.map((option) => option.value);
+const supportedListOrder = CURRENCY_OPTIONS.map((option) => option.value);
 
 describe("currency config defaults", () => {
   it("defines the shared 146-currency exchange-rate scope", () => {
@@ -169,45 +156,34 @@ describe("currency config defaults", () => {
     expect(currencies.map((currency) => currency.value)).toContain("VND");
   });
 
-  it("upgrades the previous full default list to the new common-currency priority", () => {
-    const legacyItems = previousFullDefaultOrder.map((value) => legacyCurrency(value, true));
-
-    const normalized = normalizeCurrencies(legacyItems);
+  it("uses the managed default order when currency config is empty", () => {
+    const normalized = normalizeCurrencies([]);
 
     expect(normalized).toEqual(getDefaultCurrencies());
+    expect(normalized.slice(0, 9).map((currency) => currency.value)).toEqual([
+      "CNY", "USD", "EUR", "GBP", "AUD", "TRY", "NGN", "ARS", "PHP",
+    ]);
   });
 
-  it("upgrades the previous raw full default list to the new common-currency priority", () => {
-    const legacyItems = previousFullRawOrder.map((value) => legacyCurrency(value, true));
+  it("uses the managed default order when custom config contains an empty currency group", () => {
+    const normalized = normalizeCustomConfig({
+      categories: [],
+      statuses: [],
+      paymentMethods: [],
+      currencies: [],
+    });
 
-    const normalized = normalizeCurrencies(legacyItems);
-
-    expect(normalized).toEqual(getDefaultCurrencies());
-  });
-
-  it("upgrades the old 30-currency default list to the new full default", () => {
-    const legacyItems = legacyThirtyPriorityOrder.map((value) => legacyCurrency(value, true));
-
-    const normalized = normalizeCurrencies(legacyItems);
-
-    expect(normalized).toEqual(getDefaultCurrencies());
-  });
-
-  it("upgrades the older partially enabled 30-currency default list to the new full default", () => {
-    const legacyEnabled = new Set(["CNY", "USD", "EUR", "JPY", "GBP"]);
-    const legacyItems = legacyThirtyCurrencyOrder.map((value) => legacyCurrency(value, legacyEnabled.has(value)));
-
-    const normalized = normalizeCurrencies(legacyItems);
-
-    expect(normalized).toEqual(getDefaultCurrencies());
+    expect(normalized.currencies.slice(0, 9).map((currency) => currency.value)).toEqual([
+      "CNY", "USD", "EUR", "GBP", "AUD", "TRY", "NGN", "ARS", "PHP",
+    ]);
   });
 
   it("preserves customized currency order and toggles while appending newly supported currencies", () => {
     const customItems = [
-      legacyCurrency("PHP", true),
-      legacyCurrency("AED", true),
-      legacyCurrency("CNY", false),
-      legacyCurrency("USD", true),
+      configCurrency("PHP", true),
+      configCurrency("AED", true),
+      configCurrency("CNY", false),
+      configCurrency("USD", true),
     ];
 
     const normalized = normalizeCurrencies(customItems);
@@ -219,25 +195,28 @@ describe("currency config defaults", () => {
       ["CNY", false],
       ["USD", true],
     ]);
+    expect(normalized.slice(4, 10).map((currency) => currency.value)).toEqual([
+      "EUR", "GBP", "AUD", "TRY", "NGN", "ARS",
+    ]);
     expect(normalized.find((currency) => currency.value === "TWD")?.enabled).toBe(true);
   });
 
   it("preserves a customized full currency order even when every currency remains enabled", () => {
     const customOrder = [
       "PHP",
-      ...previousFullRawOrder.filter((value) => value !== "PHP"),
+      ...supportedListOrder.filter((value) => value !== "PHP"),
     ];
 
-    const normalized = normalizeCurrencies(customOrder.map((value) => legacyCurrency(value, true)));
+    const normalized = normalizeCurrencies(customOrder.map((value) => configCurrency(value, true)));
 
     expect(normalized.map((currency) => currency.value).slice(0, 4)).toEqual(["PHP", "AED", "AFN", "ALL"]);
     expect(normalized.every((currency) => currency.enabled === true)).toBe(true);
   });
 
-  it("preserves the previous raw full order when the user has disabled a currency", () => {
-    const legacyItems = previousFullRawOrder.map((value) => legacyCurrency(value, value !== "USD"));
+  it("preserves a non-empty saved currency order when the user has disabled a currency", () => {
+    const savedItems = supportedListOrder.map((value) => configCurrency(value, value !== "USD"));
 
-    const normalized = normalizeCurrencies(legacyItems);
+    const normalized = normalizeCurrencies(savedItems);
 
     expect(normalized.map((currency) => currency.value).slice(0, 4)).toEqual(["AED", "AFN", "ALL", "AMD"]);
     expect(normalized.find((currency) => currency.value === "USD")?.enabled).toBe(false);

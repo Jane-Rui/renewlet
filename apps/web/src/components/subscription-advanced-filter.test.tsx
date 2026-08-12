@@ -50,6 +50,7 @@ function renderFilter(
   mode: "desktopSidePanel" | "mobileWorkspace",
   filters: SubscriptionAdvancedFilterState = DEFAULT_SUBSCRIPTION_ADVANCED_FILTERS,
   onChange = vi.fn(),
+  filterCurrencyOptions = currencyOptions,
 ) {
   render(
     <SubscriptionAdvancedFilter
@@ -57,7 +58,7 @@ function renderFilter(
       onChange={onChange}
       billingCycleOptions={billingCycleOptions}
       paymentMethodOptions={paymentMethodOptions}
-      currencyOptions={currencyOptions}
+      currencyOptions={filterCurrencyOptions}
       mode={mode}
     />,
   );
@@ -214,6 +215,63 @@ describe("SubscriptionAdvancedFilter", () => {
       ...DEFAULT_SUBSCRIPTION_ADVANCED_FILTERS,
       selectedCurrencies: ["USD"],
     });
+  });
+
+  it("keeps desktop currency browsing and search in the supplied manager order", async () => {
+    installPointerMocks();
+    const user = userEvent.setup();
+    renderFilter("desktopSidePanel", DEFAULT_SUBSCRIPTION_ADVANCED_FILTERS, vi.fn(), [
+      { value: "PHP", label: "₱ 菲律宾比索 (PHP)" },
+      { value: "CNY", label: "¥ 人民币 (CNY) with USD reference", keywords: ["reference usd"] },
+      { value: "USD", label: "$ 美元 (USD)", keywords: ["美元", "US Dollar"] },
+      { value: "EUR", label: "€ 欧元 (EUR)", keywords: ["Euro"] },
+    ]);
+
+    await user.click(within(screen.getByTestId("desktop-advanced-filter")).getByRole("button"));
+    await user.click(within(screen.getByTestId("desktop-advanced-filter-panel")).getByTestId("advanced-currency-entry"));
+
+    const currencyList = within(screen.getByTestId("advanced-currency-dialog")).getByTestId("advanced-currency-picker");
+    const allOptions = within(currencyList).getByTestId("advanced-currency-picker-all-options");
+    expect(Array.from(allOptions.querySelectorAll("[data-advanced-option-row]")).map((row) => row.textContent)).toEqual([
+      "₱ 菲律宾比索 (PHP)",
+      "¥ 人民币 (CNY) with USD reference",
+      "$ 美元 (USD)",
+      "€ 欧元 (EUR)",
+    ]);
+
+    await user.type(within(currencyList).getByPlaceholderText(/Filter currencies|筛选货币/), "usd");
+
+    const searchResults = within(currencyList).getByTestId("advanced-currency-picker-search-results");
+    expect(Array.from(searchResults.querySelectorAll("[data-advanced-option-row]")).map((row) => row.textContent)).toEqual([
+      "¥ 人民币 (CNY) with USD reference",
+      "$ 美元 (USD)",
+    ]);
+  });
+
+  it("filters desktop currency search by single-character high-signal prefixes", async () => {
+    installPointerMocks();
+    const user = userEvent.setup();
+    renderFilter("desktopSidePanel", DEFAULT_SUBSCRIPTION_ADVANCED_FILTERS, vi.fn(), [
+      { value: "GBP", label: "£ 英镑 (GBP)", keywords: ["pound sterling", "global", "currency"] },
+      { value: "AUD", label: "AU$ 澳大利亚元 (AUD)", keywords: ["Australian dollar"] },
+      { value: "USD", label: "$ 美元 (USD)", keywords: ["美元", "US Dollar"] },
+      { value: "TRY", label: "₺ 土耳其里拉 (TRY)", keywords: ["Turkish lira"] },
+      { value: "UGX", label: "UGX 乌干达先令", keywords: ["Ugandan Shilling"] },
+      { value: "PHP", label: "₱ 菲律宾比索 (PHP)", keywords: ["Philippine peso", "currency"] },
+    ]);
+
+    await user.click(within(screen.getByTestId("desktop-advanced-filter")).getByRole("button"));
+    await user.click(within(screen.getByTestId("desktop-advanced-filter-panel")).getByTestId("advanced-currency-entry"));
+
+    const currencyList = within(screen.getByTestId("advanced-currency-dialog")).getByTestId("advanced-currency-picker");
+    await user.type(within(currencyList).getByPlaceholderText(/Filter currencies|筛选货币/), "u");
+
+    const searchResults = within(currencyList).getByTestId("advanced-currency-picker-search-results");
+    await within(searchResults).findByRole("checkbox", { name: "$ 美元 (USD)" });
+    expect(Array.from(searchResults.querySelectorAll("[data-advanced-option-row]")).map((row) => row.textContent)).toEqual([
+      "$ 美元 (USD)",
+      "UGX 乌干达先令",
+    ]);
   });
 
   it("toggles selected list rows before applying", async () => {

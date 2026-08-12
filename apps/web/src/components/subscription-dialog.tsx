@@ -41,9 +41,10 @@ import { useCustomConfig } from "@/contexts/CustomConfigContext";
 import { useExchangeRates } from "@/hooks/use-exchange-rates";
 import { useSubscriptionDialogSession } from "@/hooks/use-subscription-dialog-session";
 import { useSubscriptionFormAutoDates } from "@/hooks/use-subscription-form-auto-dates";
+import { useManagedCurrencyOptions } from "@/hooks/use-managed-currency-options";
 import { useSettings } from "@/hooks/use-settings";
 import type { Subscription, SubscriptionDraft } from "@/types/subscription";
-import { CURRENCY_OPTIONS, DEFAULT_NOTIFICATION_REMINDER_DAYS, DISABLED_REMINDER_DAYS, INHERIT_REMINDER_DAYS } from "@/types/subscription";
+import { DEFAULT_NOTIFICATION_REMINDER_DAYS, DISABLED_REMINDER_DAYS, INHERIT_REMINDER_DAYS } from "@/types/subscription";
 import type { SubscriptionFormState } from "@/types/subscription-form";
 import { useI18n } from "@/i18n/I18nProvider";
 import { todayDateOnlyInTimeZone } from "@/lib/time/date-only";
@@ -53,7 +54,7 @@ import {
   costSharingCustomAmountsAreValid,
   isValidCostSharingCollectionReminderDays,
 } from "@renewlet/shared/cost-sharing";
-import { createCurrencySelectOptions } from "@/lib/searchable-options";
+import type { SearchableSelectOption } from "@/lib/searchable-options";
 
 type CreateDialogProps = {
   mode: "create";
@@ -150,15 +151,12 @@ export function SubscriptionDialog(props: SubscriptionDialogProps) {
 
   const idPrefix = props.mode === "edit" ? "edit-" : "";
   const id = (name: string) => `${idPrefix}${name}`;
-  const currencyOptions = useMemo(
-    () => createCurrencySelectOptions({
-      currencies: config.currencies,
-      currencyOptions: CURRENCY_OPTIONS,
-      includeDisabledCurrent: formData.currency,
-      locale,
-    }),
-    [config.currencies, formData.currency, locale],
-  );
+  // 主表单和家庭共享成员管理器复用同一选项数组，避免嵌套弹层在顺序或禁用当前项回显上分叉。
+  const currencyOptions = useManagedCurrencyOptions({
+    currencies: config.currencies,
+    includeDisabledCurrent: formData.currency,
+    locale,
+  });
   const isOneTimeBuyout = formData.billingCycle === "one-time" && formData.oneTimeMode === "buyout";
 
   const openCostSharingMembers = useCallback(() => {
@@ -412,6 +410,7 @@ export function SubscriptionDialog(props: SubscriptionDialogProps) {
                 config={config}
                 formData={formData}
                 setFormData={setFormData}
+                currencyOptions={currencyOptions}
                 availableTags={props.availableTags}
                 onLogoUploadStatusChange={setLogoUploadStatus}
                 onFieldChange={handleFieldChange}
@@ -485,7 +484,7 @@ type CostSharingMemberDialogProps = {
   id: (name: string) => string;
   formData: SubscriptionFormState;
   update: <K extends keyof SubscriptionFormState>(key: K, value: SubscriptionFormState[K]) => void;
-  currencyOptions: ReturnType<typeof createCurrencySelectOptions>;
+  currencyOptions: SearchableSelectOption[];
   currencyConvert?: ((amount: number | string, fromCurrency: string, toCurrency: string) => number) | undefined;
   notificationReminderDays: number;
   collectionReminderAllowed: boolean;

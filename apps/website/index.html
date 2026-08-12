@@ -47,7 +47,7 @@
             "name": "Renewlet",
             "url": "%RENEWLET_WEBSITE_URL%",
             "logo": "%RENEWLET_WEBSITE_LOGO_URL%",
-            "sameAs": ["https://github.com/zhiyingzzhou/renewlet"]
+            "sameAs": ["%RENEWLET_WEBSITE_REPOSITORY_URL%"]
           },
           {
             "@type": "WebSite",
@@ -67,8 +67,8 @@
             "operatingSystem": "Docker, Cloudflare Workers",
             "softwareVersion": "%RENEWLET_WEBSITE_SOFTWARE_VERSION%",
             "url": "%RENEWLET_WEBSITE_URL%",
-            "codeRepository": "https://github.com/zhiyingzzhou/renewlet",
-            "license": "https://github.com/zhiyingzzhou/renewlet/blob/main/LICENSE",
+            "codeRepository": "%RENEWLET_WEBSITE_REPOSITORY_URL%",
+            "license": "%RENEWLET_WEBSITE_LICENSE_URL%",
             "description": "Renewlet 是一个自托管订阅账本，用于管理订阅、续费日、预算、通知和日历。"
           }
         ]
@@ -78,7 +78,7 @@
   </head>
   <body>
     <div id="root"></div>
-    <script defer src="https://umami.olyq.org/script.js" data-website-id="0da844f3-a2aa-419d-934a-dce961733c41"></script>
+    %RENEWLET_WEBSITE_ANALYTICS_SCRIPT%
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -20,6 +20,7 @@ import { SubscriptionDetailDialog } from '@/components/subscription-detail-dialo
 import { subscriptionFilterLayout } from '@/components/subscription-filter-layout';
 import { AddSubscriptionDialog } from '@/components/add-subscription-dialog';
 import { EditSubscriptionDialog } from '@/components/edit-subscription-dialog';
+import { RenewSubscriptionDialog } from '@/components/renew-subscription-dialog';
 import { SubscriptionDialog } from '@/components/subscription-dialog';
 import { ImportDataDialog } from '@/components/import-data-dialog';
 import { AIRecognizeSubscriptionDialog } from '@/components/ai-recognize-subscription-dialog';
@@ -32,7 +33,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { Subscription, SubscriptionStatus } from '@/types/subscription';
-import { BILLING_CYCLES, CURRENCY_OPTIONS, CYCLE_LABELS, DEFAULT_NOTIFICATION_REMINDER_DAYS, DEFAULT_SETTINGS } from '@/types/subscription';
+import { BILLING_CYCLES, CYCLE_LABELS, DEFAULT_NOTIFICATION_REMINDER_DAYS, DEFAULT_SETTINGS } from '@/types/subscription';
 import { Search, Plus, Grid, List as ListIcon, Download, Upload, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -53,8 +54,8 @@ import { useExchangeRates } from '@/hooks/use-exchange-rates';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { MessageKey } from '@/i18n/messages';
 import { useMediaQuery } from '@/hooks/use-media-query';
-import { useDeferredDialogCleanup } from '@/hooks/use-deferred-dialog-cleanup';
-import { createCurrencySelectOptions } from '@/lib/searchable-options';
+import { useSubscriptionDetailDialog } from '@/hooks/use-subscription-detail-dialog';
+import { useManagedCurrencyOptions } from '@/hooks/use-managed-currency-options';
 import { todayDateOnlyInTimeZone } from '@/lib/time/date-only';
 import {
   SubscriptionTagFilterDrawer,
@@ -220,27 +221,15 @@ function SubscriptionGrid({
     ],
     [config.paymentMethods, label, t],
   );
-  const currencyFilterOptions = useMemo(() => {
-    if (config.currencies.length > 0) {
-      return createCurrencySelectOptions({
-        currencies: config.currencies,
-        currencyOptions: CURRENCY_OPTIONS,
-        locale,
-      });
-    }
-
-    return Array.from(new Set([defaultCurrency, ...subscriptions.map((subscription) => subscription.currency)]))
-      .filter(Boolean)
-      .sort()
-      .map((currency) => ({ value: currency, label: currency }));
-  }, [config.currencies, defaultCurrency, locale, subscriptions]);
+  const currencyFilterOptions = useManagedCurrencyOptions({
+    currencies: config.currencies,
+    locale,
+  });
   const { convert, loading: ratesLoading, sourceDate: ratesSourceDate } = useExchangeRates(exchangeRateProvider);
   const currencyRatesReady = Boolean(ratesSourceDate) && !ratesLoading;
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [aiRecognitionDialogOpen, setAIRecognitionDialogOpen] = useState(false);
-  const [detailSubscriptionId, setDetailSubscriptionId] = useState<string | null>(null);
-  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
   const isMobileTagFilter = useMediaQuery("(max-width: 767px)");
   const {
     searchQuery,
@@ -290,6 +279,11 @@ function SubscriptionGrid({
     editDialogOpen,
     cloningSubscription,
     cloneDialogOpen,
+    renewingSubscription,
+    renewDialogOpen,
+    renewError,
+    renewSubmitting,
+    renewRestoreFocusRef,
     handleAddSubscription,
     handleDeleteSubscription,
     handleCloneSubscription,
@@ -297,25 +291,24 @@ function SubscriptionGrid({
     handleTogglePinnedSubscription,
     handleTogglePublicHiddenSubscription,
     handleRenewSubscription,
+    handleSubmitRenewSubscription,
     handleSaveSubscription,
     handleSaveClonedSubscription,
     handleEditDialogOpenChange,
     handleCloneDialogOpenChange,
+    handleRenewDialogOpenChange,
   } = useSubscriptionCrud(displaySourceSubscriptions);
   const settings = settingsQuery.data ?? DEFAULT_SETTINGS;
   const priceReferenceCurrency = resolveSubscriptionPriceReferenceCurrency(settings);
   const { exportToJSON, exportToJSONWithSecrets, exportToCSV } =
     useSubscriptionExport(filteredSubscriptions, displaySourceSubscriptions, config, settings, locale, timeZone, convert);
-  const selectedDetailSubscription = useMemo(
-    () => displaySourceSubscriptions.find((item) => item.id === detailSubscriptionId) ?? null,
-    [detailSubscriptionId, displaySourceSubscriptions],
-  );
   const today = useMemo(() => todayDateOnlyInTimeZone(new Date(), timeZone), [timeZone]);
-  const { scheduleCleanup: scheduleDetailCleanup, cancelCleanup: cancelDetailCleanup } =
-    useDeferredDialogCleanup(() => {
-      // 详情弹窗关闭动画期间仍要保留内容快照，避免 Dialog/Drawer fade-out 时标题和备注闪空。
-      setDetailSubscriptionId(null);
-    });
+  const {
+    detailDialogOpen,
+    selectedDetailSubscription,
+    handleViewDetails,
+    handleDetailDialogOpenChange,
+  } = useSubscriptionDetailDialog(displaySourceSubscriptions);
   const statusFilterLabel =
     statusFilter === "all"
       ? t("subscriptions.allStatuses")
@@ -333,19 +326,6 @@ function SubscriptionGrid({
   const handleLoadMore = useCallback(() => {
     void fetchNextPage();
   }, [fetchNextPage]);
-  const handleViewDetails = useCallback((id: string) => {
-    cancelDetailCleanup();
-    setDetailSubscriptionId(id);
-    setDetailDialogOpen(true);
-  }, [cancelDetailCleanup]);
-  const handleDetailDialogOpenChange = useCallback((nextOpen: boolean) => {
-    setDetailDialogOpen(nextOpen);
-    if (nextOpen) {
-      cancelDetailCleanup();
-      return;
-    }
-    scheduleDetailCleanup();
-  }, [cancelDetailCleanup, scheduleDetailCleanup]);
   const handleEditFromDetail = useCallback((subscription: Subscription) => {
     handleEditSubscription(subscription.id);
   }, [handleEditSubscription]);
@@ -738,6 +718,16 @@ function SubscriptionGrid({
         onSubmit={handleSaveClonedSubscription}
         initialSubscription={cloningSubscription}
         availableTags={allTags}
+      />
+      <RenewSubscriptionDialog
+        subscription={renewingSubscription}
+        open={renewDialogOpen}
+        today={today}
+        submitting={renewSubmitting}
+        error={renewError instanceof Error ? renewError.message : null}
+        restoreFocusRef={renewRestoreFocusRef}
+        onOpenChange={handleRenewDialogOpenChange}
+        onSubmit={handleSubmitRenewSubscription}
       />
       <SubscriptionDetailDialog
         open={detailDialogOpen}

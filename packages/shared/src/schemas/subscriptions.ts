@@ -87,6 +87,7 @@ const extraSchema = z.record(z.string(), z.unknown()).optional();
 export const SUBSCRIPTION_PAYMENT_METHOD_NONE = "__none";
 export const SUBSCRIPTION_QUERY_RENEWALS = ["auto", "manual", "one-time"] as const;
 export const SUBSCRIPTION_REMINDER_MODES = ["disabled", "inherit", "custom"] as const;
+export const SUBSCRIPTION_RENEW_MODES = ["continue", "restart"] as const;
 const queryBooleanSchema = z.preprocess((value) => {
   if (value === "true" || value === "1") return true;
   if (value === "false" || value === "0") return false;
@@ -280,6 +281,24 @@ export const subscriptionUpdateBodySchema = z.object(subscriptionWriteBodyShape)
   })
   .refine((obj) => Object.keys(obj).length > 0, { message: "Empty payload" });
 
+export const subscriptionRenewBodySchema = z.object({
+  mode: z.enum(SUBSCRIPTION_RENEW_MODES),
+  price: moneyStringSchema,
+  currency: z.string().trim().regex(/^[A-Z]{3}$/),
+  startDate: nullableDateInputSchema.optional(),
+  nextBillingDate: dateInputSchema,
+  autoCalculateNextBillingDate: z.boolean(),
+}).strict()
+  .describe("手动续订请求：显式选择延续原锚点或从新日期重开，并允许同步调整价格/币种。")
+  .refine((value) => value.mode !== "restart" || value.startDate !== undefined && value.startDate !== null, {
+    path: ["startDate"],
+    message: "Start date is required when restarting a subscription",
+  })
+  .refine((value) => value.startDate === undefined || value.startDate === null || value.nextBillingDate >= value.startDate, {
+    path: ["nextBillingDate"],
+    message: "Next billing date must not be before start date",
+  });
+
 /**
  * 订阅读取响应的稳定 API 形状。
  *
@@ -380,6 +399,7 @@ export const subscriptionDeleteResponseSchema = okResponseSchema;
 
 export type SubscriptionsListResponse = z.infer<typeof subscriptionsListPayloadSchema>;
 export type SubscriptionResponse = z.infer<typeof subscriptionPayloadSchema>;
+export type SubscriptionRenewBody = z.infer<typeof subscriptionRenewBodySchema>;
 
 export type ApiSubscription = z.infer<typeof apiSubscriptionSchema> & {
   billingCycle: BillingCycle;
