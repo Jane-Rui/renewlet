@@ -25,6 +25,7 @@ import {
 } from "@tanstack/react-query";
 import { subscriptionService, type SubscriptionFieldPatch, type SubscriptionListFilters } from "@/services/subscription-service";
 import type { Subscription, SubscriptionDraft } from "@/types/subscription";
+import type { SubscriptionRenewBody } from "@renewlet/shared/schemas/subscriptions";
 
 const SUBSCRIPTIONS_QUERY_KEY = ["subscriptions"] as const;
 const SUBSCRIPTIONS_LIST_QUERY_KEY = [...SUBSCRIPTIONS_QUERY_KEY, "list"] as const;
@@ -153,8 +154,8 @@ export function usePatchSubscription() {
 export function useRenewSubscription() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
-      return await subscriptionService.renew(id);
+    mutationFn: async ({ id, payload }: { id: string; payload: SubscriptionRenewBody }) => {
+      return await subscriptionService.renew(id, payload);
     },
     onSuccess: () => {
       invalidateSubscriptionsQueries(queryClient);

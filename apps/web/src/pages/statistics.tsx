@@ -17,6 +17,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { Subscription } from '@/types/subscription';
 import { EditSubscriptionDialog } from '@/components/edit-subscription-dialog';
+import { RenewSubscriptionDialog } from '@/components/renew-subscription-dialog';
 import { Header } from '@/components/header';
 import { StatisticsPageSkeleton } from '@/components/loading-skeleton';
 import { RechartsFrame } from '@/components/recharts-frame';
@@ -152,11 +153,18 @@ const Statistics = () => {
   const {
     editingSubscription,
     editDialogOpen,
+    renewingSubscription,
+    renewDialogOpen,
+    renewError,
+    renewSubmitting,
+    renewRestoreFocusRef,
     handleAddSubscription,
     handleEditSubscription,
     handleRenewSubscription,
+    handleSubmitRenewSubscription,
     handleSaveSubscription,
     handleEditDialogOpenChange,
+    handleRenewDialogOpenChange,
   } = useSubscriptionCrud(subscriptions);
   const availableTags = useMemo(() => collectSubscriptionTags(subscriptions), [subscriptions]);
   const today = useMemo(() => todayDateOnlyInTimeZone(new Date(), timeZone), [timeZone]);
@@ -448,6 +456,16 @@ const Statistics = () => {
         currencyConvert={convert}
         currencyRatesReady={currencyRatesReady}
         priceReferenceCurrency={priceReferenceCurrency}
+      />
+      <RenewSubscriptionDialog
+        subscription={renewingSubscription}
+        open={renewDialogOpen}
+        today={today}
+        submitting={renewSubmitting}
+        error={renewError instanceof Error ? renewError.message : null}
+        restoreFocusRef={renewRestoreFocusRef}
+        onOpenChange={handleRenewDialogOpenChange}
+        onSubmit={handleSubmitRenewSubscription}
       />
     </div>
   );

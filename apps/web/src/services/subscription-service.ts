@@ -10,6 +10,7 @@ import {
   subscriptionResponseSchema,
   subscriptionDeleteResponseSchema,
   type ApiSubscription,
+  type SubscriptionRenewBody,
 } from "@renewlet/shared/schemas/subscriptions";
 import {
   type Subscription,
@@ -262,10 +263,10 @@ export const subscriptionService = {
     return fromApiSubscription(data.subscription);
   },
 
-  async renew(id: string): Promise<Subscription> {
+  async renew(id: string, payload: SubscriptionRenewBody): Promise<Subscription> {
     const data = await apiFetch(`/api/app/subscriptions/${id}/renew`, subscriptionResponseSchema, {
       method: "POST",
-      body: JSON.stringify({}),
+      body: JSON.stringify(payload),
     });
     return fromApiSubscription(data.subscription);
   },

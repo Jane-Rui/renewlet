@@ -3,6 +3,7 @@ import {
   SUBSCRIPTION_PAYMENT_METHOD_NONE,
   apiSubscriptionSchema,
   subscriptionCreateBodySchema,
+  subscriptionRenewBodySchema,
   subscriptionsListQuerySchema,
 } from "./subscriptions";
 
@@ -253,6 +254,72 @@ describe("cost sharing collection reminder contract", () => {
         members: [{ id: "partner", name: "Partner", joinedDate: "2026-01-10" }],
       },
     }).success).toBe(true);
+  });
+});
+
+describe("subscription renew request contract", () => {
+  const renewBody = {
+    mode: "continue",
+    price: "12.500000",
+    currency: "USD",
+    startDate: null,
+    nextBillingDate: "2026-08-01",
+    autoCalculateNextBillingDate: false,
+  } as const;
+
+  it("accepts continue renewal payloads and canonicalizes money", () => {
+    const parsed = subscriptionRenewBodySchema.parse(renewBody);
+
+    expect(parsed).toMatchObject({
+      mode: "continue",
+      price: "12.5",
+      currency: "USD",
+      startDate: null,
+      nextBillingDate: "2026-08-01",
+      autoCalculateNextBillingDate: false,
+    });
+  });
+
+  it("accepts restart renewal only with a real start date", () => {
+    expect(subscriptionRenewBodySchema.parse({
+      ...renewBody,
+      mode: "restart",
+      startDate: "2026-08-12",
+      nextBillingDate: "2026-09-12",
+      autoCalculateNextBillingDate: true,
+    })).toMatchObject({
+      mode: "restart",
+      startDate: "2026-08-12",
+      nextBillingDate: "2026-09-12",
+      autoCalculateNextBillingDate: true,
+    });
+
+    expect(subscriptionRenewBodySchema.safeParse({
+      ...renewBody,
+      mode: "restart",
+      startDate: null,
+    }).success).toBe(false);
+
+    expect(subscriptionRenewBodySchema.safeParse({
+      ...renewBody,
+      mode: "restart",
+      startDate: undefined,
+    }).success).toBe(false);
+  });
+
+  it("rejects invalid renew money, currency, dates, and unknown fields", () => {
+    expect(subscriptionRenewBodySchema.safeParse({ ...renewBody, price: "1e3" }).success).toBe(false);
+    expect(subscriptionRenewBodySchema.safeParse({ ...renewBody, currency: "usd" }).success).toBe(false);
+    expect(subscriptionRenewBodySchema.safeParse({ ...renewBody, nextBillingDate: "2026-08-01T00:00:00Z" }).success).toBe(false);
+    expect(subscriptionRenewBodySchema.safeParse({
+      ...renewBody,
+      startDate: "2026-09-01",
+      nextBillingDate: "2026-08-31",
+    }).success).toBe(false);
+    expect(subscriptionRenewBodySchema.safeParse({
+      ...renewBody,
+      note: "unexpected",
+    }).success).toBe(false);
   });
 });
 

@@ -20,6 +20,7 @@ import { SubscriptionDetailDialog } from '@/components/subscription-detail-dialo
 import { subscriptionFilterLayout } from '@/components/subscription-filter-layout';
 import { AddSubscriptionDialog } from '@/components/add-subscription-dialog';
 import { EditSubscriptionDialog } from '@/components/edit-subscription-dialog';
+import { RenewSubscriptionDialog } from '@/components/renew-subscription-dialog';
 import { SubscriptionDialog } from '@/components/subscription-dialog';
 import { ImportDataDialog } from '@/components/import-data-dialog';
 import { AIRecognizeSubscriptionDialog } from '@/components/ai-recognize-subscription-dialog';
@@ -278,6 +279,11 @@ function SubscriptionGrid({
     editDialogOpen,
     cloningSubscription,
     cloneDialogOpen,
+    renewingSubscription,
+    renewDialogOpen,
+    renewError,
+    renewSubmitting,
+    renewRestoreFocusRef,
     handleAddSubscription,
     handleDeleteSubscription,
     handleCloneSubscription,
@@ -285,10 +291,12 @@ function SubscriptionGrid({
     handleTogglePinnedSubscription,
     handleTogglePublicHiddenSubscription,
     handleRenewSubscription,
+    handleSubmitRenewSubscription,
     handleSaveSubscription,
     handleSaveClonedSubscription,
     handleEditDialogOpenChange,
     handleCloneDialogOpenChange,
+    handleRenewDialogOpenChange,
   } = useSubscriptionCrud(displaySourceSubscriptions);
   const settings = settingsQuery.data ?? DEFAULT_SETTINGS;
   const priceReferenceCurrency = resolveSubscriptionPriceReferenceCurrency(settings);
@@ -710,6 +718,16 @@ function SubscriptionGrid({
         onSubmit={handleSaveClonedSubscription}
         initialSubscription={cloningSubscription}
         availableTags={allTags}
+      />
+      <RenewSubscriptionDialog
+        subscription={renewingSubscription}
+        open={renewDialogOpen}
+        today={today}
+        submitting={renewSubmitting}
+        error={renewError instanceof Error ? renewError.message : null}
+        restoreFocusRef={renewRestoreFocusRef}
+        onOpenChange={handleRenewDialogOpenChange}
+        onSubmit={handleSubmitRenewSubscription}
       />
       <SubscriptionDetailDialog
         open={detailDialogOpen}
