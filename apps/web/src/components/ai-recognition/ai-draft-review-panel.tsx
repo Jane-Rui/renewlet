@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { SetStateAction } from "react";
 import { AlertTriangle, CalendarDays, CircleDollarSign, Filter, Search } from "lucide-react";
 import { AIDraftEditorPanel } from "@/components/ai-recognition/ai-draft-editor-panel";
 import {
@@ -12,11 +13,12 @@ import { Input } from "@/components/ui/input";
 import { VirtualizedList } from "@/components/ui/virtualized-list";
 import { useI18n } from "@/i18n/I18nProvider";
 import type { MessageKey } from "@/i18n/messages";
-import type { AiRecognizedSubscriptionDraft } from "@/lib/api/schemas/ai-recognition";
 import type { AIDraftBlockingIssue } from "@/modules/ai-recognition/domain/ai-draft-preflight";
+import type { AIDraftConfirmationField } from "@/modules/ai-recognition/domain/ai-recognition-form";
 import { cn } from "@/lib/utils";
 import type { CustomConfig } from "@/types/config";
 import type { AppSettings } from "@/types/subscription";
+import type { SubscriptionFormState } from "@/types/subscription-form";
 
 const DRAFT_FILTERS = ["all", "warning", "low-confidence", "missing-core"] as const satisfies readonly AIDraftFilter[];
 
@@ -36,7 +38,9 @@ interface AIDraftReviewPanelProps {
   generationElapsedSeconds: number | null;
   selectedDraftId: string | null;
   onSelectedDraftIdChange: (id: string | null) => void;
-  onChangeDraft: (id: string, patch: Partial<AiRecognizedSubscriptionDraft>) => void;
+  onChangeDraftForm: (id: string, action: SetStateAction<SubscriptionFormState>) => void;
+  onConfirmDraftField: (id: string, field: AIDraftConfirmationField) => void;
+  onNestedDialogOpenChange?: ((open: boolean) => void) | undefined;
   onRemoveDraft: (id: string) => void;
 }
 
@@ -49,7 +53,9 @@ export function AIDraftReviewPanel({
   generationElapsedSeconds,
   selectedDraftId,
   onSelectedDraftIdChange,
-  onChangeDraft,
+  onChangeDraftForm,
+  onConfirmDraftField,
+  onNestedDialogOpenChange,
   onRemoveDraft,
 }: AIDraftReviewPanelProps) {
   const { t, locale } = useI18n();
@@ -66,11 +72,11 @@ export function AIDraftReviewPanel({
     [draftBlockingIssuesById, drafts],
   );
   const filteredDrafts = useMemo(() => drafts.filter((item) => {
-    if (filter === "warning" && item.draft.warnings.length === 0) return false;
-    if (filter === "low-confidence" && item.draft.confidence !== "low") return false;
+    if (filter === "warning" && item.sourceDraft.warnings.length === 0) return false;
+    if (filter === "low-confidence" && item.sourceDraft.confidence !== "low") return false;
     if (filter === "missing-core" && (draftBlockingIssuesById.get(item.id)?.length ?? 0) === 0) return false;
     if (!normalizedQuery) return true;
-    return buildDraftSearchText(item.draft).includes(normalizedQuery);
+    return buildDraftSearchText(item.formData).includes(normalizedQuery);
   }), [draftBlockingIssuesById, drafts, filter, normalizedQuery]);
   const selectedDraft = useMemo(
     () => drafts.find((item) => item.id === selectedDraftId) ?? null,
@@ -162,8 +168,8 @@ export function AIDraftReviewPanel({
                       selected={item.id === selectedDraftId}
                       draftNumber={drafts.findIndex((draftItem) => draftItem.id === item.id) + 1}
                       blockingIssueCount={draftBlockingIssuesById.get(item.id)?.length ?? 0}
-                      priceText={formatDraftPrice(item.draft, locale, t("aiRecognition.draftUnknownValue"))}
-                      cycleText={item.draft.billingCycle ? t(BILLING_CYCLE_LABEL_KEYS[item.draft.billingCycle]) : t("aiRecognition.draftUnknownValue")}
+                      priceText={formatDraftPrice(item.formData, locale, t("aiRecognition.draftUnknownValue"))}
+                      cycleText={t(BILLING_CYCLE_LABEL_KEYS[item.formData.billingCycle])}
                       onSelect={() => onSelectedDraftIdChange(item.id)}
                     />
                   );
@@ -180,13 +186,22 @@ export function AIDraftReviewPanel({
             {selectedDraft ? (
               <AIDraftEditorPanel
                 draftId={selectedDraft.id}
-                draft={selectedDraft.draft}
+                sourceDraft={selectedDraft.sourceDraft}
+                formData={selectedDraft.formData}
                 draftNumber={selectedDraftNumber}
                 config={config}
                 settings={settings}
                 availableTags={availableTags}
                 blockingIssues={draftBlockingIssuesById.get(selectedDraft.id) ?? []}
-                onChange={(patch) => onChangeDraft(selectedDraft.id, patch)}
+                setFormData={(action) => onChangeDraftForm(selectedDraft.id, action)}
+                onFieldChange={(field) => {
+                  // 用户真实修改 AI 可能缺省的核心字段即视为显式确认；普通字段编辑不应误清其他待确认项。
+                  if (field === "price" || field === "currency" || field === "billingCycle") {
+                    onConfirmDraftField(selectedDraft.id, field);
+                  }
+                }}
+                onConfirmField={(field) => onConfirmDraftField(selectedDraft.id, field)}
+                onNestedDialogOpenChange={onNestedDialogOpenChange}
                 onRemove={() => onRemoveDraft(selectedDraft.id)}
               />
             ) : (
@@ -219,12 +234,12 @@ function DraftRow({
   onSelect: () => void;
 }) {
   const { t } = useI18n();
-  const draft = item.draft;
-  const warningCount = draft.warnings.length + (draft.confidence === "low" ? 1 : 0) + blockingIssueCount;
+  const { formData, sourceDraft } = item;
+  const warningCount = sourceDraft.warnings.length + (sourceDraft.confidence === "low" ? 1 : 0) + blockingIssueCount;
   const metadata = [
-    draft.website?.value,
-    ...draft.tags.slice(0, 3),
-    draft.confidence === "low" ? t("aiRecognition.confidenceLowShort") : null,
+    formData.website,
+    ...formData.tags.slice(0, 3),
+    sourceDraft.confidence === "low" ? t("aiRecognition.confidenceLowShort") : null,
     blockingIssueCount > 0 ? t("aiRecognition.missingCoreShort") : null,
   ].filter(Boolean).join(" · ");
 
@@ -242,12 +257,12 @@ function DraftRow({
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2">
             <span className="shrink-0 text-xs tabular-nums text-muted-foreground">#{draftNumber}</span>
-            <span className="truncate text-sm font-medium text-foreground">{draft.name}</span>
+            <span className="truncate text-sm font-medium text-foreground">{formData.name}</span>
           </div>
           <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1"><CircleDollarSign className="h-3.5 w-3.5" />{priceText}</span>
             <span className="inline-flex items-center gap-1"><CalendarDays className="h-3.5 w-3.5" />{cycleText}</span>
-            <span className="truncate">{draft.nextBillingDate ?? t("aiRecognition.draftUnknownValue")}</span>
+            <span className="truncate">{formData.nextBillingDate ?? t("aiRecognition.draftUnknownValue")}</span>
           </div>
         </div>
         {warningCount > 0 ? (

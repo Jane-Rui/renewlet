@@ -1,12 +1,9 @@
 import type { AiRecognizedSubscriptionDraft } from "@/lib/api/schemas/ai-recognition";
 import {
-  normalizeTagsArray,
-  parseMoneyInput,
   parseNonNegativeIntegerInput,
-  parsePositiveIntegerInput,
-  parseReminderDaysInput,
 } from "@/lib/subscription-form";
 import { assertDateOnly, type DateOnly } from "@/lib/time/date-only";
+import { normalizeWebsite } from "@/modules/import-export/domain/import-export-model";
 import type { CustomConfig } from "@/types/config";
 import {
   DISABLED_REMINDER_DAYS,
@@ -21,8 +18,8 @@ interface AIDraftFormContext {
   config: CustomConfig;
 }
 
-type SuggestedField = AiRecognizedSubscriptionDraft["website"];
-type AIDraftFormSourceFields = Pick<AiRecognizedSubscriptionDraft, "website" | "notes" | "trialEndDate">;
+export const AI_DRAFT_CONFIRMATION_FIELDS = ["price", "currency", "billingCycle"] as const;
+export type AIDraftConfirmationField = typeof AI_DRAFT_CONFIRMATION_FIELDS[number];
 
 // AI 草稿复用订阅表单状态，保证用户确认前走同一套日期、提醒和分类校验，而不是绕过导入链路直写。
 export function aiDraftToSubscriptionFormState(
@@ -47,6 +44,7 @@ export function aiDraftToSubscriptionFormState(
     oneTimeTermUnit: draft.oneTimeTermUnit ?? "month",
     category: draft.category ?? context.config.categories[0]?.value ?? "other",
     status: draft.status ?? "active",
+    publicHidden: false,
     paymentMethod: draft.paymentMethod ?? "",
     startDate: toFormDate(draft.startDate),
     nextBillingDate: toFormDate(draft.nextBillingDate),
@@ -58,45 +56,22 @@ export function aiDraftToSubscriptionFormState(
     repeatReminderEnabled: isOneTimeBuyout || draft.reminderDays === DISABLED_REMINDER_DAYS ? false : draft.repeatReminderEnabled ?? false,
     repeatReminderInterval: draft.repeatReminderInterval ?? "1h",
     repeatReminderWindow: draft.repeatReminderWindow ?? "72h",
-    website: draft.website?.value ?? "",
+    costSharing: undefined,
+    website: normalizeWebsite(draft.website?.value, []) ?? draft.website?.value ?? "",
     notes: draft.notes?.value ?? "",
     tags: draft.tags,
   });
 }
 
-export function subscriptionFormStateToAIDraftPatch(
-  formData: SubscriptionFormState,
-  previousDraft: AIDraftFormSourceFields,
-): Partial<AiRecognizedSubscriptionDraft> {
-  const reminderDays = formData.billingCycle === "one-time" && formData.oneTimeMode === "buyout"
-    ? DISABLED_REMINDER_DAYS
-    : reminderDaysFromFormState(formData);
-  const oneTimeTermEnabled = formData.billingCycle === "one-time" && formData.oneTimeMode === "term";
-  return {
-    name: formData.name,
-    price: parseMoneyInput(formData.price),
-    currency: formData.currency.trim() || null,
-    billingCycle: formData.billingCycle,
-    customDays: formData.billingCycle === "custom" ? parsePositiveIntegerInput(formData.customDays) : null,
-    customCycleUnit: formData.billingCycle === "custom" ? formData.customCycleUnit : null,
-    oneTimeTermCount: oneTimeTermEnabled ? parsePositiveIntegerInput(formData.oneTimeTermCount) : null,
-    oneTimeTermUnit: oneTimeTermEnabled ? formData.oneTimeTermUnit : null,
-    category: formData.category.trim() || null,
-    status: formData.status,
-    paymentMethod: formData.paymentMethod.trim() || null,
-    startDate: formData.startDate ?? null,
-    nextBillingDate: formData.nextBillingDate ?? null,
-    // one-time 无自动续订推进算法；这里把表单自动日期语义截断，避免导入 payload 混入周期订阅字段。
-    autoCalculateNextBillingDate: formData.billingCycle === "one-time" ? false : formData.autoCalculate,
-    trialEndDate: formData.status === "trial" ? previousDraft.trialEndDate ?? null : null,
-    website: suggestedFieldFromFormValue(formData.website, previousDraft.website),
-    notes: suggestedFieldFromFormValue(formData.notes, previousDraft.notes),
-    tags: normalizeTagsArray(formData.tags),
-    reminderDays,
-    repeatReminderEnabled: reminderDays === DISABLED_REMINDER_DAYS ? false : formData.repeatReminderEnabled,
-    repeatReminderInterval: formData.repeatReminderInterval,
-    repeatReminderWindow: formData.repeatReminderWindow,
-  };
+export function getInitialAIDraftConfirmationFields(
+  draft: AiRecognizedSubscriptionDraft,
+): AIDraftConfirmationField[] {
+  // 缺失字段会先显示可编辑默认值，但“有可用值”不等于“用户认可该值”，因此确认状态必须独立于表单合法性保存。
+  return AI_DRAFT_CONFIRMATION_FIELDS.filter((field) => {
+    if (field === "price") return draft.price === null;
+    if (field === "currency") return !draft.currency?.trim();
+    return draft.billingCycle === null;
+  });
 }
 
 function disabledReminderState(): Pick<SubscriptionFormState, "reminderType" | "reminderDays" | "customReminderDays"> {
@@ -122,23 +97,6 @@ function reminderStateFromDraft(
     reminderType: "custom",
     reminderDays: String(defaultReminderDays),
     customReminderDays: String(reminderDays),
-  };
-}
-
-function reminderDaysFromFormState(formData: SubscriptionFormState): number | null {
-  if (formData.reminderType === "disabled") return DISABLED_REMINDER_DAYS;
-  if (formData.reminderType === "inherit") return INHERIT_REMINDER_DAYS;
-  if (formData.reminderType === "custom") return parseNonNegativeIntegerInput(formData.customReminderDays);
-  return parseReminderDaysInput(formData.reminderDays);
-}
-
-function suggestedFieldFromFormValue(value: string, previous: SuggestedField): SuggestedField {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  // 用户手动改过的网站/备注要改成 input 来源，避免后续 UI 还把它当作 AI/provider 建议。
-  return {
-    value: trimmed,
-    source: previous?.value === trimmed ? previous.source : "input",
   };
 }
 

@@ -78,8 +78,7 @@ export const SubscriptionFormFields = memo(function SubscriptionFormFields({
   onClearFieldError,
   notificationReminderDays,
   costSharingCurrencyConvert,
-  onManageCostSharingMembers,
-  costSharingManageMembersButtonRef,
+  onNestedDialogOpenChange,
 }: SubscriptionFormFieldsProps) {
   const { t, locale, label } = useI18n();
 
@@ -145,8 +144,7 @@ export const SubscriptionFormFields = memo(function SubscriptionFormFields({
     for (const errorField of getErrorFieldsToClearForFormChange(key)) {
       onClearFieldError?.(errorField);
     }
-    // onFieldChange 是外层识别“用户明确修改过某字段”的钩子，例如新增订阅默认货币同步策略。
-    // 这里保持泛型 key/value 绑定，避免调用方把字段和值的类型拆散。
+    // 外层用该事件消费“用户明确修改”语义，例如停止默认货币同步或确认 AI 缺省字段；程序化回写不能冒充用户确认。
     onFieldChange?.(key, value);
   }, [onClearFieldError, onFieldChange, setFormData]);
 
@@ -661,8 +659,7 @@ export const SubscriptionFormFields = memo(function SubscriptionFormFields({
         currencyConvert={costSharingCurrencyConvert}
         notificationReminderDays={notificationReminderDays}
         collectionReminderAllowed={!isOneTimeBuyout}
-        onManageMembers={onManageCostSharingMembers}
-        manageMembersButtonRef={costSharingManageMembersButtonRef}
+        onNestedDialogOpenChange={onNestedDialogOpenChange}
       />
 
       <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-secondary/30 p-3">

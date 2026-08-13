@@ -1,16 +1,7 @@
 import type { RefObject } from "react";
 import type { AiThinkingControl } from "@/lib/api/schemas/ai-recognition";
-import { IMPORT_MESSAGE_CODES } from "@/modules/import-export/domain/import-export-model";
 import { thinkingOptionId } from "@/modules/ai-recognition/domain/model-capabilities";
 import type { AIRecognitionImageItem } from "./ai-recognition-dialog-types";
-
-const AI_BLOCKING_IMPORT_WARNING_CODES = new Set<string>([
-  IMPORT_MESSAGE_CODES.aiBillingCycleDefaulted,
-  IMPORT_MESSAGE_CODES.aiCurrencyDefaulted,
-  IMPORT_MESSAGE_CODES.aiCustomCycleDefaulted,
-  IMPORT_MESSAGE_CODES.aiDateDefaulted,
-  IMPORT_MESSAGE_CODES.aiPriceDefaulted,
-]);
 
 // thinking 控件的选项 id 由领域层生成，避免 UI 组件把 provider/model 差异硬编码到表单状态里。
 export function thinkingOptionIdOrNull(control: AiThinkingControl | null): string | null {
@@ -61,11 +52,4 @@ export function isAbortedApiError(error: unknown): boolean {
     && "code" in error
     && (error as { code?: unknown }).code === "aborted",
   );
-}
-
-export function hasBlockingAIImportWarnings(warnings: readonly string[]): boolean {
-  // 导入 preview 的 warning 可能按 “多 code 合并” 返回；AI 入口只拦截会改变核心账单字段的默认值。
-  return warnings.some((warning) => (
-    warning.split("|").some((part) => AI_BLOCKING_IMPORT_WARNING_CODES.has(part))
-  ));
 }

@@ -218,6 +218,8 @@ describe("SubscriptionDialog", () => {
     expect(subscriptionHeader).toHaveTextContent("编辑订阅");
     expect(subscriptionHeader?.closest('[role="dialog"]')).toHaveAttribute("data-state", "open");
     const memberDialog = screen.getByRole("dialog", { name: "管理共享成员" });
+    expect(within(memberDialog).queryByRole("button", { name: "返回表单" })).not.toBeInTheDocument();
+    expect(within(memberDialog).getAllByRole("button", { name: "完成" })).toHaveLength(1);
     expect(screen.getAllByRole("dialog", { hidden: true })).toHaveLength(2);
     expect(form).toContainElement(nameInput);
     expect(formScrollRegion.scrollTop).toBe(320);
@@ -259,6 +261,7 @@ describe("SubscriptionDialog", () => {
     expect(screen.queryByRole("dialog", { name: "管理共享成员" })).not.toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "编辑订阅" })).toBeInTheDocument();
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    expect(screen.getByRole("button", { name: "管理成员" })).toHaveFocus();
 
     await user.click(screen.getByRole("button", { name: "保存修改" }));
     expect(submittedCostSharing?.collectionReminder).toEqual({ enabled: true, reminderDays: -1 });

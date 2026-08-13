@@ -27,11 +27,6 @@ const IMPORT_MESSAGE_KEYS: Record<string, MessageKey> = {
   IMPORT_WARNING_WALLOS_NOTIFY_DISABLED: "import.warning.wallosNotifyDisabled",
   IMPORT_WARNING_WALLOS_ONE_TIME: "import.warning.wallosOneTime",
   IMPORT_WARNING_WALLOS_UNKNOWN_CYCLE: "import.warning.wallosUnknownCycle",
-  IMPORT_WARNING_AI_BILLING_CYCLE_DEFAULTED: "import.warning.aiBillingCycleDefaulted",
-  IMPORT_WARNING_AI_CURRENCY_DEFAULTED: "import.warning.aiCurrencyDefaulted",
-  IMPORT_WARNING_AI_CUSTOM_CYCLE_DEFAULTED: "import.warning.aiCustomCycleDefaulted",
-  IMPORT_WARNING_AI_DATE_DEFAULTED: "import.warning.aiDateDefaulted",
-  IMPORT_WARNING_AI_PRICE_DEFAULTED: "import.warning.aiPriceDefaulted",
   IMPORT_WARNING_AI_WEBSITE_SUGGESTED: "import.warning.aiWebsiteSuggested",
 };
 

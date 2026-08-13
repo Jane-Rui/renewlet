@@ -1,8 +1,7 @@
 import type { MessageKey } from "@/i18n/messages";
 import type { Locale } from "@/i18n/locales";
-import type { AiRecognizedSubscriptionDraft } from "@/lib/api/schemas/ai-recognition";
-import { hasAIDraftBlockingIssues } from "@/modules/ai-recognition/domain/ai-draft-preflight";
 import type { BillingCycle, CustomCycleUnit, SubscriptionStatus } from "@/types/subscription";
+import type { SubscriptionFormState } from "@/types/subscription-form";
 import { moneyToNumber } from "@renewlet/shared/money";
 
 export const BILLING_CYCLE_LABEL_KEYS: Record<BillingCycle, MessageKey> = {
@@ -28,33 +27,28 @@ export const CUSTOM_CYCLE_UNIT_LABEL_KEYS: Record<CustomCycleUnit, MessageKey> =
   year: "subscription.customCycleUnit.year",
 };
 
-// AI 草稿是否可进入导入预览由领域层统一判断，避免展示层和导入层各自维护一套阻塞口径。
-export function draftHasMissingCore(draft: AiRecognizedSubscriptionDraft): boolean {
-  return hasAIDraftBlockingIssues(draft);
-}
-
-// 搜索只拼接 AI 可编辑草稿字段，不纳入诊断或上游 raw response，避免调试数据进入普通 UI 状态。
-export function buildDraftSearchText(draft: AiRecognizedSubscriptionDraft): string {
+// 搜索必须跟随用户当前编辑结果；识别 warning、置信度和其他 sourceDraft 证据只用于诊断筛选，不能污染普通文本检索。
+export function buildDraftSearchText(formData: SubscriptionFormState): string {
   return [
-    draft.name,
-    draft.category,
-    draft.paymentMethod,
-    draft.website?.value,
-    draft.notes?.value,
-    ...draft.tags,
+    formData.name,
+    formData.category,
+    formData.paymentMethod,
+    formData.website,
+    formData.notes,
+    ...formData.tags,
   ].filter(Boolean).join(" ").toLowerCase();
 }
 
 // AI provider 可能返回前端 Intl 尚不支持的币种代码；展示失败时保留原值，避免误改导入 payload。
-export function formatDraftPrice(draft: AiRecognizedSubscriptionDraft, locale: Locale, unknownLabel: string): string {
-  if (draft.price === null || !draft.currency) return unknownLabel;
+export function formatDraftPrice(formData: SubscriptionFormState, locale: Locale, unknownLabel: string): string {
+  if (!formData.price || !formData.currency) return unknownLabel;
   try {
     return new Intl.NumberFormat(locale, {
       style: "currency",
-      currency: draft.currency,
+      currency: formData.currency,
       maximumFractionDigits: 2,
-    }).format(moneyToNumber(draft.price));
+    }).format(moneyToNumber(formData.price));
   } catch {
-    return `${draft.price} ${draft.currency}`;
+    return `${formData.price} ${formData.currency}`;
   }
 }
