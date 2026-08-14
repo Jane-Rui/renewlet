@@ -34,7 +34,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7.0.0
         with:
-          go-version: 1.26.5
+          go-version-file: apps/docker-server/go.mod
           cache-dependency-path: apps/docker-server/go.sum
 
       - name: Enable Corepack

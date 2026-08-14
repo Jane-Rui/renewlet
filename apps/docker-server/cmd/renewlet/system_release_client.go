@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -11,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 )
 
 // defaultSystemReleaseClient 返回只信任 GitHub Release feed 和下载边界的 HTTP 客户端。
@@ -65,13 +68,29 @@ func (client *httpSystemReleaseClient) ProbeReleaseAssets(ctx context.Context, t
 		{Name: systemArchiveName(version), BrowserDownloadURL: systemReleaseAssetURL(tagName, systemArchiveName(version))},
 		{Name: "checksums.txt", BrowserDownloadURL: systemReleaseAssetURL(tagName, "checksums.txt")},
 	}
+	type probeResult struct {
+		size int64
+		ok   bool
+	}
+	results := make([]probeResult, len(candidates))
+	var waitGroup sync.WaitGroup
+	// 候选资产固定为归档和 checksum，因此并发上限恒为 2；结果写入预分配槽位并按候选顺序收集，
+	// 不能引入无界并发或让响应时序改变返回顺序。
+	waitGroup.Add(len(candidates))
+	for index := range candidates {
+		go func() {
+			defer waitGroup.Done()
+			results[index].size, results[index].ok = client.probeReleaseAsset(ctx, candidates[index].BrowserDownloadURL)
+		}()
+	}
+	waitGroup.Wait()
+
 	assets := make([]systemReleaseAsset, 0, len(candidates))
-	for _, candidate := range candidates {
-		size, ok := client.probeReleaseAsset(ctx, candidate.BrowserDownloadURL)
-		if !ok {
+	for index, candidate := range candidates {
+		if !results[index].ok {
 			continue
 		}
-		candidate.Size = size
+		candidate.Size = results[index].size
 		assets = append(assets, candidate)
 	}
 	return assets
@@ -104,14 +123,14 @@ func (client *httpSystemReleaseClient) probeReleaseAsset(ctx context.Context, so
 	return response.ContentLength, true
 }
 
-// DownloadFile 下载自更新产物到预先分配的临时路径，并限制可信 host、跳转次数和最大体积。
-func (client *httpSystemReleaseClient) DownloadFile(ctx context.Context, sourceURL string, targetPath string, maxBytes int64) error {
+// DownloadFile 下载时同步计算 SHA-256，避免大归档落盘后再做一次完整顺序读取。
+func (client *httpSystemReleaseClient) DownloadFile(ctx context.Context, sourceURL string, targetPath string, maxBytes int64) (string, error) {
 	if err := validateTrustedDownloadURL(sourceURL); err != nil {
-		return err
+		return "", err
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, sourceURL, nil)
 	if err != nil {
-		return err
+		return "", err
 	}
 	request.Header.Set("User-Agent", "Renewlet/"+Version)
 	response, err := sendUpstreamHTTPRequest(request, upstreamHTTPRequestOptions{
@@ -120,29 +139,37 @@ func (client *httpSystemReleaseClient) DownloadFile(ctx context.Context, sourceU
 		Client:   client.downloadClient,
 	})
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer response.Body.Close()
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		providerResponse, _, captureErr := captureUpstreamProviderResponse(response, nil)
 		if captureErr != nil {
-			return captureErr
+			return "", captureErr
 		}
-		return createUpstreamHTTPError("GitHub", response, providerResponse, upstreamProviderMessage(providerResponse))
+		return "", createUpstreamHTTPError("GitHub", response, providerResponse, upstreamProviderMessage(providerResponse))
 	}
 	if response.ContentLength > maxBytes {
-		return fmt.Errorf("download is too large")
+		return "", fmt.Errorf("download is too large")
 	}
 	// 下载产物先落 0600 临时文件；替换前不让同机其它用户读到半成品 binary 或 checksum 线索。
 	target, err := os.OpenFile(targetPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
-		return err
+		return "", err
 	}
-	defer target.Close()
-	if _, err := copyLimited(target, response.Body, maxBytes); err != nil {
-		return err
+	hash := sha256.New()
+	if _, err := copyLimited(io.MultiWriter(target, hash), response.Body, maxBytes); err != nil {
+		_ = target.Close()
+		return "", err
 	}
-	return target.Sync()
+	if err := target.Sync(); err != nil {
+		_ = target.Close()
+		return "", err
+	}
+	if err := target.Close(); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 // FetchText 下载 checksum 等小文本资产；调用方负责在返回后检查是否超过 maxBytes。

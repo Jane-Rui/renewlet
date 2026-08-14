@@ -1,40 +1,16 @@
-/**
- * 订阅弹窗（新增/编辑复用）。
- *
- * 架构位置：
- * - Add/Edit 适配器只负责打开方式。
- * - useSubscriptionDialogSession 负责表单草稿生命周期，本组件负责 UI、自动日期和提交转换。
- *
- * 状态链路：
- * ```
- * props(open/subscription) -> session 初始化 formData
- * 用户编辑 -> SubscriptionFormFields
- * 提交 -> toSubscriptionDraft -> onSubmit(create/update)
- * ```
- *
- * 注意： Logo 上传中的状态由 `logoUploadStatus` 控制，提交时必须阻止 data URL 进入订阅数据。
- * 注意： 新增模式的默认货币会跟随 Settings/defaultCurrency，但用户手动选择后必须停止自动同步。
- */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent, ReactNode, RefObject } from "react";
+// session 独占草稿生命周期；本层只编排 UI、自动日期和提交转换。Logo 上传中禁止 data URL 入库，新建货币一经手动选择即停止跟随设置。
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Loader2 } from "lucide-react";
-import { SubscriptionFormFields, type SubscriptionFormErrors } from "@/components/subscription-form-fields";
-import { CostSharingMemberManagerView } from "@/components/subscription-cost-sharing-fields";
+import { Loader2 } from "lucide-react";
+import { SubscriptionFormFields } from "@/components/subscription-form-fields";
 import {
-  isOptionalHttpUrl,
-  getTagsValidationError,
+  getSubscriptionFormValidationIssues,
   normalizeTagsArray,
   parseTagsInput,
-  parseMoneyInput,
-  parseNonNegativeIntegerInput,
-  parseReminderDaysInput,
-  parsePositiveIntegerInput,
-  getSubscriptionDateValidationKind,
-  subscriptionDateValidationMessageKey,
   costSharingCollectionReminderIsAllowedForBillingCycle,
-  costSharingJoinedDatesWithinFormRange,
+  subscriptionFormValidationIssuesToErrors,
   toSubscriptionDraft,
 } from "@/lib/subscription-form";
 import { useCustomConfig } from "@/contexts/CustomConfigContext";
@@ -42,61 +18,42 @@ import { useExchangeRates } from "@/hooks/use-exchange-rates";
 import { useSubscriptionDialogSession } from "@/hooks/use-subscription-dialog-session";
 import { useSubscriptionFormAutoDates } from "@/hooks/use-subscription-form-auto-dates";
 import { useManagedCurrencyOptions } from "@/hooks/use-managed-currency-options";
+import { useNestedDialogCloseGuard } from "@/hooks/use-nested-dialog-close-guard";
 import { useSettings } from "@/hooks/use-settings";
 import type { Subscription, SubscriptionDraft } from "@/types/subscription";
-import { DEFAULT_NOTIFICATION_REMINDER_DAYS, DISABLED_REMINDER_DAYS, INHERIT_REMINDER_DAYS } from "@/types/subscription";
+import { DEFAULT_NOTIFICATION_REMINDER_DAYS } from "@/types/subscription";
 import type { SubscriptionFormState } from "@/types/subscription-form";
 import { useI18n } from "@/i18n/I18nProvider";
 import { todayDateOnlyInTimeZone } from "@/lib/time/date-only";
 import { getSystemTimeZone } from "@/lib/time/time-zone";
-import {
-  costSharingCollectionAnchorsAreSatisfied,
-  costSharingCustomAmountsAreValid,
-  isValidCostSharingCollectionReminderDays,
-} from "@renewlet/shared/cost-sharing";
-import type { SearchableSelectOption } from "@/lib/searchable-options";
 
 type CreateDialogProps = {
   mode: "create";
-  /** 弹窗是否打开（由上层控制）。 */
   open: boolean;
-  /** 弹窗开关回调。 */
   onOpenChange: (open: boolean) => void;
-  /** 新增提交回调（不含 id）。 */
   onSubmit: (subscription: SubscriptionDraft) => void;
   /** 克隆订阅时使用的源订阅快照；普通新增保持空。 */
   initialSubscription?: Subscription | null | undefined;
-  /** 当前用户已有标签建议。 */
   availableTags?: readonly string[] | undefined;
-  /** 触发器（可选，通常是“添加订阅”按钮）。 */
   trigger?: ReactNode;
 };
 
 type EditDialogProps = {
   mode: "edit";
-  /** 弹窗是否打开（由上层控制）。 */
   open: boolean;
-  /** 弹窗开关回调。 */
   onOpenChange: (open: boolean) => void;
-  /** 当前正在编辑的订阅（null 表示未选中）。 */
   subscription: Subscription | null;
-  /** 保存回调（回传完整 Subscription）。 */
   onSubmit: (subscription: Subscription) => void;
-  /** 当前用户已有标签建议。 */
   availableTags?: readonly string[] | undefined;
 };
 
 export type SubscriptionDialogProps = CreateDialogProps | EditDialogProps;
 
-/** 订阅弹窗组件（新增/编辑共用）。 */
 export function SubscriptionDialog(props: SubscriptionDialogProps) {
   const formRef = useRef<HTMLFormElement>(null);
-  const costSharingManageMembersButtonRef = useRef<HTMLButtonElement>(null);
-  const costSharingFirstMemberNameInputRef = useRef<HTMLInputElement>(null);
   const { config } = useCustomConfig();
   const { data: settings } = useSettings();
   const { t, locale } = useI18n();
-  const onDialogOpenChange = props.onOpenChange;
   const initialCreateSubscription = props.mode === "create" ? props.initialSubscription ?? null : null;
   const isCloneCreateMode = Boolean(initialCreateSubscription);
   const statisticCurrency = settings?.defaultCurrency ?? "CNY";
@@ -121,9 +78,10 @@ export function SubscriptionDialog(props: SubscriptionDialogProps) {
     [settings?.timezone],
   );
 
-  // 父子都保持 Radix modal：FocusScope 会暂停下层焦点，避免 non-modal 父层把子层聚焦误判成外部关闭。
-  const [costSharingMemberDialogOpen, setCostSharingMemberDialogOpenState] = useState(false);
-  const costSharingMemberDialogOpenRef = useRef(false);
+  const { handleNestedDialogOpenChange, handleParentOpenChange: handleOpenChange } = useNestedDialogCloseGuard(
+    props.open,
+    props.onOpenChange,
+  );
   const {
     formData,
     setFormData,
@@ -143,49 +101,13 @@ export function SubscriptionDialog(props: SubscriptionDialogProps) {
     defaultCreateCurrency,
     enabledCurrencyValues,
   });
-  const setCostSharingMemberDialogOpen = useCallback((open: boolean) => {
-    costSharingMemberDialogOpenRef.current = open;
-    setCostSharingMemberDialogOpenState(open);
-  }, []);
-  const memberDialogOpen = props.open && costSharingMemberDialogOpen;
-
   const idPrefix = props.mode === "edit" ? "edit-" : "";
-  const id = (name: string) => `${idPrefix}${name}`;
   // 主表单和家庭共享成员管理器复用同一选项数组，避免嵌套弹层在顺序或禁用当前项回显上分叉。
   const currencyOptions = useManagedCurrencyOptions({
     currencies: config.currencies,
     includeDisabledCurrent: formData.currency,
     locale,
   });
-  const isOneTimeBuyout = formData.billingCycle === "one-time" && formData.oneTimeMode === "buyout";
-
-  const openCostSharingMembers = useCallback(() => {
-    setCostSharingMemberDialogOpen(true);
-  }, [setCostSharingMemberDialogOpen]);
-
-  const closeCostSharingMembers = useCallback(() => {
-    setCostSharingMemberDialogOpen(false);
-  }, [setCostSharingMemberDialogOpen]);
-
-  const handleCostSharingMemberDialogOpenChange = useCallback((open: boolean) => {
-    setCostSharingMemberDialogOpen(open);
-  }, [setCostSharingMemberDialogOpen]);
-
-  const handleOpenChange = useCallback((open: boolean) => {
-    if (!open && costSharingMemberDialogOpenRef.current) {
-      return;
-    }
-    if (!open) {
-      setCostSharingMemberDialogOpen(false);
-    }
-    onDialogOpenChange(open);
-  }, [onDialogOpenChange, setCostSharingMemberDialogOpen]);
-
-  useEffect(() => {
-    if (props.open) return;
-    // 父弹窗被外层关闭时，嵌套成员管理器必须同步结束，避免下次打开继承子弹窗焦点上下文。
-    setCostSharingMemberDialogOpen(false);
-  }, [props.open, setCostSharingMemberDialogOpen]);
 
   useEffect(() => {
     if (costSharingCollectionReminderIsAllowedForBillingCycle(formData) || !formData.costSharing?.collectionReminder?.enabled) return;
@@ -204,7 +126,6 @@ export function SubscriptionDialog(props: SubscriptionDialogProps) {
 
   useSubscriptionFormAutoDates(formData, setFormData, billingReferenceDate);
 
-  /** 表单提交：create → 回传 draft；edit → merge id 后回传完整 Subscription。 */
   const getSubmissionFormData = useCallback(() => {
     const pendingTags = Array.from(
       formRef.current?.querySelectorAll<HTMLInputElement>("[data-subscription-tag-pending-input]") ?? [],
@@ -217,75 +138,8 @@ export function SubscriptionDialog(props: SubscriptionDialogProps) {
   }, [formData]);
 
   const validateForm = useCallback((nextFormData: SubscriptionFormState) => {
-    const errors: SubscriptionFormErrors = {};
-
-    if (!nextFormData.name.trim()) errors.name = t("subscription.validation.nameRequired");
-    if (parseMoneyInput(nextFormData.price) === null) {
-      errors.price = t("subscription.validation.amountInvalid");
-    }
-    const dateValidationKind = getSubscriptionDateValidationKind(nextFormData);
-    if (dateValidationKind) {
-      errors.dates = t(subscriptionDateValidationMessageKey(dateValidationKind));
-    }
-    if (nextFormData.billingCycle === "custom" && parsePositiveIntegerInput(nextFormData.customDays) === null) {
-      errors.customDays = t("subscription.validation.customCycleInvalid");
-    }
-    if (nextFormData.billingCycle === "one-time" && nextFormData.oneTimeMode === "term" && parsePositiveIntegerInput(nextFormData.oneTimeTermCount) === null) {
-      errors.oneTimeTerm = t("subscription.validation.oneTimeTermInvalid");
-    }
-    const reminderValue = nextFormData.billingCycle === "one-time" && nextFormData.oneTimeMode === "buyout"
-      ? DISABLED_REMINDER_DAYS
-      : nextFormData.reminderType === "disabled"
-        ? DISABLED_REMINDER_DAYS
-        : nextFormData.reminderType === "inherit"
-          ? INHERIT_REMINDER_DAYS
-          : nextFormData.reminderType === "custom"
-            ? parseNonNegativeIntegerInput(nextFormData.customReminderDays)
-            : parseReminderDaysInput(nextFormData.reminderDays);
-    if (reminderValue === null) {
-      errors.reminderDays = t("subscription.validation.reminderInvalid");
-    }
-    if (!isOptionalHttpUrl(nextFormData.website)) {
-      errors.website = t("subscription.validation.websiteInvalid");
-    }
-    if (nextFormData.costSharing?.enabled) {
-      const price = parseMoneyInput(nextFormData.price);
-      const collectionReminder = nextFormData.costSharing.collectionReminder;
-      if (collectionReminder?.enabled) {
-        if (!costSharingCollectionReminderIsAllowedForBillingCycle(nextFormData)) {
-          errors.costSharing = t("subscription.validation.costSharingCollectionReminderOneTimeBuyoutInvalid");
-        } else if (!isValidCostSharingCollectionReminderDays(collectionReminder.reminderDays)) {
-          errors.costSharing = t("subscription.validation.costSharingCollectionReminderInvalid");
-        } else if (!costSharingCollectionAnchorsAreSatisfied(nextFormData.costSharing, nextFormData.startDate ?? null)) {
-          errors.costSharing = t("subscription.validation.costSharingCollectionReminderAnchorRequired");
-        }
-      }
-      if (!errors.costSharing && !costSharingJoinedDatesWithinFormRange(nextFormData)) {
-        errors.costSharing = t("subscription.validation.costSharingMemberJoinedDateRangeInvalid");
-      }
-      if (!errors.costSharing && (
-        price === null ||
-        nextFormData.costSharing.members.length === 0 ||
-        !costSharingCustomAmountsAreValid(nextFormData.costSharing)
-      )) {
-        errors.costSharing = t("subscription.validation.costSharingInvalid");
-      }
-    }
-    const tagsError = getTagsValidationError(nextFormData.tags);
-    if (tagsError) {
-      errors.tags = tagsError;
-    }
-
-    return errors;
+    return subscriptionFormValidationIssuesToErrors(getSubscriptionFormValidationIssues(nextFormData), t);
   }, [t]);
-
-  const updateCostSharingFormField = useCallback(<K extends keyof SubscriptionFormState>(
-    key: K,
-    value: SubscriptionFormState[K],
-  ) => {
-    setFormData((prev) => ({ ...prev, [key]: value }));
-    if (key === "costSharing") clearFieldError("costSharing");
-  }, [clearFieldError, setFormData]);
 
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -418,8 +272,7 @@ export function SubscriptionDialog(props: SubscriptionDialogProps) {
                 onClearFieldError={clearFieldError}
                 notificationReminderDays={notificationReminderDays}
                 costSharingCurrencyConvert={convertCurrency}
-                onManageCostSharingMembers={openCostSharingMembers}
-                costSharingManageMembersButtonRef={costSharingManageMembersButtonRef}
+                onNestedDialogOpenChange={handleNestedDialogOpenChange}
               />
             </div>
 
@@ -451,131 +304,6 @@ export function SubscriptionDialog(props: SubscriptionDialogProps) {
           </form>
         </DialogContent>
       </Dialog>
-      <CostSharingMemberDialog
-        open={memberDialogOpen}
-        restoreFocus={props.open}
-        onOpenChange={handleCostSharingMemberDialogOpenChange}
-        onClose={closeCostSharingMembers}
-        id={id}
-        formData={formData}
-        update={updateCostSharingFormField}
-        currencyOptions={currencyOptions}
-        currencyConvert={convertCurrency}
-        notificationReminderDays={notificationReminderDays}
-        collectionReminderAllowed={!isOneTimeBuyout}
-        error={formErrors.costSharing}
-        manageMembersButtonRef={costSharingManageMembersButtonRef}
-        initialMemberNameInputRef={costSharingFirstMemberNameInputRef}
-        title={t("subscription.costSharing.manageMembersTitle")}
-        description={t("subscription.costSharing.manageMembersDescription")}
-        backLabel={t("subscription.costSharing.backToForm")}
-        doneLabel={t("subscription.costSharing.doneManagingMembers")}
-        closeLabel={t("common.close")}
-      />
     </>
-  );
-}
-
-type CostSharingMemberDialogProps = {
-  open: boolean;
-  restoreFocus: boolean;
-  onOpenChange: (open: boolean) => void;
-  onClose: () => void;
-  id: (name: string) => string;
-  formData: SubscriptionFormState;
-  update: <K extends keyof SubscriptionFormState>(key: K, value: SubscriptionFormState[K]) => void;
-  currencyOptions: SearchableSelectOption[];
-  currencyConvert?: ((amount: number | string, fromCurrency: string, toCurrency: string) => number) | undefined;
-  notificationReminderDays: number;
-  collectionReminderAllowed: boolean;
-  error?: string | undefined;
-  manageMembersButtonRef: RefObject<HTMLButtonElement | null>;
-  initialMemberNameInputRef: RefObject<HTMLInputElement | null>;
-  title: string;
-  description: string;
-  backLabel: string;
-  doneLabel: string;
-  closeLabel: string;
-};
-
-function CostSharingMemberDialog({
-  open,
-  restoreFocus,
-  onOpenChange,
-  onClose,
-  id,
-  formData,
-  update,
-  currencyOptions,
-  currencyConvert,
-  notificationReminderDays,
-  collectionReminderAllowed,
-  error,
-  manageMembersButtonRef,
-  initialMemberNameInputRef,
-  title,
-  description,
-  backLabel,
-  doneLabel,
-  closeLabel,
-}: CostSharingMemberDialogProps) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        closeLabel={closeLabel}
-        dismissMode="explicit"
-        layout="frame"
-        className="h5-dialog-frame h5-subscription-dialog-panel border-border bg-card p-0 sm:max-w-2xl"
-        onOpenAutoFocus={(event) => {
-          event.preventDefault();
-          initialMemberNameInputRef.current?.focus();
-        }}
-        onCloseAutoFocus={(event) => {
-          event.preventDefault();
-          if (restoreFocus) {
-            manageMembersButtonRef.current?.focus();
-          }
-        }}
-      >
-        <DialogHeader data-subscription-cost-sharing-manager-header="" className="shrink-0 p-6 pb-0">
-          <DialogTitle className="text-xl font-semibold">
-            {title}
-          </DialogTitle>
-          <DialogDescription className="sr-only">
-            {description}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="h5-subscription-dialog-form overflow-hidden">
-          <CostSharingMemberManagerView
-            id={id}
-            formData={formData}
-            update={update}
-            currencyOptions={currencyOptions}
-            currencyConvert={currencyConvert}
-            notificationReminderDays={notificationReminderDays}
-            collectionReminderAllowed={collectionReminderAllowed}
-            error={error}
-            initialMemberNameInputRef={initialMemberNameInputRef}
-          />
-          <div
-            data-subscription-cost-sharing-manager-footer=""
-            className="flex shrink-0 flex-col gap-3 border-t border-border bg-card p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:flex-row sm:justify-end md:p-6 md:pt-4"
-          >
-            <Button type="button" variant="outline" onClick={onClose} className="w-full border-border sm:w-auto">
-              <ArrowLeft className="h-4 w-4" />
-              {backLabel}
-            </Button>
-            <Button
-              type="button"
-              onClick={onClose}
-              className="w-full bg-primary text-primary-foreground hover:bg-primary-glow sm:w-auto"
-            >
-              {doneLabel}
-            </Button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
   );
 }

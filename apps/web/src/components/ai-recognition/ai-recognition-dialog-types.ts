@@ -1,4 +1,6 @@
 import type { AiRecognizedSubscriptionDraft } from "@/lib/api/schemas/ai-recognition";
+import type { AIDraftConfirmationField } from "@/modules/ai-recognition/domain/ai-recognition-form";
+import type { SubscriptionFormState } from "@/types/subscription-form";
 
 export type AIRecognitionInputMode = "text" | "image";
 
@@ -15,7 +17,10 @@ export interface AIRecognitionImageItem {
 
 export interface AIDraftListItem {
   id: string;
-  draft: AiRecognizedSubscriptionDraft;
+  // sourceDraft 是不可变识别证据，formData 是唯一可编辑事实源；pending 只记录 AI 默认值是否经用户显式确认，不能由当前表单是否合法反推。
+  sourceDraft: AiRecognizedSubscriptionDraft;
+  formData: SubscriptionFormState;
+  pendingConfirmationFields: readonly AIDraftConfirmationField[];
 }
 
 export type AIDraftFilter = "all" | "warning" | "low-confidence" | "missing-core";

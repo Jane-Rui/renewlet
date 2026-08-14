@@ -1,8 +1,9 @@
-import type { Dispatch, Ref, SetStateAction } from "react";
+import type { Dispatch, SetStateAction } from "react";
 import type { UploadStatus as LogoUploadStatus } from "@/components/logo-picker";
 import type { SearchableSelectOption } from "@/lib/searchable-options";
 import type { CustomConfig } from "@/types/config";
 import type { SubscriptionFormState } from "@/types/subscription-form";
+import type { SubscriptionFormErrorField, SubscriptionFormErrors } from "@/lib/subscription-form";
 
 export interface SubscriptionFormFieldsProps {
   /** 同一页面可能同时渲染新增/编辑弹窗，id 前缀用于保持 label 与错误提示的 a11y 关联唯一。 */
@@ -20,15 +21,10 @@ export interface SubscriptionFormFieldsProps {
   onClearFieldError?: ((field: keyof SubscriptionFormErrors) => void) | undefined;
   notificationReminderDays: number;
   costSharingCurrencyConvert?: ((amount: number | string, fromCurrency: string, toCurrency: string) => number) | undefined;
-  onManageCostSharingMembers?: (() => void) | undefined;
-  costSharingManageMembersButtonRef?: Ref<HTMLButtonElement> | undefined;
+  onNestedDialogOpenChange?: ((open: boolean) => void) | undefined;
 }
 
-/** 表单错误按 UI 区块聚合，而不是逐 DTO 字段暴露，避免跨字段日期和提醒规则在不同输入上重复显示。 */
-export type SubscriptionFormErrors = Partial<Record<
-  "name" | "price" | "currency" | "billingCycle" | "dates" | "customDays" | "oneTimeTerm" | "reminderDays" | "costSharing" | "website" | "tags",
-  string
->>;
+export type { SubscriptionFormErrors };
 
 export type SubscriptionFormFieldUpdater = <K extends keyof SubscriptionFormState>(
   key: K,
@@ -36,7 +32,7 @@ export type SubscriptionFormFieldUpdater = <K extends keyof SubscriptionFormStat
 ) => void;
 
 // 输入态字段到错误区块的唯一映射；onChange 清错和 submit 校验共用它，避免某些字段改动后旧错误残留。
-export const errorFieldByFormKey: Partial<Record<keyof SubscriptionFormState, keyof SubscriptionFormErrors>> = {
+export const errorFieldByFormKey: Partial<Record<keyof SubscriptionFormState, SubscriptionFormErrorField>> = {
   name: "name",
   price: "price",
   currency: "currency",
@@ -53,9 +49,9 @@ export const errorFieldByFormKey: Partial<Record<keyof SubscriptionFormState, ke
   costSharing: "costSharing",
   website: "website",
   tags: "tags",
-} satisfies Partial<Record<keyof SubscriptionFormState, keyof SubscriptionFormErrors>>;
+} satisfies Partial<Record<keyof SubscriptionFormState, SubscriptionFormErrorField>>;
 
-const structuralErrorFieldsByFormKey: Partial<Record<keyof SubscriptionFormState, readonly (keyof SubscriptionFormErrors)[]>> = {
+const structuralErrorFieldsByFormKey: Partial<Record<keyof SubscriptionFormState, readonly SubscriptionFormErrorField[]>> = {
   // 这些字段会重塑日期、普通提醒和家庭收款提醒含义；旧提交错误必须失效，下一次提交再按当前形态重新生成。
   billingCycle: ["billingCycle", "dates", "customDays", "oneTimeTerm", "reminderDays", "costSharing"],
   oneTimeMode: ["dates", "oneTimeTerm", "reminderDays", "costSharing"],
@@ -65,7 +61,7 @@ const structuralErrorFieldsByFormKey: Partial<Record<keyof SubscriptionFormState
 export function getErrorFieldsToClearForFormChange(
   key: keyof SubscriptionFormState,
 ): readonly (keyof SubscriptionFormErrors)[] {
-  const fields = new Set<keyof SubscriptionFormErrors>();
+  const fields = new Set<SubscriptionFormErrorField>();
   const directField = errorFieldByFormKey[key];
   if (directField) fields.add(directField);
   for (const structuralField of structuralErrorFieldsByFormKey[key] ?? []) {

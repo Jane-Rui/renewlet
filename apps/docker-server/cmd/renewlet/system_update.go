@@ -26,11 +26,16 @@ import (
 
 // newSystemUpdateService 注入 release client 和时钟/退出函数，便于测试覆盖下载、锁和延迟退出状态。
 func newSystemUpdateService(client systemReleaseClient) *systemUpdateService {
+	rootCtx, rootCancel := context.WithCancel(context.Background())
 	return &systemUpdateService{
-		client:      client,
-		now:         time.Now,
-		exit:        os.Exit,
-		restartWait: 800 * time.Millisecond,
+		client:           client,
+		now:              time.Now,
+		exit:             os.Exit,
+		restartWait:      800 * time.Millisecond,
+		operationTimeout: systemUpdateOperationTimeout,
+		capability:       selfUpdateCapability,
+		rootCtx:          rootCtx,
+		rootCancel:       rootCancel,
 	}
 }
 
@@ -58,7 +63,7 @@ func (service *systemUpdateService) CheckVersion(ctx context.Context, locale app
 	}
 	response.CheckSucceeded = true
 	if release == nil {
-		service.storeVersion(response)
+		service.storeVersion(response, nil)
 		return cloneSystemVersionResponse(response, false), nil
 	}
 
@@ -71,94 +76,90 @@ func (service *systemUpdateService) CheckVersion(ctx context.Context, locale app
 			response.UnsupportedReason = reason
 		}
 	}
-	service.storeVersion(response)
+	service.storeVersion(response, release)
 	return cloneSystemVersionResponse(response, false), nil
 }
 
-// PerformUpdate 下载目标 Release、校验 checksum、替换真实二进制，并把退出动作延后到显式 restart。
-// 注意：这里不能在替换完成后立刻退出，否则前端拿不到 needsRestart 状态，也无法开始健康检查等待。
-func (service *systemUpdateService) PerformUpdate(ctx context.Context, locale appLocale) (*systemUpdateResponse, error) {
-	if !service.beginUpdate() {
-		return nil, systemUpdateError{kind: errSystemUpdateInProgress, message: serverText(locale, "system.updateInProgress")}
+// performUpdate 只执行一个已获得独占资格的任务；任务生命周期、并发和恢复检查点由 operation 层负责。
+func (service *systemUpdateService) performUpdate(
+	ctx context.Context,
+	locale appLocale,
+	capability systemUpdateCapability,
+	release *fetchedSystemRelease,
+	advance func(stage string, targetVersion string) error,
+) (string, error) {
+	var err error
+	if release == nil {
+		release, err = service.fetchTargetRelease(ctx)
 	}
-	defer service.endUpdate()
-
-	capability := selfUpdateCapability(locale)
-	if !capability.supported {
-		return nil, systemUpdateError{kind: errSystemUpdateUnsupported, message: capability.unsupportedReason}
-	}
-	release, err := service.fetchTargetRelease(ctx)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	if release == nil {
-		return nil, systemUpdateError{kind: errSystemUpdateNoUpdate, message: serverText(locale, "system.alreadyLatest")}
+		return "", systemUpdateError{kind: errSystemUpdateNoUpdate, message: serverText(locale, "system.alreadyLatest")}
 	}
 	if !service.isTargetVersionNewer(release.dto.Version) {
-		return nil, systemUpdateError{kind: errSystemUpdateNoUpdate, message: serverText(locale, "system.alreadyLatest")}
+		return "", systemUpdateError{kind: errSystemUpdateNoUpdate, message: serverText(locale, "system.alreadyLatest")}
 	}
 
 	archiveAsset, checksumAsset, err := selectSystemUpdateAssets(release.assets, release.dto.Version)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	if err := validateTrustedDownloadURL(archiveAsset.BrowserDownloadURL); err != nil {
-		return nil, fmt.Errorf("invalid archive URL: %w", err)
+		return "", fmt.Errorf("invalid archive URL: %w", err)
 	}
 	if err := validateTrustedDownloadURL(checksumAsset.BrowserDownloadURL); err != nil {
-		return nil, fmt.Errorf("invalid checksum URL: %w", err)
+		return "", fmt.Errorf("invalid checksum URL: %w", err)
+	}
+	if err := advance(systemUpdateStageDownloading, release.dto.Version); err != nil {
+		return "", err
+	}
+
+	// 先取体积极小的 checksum 并确认目标归档条目，再开始大文件下载；无效发布不会浪费带宽和临时磁盘。
+	checksumText, err := service.client.FetchText(ctx, checksumAsset.BrowserDownloadURL, systemUpdateMaxChecksumBytes)
+	if err != nil {
+		return "", err
+	}
+	if int64(len(checksumText)) > systemUpdateMaxChecksumBytes {
+		return "", errors.New("checksums.txt is too large")
+	}
+	expectedChecksum, err := checksumForArchive(archiveAsset.Name, checksumText)
+	if err != nil {
+		return "", err
 	}
 
 	// 临时目录必须和目标二进制同分区，后续 rename 才能保持替换语义接近原子操作。
 	tempDir, err := os.MkdirTemp(filepath.Dir(capability.binaryPath), ".renewlet-update-*")
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	defer os.RemoveAll(tempDir)
 
 	archivePath := filepath.Join(tempDir, archiveAsset.Name)
-	if err := service.client.DownloadFile(ctx, archiveAsset.BrowserDownloadURL, archivePath, systemUpdateMaxArchiveBytes); err != nil {
-		return nil, err
-	}
-	checksumText, err := service.client.FetchText(ctx, checksumAsset.BrowserDownloadURL, systemUpdateMaxChecksumBytes)
+	// DownloadFile 在同一次网络流中落盘并计算摘要，校验阶段只比较结果，不再对大归档做第二次完整读取。
+	actualChecksum, err := service.client.DownloadFile(ctx, archiveAsset.BrowserDownloadURL, archivePath, systemUpdateMaxArchiveBytes)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	if int64(len(checksumText)) > systemUpdateMaxChecksumBytes {
-		return nil, errors.New("checksums.txt is too large")
+	if err := advance(systemUpdateStageVerifying, release.dto.Version); err != nil {
+		return "", err
 	}
-	// 先验证 checksum 再解包，避免把不可信 tar 内容交给路径检查和文件写入流程。
-	if err := verifySystemUpdateChecksum(archivePath, archiveAsset.Name, checksumText); err != nil {
-		return nil, err
+	if !strings.EqualFold(actualChecksum, expectedChecksum) {
+		return "", fmt.Errorf("checksum mismatch for %s", archiveAsset.Name)
 	}
 
 	newBinaryPath := filepath.Join(tempDir, "renewlet.new")
 	if err := extractRenewletBinary(archivePath, newBinaryPath); err != nil {
-		return nil, err
+		return "", err
+	}
+	if err := advance(systemUpdateStageInstalling, release.dto.Version); err != nil {
+		return "", err
 	}
 	if err := replaceRenewletBinary(capability.binaryPath, capability.backupDir, newBinaryPath, Version); err != nil {
-		return nil, err
+		return "", err
 	}
-
-	service.clearCache()
-	service.markRestartPending()
-	return &systemUpdateResponse{
-		CurrentVersion: Version,
-		TargetVersion:  release.dto.Version,
-		NeedsRestart:   true,
-		Message:        serverText(locale, "system.updateCompleted"),
-	}, nil
-}
-
-// ConfirmRestart 单次消费 restart pending，避免管理员之外的重复请求把当前进程当成通用 kill switch。
-func (service *systemUpdateService) ConfirmRestart(locale appLocale) error {
-	service.updateMu.Lock()
-	defer service.updateMu.Unlock()
-	if !service.restartPending {
-		return systemUpdateError{kind: errSystemRestartNotPending, message: serverText(locale, "system.restartNotPending")}
-	}
-	service.restartPending = false
-	return nil
+	return release.dto.Version, nil
 }
 
 // ScheduleRestart 在响应写回后异步退出；Docker restart policy 负责用新二进制拉起进程。
@@ -174,7 +175,7 @@ func (service *systemUpdateService) ScheduleRestart() {
 }
 
 func (service *systemUpdateService) baseVersionResponse(locale appLocale) *systemVersionResponse {
-	capability := selfUpdateCapability(locale)
+	capability := service.capability(locale)
 	return &systemVersionResponse{
 		CurrentVersion:    Version,
 		LatestVersion:     Version,
@@ -302,13 +303,23 @@ func makeSystemReleaseAssetDTOs(source []systemReleaseAsset) []systemReleaseAsse
 func (service *systemUpdateService) cachedVersion() *systemVersionResponse {
 	service.cacheMu.Lock()
 	defer service.cacheMu.Unlock()
-	if service.cacheValue == nil || !service.now().Before(service.cacheExpiry) {
+	if service.cache == nil || service.cache.response == nil || !service.now().Before(service.cache.expires) {
 		return nil
 	}
-	return cloneSystemVersionResponse(service.cacheValue, true)
+	return cloneSystemVersionResponse(service.cache.response, true)
 }
 
-func (service *systemUpdateService) storeVersion(response *systemVersionResponse) {
+// 更新任务只复用与版本展示响应同批确认的 Release；所有返回值都深拷贝，调用方不能修改共享缓存。
+func (service *systemUpdateService) cachedUpdateRelease() *fetchedSystemRelease {
+	service.cacheMu.Lock()
+	defer service.cacheMu.Unlock()
+	if service.cache == nil || !service.now().Before(service.cache.expires) {
+		return nil
+	}
+	return cloneFetchedSystemRelease(service.cache.release)
+}
+
+func (service *systemUpdateService) storeVersion(response *systemVersionResponse, release *fetchedSystemRelease) {
 	service.cacheMu.Lock()
 	defer service.cacheMu.Unlock()
 	cached := cloneSystemVersionResponse(response, false)
@@ -316,15 +327,31 @@ func (service *systemUpdateService) storeVersion(response *systemVersionResponse
 		// 上游 raw response 只随当前管理员操作返回；版本缓存只保存可信 release 结果和短 warning。
 		cached.ErrorDetails = nil
 	}
-	service.cacheValue = cached
-	service.cacheExpiry = service.now().Add(systemUpdateCacheTTL)
+	// response/release 一次性发布并共享 TTL，禁止分别写入导致 UI 版本与实际下载资产错配。
+	service.cache = &systemVersionCache{
+		response: cached,
+		release:  cloneFetchedSystemRelease(release),
+		expires:  service.now().Add(systemUpdateCacheTTL),
+	}
 }
 
 func (service *systemUpdateService) clearCache() {
 	service.cacheMu.Lock()
 	defer service.cacheMu.Unlock()
-	service.cacheValue = nil
-	service.cacheExpiry = time.Time{}
+	service.cache = nil
+}
+
+func cloneFetchedSystemRelease(release *fetchedSystemRelease) *fetchedSystemRelease {
+	if release == nil {
+		return nil
+	}
+	clone := &fetchedSystemRelease{assets: append([]systemReleaseAsset(nil), release.assets...)}
+	if release.dto != nil {
+		dto := *release.dto
+		dto.Assets = append([]systemReleaseAssetDTO(nil), release.dto.Assets...)
+		clone.dto = &dto
+	}
+	return clone
 }
 
 func (service *systemUpdateService) versionCheckWarning(locale appLocale, err error) string {
@@ -354,29 +381,6 @@ func systemUpstreamErrorDetails(err error) *upstreamErrorDetails {
 		return releaseErr.details
 	}
 	return upstreamErrorDetailsFromError(err)
-}
-
-func (service *systemUpdateService) beginUpdate() bool {
-	service.updateMu.Lock()
-	defer service.updateMu.Unlock()
-	if service.updateInFlight {
-		return false
-	}
-	service.updateInFlight = true
-	return true
-}
-
-func (service *systemUpdateService) endUpdate() {
-	service.updateMu.Lock()
-	defer service.updateMu.Unlock()
-	service.updateInFlight = false
-}
-
-func (service *systemUpdateService) markRestartPending() {
-	service.updateMu.Lock()
-	defer service.updateMu.Unlock()
-	// 更新请求已经替换真实二进制，但旧进程仍服务当前页面；显式 pending 防止普通 restart 请求变成任意退出开关。
-	service.restartPending = true
 }
 
 func selfUpdateCapability(locale appLocale) systemUpdateCapability {
@@ -494,28 +498,6 @@ func selectSystemUpdateAssets(assets []systemReleaseAsset, version string) (syst
 	return *archiveAsset, *checksumAsset, nil
 }
 
-// verifySystemUpdateChecksum 只信任同一 Release 附带的 checksums.txt，先验完整性再触碰 tar 内容。
-func verifySystemUpdateChecksum(archivePath string, archiveName string, checksumText []byte) error {
-	expected, err := checksumForArchive(archiveName, checksumText)
-	if err != nil {
-		return err
-	}
-	file, err := os.Open(archivePath)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return err
-	}
-	actual := hex.EncodeToString(hash.Sum(nil))
-	if !strings.EqualFold(actual, expected) {
-		return fmt.Errorf("checksum mismatch for %s", archiveName)
-	}
-	return nil
-}
-
 func checksumForArchive(archiveName string, checksumText []byte) (string, error) {
 	scanner := bufio.NewScanner(strings.NewReader(string(checksumText)))
 	for scanner.Scan() {
@@ -582,6 +564,10 @@ func extractRenewletBinary(archivePath string, targetPath string) error {
 			_ = target.Close()
 			return err
 		}
+		if err := target.Chmod(0o755); err != nil {
+			_ = target.Close()
+			return err
+		}
 		if err := target.Sync(); err != nil {
 			_ = target.Close()
 			return err
@@ -594,7 +580,7 @@ func extractRenewletBinary(archivePath string, targetPath string) error {
 	if !found {
 		return errors.New("renewlet binary not found in release archive")
 	}
-	return os.Chmod(targetPath, 0o755)
+	return nil
 }
 
 func replaceRenewletBinary(binaryPath string, backupDir string, newBinaryPath string, currentVersion string) error {
@@ -612,18 +598,43 @@ func replaceRenewletBinary(binaryPath string, backupDir string, newBinaryPath st
 		return err
 	}
 	backupPath := filepath.Join(backupDir, "renewlet."+safeBackupVersion(currentVersion))
-	_ = os.Remove(backupPath)
-	// 先把当前二进制改名成备份，再移动新二进制；替换失败时仍有可恢复路径。
-	if err := os.Rename(binaryPath, backupPath); err != nil {
-		return fmt.Errorf("backup current binary: %w", err)
-	}
-	if err := os.Rename(newBinaryPath, binaryPath); err != nil {
-		if restoreErr := os.Rename(backupPath, binaryPath); restoreErr != nil {
-			return fmt.Errorf("replace binary: %w; restore failed: %v", err, restoreErr)
+	backupInfo, backupErr := os.Lstat(backupPath)
+	if errors.Is(backupErr, os.ErrNotExist) {
+		tempBackup, err := os.CreateTemp(backupDir, ".renewlet-backup-*.tmp")
+		if err != nil {
+			return err
 		}
+		tempBackupPath := tempBackup.Name()
+		if err := tempBackup.Close(); err != nil {
+			return err
+		}
+		if err := os.Remove(tempBackupPath); err != nil {
+			return err
+		}
+		defer os.Remove(tempBackupPath)
+		// 旧 inode 先在同一文件系统建立 O(1) 硬链接备份，再原子发布备份名；current 全程存在且可执行。
+		if err := os.Link(binaryPath, tempBackupPath); err != nil {
+			return fmt.Errorf("backup current binary: %w", err)
+		}
+		if err := os.Rename(tempBackupPath, backupPath); err != nil {
+			return fmt.Errorf("publish binary backup: %w", err)
+		}
+		if err := syncSystemUpdateDirectory(backupDir); err != nil {
+			return fmt.Errorf("sync binary backup: %w", err)
+		}
+	} else if backupErr != nil {
+		return backupErr
+	} else if !backupInfo.Mode().IsRegular() {
+		return errors.New("self-update backup must be a regular file")
+	}
+	// 同版本备份一旦发布就保留首次已知可运行 inode，重试任务不得用可能已更新过的 current 覆盖回滚基线。
+	if err := os.Rename(newBinaryPath, binaryPath); err != nil {
 		return fmt.Errorf("replace binary: %w", err)
 	}
-	_ = os.Chmod(binaryPath, 0o755)
+	// newBinary 与 current 位于同一文件系统，rename 原子切换入口；目录 fsync 保证崩溃后仍能观察到已发布名称。
+	if err := syncSystemUpdateDirectory(filepath.Dir(binaryPath)); err != nil {
+		return fmt.Errorf("sync replaced binary: %w", err)
+	}
 	return nil
 }
 

@@ -6,12 +6,11 @@ import type { AiRecognizedSubscriptionDraft } from "@/lib/api/schemas/ai-recogni
 import { translate } from "@/i18n/messages";
 import { IMPORT_MESSAGE_CODES } from "@/modules/import-export/domain/import-export-model";
 import { formatImportMessage } from "@/modules/import-export/domain/import-message-format";
-import { buildPreparedImportFromAIDrafts } from "./ai-recognition-import";
+import { aiDraftToSubscriptionFormState } from "./ai-recognition-form";
+import { buildPreparedImportFromAIDrafts, type AIImportDraft } from "./ai-recognition-import";
 
 const context = {
   config: DEFAULT_CUSTOM_CONFIG,
-  settings: { ...DEFAULT_SETTINGS, defaultCurrency: "USD", notificationReminderDays: 5 },
-  today: assertDateOnly("2026-06-05"),
 };
 
 function draft(overrides: Partial<AiRecognizedSubscriptionDraft> = {}): AiRecognizedSubscriptionDraft {
@@ -44,64 +43,167 @@ function draft(overrides: Partial<AiRecognizedSubscriptionDraft> = {}): AiRecogn
   };
 }
 
+function item(
+  sourceDraft: AiRecognizedSubscriptionDraft = draft(),
+  formOverrides: Partial<AIImportDraft["formData"]> = {},
+): AIImportDraft {
+  return {
+    sourceDraft,
+    formData: {
+      ...aiDraftToSubscriptionFormState(sourceDraft, {
+        ...context,
+        settings: { ...DEFAULT_SETTINGS, defaultCurrency: "USD", notificationReminderDays: 5 },
+      }),
+      ...formOverrides,
+    },
+  };
+}
+
 describe("AI recognition import mapping", () => {
-  it("turns AI drafts into the existing import payload shape", () => {
-    const prepared = buildPreparedImportFromAIDrafts([draft()], context);
+  it("builds the standard import payload from editable form state", () => {
+    const prepared = buildPreparedImportFromAIDrafts([item(draft(), {
+      autoRenew: true,
+      publicHidden: true,
+    })], context);
     const subscription = prepared.payload.subscriptions[0];
 
     expect(prepared.payload.source).toBe("ai");
-    expect(subscription?.extra.import.source).toBe("ai");
-    expect(subscription?.extra.import.confidence).toBe("high");
+    expect(subscription?.extra.import).toMatchObject({ source: "ai", confidence: "high" });
     expect(subscription?.website).toBe("https://netflix.com/");
-    expect(subscription?.reminderDays).toBe(5);
-    expect(subscription?.autoRenew).toBe(false);
+    expect(subscription?.reminderDays).toBe(-1);
+    expect(subscription?.autoRenew).toBe(true);
+    expect(subscription?.publicHidden).toBe(true);
     expect(prepared.assets).toEqual([]);
   });
 
-  it("records blocking warnings when AI cannot confirm core fields", () => {
-    const prepared = buildPreparedImportFromAIDrafts([
-      draft({
-        price: null,
-        currency: null,
-        billingCycle: null,
-        startDate: null,
-        nextBillingDate: "2026-07-01",
-        autoCalculateNextBillingDate: false,
-      }),
-    ], context);
+  it("carries equal and custom family-sharing members into preview", () => {
+    const equal = buildPreparedImportFromAIDrafts([item(draft(), {
+      costSharing: {
+        enabled: true,
+        splitMode: "equal",
+        collectionReminder: { enabled: true, reminderDays: -1 },
+        members: [{ id: "family", name: "家人", currency: "CNY", joinedDate: assertDateOnly("2026-06-01") }],
+      },
+    })], context).payload.subscriptions[0];
+    const custom = buildPreparedImportFromAIDrafts([item(draft(), {
+      costSharing: {
+        enabled: true,
+        splitMode: "custom",
+        collectionReminder: { enabled: true, reminderDays: 2 },
+        members: [{ id: "friend", name: "朋友", currency: "USD", customAmount: "3.33", joinedDate: assertDateOnly("2026-06-15") }],
+      },
+    })], context).payload.subscriptions[0];
 
-    const subscription = prepared.payload.subscriptions[0];
-    expect(subscription?.price).toBe("0");
-    expect(subscription?.currency).toBe("USD");
-    expect(subscription?.billingCycle).toBe("monthly");
-    expect(subscription?.startDate).toBeNull();
-    expect(subscription?.nextBillingDate).toBe("2026-07-01");
-    expect(subscription?.autoCalculateNextBillingDate).toBe(false);
-    expect(prepared.warnings).toEqual(expect.arrayContaining([
-      `IMPORT_WARNING_FOR_SUBSCRIPTION|Netflix|${IMPORT_MESSAGE_CODES.aiPriceDefaulted}`,
-      `IMPORT_WARNING_FOR_SUBSCRIPTION|Netflix|${IMPORT_MESSAGE_CODES.aiCurrencyDefaulted}`,
-      `IMPORT_WARNING_FOR_SUBSCRIPTION|Netflix|${IMPORT_MESSAGE_CODES.aiBillingCycleDefaulted}`,
-    ]));
-    expect(prepared.warnings.join("\n")).not.toContain(IMPORT_MESSAGE_CODES.aiDateDefaulted);
+    expect(equal?.costSharing).toEqual({
+      enabled: true,
+      splitMode: "equal",
+      collectionReminder: { enabled: true, reminderDays: -1 },
+      members: [{ id: "family", name: "家人", currency: "CNY", joinedDate: "2026-06-01" }],
+    });
+    expect(custom?.costSharing).toEqual({
+      enabled: true,
+      splitMode: "custom",
+      collectionReminder: { enabled: true, reminderDays: 2 },
+      members: [{ id: "friend", name: "朋友", currency: "USD", customAmount: "3.33", joinedDate: "2026-06-15" }],
+    });
   });
 
-  it("does not default missing next billing dates", () => {
-    expect(() => buildPreparedImportFromAIDrafts([
-      draft({
-        startDate: null,
-        nextBillingDate: null,
-        autoCalculateNextBillingDate: false,
-      }),
-    ], context)).toThrow("AI_RECOGNITION_DRAFT_DATE_REQUIRED");
+  it("keeps private form fields out of the AI source id", () => {
+    const first = buildPreparedImportFromAIDrafts([item(draft(), {
+      autoRenew: false,
+      publicHidden: false,
+      costSharing: {
+        enabled: true,
+        splitMode: "equal",
+        members: [{ id: "one", name: "成员 A" }],
+      },
+    })], context).payload.subscriptions[0]?.extra.import.sourceId;
+    const second = buildPreparedImportFromAIDrafts([item(draft(), {
+      autoRenew: true,
+      publicHidden: true,
+      costSharing: {
+        enabled: true,
+        splitMode: "custom",
+        members: [{ id: "two", name: "成员 B", currency: "USD", customAmount: "2" }],
+      },
+    })], context).payload.subscriptions[0]?.extra.import.sourceId;
+
+    expect(second).toBe(first);
   });
 
-  it("keeps useful suggested notes without adding a preview warning", () => {
-    const prepared = buildPreparedImportFromAIDrafts([
-      draft({
-        website: { value: "spotify.com", source: "suggested" },
-        notes: { value: "Spotify 是音乐和播客流媒体服务。", source: "suggested" },
-      }),
-    ], context);
+  it("normalizes one-time subscriptions through the standard form conversion", () => {
+    const sourceDraft = draft({
+      billingCycle: "one-time",
+      startDate: "2026-06-01",
+      nextBillingDate: null,
+      autoCalculateNextBillingDate: false,
+    });
+    const subscription = buildPreparedImportFromAIDrafts([item(sourceDraft, {
+      autoRenew: true,
+      reminderType: "inherit",
+      reminderDays: "-1",
+      repeatReminderEnabled: true,
+    })], context).payload.subscriptions[0];
+
+    expect(subscription).toMatchObject({
+      nextBillingDate: "2026-06-01",
+      autoRenew: false,
+      autoCalculateNextBillingDate: false,
+      reminderDays: -2,
+      repeatReminderEnabled: false,
+    });
+  });
+
+  it("keeps historical AI warnings out of the current import result", () => {
+    const sourceDraft = draft({
+      price: null,
+      currency: null,
+      billingCycle: null,
+      startDate: null,
+      nextBillingDate: "2026-07-01",
+      autoCalculateNextBillingDate: false,
+      warnings: ["AI_WARNING_PRICE_INVALID", "AI_WARNING_BILLING_CYCLE_INVALID"],
+    });
+    const sourceSnapshot = structuredClone(sourceDraft);
+    const prepared = buildPreparedImportFromAIDrafts([item(sourceDraft, { price: "0" })], context);
+
+    expect(prepared.payload.subscriptions[0]).toMatchObject({
+      price: "0",
+      currency: "USD",
+      billingCycle: "monthly",
+      startDate: null,
+      nextBillingDate: "2026-07-01",
+    });
+    expect(prepared.warnings).toEqual([]);
+    expect(sourceDraft).toEqual(sourceSnapshot);
+  });
+
+  it("uses the corrected 730-day cycle without carrying the model's invalid-cycle warning", () => {
+    const sourceDraft = draft({
+      billingCycle: "custom",
+      customDays: null,
+      customCycleUnit: null,
+      warnings: ["AI_WARNING_CUSTOM_DAYS_INVALID", "AI_WARNING_CUSTOM_CYCLE_UNIT_INVALID"],
+    });
+    const prepared = buildPreparedImportFromAIDrafts([item(sourceDraft, {
+      customDays: "730",
+      customCycleUnit: "day",
+    })], context);
+
+    expect(prepared.payload.subscriptions[0]).toMatchObject({
+      billingCycle: "custom",
+      customDays: 730,
+      customCycleUnit: "day",
+    });
+    expect(prepared.warnings).toEqual([]);
+  });
+
+  it("keeps useful suggested notes and source metadata", () => {
+    const sourceDraft = draft({
+      website: { value: "spotify.com", source: "suggested" },
+      notes: { value: "Spotify 是音乐和播客流媒体服务。", source: "suggested" },
+    });
+    const prepared = buildPreparedImportFromAIDrafts([item(sourceDraft)], context);
 
     expect(prepared.payload.subscriptions[0]?.website).toBe("https://spotify.com/");
     expect(prepared.payload.subscriptions[0]?.notes).toBe("Spotify 是音乐和播客流媒体服务。");
@@ -109,37 +211,20 @@ describe("AI recognition import mapping", () => {
       websiteSource: "suggested",
       notesSource: "suggested",
     });
-    expect(prepared.warnings).toEqual(expect.arrayContaining([
-      `IMPORT_WARNING_FOR_SUBSCRIPTION|Netflix|${IMPORT_MESSAGE_CODES.aiWebsiteSuggested}`,
-    ]));
-    expect(prepared.warnings.join("\n")).not.toContain("IMPORT_WARNING_AI_NOTES_SUGGESTED");
+    expect(prepared.warnings).toContain(`IMPORT_WARNING_FOR_SUBSCRIPTION|Netflix|${IMPORT_MESSAGE_CODES.aiWebsiteSuggested}`);
   });
 
-  it("drops recognition process notes from the import payload", () => {
-    const prepared = buildPreparedImportFromAIDrafts([
-      draft({
-        notes: { value: "输入没有提供官网或更多上下文，AI 未能高置信识别该服务。", source: "suggested" },
-      }),
-    ], context);
-
-    expect(prepared.payload.subscriptions[0]?.notes).toBeNull();
-    expect(prepared.payload.subscriptions[0]?.extra["ai"]).toEqual({ websiteSource: "input" });
-    expect(prepared.warnings.join("\n")).not.toContain("IMPORT_WARNING_AI_NOTES_SUGGESTED");
-  });
-
-  it("removes Renewlet-facing advice before importing notes", () => {
-    const prepared = buildPreparedImportFromAIDrafts([
-      draft({
-        notes: { value: "LOCVPS 提供 VPS、云服务器和服务器托管相关服务，适合记录主机或服务器套餐订阅。", source: "suggested" },
-      }),
-    ], context);
-
-    expect(prepared.payload.subscriptions[0]?.notes).toBe("LOCVPS 提供 VPS、云服务器和服务器托管服务");
-    expect(prepared.payload.subscriptions[0]?.extra["ai"]).toEqual({
-      websiteSource: "input",
-      notesSource: "suggested",
+  it("drops process notes and removes Renewlet-facing advice", () => {
+    const processDraft = draft({
+      notes: { value: "输入没有提供官网或更多上下文，AI 未能高置信识别该服务。", source: "suggested" },
     });
-    expect(prepared.warnings.join("\n")).not.toContain("IMPORT_WARNING_AI_NOTES_SUGGESTED");
+    const usefulDraft = draft({
+      notes: { value: "LOCVPS 提供 VPS、云服务器和服务器托管相关服务，适合记录主机或服务器套餐订阅。", source: "suggested" },
+    });
+
+    expect(buildPreparedImportFromAIDrafts([item(processDraft)], context).payload.subscriptions[0]?.notes).toBeNull();
+    expect(buildPreparedImportFromAIDrafts([item(usefulDraft)], context).payload.subscriptions[0]?.notes)
+      .toBe("LOCVPS 提供 VPS、云服务器和服务器托管服务");
   });
 
   it("formats AI provider warnings into localized review text", () => {
@@ -147,47 +232,23 @@ describe("AI recognition import mapping", () => {
       "IMPORT_WARNING_FOR_SUBSCRIPTION|Apple|AI_WARNING_SERVICE_UNSPECIFIED",
       (key, params) => translate("zh-CN", key, params),
     );
-
     expect(formatted).toBe("Apple：输入没有明确具体服务，AI 已按品牌生成基础信息，请确认是否正确。");
-    expect(formatted).not.toContain("AI_WARNING");
   });
 
-  it("formats missing service description warnings into localized review text", () => {
-    const formatted = formatImportMessage(
-      "IMPORT_WARNING_FOR_SUBSCRIPTION|YouTube|AI_WARNING_NOTES_MISSING",
-      (key, params) => translate("zh-CN", key, params),
-    );
+  it("matches existing config values and creates only unknown options", () => {
+    const matched = buildPreparedImportFromAIDrafts([item(draft({
+      currency: "EUR",
+      category: "Streaming",
+      paymentMethod: "Crypto",
+    }))], context);
+    const created = buildPreparedImportFromAIDrafts([item(draft({
+      category: "Streaming AI",
+      paymentMethod: "Virtual Card",
+    }))], context);
 
-    expect(formatted).toBe("YouTube：AI 未生成服务简介，可在备注中补充。");
-    expect(formatted).not.toContain("AI_WARNING");
-  });
-
-  it("matches recognized category and payment method to existing config before creating new items", () => {
-    const prepared = buildPreparedImportFromAIDrafts([
-      draft({
-        currency: "EUR",
-        category: "Streaming",
-        paymentMethod: "Crypto",
-      }),
-    ], context);
-    const subscription = prepared.payload.subscriptions[0];
-
-    expect(subscription?.category).toBe("streaming");
-    expect(subscription?.paymentMethod).toBe("crypto");
-    expect(prepared.payload.customConfig?.currencies.some((item) => item.value === "EUR" && item.enabled)).toBe(true);
-    expect(prepared.payload.customConfig?.categories).toHaveLength(DEFAULT_CUSTOM_CONFIG.categories.length);
-    expect(prepared.payload.customConfig?.paymentMethods).toHaveLength(DEFAULT_CUSTOM_CONFIG.paymentMethods.length);
-  });
-
-  it("creates recognized category and payment method only when no existing option matches", () => {
-    const prepared = buildPreparedImportFromAIDrafts([
-      draft({
-        category: "Streaming AI",
-        paymentMethod: "Virtual Card",
-      }),
-    ], context);
-
-    expect(prepared.payload.customConfig?.categories.some((item) => item.labels["zh-CN"] === "Streaming AI")).toBe(true);
-    expect(prepared.payload.customConfig?.paymentMethods.some((item) => item.labels["zh-CN"] === "Virtual Card")).toBe(true);
+    expect(matched.payload.subscriptions[0]).toMatchObject({ category: "streaming", paymentMethod: "crypto" });
+    expect(matched.payload.customConfig?.currencies.some((configItem) => configItem.value === "EUR" && configItem.enabled)).toBe(true);
+    expect(created.payload.customConfig?.categories.some((configItem) => configItem.labels["zh-CN"] === "Streaming AI")).toBe(true);
+    expect(created.payload.customConfig?.paymentMethods.some((configItem) => configItem.labels["zh-CN"] === "Virtual Card")).toBe(true);
   });
 });

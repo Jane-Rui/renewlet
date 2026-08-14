@@ -1,61 +1,72 @@
-import type { AiRecognizedSubscriptionDraft } from "@/lib/api/schemas/ai-recognition";
+import type { MessageKey, MessageParams } from "@/i18n/messages";
+import {
+  getSubscriptionFormValidationIssues,
+  type SubscriptionFormErrorField,
+  type SubscriptionFormValidationIssue,
+} from "@/lib/subscription-form";
+import type { AIDraftConfirmationField } from "@/modules/ai-recognition/domain/ai-recognition-form";
+import type { SubscriptionFormState } from "@/types/subscription-form";
 
 export const AI_DRAFT_BLOCKING_ISSUE_CODES = [
-  "price",
-  "currency",
-  "billingCycle",
-  "purchaseDate",
-  "nextBillingDate",
-  "autoCalculateStartDate",
-  "customCycle",
+  "aiPriceUnconfirmed",
+  "aiCurrencyUnconfirmed",
+  "aiBillingCycleUnconfirmed",
 ] as const;
 
-export type AIDraftBlockingIssueCode = typeof AI_DRAFT_BLOCKING_ISSUE_CODES[number];
+export type AIDraftBlockingIssueCode =
+  | typeof AI_DRAFT_BLOCKING_ISSUE_CODES[number]
+  | SubscriptionFormValidationIssue["code"];
 
 export interface AIDraftBlockingIssue {
   code: AIDraftBlockingIssueCode;
-  field: "price" | "currency" | "billingCycle" | "dates" | "customDays";
+  field: SubscriptionFormErrorField;
+  messageKey: MessageKey;
+  params?: MessageParams | undefined;
+  confirmationField?: AIDraftConfirmationField | undefined;
 }
 
-// 这些字段缺失会让 import preview 只能靠默认值改写账单事实，所以 AI 入口先要求用户显式修正。
-export function getAIDraftBlockingIssues(draft: AiRecognizedSubscriptionDraft): AIDraftBlockingIssue[] {
-  const issues: AIDraftBlockingIssue[] = [];
-
-  if (draft.price === null) {
-    issues.push({ code: "price", field: "price" });
-  }
-  if (!draft.currency?.trim()) {
-    issues.push({ code: "currency", field: "currency" });
-  }
-  if (!draft.billingCycle) {
-    issues.push({ code: "billingCycle", field: "billingCycle" });
-  } else if (draft.billingCycle === "custom" && (!draft.customDays || !draft.customCycleUnit)) {
-    issues.push({ code: "customCycle", field: "customDays" });
-  }
-  const dateIssue = getAIDraftDateBlockingIssue(draft);
-  if (dateIssue) {
-    issues.push(dateIssue);
-  }
-
-  return issues;
+interface AIDraftPreflightInput {
+  formData: SubscriptionFormState;
+  pendingConfirmationFields: readonly AIDraftConfirmationField[];
 }
 
-function getAIDraftDateBlockingIssue(draft: AiRecognizedSubscriptionDraft): AIDraftBlockingIssue | null {
-  if (draft.billingCycle === "one-time") {
-    if (!draft.startDate) {
-      return { code: "purchaseDate", field: "dates" };
-    }
-    return null;
-  }
-  if (draft.billingCycle !== null && draft.autoCalculateNextBillingDate === true && !draft.startDate) {
-    return { code: "autoCalculateStartDate", field: "dates" };
-  }
-  if (!draft.nextBillingDate) {
-    return { code: "nextBillingDate", field: "dates" };
-  }
-  return null;
+// 模型默认值需要显式确认，但确认问题与通用表单错误按字段去重，避免同一控件出现两条阻塞原因。
+export function getAIDraftBlockingIssues(input: AIDraftPreflightInput): AIDraftBlockingIssue[] {
+  const confirmationIssues = input.pendingConfirmationFields.map(confirmationIssue);
+  const confirmedFields = new Set(confirmationIssues.map((issue) => issue.field));
+  return [
+    ...confirmationIssues,
+    ...getSubscriptionFormValidationIssues(input.formData)
+      .filter((issue) => !confirmedFields.has(issue.field)),
+  ];
 }
 
-export function hasAIDraftBlockingIssues(draft: AiRecognizedSubscriptionDraft): boolean {
-  return getAIDraftBlockingIssues(draft).length > 0;
+function confirmationIssue(field: AIDraftConfirmationField): AIDraftBlockingIssue {
+  switch (field) {
+    case "price":
+      return {
+        code: "aiPriceUnconfirmed",
+        field: "price",
+        messageKey: "aiRecognition.draftIssuePriceRequired",
+        confirmationField: field,
+      };
+    case "currency":
+      return {
+        code: "aiCurrencyUnconfirmed",
+        field: "currency",
+        messageKey: "aiRecognition.draftIssueCurrencyRequired",
+        confirmationField: field,
+      };
+    case "billingCycle":
+      return {
+        code: "aiBillingCycleUnconfirmed",
+        field: "billingCycle",
+        messageKey: "aiRecognition.draftIssueBillingCycleRequired",
+        confirmationField: field,
+      };
+  }
+}
+
+export function hasAIDraftBlockingIssues(input: AIDraftPreflightInput): boolean {
+  return getAIDraftBlockingIssues(input).length > 0;
 }

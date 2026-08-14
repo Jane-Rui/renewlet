@@ -1,4 +1,4 @@
-import { useEffect, useState, type Ref } from "react";
+import { useCallback, useEffect, useRef, useState, type Ref, type RefObject } from "react";
 import { DateOnlyPickerField } from "@/components/date-only-picker-field";
 import { FieldError } from "@/components/ui/field-error";
 import { Button } from "@/components/ui/button";
@@ -8,13 +8,25 @@ import { NumericInput } from "@/components/ui/numeric-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Switch } from "@/components/ui/switch";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  billingCycleLabelForForm,
+  COLLECTION_REMINDER_CUSTOM_VALUE,
+  collectionReminderSelectValue,
+  collectionReminderSummaryText,
+  costSharingTotal,
+  defaultCollectionReminder,
+  defaultCostSharing,
+  defaultCustomCollectionReminderDays,
+  MAX_COST_SHARING_MEMBERS,
+  newCostSharingId,
+  setCostSharing,
+  type CostSharingFieldUpdater,
+} from "@/components/subscription-cost-sharing-model";
 import { useI18n } from "@/i18n/I18nProvider";
-import type { Locale } from "@/i18n/locales";
-import type { MessageKey, MessageParams } from "@/i18n/messages";
 import { formatCurrencySymbolAmount, getCurrencyAmountPrefix } from "@/lib/currency";
 import type { SearchableSelectOption } from "@/lib/searchable-options";
-import { formatBillingCycleLabel } from "@/lib/subscription-billing";
-import { parseMoneyInput, parseNonNegativeIntegerInput, parsePositiveIntegerInput, resolveCostSharingJoinedDateRangeForForm } from "@/lib/subscription-form";
+import { parseMoneyInput, parseNonNegativeIntegerInput, resolveCostSharingJoinedDateRangeForForm } from "@/lib/subscription-form";
 import type { CostSharing, CostSharingMember } from "@/types/subscription";
 import { INHERIT_REMINDER_DAYS, REMINDER_DAYS_OPTIONS } from "@/types/subscription";
 import type { SubscriptionFormState } from "@/types/subscription-form";
@@ -25,103 +37,10 @@ import {
   isValidCostSharingCollectionReminderDays,
   type CostSharingCollectionReminder,
 } from "@renewlet/shared/cost-sharing";
-import { moneyToNumber } from "@renewlet/shared/money";
 import { Plus, Trash2, Users } from "lucide-react";
-
-type CostSharingFieldUpdater = <K extends keyof SubscriptionFormState>(
-  key: K,
-  value: SubscriptionFormState[K],
-) => void;
-const COLLECTION_REMINDER_CUSTOM_VALUE = "custom";
-
-function newCostSharingId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
-  return `member-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-function defaultCostSharing(t: (key: MessageKey, values?: MessageParams) => string): CostSharing {
-  const firstMemberId = newCostSharingId();
-  return {
-    enabled: true,
-    splitMode: "equal",
-    members: [
-      { id: firstMemberId, name: t("subscription.costSharing.memberDefault", { index: 1 }) },
-    ],
-  };
-}
-
-function defaultCollectionReminder(): CostSharingCollectionReminder {
-  return {
-    enabled: true,
-    reminderDays: INHERIT_REMINDER_DAYS,
-  };
-}
-
-function normalizeCostSharingSelection(costSharing: CostSharing): CostSharing {
-  const members = costSharing.members.length > 0 ? costSharing.members : [{ id: newCostSharingId(), name: "Member 1" }];
-  return {
-    ...costSharing,
-    members,
-  };
-}
-
-function costSharingTotal(formData: SubscriptionFormState): number {
-  const price = moneyToNumber(formData.price);
-  return Number.isFinite(price) && price >= 0 ? price : 0;
-}
 
 function costSharingAmountsDiffer(a: number, b: number): boolean {
   return Math.abs(a - b) >= 0.01;
-}
-
-function setCostSharing(update: CostSharingFieldUpdater, next: CostSharing | undefined) {
-  update("costSharing", next ? normalizeCostSharingSelection(next) : undefined);
-}
-
-function collectionReminderSelectValue(reminder: CostSharingCollectionReminder | undefined): string {
-  const days = reminder?.reminderDays ?? INHERIT_REMINDER_DAYS;
-  if (days === INHERIT_REMINDER_DAYS) return String(INHERIT_REMINDER_DAYS);
-  if (REMINDER_DAYS_OPTIONS.some((option) => option.value === days)) return String(days);
-  return COLLECTION_REMINDER_CUSTOM_VALUE;
-}
-
-function defaultCustomCollectionReminderDays(): number {
-  return 2;
-}
-
-function collectionReminderLeadLabel(t: (key: MessageKey, values?: MessageParams) => string, reminderDays: number): string {
-  return reminderDays === 0
-    ? t("subscription.costSharing.collectionReminderLeadToday")
-    : t("subscription.costSharing.collectionReminderLeadDays", { days: reminderDays });
-}
-
-function billingCycleLabelForForm(formData: SubscriptionFormState, locale: Locale): string {
-  const customDays = formData.billingCycle === "custom" ? parsePositiveIntegerInput(formData.customDays) ?? 1 : undefined;
-  return formatBillingCycleLabel({
-    billingCycle: formData.billingCycle,
-    customDays,
-    customCycleUnit: formData.customCycleUnit,
-  }, locale);
-}
-
-function collectionReminderSummaryText(
-  t: (key: MessageKey, values?: MessageParams) => string,
-  reminder: CostSharingCollectionReminder | undefined,
-  notificationReminderDays: number,
-  cycleLabel: string,
-  allowed = true,
-): string {
-  if (!allowed) return t("subscription.costSharing.collectionReminderSummaryUnavailableForBuyout");
-  if (!reminder?.enabled) return t("subscription.costSharing.collectionReminderSummaryDisabled");
-  const leadDays = reminder.reminderDays === INHERIT_REMINDER_DAYS || !isValidCostSharingCollectionReminderDays(reminder.reminderDays)
-    ? notificationReminderDays
-    : reminder.reminderDays;
-  const lead = collectionReminderLeadLabel(t, leadDays);
-  return t("subscription.costSharing.collectionReminderSummary", {
-    cycle: t("subscription.costSharing.collectionReminderInheritedCycle", { cycle: cycleLabel }),
-    anchor: t("subscription.costSharing.collectionReminderAnchorMemberJoined"),
-    lead,
-  });
 }
 
 function CostSharingSummaryGrid({
@@ -160,11 +79,11 @@ export function CostSharingFields({
   formData,
   update,
   error,
+  currencyOptions,
   currencyConvert,
   notificationReminderDays,
   collectionReminderAllowed,
-  onManageMembers,
-  manageMembersButtonRef,
+  onNestedDialogOpenChange,
 }: {
   id: (name: string) => string;
   formData: SubscriptionFormState;
@@ -174,10 +93,12 @@ export function CostSharingFields({
   currencyConvert?: ((amount: number | string, fromCurrency: string, toCurrency: string) => number) | undefined;
   notificationReminderDays: number;
   collectionReminderAllowed: boolean;
-  onManageMembers?: (() => void) | undefined;
-  manageMembersButtonRef?: Ref<HTMLButtonElement> | undefined;
+  onNestedDialogOpenChange?: ((open: boolean) => void) | undefined;
 }) {
   const { t, locale } = useI18n();
+  const [memberDialogOpen, setMemberDialogOpenState] = useState(false);
+  const manageMembersButtonRef = useRef<HTMLButtonElement>(null);
+  const firstMemberNameInputRef = useRef<HTMLInputElement>(null);
   const costSharing = formData.costSharing;
   const total = costSharingTotal(formData);
   const summary = calculateCostSharingSummary(costSharing, total, { baseCurrency: formData.currency, convert: currencyConvert });
@@ -188,7 +109,11 @@ export function CostSharingFields({
   const showCustomTotalHint = Boolean(
     costSharing?.splitMode === "custom" && costSharingAmountsDiffer(summary.memberTotal, total),
   );
-
+  const setMemberDialogOpen = useCallback((open: boolean) => {
+    // 成员管理器在组件内拥有 open 状态，但仍要上报父层 close guard，避免 Radix 焦点交接期间误关并重置父表单。
+    setMemberDialogOpenState(open);
+    onNestedDialogOpenChange?.(open);
+  }, [onNestedDialogOpenChange]);
   return (
     <div className="grid gap-3 rounded-lg border border-border bg-secondary/30 p-3">
       <div className="flex items-center justify-between gap-4">
@@ -201,7 +126,7 @@ export function CostSharingFields({
         <Switch
           id={id("costSharingEnabled")}
           checked={enabled}
-          onCheckedChange={(checked) => setCostSharing(update, checked ? { ...(costSharing ?? defaultCostSharing(t)), enabled: true } : undefined)}
+          onCheckedChange={(checked) => setCostSharing(update, checked ? { ...(costSharing ?? defaultCostSharing(t)), enabled: true } : undefined, t)}
           aria-label={t("subscription.costSharing.title")}
         />
       </div>
@@ -211,7 +136,7 @@ export function CostSharingFields({
           <div className="grid gap-3 sm:grid-cols-[minmax(0,16rem)_auto] sm:items-end sm:justify-between">
             <div className="grid gap-2">
               <Label htmlFor={id("costSharingSplitMode")}>{t("subscription.costSharing.splitMode")}</Label>
-              <Select value={costSharing.splitMode} onValueChange={(value) => setCostSharing(update, { ...costSharing, splitMode: value as CostSharing["splitMode"] })}>
+              <Select value={costSharing.splitMode} onValueChange={(value) => setCostSharing(update, { ...costSharing, splitMode: value as CostSharing["splitMode"] }, t)}>
                 <SelectTrigger id={id("costSharingSplitMode")} className="border-border bg-secondary">
                   <SelectValue />
                 </SelectTrigger>
@@ -225,20 +150,18 @@ export function CostSharingFields({
               <span className="text-xs text-muted-foreground">
                 {t("subscription.costSharing.memberCount", { count: summary.memberCount })}
               </span>
-              {onManageMembers ? (
-                <Button
-                  ref={manageMembersButtonRef}
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  data-cost-sharing-manage-members-trigger=""
-                  className="w-fit border-border"
-                  onClick={onManageMembers}
-                >
-                  <Users className="h-4 w-4" />
-                  {t("subscription.costSharing.manageMembers")}
-                </Button>
-              ) : null}
+              <Button
+                ref={manageMembersButtonRef}
+                type="button"
+                variant="outline"
+                size="sm"
+                data-cost-sharing-manage-members-trigger=""
+                className="w-fit border-border"
+                onClick={() => setMemberDialogOpen(true)}
+              >
+                <Users className="h-4 w-4" />
+                {t("subscription.costSharing.manageMembers")}
+              </Button>
             </div>
           </div>
 
@@ -257,12 +180,25 @@ export function CostSharingFields({
             {collectionReminderSummary}
           </p>
           <FieldError id={id("costSharing-error")} message={error} />
+          <CostSharingMemberDialog
+            open={memberDialogOpen}
+            onOpenChange={setMemberDialogOpen}
+            id={id}
+            formData={formData}
+            update={update}
+            currencyOptions={currencyOptions}
+            currencyConvert={currencyConvert}
+            notificationReminderDays={notificationReminderDays}
+            collectionReminderAllowed={collectionReminderAllowed}
+            error={error}
+            manageMembersButtonRef={manageMembersButtonRef}
+            initialMemberNameInputRef={firstMemberNameInputRef}
+          />
         </>
       ) : null}
     </div>
   );
 }
-
 export function CostSharingMemberManagerView({
   id,
   formData,
@@ -315,19 +251,17 @@ export function CostSharingMemberManagerView({
     });
     return currencyConvert ? currencyConvert(baseShare, formData.currency, memberCurrency) : baseShare;
   };
-
+  // 成员编辑直接写入父表单的同一份 costSharing；关闭二级 Dialog 只有导航语义，不存在额外提交或回滚镜像。
   const updateMember = (memberId: string, patch: Partial<CostSharingMember>) => {
     setCostSharing(update, {
       ...costSharing,
       enabled: true,
       members: costSharing.members.map((member) => member.id === memberId ? { ...member, ...patch } : member),
-    });
+    }, t);
   };
-
   const updateCollectionReminder = (next: CostSharingCollectionReminder | undefined) => {
-    setCostSharing(update, { ...costSharing, enabled: true, collectionReminder: next });
+    setCostSharing(update, { ...costSharing, enabled: true, collectionReminder: next }, t);
   };
-
   const removeMember = (memberId: string) => {
     if (costSharing.members.length <= 1) return;
     const nextMembers = costSharing.members.filter((member) => member.id !== memberId);
@@ -335,10 +269,10 @@ export function CostSharingMemberManagerView({
       ...costSharing,
       enabled: true,
       members: nextMembers,
-    });
+    }, t);
   };
-
   const addMember = () => {
+    if (costSharing.members.length >= MAX_COST_SHARING_MEMBERS) return;
     setCostSharing(update, {
       ...costSharing,
       enabled: true,
@@ -349,9 +283,8 @@ export function CostSharingMemberManagerView({
           name: t("subscription.costSharing.memberDefault", { index: costSharing.members.length + 1 }),
         },
       ],
-    });
+    }, t);
   };
-
   return (
     <div data-testid="cost-sharing-members-view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="shrink-0 border-b border-border px-6 py-4">
@@ -364,7 +297,14 @@ export function CostSharingMemberManagerView({
               {t("subscription.costSharing.manageMembersDescription")}
             </p>
           </div>
-          <Button type="button" variant="outline" size="sm" className="w-fit border-border" onClick={addMember}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-fit border-border"
+            onClick={addMember}
+            disabled={members.length >= MAX_COST_SHARING_MEMBERS}
+          >
             <Plus className="h-4 w-4" />
             {t("subscription.costSharing.addMember")}
           </Button>
@@ -477,7 +417,6 @@ export function CostSharingMemberManagerView({
           <FieldError id={managerErrorId} message={displayError} />
         </div>
       </div>
-
       <div data-testid="cost-sharing-members-scroll" className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
         <div className="grid gap-2.5">
           {members.map((member, index) => {
@@ -593,6 +532,90 @@ export function CostSharingMemberManagerView({
         </div>
       </div>
     </div>
+  );
+}
+
+function CostSharingMemberDialog({
+  open,
+  onOpenChange,
+  id,
+  formData,
+  update,
+  currencyOptions,
+  currencyConvert,
+  notificationReminderDays,
+  collectionReminderAllowed,
+  error,
+  manageMembersButtonRef,
+  initialMemberNameInputRef,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  id: (name: string) => string;
+  formData: SubscriptionFormState;
+  update: CostSharingFieldUpdater;
+  currencyOptions: SearchableSelectOption[];
+  currencyConvert?: ((amount: number | string, fromCurrency: string, toCurrency: string) => number) | undefined;
+  notificationReminderDays: number;
+  collectionReminderAllowed: boolean;
+  error?: string | undefined;
+  manageMembersButtonRef: RefObject<HTMLButtonElement | null>;
+  initialMemberNameInputRef: RefObject<HTMLInputElement | null>;
+}) {
+  const { t } = useI18n();
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        closeLabel={t("common.close")}
+        dismissMode="explicit"
+        layout="frame"
+        className="h5-dialog-frame h5-subscription-dialog-panel border-border bg-card p-0 sm:max-w-2xl"
+        onOpenAutoFocus={(event) => {
+          // 覆盖 Radix 默认焦点：打开后从首位成员开始编辑，关闭后显式回到调用入口，维持嵌套 modal 的焦点契约。
+          event.preventDefault();
+          initialMemberNameInputRef.current?.focus();
+        }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          manageMembersButtonRef.current?.focus();
+        }}
+      >
+        <DialogHeader data-subscription-cost-sharing-manager-header="" className="shrink-0 p-6 pb-0">
+          <DialogTitle className="text-xl font-semibold">
+            {t("subscription.costSharing.manageMembersTitle")}
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            {t("subscription.costSharing.manageMembersDescription")}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="h5-subscription-dialog-form overflow-hidden">
+          <CostSharingMemberManagerView
+            id={id}
+            formData={formData}
+            update={update}
+            currencyOptions={currencyOptions}
+            currencyConvert={currencyConvert}
+            notificationReminderDays={notificationReminderDays}
+            collectionReminderAllowed={collectionReminderAllowed}
+            error={error}
+            initialMemberNameInputRef={initialMemberNameInputRef}
+          />
+          <div
+            data-subscription-cost-sharing-manager-footer=""
+            className="flex shrink-0 justify-end border-t border-border bg-card p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] md:p-6 md:pt-4"
+          >
+            <Button
+              type="button"
+              onClick={() => onOpenChange(false)}
+              className="w-full bg-primary text-primary-foreground hover:bg-primary-glow sm:w-auto"
+            >
+              {t("subscription.costSharing.doneManagingMembers")}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

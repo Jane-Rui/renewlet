@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { SetStateAction } from "react";
 import { AlertTriangle, FileSearch } from "lucide-react";
 // AI 识别弹窗负责把流式事件收敛为导入草稿；只有 final 事件能进入 preview/apply 链路。
 import { AIDraftReviewPanel } from "@/components/ai-recognition/ai-draft-review-panel";
@@ -16,7 +17,6 @@ import { AIRecognitionStreamPanel } from "@/components/ai-recognition/ai-recogni
 import { useAIRecognitionImages } from "@/components/ai-recognition/use-ai-recognition-images";
 import {
   appendLimitedText,
-  hasBlockingAIImportWarnings,
   isAbortedApiError,
   nextDraftId,
   recognitionElapsedSeconds,
@@ -28,10 +28,10 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ImportPreviewPanel } from "@/components/import-preview-panel";
 import { useMediaQuery } from "@/hooks/use-media-query";
+import { useNestedDialogCloseGuard } from "@/hooks/use-nested-dialog-close-guard";
 import { useI18n } from "@/i18n/I18nProvider";
 import { createAIErrorDetails, type AIErrorDetails } from "@/lib/ai-error-details";
 import { getDisplayErrorMessage } from "@/lib/display-error";
-import { todayDateOnlyInTimeZone } from "@/lib/time/date-only";
 import {
   type AiRecognizedSubscriptionDraft,
   type AiRecognitionStreamEvent,
@@ -50,8 +50,14 @@ import {
 import { getAIRecognitionSettingsBlocker } from "@/modules/ai-recognition/domain/settings-readiness";
 import { buildPreparedImportFromAIDrafts } from "@/modules/ai-recognition/domain/ai-recognition-import";
 import { getAIDraftBlockingIssues } from "@/modules/ai-recognition/domain/ai-draft-preflight";
+import {
+  aiDraftToSubscriptionFormState,
+  getInitialAIDraftConfirmationFields,
+  type AIDraftConfirmationField,
+} from "@/modules/ai-recognition/domain/ai-recognition-form";
 import { useImportPreviewApply } from "@/modules/import-export/application/use-import-preview-apply";
 import { aiRecognitionService } from "@/services/ai-recognition-service";
+import type { SubscriptionFormState } from "@/types/subscription-form";
 
 interface AIRecognizeSubscriptionDialogProps {
   open: boolean;
@@ -100,7 +106,10 @@ export function AIRecognizeSubscriptionDialog({
   const [draftGenerationElapsedSeconds, setDraftGenerationElapsedSeconds] = useState<number | null>(null);
   const [aiErrorDetails, setAIErrorDetails] = useState<AIErrorDetails | null>(null);
   const [aiErrorDetailsOpen, setAIErrorDetailsOpen] = useState(false);
-  const today = todayDateOnlyInTimeZone(new Date(), settings.timezone);
+  const { handleNestedDialogOpenChange, handleParentOpenChange: handleOpenChange } = useNestedDialogCloseGuard(
+    open,
+    handleRootDialogOpenChange,
+  );
   const aiSettings = settings.aiRecognition;
   const settingsBlocker = getAIRecognitionSettingsBlocker(aiSettings);
   const thinkingOptions = useMemo(
@@ -138,9 +147,8 @@ export function AIRecognizeSubscriptionDialog({
     setError,
     onInputChanged: markDraftsStaleFromInputChange,
   });
-  const hasBlockingImportWarnings = prepared ? hasBlockingAIImportWarnings(prepared.warnings) : false;
   const draftBlockingIssuesById = useMemo(
-    () => new Map(drafts.map((item) => [item.id, getAIDraftBlockingIssues(item.draft)])),
+    () => new Map(drafts.map((item) => [item.id, getAIDraftBlockingIssues(item)])),
     [drafts],
   );
   const firstBlockingDraftId = useMemo(
@@ -214,7 +222,7 @@ export function AIRecognizeSubscriptionDialog({
     resetImportPreview();
   }
 
-  function handleOpenChange(nextOpen: boolean) {
+  function handleRootDialogOpenChange(nextOpen: boolean) {
     if (!nextOpen) reset();
     onOpenChange(nextOpen);
   }
@@ -301,7 +309,10 @@ export function AIRecognizeSubscriptionDialog({
       resetStreamState();
       const nextDrafts = response.subscriptions.map((draft) => ({
         id: nextDraftId(draftIdRef),
-        draft,
+        // sourceDraft 只保存模型证据；所有用户可见编辑都进入唯一 formData，切换草稿不会再做双向镜像。
+        sourceDraft: draft,
+        formData: aiDraftToSubscriptionFormState(draft, { settings, config }),
+        pendingConfirmationFields: getInitialAIDraftConfirmationFields(draft),
       }));
       setDrafts(nextDrafts);
       setDraftGenerationElapsedSeconds(elapsedSeconds);
@@ -393,6 +404,7 @@ export function AIRecognizeSubscriptionDialog({
   const handleBuildPreview = async () => {
     if (drafts.length === 0 || draftsStale) return;
     if (firstBlockingDraftId) {
+      // preflight 必须把用户带回首个问题草稿；不能用 UI 中的 fallback 值生成看似有效、实际未经确认的 preview。
       setSelectedDraftId(firstBlockingDraftId);
       setStage("draft");
       setError(null);
@@ -401,7 +413,7 @@ export function AIRecognizeSubscriptionDialog({
     setPreviewingDrafts(true);
     setError(null);
     try {
-      const preparedImport = buildPreparedImportFromAIDrafts(drafts.map((item) => item.draft), { settings, config, today });
+      const preparedImport = buildPreparedImportFromAIDrafts(drafts, { config });
       await previewPrepared(preparedImport, conflictMode);
       setStage("preview");
     } catch (err) {
@@ -416,9 +428,20 @@ export function AIRecognizeSubscriptionDialog({
     resetImportPreview();
   }
 
-  function updateDraft(id: string, patch: Partial<AiRecognizedSubscriptionDraft>) {
+  function updateDraftForm(id: string, action: SetStateAction<SubscriptionFormState>) {
     invalidateDraftPreview();
-    setDrafts((current) => current.map((item) => (item.id === id ? { ...item, draft: { ...item.draft, ...patch } } : item)));
+    setDrafts((current) => current.map((item) => {
+      if (item.id !== id) return item;
+      return { ...item, formData: typeof action === "function" ? action(item.formData) : action };
+    }));
+  }
+
+  function confirmDraftField(id: string, field: AIDraftConfirmationField) {
+    // 直接编辑或点击“使用当前值”都消费一次显式确认；确认只改变审阅状态，绝不回写不可变的 sourceDraft。
+    invalidateDraftPreview();
+    setDrafts((current) => current.map((item) => item.id === id
+      ? { ...item, pendingConfirmationFields: item.pendingConfirmationFields.filter((candidate) => candidate !== field) }
+      : item));
   }
 
   function removeDraft(id: string) {
@@ -557,7 +580,7 @@ export function AIRecognizeSubscriptionDialog({
             </div>
           ) : null}
 
-          {recognitionWarnings.length > 0 ? (
+          {draftStageVisible && recognitionWarnings.length > 0 ? (
             <div className="rounded-lg border border-border bg-secondary/30 p-3 text-xs leading-5 text-muted-foreground">
               {recognitionWarnings.slice(0, 6).map((warning, index) => <p key={`${warning}:${index}`}>{warning}</p>)}
             </div>
@@ -573,34 +596,28 @@ export function AIRecognizeSubscriptionDialog({
               generationElapsedSeconds={draftGenerationElapsedSeconds}
               selectedDraftId={selectedDraftId}
               onSelectedDraftIdChange={setSelectedDraftId}
-              onChangeDraft={updateDraft}
+              onChangeDraftForm={updateDraftForm}
+              onConfirmDraftField={confirmDraftField}
+              onNestedDialogOpenChange={handleNestedDialogOpenChange}
               onRemoveDraft={removeDraft}
             />
           ) : null}
 
           {previewStageVisible && prepared && preview ? (
-            <>
-              {hasBlockingImportWarnings ? (
-                <div className="flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                  <span>{t("aiRecognition.blockingWarnings")}</span>
-                </div>
-              ) : null}
-              <ImportPreviewPanel
-                prepared={prepared}
-                preview={preview}
-                conflictMode={conflictMode}
-                previewFilter={previewFilter}
-                skippedIndexes={skippedIndexes}
-                assetProgress={assetProgress}
-                applyProgress={applyProgress}
-                showImportOptions={false}
-                onConflictModeChange={handleConflictModeChange}
-                onPreviewFilterChange={setPreviewFilter}
-                onLogoChange={handleLogoChange}
-                onSkipChange={handleSkipChange}
-              />
-            </>
+            <ImportPreviewPanel
+              prepared={prepared}
+              preview={preview}
+              conflictMode={conflictMode}
+              previewFilter={previewFilter}
+              skippedIndexes={skippedIndexes}
+              assetProgress={assetProgress}
+              applyProgress={applyProgress}
+              showImportOptions={false}
+              onConflictModeChange={handleConflictModeChange}
+              onPreviewFilterChange={setPreviewFilter}
+              onLogoChange={handleLogoChange}
+              onSkipChange={handleSkipChange}
+            />
           ) : null}
     </div>
   );
@@ -620,7 +637,6 @@ export function AIRecognizeSubscriptionDialog({
         hasDraftBlockingIssues={hasDraftBlockingIssues}
         preview={preview}
         applying={applying}
-        hasBlockingImportWarnings={hasBlockingImportWarnings}
         onBackToDraft={handleBackToDraft}
         onRecognize={() => void handleRecognize()}
         onBackToInput={handleBackToInput}
@@ -647,7 +663,6 @@ export function AIRecognizeSubscriptionDialog({
         hasDraftBlockingIssues={hasDraftBlockingIssues}
         preview={preview}
         applying={applying}
-        hasBlockingImportWarnings={hasBlockingImportWarnings}
         mobile
         onBackToDraft={handleBackToDraft}
         onRecognize={() => void handleRecognize()}

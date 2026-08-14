@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { AiRecognizedSubscriptionDraft } from "@/lib/api/schemas/ai-recognition";
+import { aiDraftToSubscriptionFormState, getInitialAIDraftConfirmationFields } from "./ai-recognition-form";
 import { getAIDraftBlockingIssues, hasAIDraftBlockingIssues } from "./ai-draft-preflight";
+import { DEFAULT_CUSTOM_CONFIG } from "@/types/config";
+import { DEFAULT_SETTINGS } from "@/types/subscription";
 
 function draft(overrides: Partial<AiRecognizedSubscriptionDraft> = {}): AiRecognizedSubscriptionDraft {
   return {
@@ -32,78 +35,57 @@ function draft(overrides: Partial<AiRecognizedSubscriptionDraft> = {}): AiRecogn
   };
 }
 
+function input(sourceDraft: AiRecognizedSubscriptionDraft) {
+  return {
+    formData: aiDraftToSubscriptionFormState(sourceDraft, {
+      config: DEFAULT_CUSTOM_CONFIG,
+      settings: DEFAULT_SETTINGS,
+    }),
+    pendingConfirmationFields: getInitialAIDraftConfirmationFields(sourceDraft),
+  };
+}
+
 describe("AI draft preflight", () => {
-  it("does not block complete drafts", () => {
-    expect(getAIDraftBlockingIssues(draft())).toEqual([]);
-    expect(hasAIDraftBlockingIssues(draft())).toBe(false);
+  it("does not block complete form states", () => {
+    expect(getAIDraftBlockingIssues(input(draft()))).toEqual([]);
+    expect(hasAIDraftBlockingIssues(input(draft()))).toBe(false);
   });
 
-  it("blocks drafts missing core billing fields", () => {
-    // 这些缺失字段会让导入层只能填默认值，AI 入口必须先拦住让用户确认。
-    expect(getAIDraftBlockingIssues(draft({
+  it("layers unconfirmed model defaults before common validation and deduplicates fields", () => {
+    expect(getAIDraftBlockingIssues(input(draft({
       price: null,
       currency: null,
       billingCycle: null,
       startDate: null,
       nextBillingDate: null,
-    })).map((issue) => issue.code)).toEqual([
-      "price",
-      "currency",
-      "billingCycle",
-      "nextBillingDate",
+    }))).map((issue) => issue.code)).toEqual([
+      "aiPriceUnconfirmed",
+      "aiCurrencyUnconfirmed",
+      "aiBillingCycleUnconfirmed",
+      "startDateRequiredForAutoCalculate",
     ]);
   });
 
-  it("blocks custom cycles without complete cycle details", () => {
-    expect(getAIDraftBlockingIssues(draft({
+  it("derives custom-cycle and date issues from common subscription validation", () => {
+    expect(getAIDraftBlockingIssues(input(draft({
       billingCycle: "custom",
       customDays: null,
       customCycleUnit: "day",
-    })).map((issue) => issue.code)).toEqual(["customCycle"]);
+    }))).map((issue) => issue.code)).toEqual(["customCycleInvalid"]);
 
-    expect(getAIDraftBlockingIssues(draft({
-      billingCycle: "custom",
-      customDays: 14,
-      customCycleUnit: "day",
-    }))).toEqual([]);
-  });
-
-  it("allows manual recurring drafts without start dates but still requires the next billing date", () => {
-    expect(getAIDraftBlockingIssues(draft({
-      startDate: null,
-      autoCalculateNextBillingDate: false,
-    }))).toEqual([]);
-
-    expect(getAIDraftBlockingIssues(draft({
-      startDate: null,
-      nextBillingDate: null,
-      autoCalculateNextBillingDate: false,
-    })).map((issue) => issue.code)).toEqual(["nextBillingDate"]);
-  });
-
-  it("requires purchase dates for one-time drafts", () => {
-    expect(getAIDraftBlockingIssues(draft({
-      billingCycle: "one-time",
-      startDate: null,
-      nextBillingDate: null,
-      autoCalculateNextBillingDate: false,
-    })).map((issue) => issue.code)).toEqual(["purchaseDate"]);
-
-    expect(getAIDraftBlockingIssues(draft({
-      billingCycle: "one-time",
-      startDate: "2026-06-01",
-      nextBillingDate: null,
-      oneTimeTermCount: 1,
-      oneTimeTermUnit: "month",
-      autoCalculateNextBillingDate: false,
-    }))).toEqual([]);
-  });
-
-  it("requires start dates for automatic date calculation", () => {
-    expect(getAIDraftBlockingIssues(draft({
+    expect(getAIDraftBlockingIssues(input(draft({
       startDate: null,
       nextBillingDate: null,
       autoCalculateNextBillingDate: true,
-    })).map((issue) => issue.code)).toEqual(["autoCalculateStartDate"]);
+    }))).map((issue) => issue.code)).toEqual(["startDateRequiredForAutoCalculate"]);
+  });
+
+  it("requires a purchase date for one-time subscriptions", () => {
+    expect(getAIDraftBlockingIssues(input(draft({
+      billingCycle: "one-time",
+      startDate: null,
+      nextBillingDate: null,
+      autoCalculateNextBillingDate: false,
+    }))).map((issue) => issue.code)).toEqual(["purchaseDateRequired"]);
   });
 });

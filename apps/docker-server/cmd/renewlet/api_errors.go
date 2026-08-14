@@ -106,6 +106,7 @@ var productAPIRouteContracts = []apiRouteContract{
 	{Path: "/api/app/admin/users/{id}/mfa/reset", Methods: []string{http.MethodPost}},
 	{Path: "/api/app/admin/users/{id}/passkeys/reset", Methods: []string{http.MethodPost}},
 	{Path: "/api/app/admin/system/update", Methods: []string{http.MethodPost}},
+	{Path: "/api/app/admin/system/update/status", Methods: []string{http.MethodGet}},
 	{Path: "/api/app/admin/system/restart", Methods: []string{http.MethodPost}},
 	{Path: "/api/app/admin/auth-security", Methods: []string{http.MethodGet, http.MethodPut}},
 	{Path: "/api/app/admin/media/icon-index", Methods: []string{http.MethodGet}},

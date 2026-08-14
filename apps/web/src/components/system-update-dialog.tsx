@@ -1,19 +1,20 @@
 import { AlertCircle, Check, Download, ExternalLink, RefreshCw, RotateCw, Server, X } from "lucide-react";
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { RawErrorResponseDialog } from "@/components/raw-error-response-dialog";
-import { useSystemRestart, useSystemUpdate, useSystemVersion } from "@/hooks/use-system-version";
+import { useSystemRestart, useSystemUpdate, useSystemUpdateStatus, useSystemVersion } from "@/hooks/use-system-version";
 import { useI18n } from "@/i18n/I18nProvider";
 import { ApiError } from "@/lib/api-client";
 import { clientBuildVersion } from "@/lib/client-build-info";
-import { createRawErrorResponseDetails, type RawErrorResponseDetails } from "@/lib/raw-error-response";
+import { createRawErrorResponseDetails, createRawErrorResponseDetailsFromText, type RawErrorResponseDetails } from "@/lib/raw-error-response";
 import { cn } from "@/lib/utils";
 import type { SystemDeployment, SystemVersionResponse } from "@/lib/api/schemas/app";
 import type { MessageKey } from "@/i18n/messages";
 
 interface SystemUpdateDialogProps {
   badgeClassName?: string | undefined;
+  canManageUpdates: boolean;
   contentAlign?: "center" | "end" | "start";
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -48,6 +49,7 @@ export const systemRestartBrowser = {
  */
 export function SystemUpdateDialog({
   badgeClassName,
+  canManageUpdates,
   contentAlign = "end",
   open,
   onOpenChange,
@@ -58,22 +60,56 @@ export function SystemUpdateDialog({
   const updateMutation = useSystemUpdate();
   const restartMutation = useSystemRestart();
   const version = versionQuery.data;
+  const statusQuery = useSystemUpdateStatus(
+    open && canManageUpdates && version?.deployment === "docker",
+    updateMutation.isPending,
+  );
+  // 服务端 operation 是业务状态唯一事实源；mutation.data 只桥接 POST 到首次 status 响应之间的瞬时空档，
+  // 本地 state 仅承载错误弹层与倒计时。
+  const operation = statusQuery.data?.operation ?? updateMutation.data?.operation ?? null;
   const [updateError, setUpdateError] = useState("");
   const [errorDetails, setErrorDetails] = useState<RawErrorResponseDetails | null>(null);
   const [errorDetailsOpen, setErrorDetailsOpen] = useState(false);
   const [restartCountdown, setRestartCountdown] = useState(0);
+  const shownOperationErrorRef = useRef<string | null>(null);
 
-  const canUpdate = Boolean(version?.hasUpdate && version.updateSupported && !updateMutation.isPending && !updateMutation.isSuccess);
+  const isUpdating = updateMutation.isPending || operation?.status === "running";
   const isRestarting = restartMutation.isPending || restartCountdown > 0;
-  const showCompletedRestart = updateMutation.isSuccess && updateMutation.data?.needsRestart;
+  const showCompletedRestart = operation?.status === "succeeded" && operation.stage === "restart-pending" && operation.needsRestart;
+  const operationError = operation?.status === "failed" ? operation.error : null;
+  const canRetryOperation = Boolean(operationError && operationError.code !== "SYSTEM_UPDATE_NO_UPDATE");
+  const canUpdate = Boolean(version?.updateSupported && (version.hasUpdate || canRetryOperation) && !isUpdating && !showCompletedRestart);
+  const visibleUpdateError = operation?.status === "running" ? "" : updateError || operationError?.message || "";
   const commitLink = version ? commitUrl(version.build.commit) : null;
   const isDeployOnlyUpdate = version?.hasUpdate && version.updateMode === "cloudflare-deploy";
+
+  useEffect(() => {
+    // 每个失败任务只自动展开一次详情；后续轮询、关闭详情或弹窗重渲染都不能反复打断管理员。
+    if (!open || !operation) return;
+    if (operation.status !== "failed" || !operation.error) {
+      if (operation.status === "running" || operation.status === "succeeded") {
+        setUpdateError("");
+        setErrorDetails(null);
+        setErrorDetailsOpen(false);
+      }
+      return;
+    }
+    if (shownOperationErrorRef.current === operation.id) return;
+    shownOperationErrorRef.current = operation.id;
+    setErrorDetails(createRawErrorResponseDetailsFromText({
+      code: operation.error.code,
+      message: operation.error.message,
+      responseText: operation.error.details?.rawResponseText,
+    }));
+    setErrorDetailsOpen(true);
+  }, [open, operation]);
 
   const resetUpdateState = useCallback(() => {
     setUpdateError("");
     setErrorDetails(null);
     setErrorDetailsOpen(false);
     setRestartCountdown(0);
+    shownOperationErrorRef.current = null;
     updateMutation.reset();
     restartMutation.reset();
   }, [restartMutation, updateMutation]);
@@ -170,7 +206,7 @@ export function SystemUpdateDialog({
             type="button"
             className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
             onClick={handleRefresh}
-            disabled={versionQuery.isFetching || updateMutation.isPending || isRestarting}
+            disabled={versionQuery.isFetching || isUpdating || isRestarting}
             aria-label={t("system.recheck")}
             title={t("system.recheck")}
           >
@@ -194,10 +230,10 @@ export function SystemUpdateDialog({
                 checkSucceeded={version.checkSucceeded}
               />
 
-              {updateError ? (
+              {visibleUpdateError ? (
                 <div className="space-y-3">
-                  <StatePanel icon={<X className="h-4 w-4" />} tone="danger" title={t("system.updateFailedTitle")} description={updateError} />
-                  <Button className="w-full" variant="destructive" onClick={handleUpdate} disabled={updateMutation.isPending}>
+                  <StatePanel icon={<X className="h-4 w-4" />} tone="danger" title={t("system.updateFailedTitle")} description={visibleUpdateError} />
+                  <Button className="w-full" variant="destructive" onClick={handleUpdate} disabled={!canUpdate}>
                     {t("system.retry")}
                   </Button>
                 </div>
@@ -225,8 +261,8 @@ export function SystemUpdateDialog({
                 <div className="space-y-3">
                   <StatePanel icon={<Download className="h-4 w-4" />} tone="warning" title={t("system.updateAvailableTitle")} description={t("system.updateAvailableDescription", { version: version.latestVersion })} />
                   <Button className="w-full" onClick={handleUpdate} disabled={!canUpdate}>
-                    {updateMutation.isPending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                    {updateMutation.isPending ? t("system.updating") : t("system.updateNow")}
+                    {isUpdating ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                    {isUpdating ? t("system.updating") : t("system.updateNow")}
                   </Button>
                   {version.releaseInfo?.htmlUrl ? <ReleaseLink href={version.releaseInfo.htmlUrl} label={t("system.viewChangelog")} /> : null}
                 </div>

@@ -1,9 +1,6 @@
 import { importPayloadSchema, type ImportSubscription } from "@/lib/api/schemas/import-export";
 import type { AiRecognizedSubscriptionDraft } from "@/lib/api/schemas/ai-recognition";
-import { normalizeAIRecognitionUsefulNotes } from "@renewlet/shared/ai-recognition-notes";
-import { assertDateOnly, type DateOnly } from "@/lib/time/date-only";
-import type { ConfigItem, CustomConfig } from "@/types/config";
-import type { AppSettings, BillingCycle, CustomCycleUnit } from "@/types/subscription";
+import { toSubscriptionDraft } from "@/lib/subscription-form";
 import {
   IMPORT_MESSAGE_CODES,
   importMessage,
@@ -13,30 +10,30 @@ import {
   stableHash,
   type PreparedImport,
 } from "@/modules/import-export/domain/import-export-model";
+import { normalizeAIRecognitionUsefulNotes } from "@renewlet/shared/ai-recognition-notes";
+import type { ConfigItem, CustomConfig } from "@/types/config";
+import type { SubscriptionFormState } from "@/types/subscription-form";
 
 interface AIImportContext {
   config: CustomConfig;
-  settings: AppSettings;
-  today: DateOnly | string;
+}
+
+export interface AIImportDraft {
+  sourceDraft: AiRecognizedSubscriptionDraft;
+  formData: SubscriptionFormState;
 }
 
 interface AIImportBuildState extends AIImportContext {
-  config: CustomConfig;
   warnings: string[];
   sourceIdCounts: Map<string, number>;
 }
 
-/**
- * 将 AI 识别草稿转换为标准导入预览 payload。
- *
- * AI 结果永不直接写 subscriptions；必须先落到 import preview/apply 链路，复用冲突处理、Logo 上传和服务端校验。
- */
+/** AI 识别元数据保持不可变，用户补充的全部订阅字段只从 formData 进入标准导入契约。 */
 export function buildPreparedImportFromAIDrafts(
-  drafts: readonly AiRecognizedSubscriptionDraft[],
+  drafts: readonly AIImportDraft[],
   context: AIImportContext,
 ): PreparedImport {
   const state: AIImportBuildState = {
-    ...context,
     config: context.config,
     warnings: [],
     sourceIdCounts: new Map(),
@@ -53,97 +50,95 @@ export function buildPreparedImportFromAIDrafts(
   };
 }
 
-function buildAIImportSubscription(draft: AiRecognizedSubscriptionDraft, state: AIImportBuildState): ImportSubscription {
-  const warnings = [...draft.warnings];
-  const billingCycle = normalizeBillingCycle(draft, warnings);
-  const price = normalizePrice(draft.price, warnings);
-  const currency = normalizeCurrency(draft.currency, state, warnings);
-  const category = resolveConfigValue("category", draft.category, state) ?? "other";
-  const paymentMethod = resolveConfigValue("payment", draft.paymentMethod, state);
-  const autoCalculateNextBillingDate =
-    billingCycle !== "one-time" &&
-    draft.autoCalculateNextBillingDate === true &&
-    draft.startDate !== null;
-  const startDate = billingCycle === "one-time" || autoCalculateNextBillingDate
-    ? requiredDate(draft.startDate)
-    : optionalDate(draft.startDate);
-  const nextBillingDate = requiredDate(draft.nextBillingDate);
-  const websiteWarnings: string[] = [];
-  const website = normalizeWebsite(draft.website?.value, websiteWarnings);
-  const notes = normalizeAIRecognitionUsefulNotes(draft.notes?.value);
-  warnings.push(...websiteWarnings);
-  if (draft.website?.source === "suggested" && website) warnings.push(IMPORT_MESSAGE_CODES.aiWebsiteSuggested);
+function buildAIImportSubscription(item: AIImportDraft, state: AIImportBuildState): ImportSubscription {
+  const { sourceDraft, formData } = item;
+  const draft = toSubscriptionDraft(formData);
+  if (!draft) throw new Error("AI_RECOGNITION_DRAFT_INVALID");
 
-  pushPreparedWarnings(state, draft.name, warnings);
+  // sourceDraft 的 warning 只记录模型当时的识别证据；标准导入提示必须从用户已确认的当前表单重新计算。
+  const warnings: string[] = [];
+  const websiteWarnings: string[] = [];
+  const website = normalizeWebsite(formData.website, websiteWarnings);
+  const notes = normalizeAIRecognitionUsefulNotes(formData.notes);
+  const websiteSource = editedWebsiteSource(formData.website, sourceDraft.website);
+  const notesSource = editedTextSource(formData.notes, sourceDraft.notes);
+  warnings.push(...websiteWarnings);
+  if (websiteSource === "suggested" && website) warnings.push(IMPORT_MESSAGE_CODES.aiWebsiteSuggested);
+  pushPreparedWarnings(state, formData.name, warnings);
+
+  const category = resolveConfigValue("category", formData.category, state) ?? "other";
+  const paymentMethod = resolveConfigValue("payment", formData.paymentMethod || null, state);
+  ensureCurrency(formData.currency, state);
+
   return {
     name: draft.name,
-    logo: null,
-    price,
-    currency,
-    billingCycle,
-    customDays: billingCycle === "custom" ? draft.customDays ?? 1 : null,
-    customCycleUnit: billingCycle === "custom" ? draft.customCycleUnit ?? "day" : null,
-    oneTimeTermCount: billingCycle === "one-time" && draft.oneTimeTermCount && draft.oneTimeTermUnit ? draft.oneTimeTermCount : null,
-    oneTimeTermUnit: billingCycle === "one-time" && draft.oneTimeTermCount && draft.oneTimeTermUnit ? draft.oneTimeTermUnit : null,
+    logo: draft.logo ?? null,
+    price: draft.price,
+    currency: draft.currency,
+    billingCycle: draft.billingCycle,
+    customDays: draft.billingCycle === "custom" ? draft.customDays : null,
+    customCycleUnit: draft.billingCycle === "custom" ? draft.customCycleUnit : null,
+    oneTimeTermCount: draft.billingCycle === "one-time" ? draft.oneTimeTermCount ?? null : null,
+    oneTimeTermUnit: draft.billingCycle === "one-time" ? draft.oneTimeTermUnit ?? null : null,
     category,
-    status: draft.status ?? "active",
+    status: draft.status,
     pinned: false,
-    publicHidden: false,
+    publicHidden: draft.publicHidden,
     paymentMethod,
-    startDate,
-    nextBillingDate,
-    autoRenew: false,
-    autoCalculateNextBillingDate,
-    trialEndDate: draft.status === "trial" ? optionalDate(draft.trialEndDate) : null,
+    startDate: draft.startDate,
+    nextBillingDate: draft.nextBillingDate,
+    autoRenew: draft.billingCycle === "one-time" ? false : draft.autoRenew,
+    autoCalculateNextBillingDate: draft.autoCalculateNextBillingDate,
+    trialEndDate: draft.status === "trial" ? sourceDraft.trialEndDate : null,
     website: website ?? null,
     notes,
     tags: draft.tags,
-    reminderDays: draft.reminderDays ?? state.settings.notificationReminderDays,
-    repeatReminderEnabled: draft.reminderDays === -2 ? false : draft.repeatReminderEnabled ?? false,
-    repeatReminderInterval: draft.repeatReminderInterval ?? "1h",
-    repeatReminderWindow: draft.repeatReminderWindow ?? "72h",
+    reminderDays: draft.reminderDays,
+    repeatReminderEnabled: draft.repeatReminderEnabled,
+    repeatReminderInterval: draft.repeatReminderInterval,
+    repeatReminderWindow: draft.repeatReminderWindow,
+    costSharing: draft.costSharing ?? null,
     extra: {
       import: {
         source: "ai",
-        sourceId: nextAISourceId(draft, state),
-        confidence: draft.confidence,
+        sourceId: nextAISourceId(formData, state),
+        confidence: sourceDraft.confidence,
       },
       ai: {
-        ...(draft.website ? { websiteSource: draft.website.source } : {}),
-        ...(draft.notes && notes ? { notesSource: draft.notes.source } : {}),
+        ...(website && websiteSource ? { websiteSource } : {}),
+        ...(notes && notesSource ? { notesSource } : {}),
       },
     },
   };
 }
 
-function normalizeBillingCycle(draft: AiRecognizedSubscriptionDraft, warnings: string[]): BillingCycle {
-  const billingCycle = draft.billingCycle ?? "monthly";
-  if (!draft.billingCycle) warnings.push(IMPORT_MESSAGE_CODES.aiBillingCycleDefaulted);
-  if (billingCycle === "custom" && (!draft.customDays || !draft.customCycleUnit)) {
-    warnings.push(IMPORT_MESSAGE_CODES.aiCustomCycleDefaulted);
-  }
-  return billingCycle;
+function editedWebsiteSource(
+  value: string,
+  source: AiRecognizedSubscriptionDraft["website"],
+): "input" | "suggested" | null {
+  // 只有原样保留的建议值才能继承 suggested 来源；用户改写后必须降为 input，避免继续展示过期的 AI 建议提示。
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (!source) return "input";
+  const normalizedSource = normalizeWebsite(source.value, []) ?? source.value;
+  return normalizedSource === trimmed ? source.source : "input";
 }
 
-function normalizePrice(price: string | null, warnings: string[]): string {
-  if (price === null) {
-    warnings.push(IMPORT_MESSAGE_CODES.aiPriceDefaulted);
-    return "0";
-  }
-  return price;
+function editedTextSource(
+  value: string,
+  source: AiRecognizedSubscriptionDraft["notes"],
+): "input" | "suggested" | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return source?.value === trimmed ? source.source : "input";
 }
 
-function normalizeCurrency(currency: string | null, state: AIImportBuildState, warnings: string[]): string {
-  const value = currency?.trim().toUpperCase();
-  if (!value) {
-    warnings.push(IMPORT_MESSAGE_CODES.aiCurrencyDefaulted);
-    return state.settings.defaultCurrency;
-  }
+function ensureCurrency(value: string, state: AIImportBuildState): void {
+  const currency = value.trim().toUpperCase();
   state.config = {
     ...state.config,
-    currencies: mergeConfigItem(state.config.currencies, { ...makeConfigItem(value, value), enabled: true }),
+    currencies: mergeConfigItem(state.config.currencies, { ...makeConfigItem(currency, currency), enabled: true }),
   };
-  return value;
 }
 
 function resolveConfigValue(kind: "category" | "payment", value: string | null, state: AIImportBuildState): string | null {
@@ -154,10 +149,10 @@ function resolveConfigValue(kind: "category" | "payment", value: string | null, 
   const matched = findConfigItem(items, text);
   if (matched) return matched.value;
   const nextValue = `${kind === "category" ? "category" : "payment"}_${stableHash(text)}`;
-  const item = makeConfigItem(nextValue, text);
+  const configItem = makeConfigItem(nextValue, text);
   state.config = kind === "category"
-    ? { ...state.config, categories: mergeConfigItem(state.config.categories, item) }
-    : { ...state.config, paymentMethods: mergeConfigItem(state.config.paymentMethods, item) };
+    ? { ...state.config, categories: mergeConfigItem(state.config.categories, configItem) }
+    : { ...state.config, paymentMethods: mergeConfigItem(state.config.paymentMethods, configItem) };
   return nextValue;
 }
 
@@ -171,30 +166,22 @@ function findConfigItem(items: readonly ConfigItem[], text: string): ConfigItem 
 }
 
 function configMatchKey(value: string): string {
-  // AI 可能输出中英文、全角标点或用户自定义标签原文；匹配时只压缩“书写差异”，不翻译业务含义。
+  // AI 可能输出中英文、全角标点或用户自定义标签原文；匹配只压缩书写差异，不翻译或猜测业务含义。
   return value.normalize("NFKC").trim().toLowerCase().replace(/[\s_\-—–/\\|&+，,、.。:：()（）[\]【】]+/g, "");
 }
 
-function requiredDate(value: DateOnly | string | null): DateOnly {
-  if (value) return assertDateOnly(value);
-  throw new Error("AI_RECOGNITION_DRAFT_DATE_REQUIRED");
-}
-
-function optionalDate(value: DateOnly | string | null): DateOnly | null {
-  return value ? assertDateOnly(value) : null;
-}
-
-function nextAISourceId(draft: AiRecognizedSubscriptionDraft, state: AIImportBuildState): string {
+function nextAISourceId(formData: SubscriptionFormState, state: AIImportBuildState): string {
+  // 幂等键只描述可识别的订阅身份；家庭成员、公开开关等私人配置不得因用户补录而改变 sourceId。
   const hash = stableHash(JSON.stringify({
-    name: draft.name,
-    price: draft.price,
-    currency: draft.currency,
-    billingCycle: draft.billingCycle,
-    website: draft.website?.value,
+    name: formData.name,
+    price: formData.price,
+    currency: formData.currency,
+    billingCycle: formData.billingCycle,
+    website: formData.website,
   }));
   const count = (state.sourceIdCounts.get(hash) ?? 0) + 1;
   state.sourceIdCounts.set(hash, count);
-  // 同一批里模型可能识别出两个近似服务；sourceId 追加序号，保证导入幂等键不互相覆盖。
+  // 同批近似订阅追加稳定序号，避免互相覆盖，同时不扩大身份字段集合。
   return count === 1 ? hash : `${hash}-${count}`;
 }
 

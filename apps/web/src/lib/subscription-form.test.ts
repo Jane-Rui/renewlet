@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   getTagsValidationError,
   getSubscriptionDraftValidationError,
+  getSubscriptionFormValidationIssues,
   isOptionalHttpUrl,
   normalizeTagsArray,
   parseMoneyInput,
@@ -85,6 +86,31 @@ describe("subscription-form", () => {
 
     expect(getSubscriptionDraftValidationError(form)).toContain("金额");
     expect(toSubscriptionDraft(form)).toBeNull();
+  });
+
+  it("returns ordered validation issues with stable codes and UI fields", () => {
+    const form = createSubscriptionFormState({
+      name: "",
+      price: "invalid",
+      billingCycle: "custom",
+      customDays: "",
+      startDate: undefined,
+      nextBillingDate: undefined,
+      reminderType: "custom",
+      customReminderDays: "invalid",
+      website: "ftp://example.com",
+      tags: ["x".repeat(41)],
+    });
+
+    expect(getSubscriptionFormValidationIssues(form).map(({ code, field }) => ({ code, field }))).toEqual([
+      { code: "nameRequired", field: "name" },
+      { code: "amountInvalid", field: "price" },
+      { code: "nextBillingDateRequired", field: "dates" },
+      { code: "reminderInvalid", field: "reminderDays" },
+      { code: "customCycleInvalid", field: "customDays" },
+      { code: "websiteInvalid", field: "website" },
+      { code: "tagTooLong", field: "tags" },
+    ]);
   });
 
   it("builds a draft for zero-price services", () => {

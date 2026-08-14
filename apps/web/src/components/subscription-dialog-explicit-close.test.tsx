@@ -146,7 +146,7 @@ describe("SubscriptionDialog explicit close", () => {
     expect(screen.getByRole("dialog", { name: "管理共享成员" })).toBeInTheDocument();
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
 
-    await user.click(screen.getByRole("button", { name: "返回表单" }));
+    await user.click(screen.getByRole("button", { name: "完成" }));
     expect(screen.queryByRole("dialog", { name: "管理共享成员" })).not.toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "编辑订阅" })).toBeInTheDocument();
   });

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSystemUpdateActionsRequireAdmin(t *testing.T) {
@@ -20,22 +21,92 @@ func TestSystemUpdateActionsRequireAdmin(t *testing.T) {
 
 	cases := []struct {
 		name     string
+		method   string
 		target   string
 		token    string
 		wantCode int
 	}{
-		{name: "anonymous update", target: "/api/app/admin/system/update", token: "", wantCode: http.StatusUnauthorized},
-		{name: "non admin update", target: "/api/app/admin/system/update", token: userToken, wantCode: http.StatusForbidden},
-		{name: "anonymous restart", target: "/api/app/admin/system/restart", token: "", wantCode: http.StatusUnauthorized},
-		{name: "non admin restart", target: "/api/app/admin/system/restart", token: userToken, wantCode: http.StatusForbidden},
+		{name: "anonymous update", method: http.MethodPost, target: "/api/app/admin/system/update", token: "", wantCode: http.StatusUnauthorized},
+		{name: "non admin update", method: http.MethodPost, target: "/api/app/admin/system/update", token: userToken, wantCode: http.StatusForbidden},
+		{name: "anonymous update status", method: http.MethodGet, target: "/api/app/admin/system/update/status", token: "", wantCode: http.StatusUnauthorized},
+		{name: "non admin update status", method: http.MethodGet, target: "/api/app/admin/system/update/status", token: userToken, wantCode: http.StatusForbidden},
+		{name: "anonymous restart", method: http.MethodPost, target: "/api/app/admin/system/restart", token: "", wantCode: http.StatusUnauthorized},
+		{name: "non admin restart", method: http.MethodPost, target: "/api/app/admin/system/restart", token: userToken, wantCode: http.StatusForbidden},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res := serveTestRequest(t, app, http.MethodPost, tc.target, `{}`, tc.token)
+			body := ""
+			if tc.method == http.MethodPost {
+				body = `{}`
+			}
+			res := serveTestRequest(t, app, tc.method, tc.target, body, tc.token)
 			if res.Code != tc.wantCode {
 				t.Fatalf("expected system action auth status %d, got %d: %s", tc.wantCode, res.Code, res.Body.String())
 			}
 		})
+	}
+}
+
+func TestSystemUpdateRouteReturnsAcceptedAndContinuesAfterRequest(t *testing.T) {
+	app := newSchemaTestApp(t)
+	if err := ensureSchema(app); err != nil {
+		t.Fatal(err)
+	}
+	_, adminToken := createRouteTestUser(t, app, "admin")
+	service, client, _ := newExecutableSystemUpdateService(t, "1.0.0", "1.1.0")
+	client.fetchDelay = 500 * time.Millisecond
+	oldService := defaultSystemUpdateService
+	defaultSystemUpdateService = service
+	t.Cleanup(func() { defaultSystemUpdateService = oldService })
+
+	invalid := serveTestRequest(t, app, http.MethodPost, "/api/app/admin/system/update", `{"unexpected":true}`, adminToken)
+	if invalid.Code != http.StatusBadRequest {
+		t.Fatalf("strict update body status = %d, want 400: %s", invalid.Code, invalid.Body.String())
+	}
+	startedAt := time.Now()
+	started := serveTestRequest(t, app, http.MethodPost, "/api/app/admin/system/update", `{}`, adminToken)
+	if started.Code != http.StatusAccepted {
+		t.Fatalf("update status = %d, want 202: %s", started.Code, started.Body.String())
+	}
+	if elapsed := time.Since(startedAt); elapsed >= 250*time.Millisecond {
+		t.Fatalf("update POST waited for background work: %s", elapsed)
+	}
+	if started.Header().Get("Location") != "/api/app/admin/system/update/status" || started.Header().Get("Retry-After") != "1" {
+		t.Fatalf("missing async response headers: %#v", started.Header())
+	}
+	if started.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("accepted update response must not be cached: %#v", started.Header())
+	}
+	startedBody := decodeAPISuccessDataForTest[systemUpdateOperationResponse](t, started.Body.Bytes())
+	if startedBody.Operation == nil || startedBody.Operation.Status != systemUpdateStatusRunning {
+		t.Fatalf("unexpected accepted operation: %#v", startedBody.Operation)
+	}
+
+	repeated := serveTestRequest(t, app, http.MethodPost, "/api/app/admin/system/update", `{}`, adminToken)
+	if repeated.Code != http.StatusAccepted {
+		t.Fatalf("repeated update status = %d, want 202: %s", repeated.Code, repeated.Body.String())
+	}
+	repeatedBody := decodeAPISuccessDataForTest[systemUpdateOperationResponse](t, repeated.Body.Bytes())
+	if repeatedBody.Operation == nil || repeatedBody.Operation.ID != startedBody.Operation.ID {
+		t.Fatalf("repeated update did not reuse task: %#v", repeatedBody.Operation)
+	}
+
+	statusStartedAt := time.Now()
+	status := serveTestRequest(t, app, http.MethodGet, "/api/app/admin/system/update/status", "", adminToken)
+	if status.Code != http.StatusOK || status.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("update status response = %d %#v", status.Code, status.Header())
+	}
+	if elapsed := time.Since(statusStartedAt); elapsed >= 250*time.Millisecond {
+		t.Fatalf("status GET waited for background work: %s", elapsed)
+	}
+	statusBody := decodeAPISuccessDataForTest[systemUpdateOperationResponse](t, status.Body.Bytes())
+	if statusBody.Operation == nil || statusBody.Operation.ID != startedBody.Operation.ID {
+		t.Fatalf("status endpoint lost active operation: %#v", statusBody.Operation)
+	}
+
+	completed := waitForSystemUpdateTerminal(t, service)
+	if completed.Status != systemUpdateStatusSucceeded {
+		t.Fatalf("request completion canceled background update: %#v", completed)
 	}
 }
 

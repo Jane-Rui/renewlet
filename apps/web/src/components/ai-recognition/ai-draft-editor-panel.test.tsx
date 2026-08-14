@@ -1,9 +1,11 @@
-// AI 草稿编辑器绕过 SubscriptionDialog，单独保护它也服从设置页货币管理顺序。
+import { useState } from "react";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { DEFAULT_CUSTOM_CONFIG, type CustomConfig } from "@/types/config";
+import type { SubscriptionFormState } from "@/types/subscription-form";
+import { aiDraftToSubscriptionFormState } from "@/modules/ai-recognition/domain/ai-recognition-form";
 import { configuredSettings, makeDraft } from "../ai-recognize-subscription-dialog.test-utils";
 import { AIDraftEditorPanel } from "./ai-draft-editor-panel";
 
@@ -24,6 +26,29 @@ beforeAll(() => {
   Element.prototype.releasePointerCapture ??= vi.fn();
 });
 
+function EditorHarness({ config = currencyManagerOrderConfig }: { config?: CustomConfig }) {
+  const sourceDraft = makeDraft({ currency: "CNY" });
+  const settings = configuredSettings();
+  const [formData, setFormData] = useState<SubscriptionFormState>(() => (
+    aiDraftToSubscriptionFormState(sourceDraft, { config, settings })
+  ));
+  return (
+    <AIDraftEditorPanel
+      draftId="ai-draft-1"
+      sourceDraft={sourceDraft}
+      formData={formData}
+      draftNumber={1}
+      config={config}
+      settings={settings}
+      blockingIssues={[]}
+      setFormData={setFormData}
+      onFieldChange={vi.fn()}
+      onConfirmField={vi.fn()}
+      onRemove={vi.fn()}
+    />
+  );
+}
+
 function getCurrencyOptionTexts(): string[] {
   const listbox = screen.getByRole("listbox");
   return Array.from(listbox.querySelectorAll<HTMLElement>("[cmdk-item]"))
@@ -33,30 +58,26 @@ function getCurrencyOptionTexts(): string[] {
 describe("AIDraftEditorPanel", () => {
   it("uses the currency manager order for the draft currency selector", async () => {
     const user = userEvent.setup();
-
-    render(
-      <TooltipProvider delayDuration={0}>
-        <AIDraftEditorPanel
-          draftId="draft-1"
-          draft={makeDraft({ currency: "CNY" })}
-          draftNumber={1}
-          config={currencyManagerOrderConfig}
-          settings={configuredSettings()}
-          blockingIssues={[]}
-          onChange={vi.fn()}
-          onRemove={vi.fn()}
-        />
-      </TooltipProvider>,
-    );
+    render(<TooltipProvider delayDuration={0}><EditorHarness /></TooltipProvider>);
 
     await user.click(screen.getByRole("combobox", { name: /选择货币|Select currency/ }));
 
     const optionTexts = getCurrencyOptionTexts();
-    expect(optionTexts).toHaveLength(5);
-    expect(optionTexts[0]).toContain("PHP");
-    expect(optionTexts[1]).toContain("AED");
-    expect(optionTexts[2]).toContain("USD");
-    expect(optionTexts[3]).toContain("CNY");
-    expect(optionTexts[4]).toContain("EUR");
+    expect(optionTexts.map((text) => text.match(/PHP|AED|USD|CNY|EUR/)?.[0])).toEqual(["PHP", "AED", "USD", "CNY", "EUR"]);
+  });
+
+  it("edits the single controlled form state without a draft mirror", async () => {
+    const user = userEvent.setup();
+    render(<TooltipProvider delayDuration={0}><EditorHarness /></TooltipProvider>);
+
+    const nameInput = screen.getByLabelText("服务名称");
+    await user.clear(nameInput);
+    await user.type(nameInput, "Apple One Family");
+    await user.click(screen.getByRole("switch", { name: "自动续订" }));
+    await user.click(screen.getByRole("switch", { name: "从公开页隐藏" }));
+
+    expect(nameInput).toHaveValue("Apple One Family");
+    expect(screen.getByRole("switch", { name: "自动续订" })).toBeChecked();
+    expect(screen.getByRole("switch", { name: "从公开页隐藏" })).toBeChecked();
   });
 });

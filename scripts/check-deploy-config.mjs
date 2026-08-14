@@ -21,6 +21,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -173,6 +174,80 @@ function checkComposeConfig() {
   run("docker", ["compose", "-f", "docker-compose.yml", "config"]);
   run("docker", ["compose", "-f", "deploy/docker-compose.yml", "--env-file", "deploy/env.example", "config"]);
   run("docker", ["compose", "-f", "docker-compose.ghcr.yml", "config"]);
+}
+
+function checkGoToolchainConsistency() {
+  const goModPath = join(repoRoot, "apps/docker-server/go.mod");
+  const goDirectives = [...readFileSync(goModPath, "utf8").matchAll(/^go\s+(\d+\.\d+\.\d+)\s*$/gm)];
+  if (goDirectives.length !== 1) {
+    throw new Error("apps/docker-server/go.mod must contain exactly one patch-level Go directive.");
+  }
+  const goVersion = goDirectives[0][1];
+
+  const dockerfile = readFileSync(join(repoRoot, "Dockerfile"), "utf8");
+  const dockerBuilder = /^FROM(?:\s+--platform=\S+)?\s+golang:(?<version>\d+\.\d+\.\d+)-\S+\s+AS\s+server-builder\s*$/m.exec(
+    dockerfile,
+  );
+  if (!dockerBuilder?.groups?.version) {
+    throw new Error("Dockerfile must keep a patch-pinned golang server-builder image.");
+  }
+  if (dockerBuilder.groups.version !== goVersion) {
+    throw new Error(
+      `Dockerfile Go version ${dockerBuilder.groups.version} must match go.mod ${goVersion}.`,
+    );
+  }
+
+  const workflowDir = join(repoRoot, ".github/workflows");
+  const workflowFiles = readdirSync(workflowDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && /\.ya?ml$/.test(entry.name))
+    .map((entry) => entry.name)
+    .sort();
+  let setupGoCount = 0;
+
+  // go.mod 是漏洞扫描、CI 构建和 Docker 发布的唯一 Go 版本源；漂移会把未修复的标准库带进成品。
+  for (const workflowFile of workflowFiles) {
+    const lines = readFileSync(join(workflowDir, workflowFile), "utf8").split(/\r?\n/);
+    for (let index = 0; index < lines.length; index += 1) {
+      const usesMatch = /^(?<indent>\s*)(?:-\s+)?uses:\s*actions\/setup-go@\S+\s*$/.exec(
+        lines[index],
+      );
+      if (!usesMatch?.groups) {
+        continue;
+      }
+
+      setupGoCount += 1;
+      const usesIndent = usesMatch.groups.indent.length;
+      let stepEnd = lines.length;
+      for (let candidate = index + 1; candidate < lines.length; candidate += 1) {
+        const nextStep = /^(?<indent>\s*)-\s+/.exec(lines[candidate]);
+        if (nextStep?.groups && nextStep.groups.indent.length <= usesIndent) {
+          stepEnd = candidate;
+          break;
+        }
+      }
+
+      const stepLines = lines.slice(index, stepEnd);
+      const versionFileValues = stepLines.flatMap((line) => {
+        const match = /^\s*go-version-file:\s*(?<value>.+?)\s*$/.exec(line);
+        return match?.groups ? [match.groups.value.replace(/^['"]|['"]$/g, "")] : [];
+      });
+      if (stepLines.some((line) => /^\s*go-version:\s*/.test(line))) {
+        throw new Error(`${workflowFile} setup-go step must not hardcode go-version.`);
+      }
+      if (
+        versionFileValues.length !== 1 ||
+        versionFileValues[0] !== "apps/docker-server/go.mod"
+      ) {
+        throw new Error(
+          `${workflowFile} setup-go step must use go-version-file: apps/docker-server/go.mod.`,
+        );
+      }
+    }
+  }
+
+  if (setupGoCount === 0) {
+    throw new Error("At least one GitHub Actions workflow must configure actions/setup-go.");
+  }
 }
 
 function checkDockerSelfUpdateLayout() {
@@ -612,6 +687,7 @@ function checkRuntimeReleaseSecretPathRemoved() {
 run("bash", ["-n", deployScript]);
 checkGeneratedSecrets();
 checkInvalidExistingPBKeyIsRejected();
+checkGoToolchainConsistency();
 checkDockerSelfUpdateLayout();
 checkDockerCustomHeadScriptEnv();
 checkDockerProxyEnv();
