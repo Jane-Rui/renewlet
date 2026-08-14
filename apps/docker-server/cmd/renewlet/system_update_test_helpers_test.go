@@ -10,22 +10,26 @@ import (
 	"errors"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
 
 // fake client 隔离 GitHub 网络和真实下载，同时暴露计数器给拆分后的测试断言缓存与 probe 行为。
 type fakeSystemReleaseClient struct {
-	release     *systemRelease
-	releases    []systemRelease
-	fetchDelay  time.Duration
-	fetchCount  int32
-	probeCount  int32
-	downloadFn  func(targetPath string) error
-	checksumTxt []byte
-	probeAssets []systemReleaseAsset
+	release       *systemRelease
+	releases      []systemRelease
+	fetchDelay    time.Duration
+	fetchCount    int32
+	probeCount    int32
+	downloadCount int32
+	checksumCount int32
+	archiveData   []byte
+	checksumTxt   []byte
+	probeAssets   []systemReleaseAsset
+	requestMu     sync.Mutex
+	requestOrder  []string
 }
 
 func (client *fakeSystemReleaseClient) FetchReleases(ctx context.Context) ([]systemRelease, error) {
@@ -54,36 +58,67 @@ func (client *fakeSystemReleaseClient) ProbeReleaseAssets(_ context.Context, _ s
 	return nil
 }
 
-func (client *fakeSystemReleaseClient) DownloadFile(_ context.Context, _ string, targetPath string, _ int64) error {
-	if client.downloadFn != nil {
-		return client.downloadFn(targetPath)
+func (client *fakeSystemReleaseClient) DownloadFile(ctx context.Context, _ string, targetPath string, _ int64) (string, error) {
+	atomic.AddInt32(&client.downloadCount, 1)
+	client.recordRequest("archive")
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	default:
 	}
-	return errors.New("download not configured")
+	if client.archiveData == nil {
+		return "", errors.New("download not configured")
+	}
+	if err := os.WriteFile(targetPath, client.archiveData, 0o600); err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(client.archiveData)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 func (client *fakeSystemReleaseClient) FetchText(_ context.Context, _ string, _ int64) ([]byte, error) {
+	atomic.AddInt32(&client.checksumCount, 1)
+	client.recordRequest("checksum")
 	return client.checksumTxt, nil
+}
+
+func (client *fakeSystemReleaseClient) recordRequest(kind string) {
+	client.requestMu.Lock()
+	defer client.requestMu.Unlock()
+	client.requestOrder = append(client.requestOrder, kind)
+}
+
+func (client *fakeSystemReleaseClient) recordedRequests() []string {
+	client.requestMu.Lock()
+	defer client.requestMu.Unlock()
+	return append([]string(nil), client.requestOrder...)
 }
 
 func (service *systemUpdateService) downloadFnForTest(binaryContent string) {
 	if fake, ok := service.client.(*fakeSystemReleaseClient); ok {
-		fake.downloadFn = func(targetPath string) error {
-			// 页面内更新下载的是 Release tar.gz，测试同时生成 checksum，覆盖真实校验链路而不是裸写二进制。
-			if err := writeTarGz(targetPath, map[string]string{"renewlet": binaryContent}); err != nil {
-				return err
-			}
-			content, err := os.ReadFile(targetPath)
-			if err != nil {
-				return err
-			}
-			sum := sha256.Sum256(content)
-			fake.checksumTxt = []byte(hex.EncodeToString(sum[:]) + "  " + filepath.Base(targetPath) + "\n")
-			return nil
+		archiveData, err := tarGzBytes(map[string]string{"renewlet": binaryContent})
+		if err != nil {
+			panic(err)
 		}
+		archiveName := fakeArchiveName(fake)
+		if archiveName == "" {
+			panic("fake release archive is missing")
+		}
+		fake.archiveData = archiveData
+		sum := sha256.Sum256(archiveData)
+		fake.checksumTxt = []byte(hex.EncodeToString(sum[:]) + "  " + archiveName + "\n")
 	}
 }
 
 func writeTarGz(path string, files map[string]string) error {
+	data, err := tarGzBytes(files)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
+}
+
+func tarGzBytes(files map[string]string) ([]byte, error) {
 	// 自更新包必须保留可执行权限，避免测试通过但容器重启后 /opt/renewlet/current/renewlet 无法执行。
 	var buffer bytes.Buffer
 	gzipWriter := gzip.NewWriter(&buffer)
@@ -94,19 +129,34 @@ func writeTarGz(path string, files map[string]string) error {
 			Mode: 0o755,
 			Size: int64(len(content)),
 		}); err != nil {
-			return err
+			return nil, err
 		}
 		if _, err := tarWriter.Write([]byte(content)); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	if err := tarWriter.Close(); err != nil {
-		return err
+		return nil, err
 	}
 	if err := gzipWriter.Close(); err != nil {
-		return err
+		return nil, err
 	}
-	return os.WriteFile(path, buffer.Bytes(), 0o644)
+	return buffer.Bytes(), nil
+}
+
+func fakeArchiveName(client *fakeSystemReleaseClient) string {
+	releases := client.releases
+	if client.release != nil {
+		releases = []systemRelease{*client.release}
+	}
+	for _, release := range releases {
+		for _, asset := range release.Assets {
+			if asset.Name != "checksums.txt" {
+				return asset.Name
+			}
+		}
+	}
+	return ""
 }
 
 func releaseFixture(tag string) systemRelease {

@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   signOut: vi.fn(),
   useSystemVersion: vi.fn(),
   useSystemUpdate: vi.fn(),
+  useSystemUpdateStatus: vi.fn(),
   useSystemRestart: vi.fn(),
   toast: vi.fn(),
   setTheme: vi.fn(),
@@ -33,6 +34,7 @@ vi.mock("@/lib/auth-client", () => ({
 vi.mock("@/hooks/use-system-version", () => ({
   useSystemVersion: mocks.useSystemVersion,
   useSystemUpdate: mocks.useSystemUpdate,
+  useSystemUpdateStatus: mocks.useSystemUpdateStatus,
   useSystemRestart: mocks.useSystemRestart,
 }));
 
@@ -167,6 +169,7 @@ describe("Header system version entry", () => {
     mocks.signOut.mockReset();
     mocks.useSystemVersion.mockReset();
     mocks.useSystemUpdate.mockReset();
+    mocks.useSystemUpdateStatus.mockReset();
     mocks.useSystemRestart.mockReset();
     mocks.toast.mockReset();
     mocks.setTheme.mockReset();
@@ -190,6 +193,7 @@ describe("Header system version entry", () => {
       reset: vi.fn(),
       data: undefined,
     });
+    mocks.useSystemUpdateStatus.mockReturnValue({ data: { operation: null } });
     mocks.useSystemRestart.mockReturnValue({
       isPending: false,
       mutateAsync: vi.fn(),
@@ -212,6 +216,7 @@ describe("Header system version entry", () => {
 
     expect(screen.getByText("可更新到 v1.1.0")).toBeInTheDocument();
     expect(screen.getByText("当前版本")).toBeInTheDocument();
+    expect(mocks.useSystemUpdateStatus).toHaveBeenLastCalledWith(true, false);
   });
 
   it("shows the version badge for non-admin users without update actions", async () => {
@@ -235,6 +240,7 @@ describe("Header system version entry", () => {
     expect(screen.getByText("当前版本")).toBeInTheDocument();
     expect(screen.getByText("需要管理员权限")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "立即更新" })).not.toBeInTheDocument();
+    expect(mocks.useSystemUpdateStatus).toHaveBeenLastCalledWith(false, false);
   });
 
   it("waits for a signed-in session before showing the version badge", () => {

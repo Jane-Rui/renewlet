@@ -132,6 +132,7 @@ export function Header({ onAddSubscription, availableTags, subscriptionActions }
                 <SystemUpdateDialog
                   open={systemDialogOpen}
                   onOpenChange={setSystemDialogOpen}
+                  canManageUpdates={sessionData?.user.role === "admin"}
                   contentAlign="start"
                   triggerClassName="w-fit"
                   badgeClassName="h-6 max-w-[5.75rem] px-2 min-[380px]:max-w-32 sm:h-7 sm:max-w-none sm:px-2.5"

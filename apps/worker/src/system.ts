@@ -3,7 +3,7 @@
  *
  * Worker 不能执行 Docker 式下载、替换二进制或重启；这里仍检查 GitHub Release，让前端能提示用户同步部署。
  */
-import { systemVersionPayloadSchema } from "@renewlet/shared/schemas/app";
+import { systemUpdateOperationPayloadSchema, systemVersionPayloadSchema } from "@renewlet/shared/schemas/app";
 import { XMLParser } from "fast-xml-parser";
 import rootPackageJson from "../../../package.json";
 import { requireAdmin, requireAuth } from "./auth";
@@ -123,6 +123,12 @@ export async function systemUpdate(request: Request, env: Env): Promise<Response
   await requireAdmin(request, env);
   const locale = requestLocale(request);
   throw new HttpError(400, serverText(locale, "system.cloudflareUpdateUnsupported"), "SYSTEM_UPDATE_UNSUPPORTED");
+}
+
+/** Cloudflare 没有本地更新任务；保留同形状态端点，让跨运行面前端协议无需分叉。 */
+export async function systemUpdateStatus(request: Request, env: Env): Promise<Response> {
+  await requireAdmin(request, env);
+  return successJson(systemUpdateOperationPayloadSchema.parse({ operation: null }));
 }
 
 /**

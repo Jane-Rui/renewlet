@@ -89,7 +89,7 @@ import {
   readTelegramBotCommands,
   telegramWebhook,
 } from "./telegram-bot";
-import { systemRestart, systemUpdate, systemVersion } from "./system";
+import { systemRestart, systemUpdate, systemUpdateStatus, systemVersion } from "./system";
 import { errorResponse, methodNotAllowed, requestLocale, requireSameOriginUnsafe, successJson, toResponse, type AppLocale } from "./http";
 import { serverText } from "./server-i18n";
 import type { Env } from "./types";
@@ -183,6 +183,7 @@ defineRoute(adminRoutes, "/users/:id", {
   DELETE: (context) => adminDeleteUser(context.req.raw, context.env, routeParam(context, "id")),
 });
 defineRoute(adminRoutes, "/system/update", { POST: (context) => systemUpdate(context.req.raw, context.env) });
+defineRoute(adminRoutes, "/system/update/status", { GET: (context) => systemUpdateStatus(context.req.raw, context.env) });
 defineRoute(adminRoutes, "/system/restart", { POST: (context) => systemRestart(context.req.raw, context.env) });
 // 访问安全是站点级管理员策略；这里必须和用户 settings 路由分开，避免 secret 进入账号草稿/导出链路。
 defineRoute(adminRoutes, "/auth-security", {

@@ -1,6 +1,6 @@
 // 系统版本 schema 测试保护 Docker 可执行更新与 Cloudflare 只读部署升级这两条前端能力分流。
 import { describe, expect, it } from "vitest";
-import { appStatusResponseSchema, systemVersionResponseSchema } from "./app";
+import { appStatusResponseSchema, systemUpdateOperationResponseSchema, systemVersionResponseSchema } from "./app";
 
 const success = <T>(data: T) => ({ ok: true, data });
 
@@ -103,5 +103,41 @@ describe("system app schemas", () => {
     }));
 
     expect(result.success).toBe(false);
+  });
+});
+
+describe("system update operation schema", () => {
+  const runningOperation = {
+    id: "operation-1",
+    status: "running",
+    stage: "downloading",
+    currentVersion: "1.0.0",
+    targetVersion: "1.1.0",
+    startedAt: "2026-08-14T01:00:00.123456789Z",
+    updatedAt: "2026-08-14T01:00:01.123456789Z",
+    finishedAt: null,
+    needsRestart: false,
+    error: null,
+  };
+
+  it("accepts the shared POST and GET operation response shape", () => {
+    const parsed = systemUpdateOperationResponseSchema.parse(success({ operation: runningOperation }));
+    expect(parsed.data.operation?.stage).toBe("downloading");
+    expect(systemUpdateOperationResponseSchema.parse(success({ operation: null })).data.operation).toBeNull();
+  });
+
+  it("rejects contradictory task status instead of making the UI infer it", () => {
+    expect(systemUpdateOperationResponseSchema.safeParse(success({
+      operation: { ...runningOperation, status: "succeeded", needsRestart: true },
+    })).success).toBe(false);
+    expect(systemUpdateOperationResponseSchema.safeParse(success({
+      operation: { ...runningOperation, status: "failed", finishedAt: runningOperation.updatedAt, error: null },
+    })).success).toBe(false);
+  });
+
+  it("rejects unknown operation fields", () => {
+    expect(systemUpdateOperationResponseSchema.safeParse(success({
+      operation: { ...runningOperation, progress: 42 },
+    })).success).toBe(false);
   });
 });

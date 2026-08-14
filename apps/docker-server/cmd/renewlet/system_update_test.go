@@ -5,10 +5,15 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -79,9 +84,12 @@ func TestSelectSystemUpdateAssets(t *testing.T) {
 func TestSystemReleaseAssetProbeUsesDeterministicReleaseURLs(t *testing.T) {
 	archiveName := systemArchiveName("1.2.3")
 	seen := map[string]*http.Request{}
+	var seenMu sync.Mutex
 	client := &httpSystemReleaseClient{
 		downloadClient: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			seenMu.Lock()
 			seen[request.URL.Path] = request
+			seenMu.Unlock()
 			if request.Method != http.MethodHead {
 				t.Fatalf("method = %s, want HEAD", request.Method)
 			}
@@ -114,8 +122,80 @@ func TestSystemReleaseAssetProbeUsesDeterministicReleaseURLs(t *testing.T) {
 	if assets[1].Name != "checksums.txt" || assets[1].Size != 45 {
 		t.Fatalf("checksum asset = %#v", assets[1])
 	}
+	seenMu.Lock()
+	defer seenMu.Unlock()
 	if seen["/zhiyingzzhou/renewlet/releases/download/v1.2.3/"+archiveName] == nil || seen["/zhiyingzzhou/renewlet/releases/download/v1.2.3/checksums.txt"] == nil {
 		t.Fatalf("unexpected probed paths: %#v", seen)
+	}
+}
+
+func TestSystemReleaseAssetProbeRunsBothDeterministicHeadsConcurrently(t *testing.T) {
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	client := &httpSystemReleaseClient{
+		downloadClient: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			started <- struct{}{}
+			<-release
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "200 OK",
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader("")),
+				Request:    request,
+			}, nil
+		})},
+	}
+	done := make(chan []systemReleaseAsset, 1)
+	go func() {
+		done <- client.ProbeReleaseAssets(context.Background(), "v1.2.3", "1.2.3")
+	}()
+	for count := 0; count < 2; count++ {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatal("asset HEAD requests did not run concurrently")
+		}
+	}
+	close(release)
+	assets := <-done
+	if len(assets) != 2 || assets[0].Name != systemArchiveName("1.2.3") || assets[1].Name != "checksums.txt" {
+		t.Fatalf("concurrent probe changed deterministic result order: %#v", assets)
+	}
+}
+
+func TestSystemReleaseDownloadComputesChecksumWhileWriting(t *testing.T) {
+	content := []byte("release archive")
+	client := &httpSystemReleaseClient{
+		downloadClient: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode:    http.StatusOK,
+				Status:        "200 OK",
+				Header:        make(http.Header),
+				ContentLength: int64(len(content)),
+				Body:          io.NopCloser(strings.NewReader(string(content))),
+				Request:       request,
+			}, nil
+		})},
+	}
+	targetPath := filepath.Join(t.TempDir(), "archive.tar.gz")
+	actual, err := client.DownloadFile(context.Background(), "https://github.com/zhiyingzzhou/renewlet/releases/download/v1.2.3/archive.tar.gz", targetPath, int64(len(content)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := sha256.Sum256(content)
+	if actual != hex.EncodeToString(expected[:]) {
+		t.Fatalf("download checksum = %q, want %q", actual, hex.EncodeToString(expected[:]))
+	}
+	written, err := os.ReadFile(targetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(written) != string(content) {
+		t.Fatalf("downloaded content = %q", written)
+	}
+	oversizedPath := filepath.Join(t.TempDir(), "oversized.tar.gz")
+	if _, err := client.DownloadFile(context.Background(), "https://github.com/zhiyingzzhou/renewlet/releases/download/v1.2.3/oversized.tar.gz", oversizedPath, int64(len(content)-1)); err == nil {
+		t.Fatal("expected archive size limit to reject the download")
 	}
 }
 
