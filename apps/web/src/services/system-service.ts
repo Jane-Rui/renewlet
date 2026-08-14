@@ -1,10 +1,10 @@
 import { apiFetch } from "@/lib/api-client";
 import {
   systemRestartResponseSchema,
-  systemUpdateResponseSchema,
+  systemUpdateOperationResponseSchema,
   systemVersionResponseSchema,
   type SystemRestartResponse,
-  type SystemUpdateResponse,
+  type SystemUpdateOperationResponse,
   type SystemVersionResponse,
 } from "@/lib/api/schemas/app";
 
@@ -20,13 +20,20 @@ export const systemService = {
     return await apiFetch(`/api/app/system/version?${params.toString()}`, systemVersionResponseSchema, signal ? { signal } : undefined);
   },
 
-  async update(): Promise<SystemUpdateResponse> {
-    // 下载 Release、校验 checksum 和替换二进制可能跨公网，超时必须长于普通 JSON 请求。
-    return await apiFetch("/api/app/admin/system/update", systemUpdateResponseSchema, {
+  // POST 只接受后台任务，沿用普通 API 超时；耗时执行统一由 status 轮询观察，不能再放宽浏览器请求超时。
+  async update(): Promise<SystemUpdateOperationResponse> {
+    return await apiFetch("/api/app/admin/system/update", systemUpdateOperationResponseSchema, {
       method: "POST",
       body: JSON.stringify({}),
-      timeoutMs: 180_000,
     });
+  },
+
+  async updateStatus(signal?: AbortSignal): Promise<SystemUpdateOperationResponse> {
+    return await apiFetch(
+      "/api/app/admin/system/update/status",
+      systemUpdateOperationResponseSchema,
+      signal ? { signal } : undefined,
+    );
   },
 
   async restart(): Promise<SystemRestartResponse> {

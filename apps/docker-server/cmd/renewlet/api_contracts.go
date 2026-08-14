@@ -415,56 +415,6 @@ func (r *subscriptionRenewRequest) Validate(locale appLocale) error {
 	return nil
 }
 
-// systemBuildInfo 是前端版本弹窗展示的构建元数据；发布构建由 CI ldflags 注入。
-type systemBuildInfo struct {
-	Version   string `json:"version"`
-	Commit    string `json:"commit"`
-	BuildTime string `json:"buildTime"`
-	BuildType string `json:"buildType"`
-}
-
-// systemReleaseAssetDTO 只暴露资产名称和大小；真实下载 URL 只留在后端校验链路内，避免浏览器绕过校验直连。
-type systemReleaseAssetDTO struct {
-	Name string `json:"name"`
-	Size int64  `json:"size"`
-}
-
-// systemReleaseInfoDTO 是 GitHub Release 的前端展示视图。
-type systemReleaseInfoDTO struct {
-	TagName     string                  `json:"tagName"`
-	Version     string                  `json:"version"`
-	Name        string                  `json:"name"`
-	Body        string                  `json:"body"`
-	PublishedAt string                  `json:"publishedAt"`
-	HTMLURL     string                  `json:"htmlUrl"`
-	Assets      []systemReleaseAssetDTO `json:"assets"`
-}
-
-// systemVersionResponse 描述当前部署形态、版本检查结果，以及是否能页面内执行二进制更新。
-type systemVersionResponse struct {
-	CurrentVersion    string                `json:"currentVersion"`
-	LatestVersion     string                `json:"latestVersion"`
-	HasUpdate         bool                  `json:"hasUpdate"`
-	CheckSucceeded    bool                  `json:"checkSucceeded"`
-	Deployment        string                `json:"deployment"`
-	UpdateMode        string                `json:"updateMode"`
-	UpdateSupported   bool                  `json:"updateSupported"`
-	UnsupportedReason string                `json:"unsupportedReason,omitempty"`
-	ReleaseInfo       *systemReleaseInfoDTO `json:"releaseInfo"`
-	Cached            bool                  `json:"cached"`
-	Warning           string                `json:"warning,omitempty"`
-	ErrorDetails      *upstreamErrorDetails `json:"errorDetails,omitempty"`
-	Build             systemBuildInfo       `json:"build"`
-}
-
-// systemUpdateResponse 表示二进制已经替换完成，等待管理员在前端确认重启。
-type systemUpdateResponse struct {
-	CurrentVersion string `json:"currentVersion"`
-	TargetVersion  string `json:"targetVersion"`
-	NeedsRestart   bool   `json:"needsRestart"`
-	Message        string `json:"message"`
-}
-
 type builtInIconProviderCountsResponse struct {
 	TheSVG         int `json:"thesvg"`
 	Selfhst        int `json:"selfhst"`
