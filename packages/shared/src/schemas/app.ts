@@ -91,18 +91,64 @@ export const systemVersionPayloadSchema = z.object({
 }).strict();
 export const systemVersionResponseSchema = apiSuccessResponseSchema(systemVersionPayloadSchema);
 
-/**
- * 页面内更新完成响应。
- *
- * 成功只表示二进制已替换并进入 restart pending；旧进程退出必须由管理员后续显式确认。
- */
-export const systemUpdatePayloadSchema = z.object({
-  currentVersion: z.string().min(1),
-  targetVersion: z.string().min(1),
-  needsRestart: z.boolean(),
+export const systemUpdateOperationStatusSchema = z.enum(["running", "succeeded", "failed"]);
+export const systemUpdateOperationStageSchema = z.enum([
+  "checking",
+  "downloading",
+  "verifying",
+  "installing",
+  "restart-pending",
+  "completed",
+]);
+
+export const systemUpdateOperationErrorSchema = z.object({
+  code: z.string().min(1),
   message: z.string().min(1),
+  details: upstreamErrorDetailsSchema.optional(),
 }).strict();
-export const systemUpdateResponseSchema = apiSuccessResponseSchema(systemUpdatePayloadSchema);
+
+/** 更新任务是 Docker 自更新唯一事实源；轮询响应不触发磁盘、数据库或上游请求。 */
+export const systemUpdateOperationSchema = z.object({
+  id: z.string().min(1),
+  status: systemUpdateOperationStatusSchema,
+  stage: systemUpdateOperationStageSchema,
+  currentVersion: z.string().min(1),
+  targetVersion: z.string().min(1).nullable(),
+  startedAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+  finishedAt: z.iso.datetime().nullable(),
+  needsRestart: z.boolean(),
+  error: systemUpdateOperationErrorSchema.nullable(),
+}).strict().superRefine((operation, context) => {
+  // 这里约束的是 Go、Worker 与 React 共同依赖的组合状态，不只是字段类型；任何运行面都不能产生“成功但仍在下载”等歧义快照。
+  const terminal = operation.status !== "running";
+  if (terminal !== (operation.finishedAt !== null)) {
+    context.addIssue({ code: "custom", message: "finishedAt must match terminal status", path: ["finishedAt"] });
+  }
+  if ((operation.status === "failed") !== (operation.error !== null)) {
+    context.addIssue({ code: "custom", message: "error must match failed status", path: ["error"] });
+  }
+  if (operation.status === "running" && (operation.stage === "restart-pending" || operation.stage === "completed")) {
+    context.addIssue({ code: "custom", message: "running operation has a terminal stage", path: ["stage"] });
+  }
+  if (operation.status === "succeeded" && operation.stage !== "restart-pending" && operation.stage !== "completed") {
+    context.addIssue({ code: "custom", message: "succeeded operation has a nonterminal stage", path: ["stage"] });
+  }
+  if (operation.status === "failed" && operation.stage === "completed") {
+    context.addIssue({ code: "custom", message: "failed operation cannot be completed", path: ["stage"] });
+  }
+  if (operation.needsRestart && (operation.status !== "succeeded" || operation.stage !== "restart-pending")) {
+    context.addIssue({ code: "custom", message: "needsRestart requires restart-pending success", path: ["needsRestart"] });
+  }
+  if (operation.stage !== "checking" && operation.targetVersion === null) {
+    context.addIssue({ code: "custom", message: "targetVersion is required after checking", path: ["targetVersion"] });
+  }
+});
+
+export const systemUpdateOperationPayloadSchema = z.object({
+  operation: systemUpdateOperationSchema.nullable(),
+}).strict();
+export const systemUpdateOperationResponseSchema = apiSuccessResponseSchema(systemUpdateOperationPayloadSchema);
 
 export const systemRestartResponseSchema = okResponseSchema;
 
@@ -112,5 +158,8 @@ export type PasswordResetStatusResponse = z.infer<typeof passwordResetStatusPayl
 export type SystemDeployment = z.infer<typeof systemDeploymentSchema>;
 export type SystemUpdateMode = z.infer<typeof systemUpdateModeSchema>;
 export type SystemVersionResponse = z.infer<typeof systemVersionPayloadSchema>;
-export type SystemUpdateResponse = z.infer<typeof systemUpdatePayloadSchema>;
+export type SystemUpdateOperationStatus = z.infer<typeof systemUpdateOperationStatusSchema>;
+export type SystemUpdateOperationStage = z.infer<typeof systemUpdateOperationStageSchema>;
+export type SystemUpdateOperation = z.infer<typeof systemUpdateOperationSchema>;
+export type SystemUpdateOperationResponse = z.infer<typeof systemUpdateOperationPayloadSchema>;
 export type SystemRestartResponse = z.infer<typeof okPayloadSchema>;
