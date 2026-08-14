@@ -21,7 +21,7 @@ COPY packages/shared packages/shared
 COPY scripts/check-client-csp.mjs scripts/check-client-csp.mjs
 RUN pnpm --filter @renewlet/client build
 
-FROM --platform=$BUILDPLATFORM golang:1.26.5-alpine3.24 AS server-builder
+FROM --platform=$BUILDPLATFORM golang:1.26.6-alpine3.24 AS server-builder
 
 # Release workflow 和 Docker buildx 会注入这些元数据；页面内更新和版本弹窗都依赖 ldflags 中的值。
 ARG TARGETOS=linux

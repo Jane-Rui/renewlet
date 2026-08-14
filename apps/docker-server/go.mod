@@ -1,6 +1,6 @@
 module github.com/zhiyingzzhou/renewlet/apps/docker-server
 
-go 1.26.5
+go 1.26.6
 
 require (
 	github.com/arran4/golang-ical v0.3.5
