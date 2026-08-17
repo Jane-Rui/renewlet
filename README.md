@@ -115,7 +115,7 @@ docker compose up -d
 docker compose logs -f
 ```
 
-Docker release images with the current binary layout can also update from the version badge at the top of Renewlet. Older images must run `docker compose pull && docker compose up -d` once before in-app updates become available.
+Docker release images also support in-app updates. Administrators can open System Update from the version badge at the top of Renewlet.
 
 ## Common Commands
 

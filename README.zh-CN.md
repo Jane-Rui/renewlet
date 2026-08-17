@@ -115,7 +115,7 @@ docker compose up -d
 docker compose logs -f
 ```
 
-当前二进制布局的 Docker release 镜像也可以从页面顶部版本号进入系统更新。旧布局镜像需要先执行一次 `docker compose pull && docker compose up -d`，之后才会开放页面内更新。
+Docker 发布镜像也支持页面内更新；管理员可点击页面顶部版本号进入“系统更新”。
 
 ## 常用命令
 
