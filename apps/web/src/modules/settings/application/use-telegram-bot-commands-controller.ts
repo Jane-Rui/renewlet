@@ -25,10 +25,12 @@ export interface SettingsTelegramBotCommandsController {
 export function useTelegramBotCommandsController({
   settings,
   savedSettings,
+  telegramTokenConfigured,
   externalIntegrationsDisabled,
 }: {
   settings: AppSettings;
   savedSettings: AppSettings;
+  telegramTokenConfigured: boolean;
   externalIntegrationsDisabled: boolean;
 }): SettingsTelegramBotCommandsController {
   const { t } = useI18n();
@@ -37,8 +39,8 @@ export function useTelegramBotCommandsController({
   const installMutation = useInstallTelegramBotCommands();
   const deleteMutation = useDeleteTelegramBotCommands();
   // 管理 API 只读取已保存的 Telegram 凭据；草稿变更必须先保存，避免 webhook 安装到用户未提交的 token/chat。
-  const savedConfigComplete = Boolean(savedSettings.telegramBotToken.trim() && savedSettings.telegramChatId.trim());
-  const telegramConfigDirty = settings.telegramBotToken.trim() !== savedSettings.telegramBotToken.trim()
+  const savedConfigComplete = Boolean(telegramTokenConfigured && savedSettings.telegramChatId.trim());
+  const telegramConfigDirty = Boolean(settings.telegramBotToken.trim())
     || settings.telegramChatId.trim() !== savedSettings.telegramChatId.trim();
   const currentOriginHttps = typeof window === "undefined" || window.location.protocol === "https:";
   const isInstalling = commands.data?.status === "installing" || installMutation.isPending;

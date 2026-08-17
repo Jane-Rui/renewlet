@@ -1,5 +1,6 @@
 // H5 基线 E2E 覆盖登录、设置、订阅弹窗、Logo sheet 和 Select sheet，是移动端布局回归的总闸。
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
+import { expect, test } from "./support/test";
 import {
   createSubscription,
   openAddSubscriptionDialog,

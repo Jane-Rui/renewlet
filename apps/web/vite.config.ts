@@ -144,6 +144,8 @@ export default defineConfig(({ command, mode }) => {
       allowedHosts: ["sh.cfhd.de"],
     },
     build: {
+      target: "es2022",
+      manifest: true,
       rolldownOptions: {
         output: {
           // Workers Static Assets 直接下发前端产物；按依赖边界拆主包，避免首屏 JS 重新越过 Vite 500KB 预警线。

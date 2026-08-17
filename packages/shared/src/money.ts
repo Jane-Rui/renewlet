@@ -14,8 +14,12 @@ const decimalPattern = /^\d+(?:\.\d+)?$/;
  *
  * 汇率和图表比例仍可用 number；只有用户输入金额通过这里收敛，避免账本金额在 JSON/SQLite/JS 之间丢精度。
  */
-export const moneyStringSchema = z.string().trim().refine((value) => canonicalizeMoneyString(value) !== null, "Invalid money amount")
-  .transform((value) => canonicalizeMoneyString(value)!);
+export const moneyStringSchema = z.string().trim().transform((value, context): MoneyString => {
+  const canonical = canonicalizeMoneyString(value);
+  if (canonical !== null) return canonical;
+  context.addIssue({ code: "custom", message: "Invalid money amount" });
+  return z.NEVER;
+});
 
 export function canonicalizeMoneyString(input: string): MoneyString | null {
   const value = input.trim();

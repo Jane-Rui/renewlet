@@ -4,6 +4,12 @@ import { DEFAULT_SETTINGS } from "@/types/subscription";
 import { assetService } from "./asset-service";
 import { customConfigService } from "./custom-config-service";
 import { settingsService } from "./settings-service";
+import {
+  appSettingsSecretStatus,
+  type ApiAppSettings,
+  settingsUpdateBodySchema,
+  toPublicAppSettings,
+} from "@/lib/api/schemas/settings";
 
 const mocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
@@ -30,14 +36,40 @@ beforeEach(() => {
 describe("product API services", () => {
   it("loads and saves settings through /api/app/settings", async () => {
     // settings 服务是 Docker/Cloudflare 共用边界，测试防止前端回退到 PocketBase collection REST。
-    mocks.apiFetch.mockResolvedValue({ settings: DEFAULT_SETTINGS });
+    const storedSettings: ApiAppSettings = {
+      ...DEFAULT_SETTINGS,
+      testPhone: "8613800000000",
+      telegramBotToken: "telegram-secret",
+      aiRecognition: {
+        ...DEFAULT_SETTINGS.aiRecognition,
+        model: "gpt-5-mini",
+        modelInputMode: "manual",
+        apiKey: "ai-secret",
+      },
+    };
+    mocks.apiFetch.mockResolvedValue({
+      settings: toPublicAppSettings(storedSettings),
+      secretStatus: appSettingsSecretStatus(storedSettings),
+    });
 
-    await settingsService.get();
+    const loaded = await settingsService.get();
     await settingsService.update(DEFAULT_SETTINGS, { monthlyBudget: "2000" });
+
+    expect(loaded.settings.testPhone).toBe("8613800000000");
+    expect(loaded.settings.aiRecognition.model).toBe("gpt-5-mini");
+    expect(loaded.settings.telegramBotToken).toBe("");
+    expect(loaded.settings.aiRecognition.apiKey).toBe("");
+    expect(loaded.secretStatus.telegramBotToken.configured).toBe(true);
+    expect(loaded.secretStatus["aiRecognition.apiKey"].configured).toBe(true);
 
     expect(mocks.apiFetch.mock.calls[0]?.[0]).toBe("/api/app/settings");
     expect(mocks.apiFetch.mock.calls[1]?.[0]).toBe("/api/app/settings");
     expect(mocks.apiFetch.mock.calls[1]?.[2]).toMatchObject({ method: "PUT" });
+    const rawUpdateBody: unknown = JSON.parse(String((mocks.apiFetch.mock.calls[1]?.[2] as RequestInit | undefined)?.body));
+    const updateBody = settingsUpdateBodySchema.parse(rawUpdateBody);
+    expect(updateBody.secretUpdates).toEqual({});
+    expect(updateBody).not.toHaveProperty("telegramBotToken");
+    expect(updateBody.aiRecognition).not.toHaveProperty("apiKey");
     for (const [url] of mocks.apiFetch.mock.calls) {
       expect(String(url)).not.toContain("/api/collections/settings/records");
     }

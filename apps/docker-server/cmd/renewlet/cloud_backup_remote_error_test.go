@@ -345,7 +345,7 @@ func TestWebDAVCloudBackupSDKAdapterRoundTrip(t *testing.T) {
 	if err := client.Test(context.Background()); err != nil {
 		t.Fatalf("expected WebDAV test to succeed: %v", err)
 	}
-	if err := client.Upload(context.Background(), manifest.Filename, content, manifest); err != nil {
+	if err := client.Upload(context.Background(), manifest.Filename, cloudBackupSnapshotSourceForTest(t, content), manifest); err != nil {
 		t.Fatalf("expected upload to succeed: %v", err)
 	}
 	manifests, err := client.List(context.Background())

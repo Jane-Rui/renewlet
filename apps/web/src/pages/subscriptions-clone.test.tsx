@@ -4,6 +4,8 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { assertDateOnly } from "@/lib/time/date-only";
 import { DEFAULT_SETTINGS, type Subscription } from "@/types/subscription";
+import { appSettingsSecretStatus } from "@renewlet/shared/schemas/settings";
+import type { SettingsReadModel } from "@/services/settings-service";
 import Subscriptions from "./subscriptions";
 
 interface MockInfiniteSubscriptionsResult {
@@ -13,6 +15,7 @@ interface MockInfiniteSubscriptionsResult {
   isFetchingNextPage?: boolean;
   fetchNextPage?: () => void;
 }
+type MockSettingsEnvelopeResult = { data?: SettingsReadModel };
 
 const cloneSource = vi.hoisted(() => ({
   value: null as Subscription | null,
@@ -21,7 +24,7 @@ const cloneSource = vi.hoisted(() => ({
 const mocks = vi.hoisted(() => ({
   useInfiniteSubscriptions: vi.fn<() => MockInfiniteSubscriptionsResult>(),
   useSubscriptions: vi.fn(),
-  useSettings: vi.fn(),
+  useSettingsEnvelope: vi.fn<() => MockSettingsEnvelopeResult>(),
   handleAddSubscription: vi.fn(),
   handleDeleteSubscription: vi.fn(),
   handleEditSubscription: vi.fn(),
@@ -42,7 +45,11 @@ vi.mock("@/hooks/use-subscriptions", () => ({
 }));
 
 vi.mock("@/hooks/use-settings", () => ({
-  useSettings: mocks.useSettings,
+  useSettingsEnvelope: mocks.useSettingsEnvelope,
+  useSettings: () => {
+    const envelope = mocks.useSettingsEnvelope();
+    return { ...envelope, data: envelope.data?.settings };
+  },
 }));
 
 vi.mock("@/hooks/use-exchange-rates", () => ({
@@ -269,7 +276,12 @@ function renderSubscriptionsPage() {
 beforeEach(() => {
   cloneSource.value = null;
   mocks.cloneDialogOpen = false;
-  mocks.useSettings.mockReturnValue({ data: DEFAULT_SETTINGS });
+  mocks.useSettingsEnvelope.mockReturnValue({
+    data: {
+      settings: DEFAULT_SETTINGS,
+      secretStatus: appSettingsSecretStatus(DEFAULT_SETTINGS),
+    },
+  });
   mocks.useSubscriptions.mockImplementation(() => {
     const infinite = mocks.useInfiniteSubscriptions();
     return { data: infinite.subscriptions ?? [], isPending: false };

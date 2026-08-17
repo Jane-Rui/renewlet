@@ -108,9 +108,14 @@ export function SubscriptionDialog(props: SubscriptionDialogProps) {
     includeDisabledCurrent: formData.currency,
     locale,
   });
+  const collectionReminderAllowed = costSharingCollectionReminderIsAllowedForBillingCycle({
+    billingCycle: formData.billingCycle,
+    oneTimeMode: formData.oneTimeMode,
+  });
+  const collectionReminderEnabled = formData.costSharing?.collectionReminder?.enabled ?? false;
 
   useEffect(() => {
-    if (costSharingCollectionReminderIsAllowedForBillingCycle(formData) || !formData.costSharing?.collectionReminder?.enabled) return;
+    if (collectionReminderAllowed || !collectionReminderEnabled) return;
     // 买断 one-time 没有可推进的收款周期；草稿进入该模式时立即关闭，避免提交阶段出现一个不会生效的开关。
     setFormData((prev) => {
       if (costSharingCollectionReminderIsAllowedForBillingCycle(prev) || !prev.costSharing?.collectionReminder?.enabled) return prev;
@@ -122,7 +127,7 @@ export function SubscriptionDialog(props: SubscriptionDialogProps) {
         },
       };
     });
-  }, [formData.billingCycle, formData.oneTimeMode, formData.costSharing?.collectionReminder?.enabled, setFormData]);
+  }, [collectionReminderAllowed, collectionReminderEnabled, setFormData]);
 
   useSubscriptionFormAutoDates(formData, setFormData, billingReferenceDate);
 

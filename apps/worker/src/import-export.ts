@@ -3,6 +3,8 @@ import {
   importApplyPayloadSchema,
   importApplyRequestSchema,
   IMPORT_APPLY_SUBSCRIPTION_LIMIT,
+  IMPORT_PREVIEW_MAX_BYTES,
+  IMPORT_PREVIEW_SUBSCRIPTION_LIMIT,
   importPreviewPayloadSchema,
   importPreviewRequestSchema,
   type ImportConflictMode,
@@ -12,47 +14,35 @@ import {
   type ImportSubscription,
 } from "@renewlet/shared/schemas/import-export";
 import { customConfigSchema } from "@renewlet/shared/schemas/custom-config";
+import type { ApiAppSettings } from "@renewlet/shared/schemas/settings";
 import { mergeAppSettingsPatch } from "@renewlet/shared/settings-normalization";
-import { getSettings, listSubscriptions, newId, nowIso, parseJsonObject } from "./db";
-import { requestLocale, readJsonWithLimit, HttpError, successJson, type AppLocale } from "./http";
+import { getSettings, listSubscriptions, newId, nowIso, parseJsonObject, toApiSubscription } from "./db";
+import { requestLocale, readJsonWithLimitAndSize, HttpError, successJson, type AppLocale } from "./http";
 import { serverText } from "./server-i18n";
 import { requireAuth } from "./auth";
-import { normalizeSubscriptionBodyForStorage, refreshCostSharingCollectionReminderMirrors, subscriptionRowValues, toSubscriptionRow, type SubscriptionBody } from "./subscriptions";
-import { refreshSubscriptionDerivedState } from "./subscription-derived-state";
-import { refreshSubscriptionSchedulerState } from "./subscription-scheduler-state";
+import { buildCostSharingCollectionReminderMirrorStatements, normalizeSubscriptionBodyForStorage, toSubscriptionRow, type SubscriptionBody } from "./subscriptions";
+import { subscriptionDerivedBulkMutationPlan, type SubscriptionDerivedMutation } from "./subscription-derived-state";
+import { buildSubscriptionSchedulerRefreshStatements } from "./subscription-scheduler-state";
 import { exchangeRateSnapshotUpsertStatement } from "./exchange-rate-snapshots";
 import type { Env, SubscriptionRow } from "./types";
 
-const INSERT_SUBSCRIPTION_SQL = `
-  INSERT INTO subscriptions (
-    id, user_id, name, logo, price, currency, billing_cycle, custom_days, custom_cycle_unit, one_time_term_count, one_time_term_unit,
-    category, status, pinned, public_hidden, payment_method,
-    start_date, next_billing_date, auto_renew, auto_calculate_next_billing_date, trial_end_date, website, notes, tags_json,
-    reminder_days, repeat_reminder_enabled, repeat_reminder_interval, repeat_reminder_window, cost_sharing_json,
-    cost_sharing_collection_reminder_enabled, cost_sharing_next_collection_reminder_date, extra_json, created_at, updated_at
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-`;
-
-const UPDATE_SUBSCRIPTION_SQL = `
-  UPDATE subscriptions SET
-    name = ?, logo = ?, price = ?, currency = ?, billing_cycle = ?, custom_days = ?, custom_cycle_unit = ?,
-    one_time_term_count = ?, one_time_term_unit = ?, category = ?, status = ?,
-    pinned = ?, public_hidden = ?, payment_method = ?, start_date = ?, next_billing_date = ?, auto_renew = ?, auto_calculate_next_billing_date = ?,
-    trial_end_date = ?, website = ?, notes = ?, tags_json = ?, reminder_days = ?, repeat_reminder_enabled = ?,
-    repeat_reminder_interval = ?, repeat_reminder_window = ?, cost_sharing_json = ?,
-    cost_sharing_collection_reminder_enabled = ?, cost_sharing_next_collection_reminder_date = ?, extra_json = ?, updated_at = ?
-  WHERE user_id = ? AND id = ?
-`;
-
-const IMPORT_JSON_LIMIT_BYTES = 50 * 1024 * 1024;
 const IMPORT_WARNING_LOW_CONFIDENCE_KEY = "IMPORT_WARNING_LOW_CONFIDENCE_KEY";
 const IMPORT_WARNING_LOW_CONFIDENCE_NAME_MATCHED = "IMPORT_WARNING_LOW_CONFIDENCE_NAME_MATCHED";
 
 /** 导入预览只做当前用户范围内的冲突判断，不写 D1。 */
 export async function previewImport(request: Request, env: Env): Promise<Response> {
+  const metrics = { bodyBytes: 0, items: 0 };
+  return await withImportResourceLog("preview", metrics, async () => await previewImportRequest(request, env, metrics));
+}
+
+async function previewImportRequest(request: Request, env: Env, metrics: { bodyBytes: number; items: number }): Promise<Response> {
   const locale = requestLocale(request);
   const auth = await requireAuth(request, env);
-  const body = await readJsonWithLimit(request, importPreviewRequestSchema, locale, IMPORT_JSON_LIMIT_BYTES);
+  const parsed = await readImportBody(request, importPreviewRequestSchema, locale);
+  const body = parsed.data;
+  metrics.bodyBytes = parsed.bodyBytes;
+  metrics.items = body.payload.subscriptions.length;
+  assertPreviewPayloadSize(body.payload.subscriptions.length, locale);
   assertValidSkipIndexes(body.skipIndexes, body.payload.subscriptions.length, locale);
   assertExchangeRateSnapshotSource(body.payload, locale);
   const existing = await listSubscriptions(env, auth.user.id);
@@ -61,10 +51,18 @@ export async function previewImport(request: Request, env: Env): Promise<Respons
 
 /** 应用导入会重新计算 preview，避免客户端篡改 action 结果后直接写库。 */
 export async function applyImport(request: Request, env: Env): Promise<Response> {
+  const metrics = { bodyBytes: 0, items: 0 };
+  return await withImportResourceLog("apply", metrics, async () => await applyImportRequest(request, env, metrics));
+}
+
+async function applyImportRequest(request: Request, env: Env, metrics: { bodyBytes: number; items: number }): Promise<Response> {
   const locale = requestLocale(request);
   const auth = await requireAuth(request, env);
   // apply 必须重新解析和预览请求体，不能信任浏览器上一轮 preview 的 action 结果。
-  const body = await readJsonWithLimit(request, importApplyRequestSchema, locale, IMPORT_JSON_LIMIT_BYTES);
+  const parsed = await readImportBody(request, importApplyRequestSchema, locale);
+  const body = parsed.data;
+  metrics.bodyBytes = parsed.bodyBytes;
+  metrics.items = body.payload.subscriptions.length;
   assertApplyPayloadSize(body.payload.subscriptions.length, locale);
   // 导入只在当前登录用户范围内查重；payload 里的来源用户仅用于 extra.import 幂等键，不能变成 owner。
   assertValidSkipIndexes(body.skipIndexes, body.payload.subscriptions.length, locale);
@@ -77,11 +75,21 @@ export async function applyImport(request: Request, env: Env): Promise<Response>
 
   const timestamp = nowIso();
   const statements: D1PreparedStatement[] = [];
+  const subscriptionMutations: SubscriptionDerivedMutation[] = [];
   const existingMatches = buildExistingImportMatches(existing);
   const settingsForRows = await getSettings(env, auth.user.id);
   let finalSettingsForMirrors = settingsForRows;
-  let wroteSubscriptions = false;
-  let wroteSettings = false;
+  let scheduleSettingsChanged = false;
+  if (body.payload.settings) {
+    finalSettingsForMirrors = mergeAppSettingsPatch(settingsForRows, body.payload.settings);
+    scheduleSettingsChanged = importSettingsAffectSchedule(settingsForRows, finalSettingsForMirrors);
+    // settings merge 先套默认值和清洗规则，再写 JSON；导入文件不能绕过设置页契约塞入未知字段。
+    statements.push(env.DB.prepare(`
+      INSERT INTO settings (user_id, settings_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET settings_json = excluded.settings_json, updated_at = excluded.updated_at
+    `).bind(auth.user.id, JSON.stringify(finalSettingsForMirrors), timestamp, timestamp));
+  }
   for (const item of preview.items) {
     if (item.action !== "create" && item.action !== "replace") continue;
     const source = preview.normalizedByIndex.get(item.index);
@@ -95,62 +103,38 @@ export async function applyImport(request: Request, env: Env): Promise<Response>
       source,
       existingRow?.created_at ?? timestamp,
       timestamp,
-      { settings: settingsForRows },
+      { settings: finalSettingsForMirrors },
     );
     if (existingRow) {
-      wroteSubscriptions = true;
-      statements.push(env.DB.prepare(UPDATE_SUBSCRIPTION_SQL).bind(
-        row.name,
-        row.logo,
-        row.price,
-        row.currency,
-        row.billing_cycle,
-        row.custom_days,
-        row.custom_cycle_unit,
-        row.one_time_term_count,
-        row.one_time_term_unit,
-        row.category,
-        row.status,
-        row.pinned,
-        row.public_hidden,
-        row.payment_method,
-        row.start_date,
-        row.next_billing_date,
-        row.auto_renew,
-        row.auto_calculate_next_billing_date,
-        row.trial_end_date,
-        row.website,
-        row.notes,
-        row.tags_json,
-        row.reminder_days,
-        row.repeat_reminder_enabled,
-        row.repeat_reminder_interval,
-        row.repeat_reminder_window,
-        row.cost_sharing_json,
-        row.cost_sharing_collection_reminder_enabled,
-        row.cost_sharing_next_collection_reminder_date,
-        row.extra_json,
-        timestamp,
-        auth.user.id,
-        existingRow.id,
-      ));
+      subscriptionMutations.push({ before: existingRow, after: row, kind: "update" });
     } else {
-      wroteSubscriptions = true;
-      statements.push(env.DB.prepare(INSERT_SUBSCRIPTION_SQL).bind(...subscriptionRowValues(row)));
+      subscriptionMutations.push({ before: null, after: row, kind: "create" });
     }
   }
-
-  if (body.payload.settings) {
-    wroteSettings = true;
-    const current = settingsForRows;
-    const next = mergeAppSettingsPatch(current, body.payload.settings);
-    finalSettingsForMirrors = next;
-    // settings merge 先套默认值和清洗规则，再写 JSON；导入文件不能绕过设置页契约塞入未知字段。
-    statements.push(env.DB.prepare(`
-      INSERT INTO settings (user_id, settings_json, created_at, updated_at)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(user_id) DO UPDATE SET settings_json = excluded.settings_json, updated_at = excluded.updated_at
-    `).bind(auth.user.id, JSON.stringify(next), timestamp, timestamp));
+  if (scheduleSettingsChanged) {
+    // 旧行镜像先写，随后 bulk fact 会用最终导入 row 覆盖 replace 项；未出现在导入里的行也能同步新规则。
+    statements.push(...await buildCostSharingCollectionReminderMirrorStatements(env, auth.user.id, finalSettingsForMirrors));
+  }
+  if (subscriptionMutations.length > 0) {
+    // 200 条 apply 不能按每条 6+tag 发 D1 query；JSON1 批量计划保持一次事务并把 SQL 数固定为 9。
+    const derived = subscriptionDerivedBulkMutationPlan(env, subscriptionMutations, finalSettingsForMirrors);
+    statements.push(...derived.beforeFact, derived.fact, ...derived.afterFact);
+  }
+  if (scheduleSettingsChanged) {
+    const finalRows = new Map(existing.map((row) => [row.id, row]));
+    for (const mutation of subscriptionMutations) {
+      if (mutation.after) finalRows.set(mutation.after.id, mutation.after);
+    }
+    const rows = [...finalRows.values()];
+    statements.push(...await buildSubscriptionSchedulerRefreshStatements(env, auth.user.id, {
+      resetAutoRenewCheck: false,
+      settings: finalSettingsForMirrors,
+      repeatCandidates: rows.filter((row) => row.repeat_reminder_enabled === 1).map(toApiSubscription),
+      aggregateCounts: {
+        autoRenewCount: rows.filter((row) => row.auto_renew === 1).length,
+        repeatReminderCount: rows.filter((row) => row.repeat_reminder_enabled === 1).length,
+      },
+    }));
   }
   if (body.payload.customConfig) {
     const nextConfig = customConfigSchema.parse(body.payload.customConfig);
@@ -170,20 +154,61 @@ export async function applyImport(request: Request, env: Env): Promise<Response>
     // D1 batch 在同一事务里执行；导入要么整体写入，要么让调用方看到明确失败。
     await env.DB.batch(statements);
   }
-  if (wroteSubscriptions || wroteSettings) {
-    await refreshCostSharingCollectionReminderMirrors(env, auth.user.id, finalSettingsForMirrors);
-  }
-  if (wroteSubscriptions) {
-    await refreshSubscriptionDerivedState(env, auth.user.id, { resetAutoRenewCheck: true });
-  } else if (wroteSettings) {
-    await refreshSubscriptionSchedulerState(env, auth.user.id, { resetAutoRenewCheck: false });
-  }
   return successJson(importApplyPayloadSchema.parse(publicPreview(preview)));
+}
+
+function importSettingsAffectSchedule(before: ApiAppSettings, after: ApiAppSettings): boolean {
+  return before.timezone !== after.timezone
+    || before.notificationTimeLocal !== after.notificationTimeLocal
+    || before.notificationReminderDays !== after.notificationReminderDays;
 }
 
 function assertApplyPayloadSize(count: number, locale: AppLocale): void {
   if (count > IMPORT_APPLY_SUBSCRIPTION_LIMIT) {
-    throw new HttpError(400, serverText(locale, "import.invalid"), "IMPORT_TOO_MANY_SUBSCRIPTIONS");
+    throw new HttpError(413, serverText(locale, "import.invalid"), "IMPORT_TOO_LARGE");
+  }
+}
+
+function assertPreviewPayloadSize(count: number, locale: AppLocale): void {
+  if (count > IMPORT_PREVIEW_SUBSCRIPTION_LIMIT) {
+    throw new HttpError(413, serverText(locale, "import.invalid"), "IMPORT_TOO_LARGE");
+  }
+}
+
+async function readImportBody<Schema extends z.ZodType>(
+  request: Request,
+  schema: Schema,
+  locale: AppLocale,
+): Promise<{ data: z.infer<Schema>; bodyBytes: number }> {
+  try {
+    return await readJsonWithLimitAndSize(request, schema, locale, IMPORT_PREVIEW_MAX_BYTES);
+  } catch (error) {
+    if (error instanceof HttpError && (
+      error.status === 413
+      || (error.code === "INVALID_PAYLOAD" && JSON.stringify(error.details).includes("IMPORT_TOO_LARGE"))
+    )) {
+      throw new HttpError(413, serverText(locale, "import.invalid"), "IMPORT_TOO_LARGE");
+    }
+    throw error;
+  }
+}
+
+async function withImportResourceLog<T>(
+  operation: "preview" | "apply",
+  metrics: { bodyBytes: number; items: number },
+  task: () => Promise<T>,
+): Promise<T> {
+  const startedAt = performance.now();
+  try {
+    return await task();
+  } finally {
+    console.info("import_resources", {
+      event: "import_resources",
+      operation,
+      bodyBytes: metrics.bodyBytes,
+      items: metrics.items,
+      durationMs: Math.round((performance.now() - startedAt) * 100) / 100,
+    });
   }
 }
 

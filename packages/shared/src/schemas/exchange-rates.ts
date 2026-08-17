@@ -8,6 +8,24 @@ import { normalizeExchangeRateProvider } from "../runtime";
  */
 export const exchangeRateProviderSchema = z.enum(["frankfurter", "floatrates", "exchange-api"]);
 
+/** 三个汇率来源可互补覆盖的 Renewlet 法币集合；响应校验、前端选项和测试 fixture 必须共用这一事实源。 */
+export const SUPPORTED_EXCHANGE_RATE_CURRENCIES = [
+  "AED", "AFN", "ALL", "AMD", "AOA", "ARS", "AUD", "AWG", "AZN", "BAM", "BBD", "BDT",
+  "BHD", "BIF", "BND", "BOB", "BRL", "BSD", "BWP", "BYN", "BZD", "CAD", "CDF", "CHF",
+  "CLP", "CNY", "COP", "CRC", "CUP", "CVE", "CZK", "DJF", "DKK", "DOP", "DZD", "EGP",
+  "ERN", "ETB", "EUR", "FJD", "GBP", "GEL", "GHS", "GIP", "GMD", "GNF", "GTQ", "GYD",
+  "HKD", "HNL", "HTG", "HUF", "IDR", "ILS", "INR", "IQD", "IRR", "ISK", "JMD", "JOD",
+  "JPY", "KES", "KGS", "KHR", "KMF", "KRW", "KWD", "KZT", "LAK", "LBP", "LKR", "LRD",
+  "LSL", "LYD", "MAD", "MDL", "MGA", "MKD", "MMK", "MNT", "MOP", "MRU", "MUR", "MVR",
+  "MWK", "MXN", "MYR", "MZN", "NAD", "NGN", "NIO", "NOK", "NPR", "NZD", "OMR", "PAB",
+  "PEN", "PGK", "PHP", "PKR", "PLN", "PYG", "QAR", "RON", "RSD", "RUB", "RWF", "SAR",
+  "SBD", "SCR", "SDG", "SEK", "SGD", "SOS", "SRD", "SSP", "STN", "SVC", "SYP", "SZL",
+  "THB", "TJS", "TMT", "TND", "TOP", "TRY", "TTD", "TWD", "TZS", "UAH", "UGX", "USD",
+  "UYU", "UZS", "VES", "VND", "VUV", "WST", "XAF", "XCD", "XCG", "XOF", "XPF", "YER",
+  "ZAR", "ZMW",
+] as const;
+export type SupportedExchangeRateCurrency = (typeof SUPPORTED_EXCHANGE_RATE_CURRENCIES)[number];
+
 export { normalizeExchangeRateProvider };
 
 /** 统一汇率表以 USD 为基准，key 固定为 ISO 4217 三字母大写代码。 */

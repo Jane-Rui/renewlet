@@ -22,10 +22,11 @@ import {
   normalizeExchangeRateProvider,
   type LocalTime,
 } from "../runtime";
-import { aiRecognitionSettingsSchema } from "./ai-recognition";
+import { aiRecognitionPublicSettingsSchema, aiRecognitionSettingsSchema } from "./ai-recognition";
 import { apiSuccessResponseSchema } from "./api";
 import { exchangeRateProviderSchema } from "./exchange-rates";
 import { moneyStringSchema } from "../money";
+import { secretMutationSchema, type SecretMutation } from "./secrets";
 
 const hhmmSchema = z.string().refine(isValidLocalTime, "时间格式必须为 HH:mm").transform((value) => value as LocalTime);
 
@@ -187,8 +188,71 @@ export type ApiOnlineIconSourceSettingsPatch = OnlineIconSourceSettingsPatch;
  */
 export const appSettingsSchema = z.object(appSettingsShape).strict();
 
+export const SETTINGS_SECRET_KEYS = [
+  "telegramBotToken",
+  "notifyxApiKey",
+  "webhookUrl",
+  "webhookHeaders",
+  "dingtalkWebhookUrl",
+  "dingtalkSecret",
+  "wechatWebhookUrl",
+  "smtpPassword",
+  "barkDeviceKey",
+  "serverchanSendKey",
+  "discordWebhookUrl",
+  "pushplusToken",
+  "aiRecognition.apiKey",
+] as const;
+export const settingsSecretKeySchema = z.enum(SETTINGS_SECRET_KEYS);
+export type SettingsSecretKey = z.infer<typeof settingsSecretKeySchema>;
+
+const topLevelSecretOmissions = {
+  telegramBotToken: true,
+  notifyxApiKey: true,
+  webhookUrl: true,
+  webhookHeaders: true,
+  dingtalkWebhookUrl: true,
+  dingtalkSecret: true,
+  wechatWebhookUrl: true,
+  smtpPassword: true,
+  barkDeviceKey: true,
+  serverchanSendKey: true,
+  discordWebhookUrl: true,
+  pushplusToken: true,
+} as const;
+
+export const publicAppSettingsSchema = appSettingsSchema
+  .omit(topLevelSecretOmissions)
+  .extend({ aiRecognition: aiRecognitionPublicSettingsSchema })
+  .strict();
+export type PublicAppSettings = z.infer<typeof publicAppSettingsSchema>;
+
+const secretUpdatesShape = {
+  telegramBotToken: secretMutationSchema.optional(),
+  notifyxApiKey: secretMutationSchema.optional(),
+  webhookUrl: secretMutationSchema.optional(),
+  webhookHeaders: secretMutationSchema.optional(),
+  dingtalkWebhookUrl: secretMutationSchema.optional(),
+  dingtalkSecret: secretMutationSchema.optional(),
+  wechatWebhookUrl: secretMutationSchema.optional(),
+  smtpPassword: secretMutationSchema.optional(),
+  barkDeviceKey: secretMutationSchema.optional(),
+  serverchanSendKey: secretMutationSchema.optional(),
+  discordWebhookUrl: secretMutationSchema.optional(),
+  pushplusToken: secretMutationSchema.optional(),
+  "aiRecognition.apiKey": secretMutationSchema.optional(),
+};
+export const settingsSecretUpdatesSchema = z.object(secretUpdatesShape).partial().strict();
+export type SettingsSecretUpdates = z.infer<typeof settingsSecretUpdatesSchema>;
+export const settingsSecretStatusSchema = z.record(
+  settingsSecretKeySchema,
+  z.object({ configured: z.boolean() }).strict(),
+);
+export type SettingsSecretStatus = z.infer<typeof settingsSecretStatusSchema>;
+
 export const settingsPayloadSchema = z.object({
-  settings: appSettingsSchema,
+  settings: publicAppSettingsSchema,
+  secretStatus: settingsSecretStatusSchema,
 }).strict();
 export const settingsResponseSchema = apiSuccessResponseSchema(settingsPayloadSchema);
 
@@ -197,10 +261,106 @@ export const settingsResponseSchema = apiSuccessResponseSchema(settingsPayloadSc
  *
  * builtInIconSources/onlineIconSources 额外允许按来源局部更新，最终完整设置仍由 appSettingsSchema 兜底。
  */
-export const settingsUpdateBodySchema = z.object({
-  ...appSettingsShape,
+const publicSettingsUpdateSchema = z.object({
+  ...publicAppSettingsSchema.shape,
   builtInIconSources: builtInIconSourcesPatchSchema,
   onlineIconSources: onlineIconSourcesPatchSchema,
 }).partial().strict();
+export const settingsUpdateBodySchema = publicSettingsUpdateSchema.extend({
+  secretUpdates: settingsSecretUpdatesSchema.optional(),
+}).strict();
+
+// 历史 settings 与备份允许缺少新字段；嵌套来源也必须按 patch 解析，随后由统一 normalizer 补齐默认值。
+export const persistedSettingsBackupSchema = appSettingsSchema.partial().extend({
+  builtInIconSources: builtInIconSourcesPatchSchema.optional(),
+  onlineIconSources: onlineIconSourcesPatchSchema.optional(),
+}).strict();
+export type PersistedSettingsBackup = z.infer<typeof persistedSettingsBackupSchema>;
+
+export function toPublicAppSettings(settings: ApiAppSettings): PublicAppSettings {
+  const {
+    telegramBotToken: _telegramBotToken,
+    notifyxApiKey: _notifyxApiKey,
+    webhookUrl: _webhookUrl,
+    webhookHeaders: _webhookHeaders,
+    dingtalkWebhookUrl: _dingtalkWebhookUrl,
+    dingtalkSecret: _dingtalkSecret,
+    wechatWebhookUrl: _wechatWebhookUrl,
+    smtpPassword: _smtpPassword,
+    barkDeviceKey: _barkDeviceKey,
+    serverchanSendKey: _serverchanSendKey,
+    discordWebhookUrl: _discordWebhookUrl,
+    pushplusToken: _pushplusToken,
+    aiRecognition,
+    ...publicSettings
+  } = settings;
+  const { apiKey: _apiKey, ...publicAIRecognition } = aiRecognition;
+  return publicAppSettingsSchema.parse({ ...publicSettings, aiRecognition: publicAIRecognition });
+}
+
+/**
+ * 将脱敏后的公共设置还原为浏览器可编辑模型；write-only 字段只能为空，configured 状态由独立契约表达。
+ */
+export function toEditableAppSettings(settings: PublicAppSettings): ApiAppSettings {
+  return appSettingsSchema.parse({
+    ...settings,
+    telegramBotToken: "",
+    notifyxApiKey: "",
+    webhookUrl: "",
+    webhookHeaders: "",
+    dingtalkWebhookUrl: "",
+    dingtalkSecret: "",
+    wechatWebhookUrl: "",
+    smtpPassword: "",
+    barkDeviceKey: "",
+    serverchanSendKey: "",
+    discordWebhookUrl: "",
+    pushplusToken: "",
+    aiRecognition: { ...settings.aiRecognition, apiKey: "" },
+  });
+}
+
+export function appSettingsSecretStatus(settings: ApiAppSettings): SettingsSecretStatus {
+  return settingsSecretStatusSchema.parse({
+    telegramBotToken: { configured: settings.telegramBotToken.trim().length > 0 },
+    notifyxApiKey: { configured: settings.notifyxApiKey.trim().length > 0 },
+    webhookUrl: { configured: settings.webhookUrl.trim().length > 0 },
+    webhookHeaders: { configured: settings.webhookHeaders.trim().length > 0 },
+    dingtalkWebhookUrl: { configured: settings.dingtalkWebhookUrl.trim().length > 0 },
+    dingtalkSecret: { configured: settings.dingtalkSecret.trim().length > 0 },
+    wechatWebhookUrl: { configured: settings.wechatWebhookUrl.trim().length > 0 },
+    smtpPassword: { configured: settings.smtpPassword.trim().length > 0 },
+    barkDeviceKey: { configured: settings.barkDeviceKey.trim().length > 0 },
+    serverchanSendKey: { configured: settings.serverchanSendKey.trim().length > 0 },
+    discordWebhookUrl: { configured: settings.discordWebhookUrl.trim().length > 0 },
+    pushplusToken: { configured: settings.pushplusToken.trim().length > 0 },
+    "aiRecognition.apiKey": { configured: settings.aiRecognition.apiKey.trim().length > 0 },
+  });
+}
+
+export function applySettingsSecretUpdates(settings: ApiAppSettings, updates: SettingsSecretUpdates = {}): ApiAppSettings {
+  const next: ApiAppSettings = { ...settings, aiRecognition: { ...settings.aiRecognition } };
+  const valueFor = (key: SettingsSecretKey, current: string): string => {
+    const mutation: SecretMutation | undefined = updates[key];
+    if (!mutation || mutation.action === "keep") return current;
+    return mutation.action === "clear" ? "" : mutation.value;
+  };
+  next.telegramBotToken = valueFor("telegramBotToken", next.telegramBotToken);
+  next.notifyxApiKey = valueFor("notifyxApiKey", next.notifyxApiKey);
+  next.webhookUrl = valueFor("webhookUrl", next.webhookUrl);
+  next.webhookHeaders = valueFor("webhookHeaders", next.webhookHeaders);
+  next.dingtalkWebhookUrl = valueFor("dingtalkWebhookUrl", next.dingtalkWebhookUrl);
+  next.dingtalkSecret = valueFor("dingtalkSecret", next.dingtalkSecret);
+  next.wechatWebhookUrl = valueFor("wechatWebhookUrl", next.wechatWebhookUrl);
+  next.smtpPassword = valueFor("smtpPassword", next.smtpPassword);
+  next.barkDeviceKey = valueFor("barkDeviceKey", next.barkDeviceKey);
+  next.serverchanSendKey = valueFor("serverchanSendKey", next.serverchanSendKey);
+  next.discordWebhookUrl = valueFor("discordWebhookUrl", next.discordWebhookUrl);
+  next.pushplusToken = valueFor("pushplusToken", next.pushplusToken);
+  next.aiRecognition.apiKey = valueFor("aiRecognition.apiKey", next.aiRecognition.apiKey);
+  return appSettingsSchema.parse(next);
+}
+
 export type ApiAppSettings = z.infer<typeof appSettingsSchema>;
+export type SettingsUpdateBody = z.infer<typeof settingsUpdateBodySchema>;
 export type SettingsResponse = z.infer<typeof settingsPayloadSchema>;

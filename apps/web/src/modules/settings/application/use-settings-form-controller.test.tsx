@@ -184,9 +184,8 @@ describe("useSettingsFormController", () => {
       await result.current.handleSaveChanges();
     });
 
-    expect(mocks.updateSettingsMutateAsync).toHaveBeenCalledWith(expect.objectContaining({
-      exchangeRateProvider: "exchange-api",
-    }));
+    const command = mocks.updateSettingsMutateAsync.mock.calls.at(0)?.at(0);
+    expect(command?.patch.exchangeRateProvider).toBe("exchange-api");
     expect(mocks.setTheme).not.toHaveBeenCalled();
   });
 
@@ -284,9 +283,8 @@ describe("useSettingsFormController", () => {
       await result.current.handleSaveChanges();
     });
 
-    expect(mocks.updateSettingsMutateAsync).toHaveBeenCalledWith(expect.objectContaining({
-      exchangeRateProvider: "exchange-api",
-    }));
+    const command = mocks.updateSettingsMutateAsync.mock.calls.at(0)?.at(0);
+    expect(command?.patch.exchangeRateProvider).toBe("exchange-api");
     expect(mocks.refreshRates).toHaveBeenCalledWith("exchange-api");
     expect(result.current.settings.exchangeRateProvider).toBe("exchange-api");
     expect(result.current.hasUnsavedChanges).toBe(false);
@@ -311,9 +309,8 @@ describe("useSettingsFormController", () => {
       await result.current.handleSaveChanges();
     });
 
-    expect(mocks.updateSettingsMutateAsync).toHaveBeenCalledWith(expect.objectContaining({
-      themeMode: "light",
-    }));
+    const command = mocks.updateSettingsMutateAsync.mock.calls.at(0)?.at(0);
+    expect(command?.patch.themeMode).toBe("light");
     expect(result.current.hasUnsavedChanges).toBe(false);
     expect(localStorage.getItem(SETTINGS_APPEARANCE_PENDING_STORAGE_KEY)).toBeNull();
     expect(localStorage.getItem(SETTINGS_THEME_MODE_STORAGE_KEY)).toBeNull();
@@ -333,9 +330,8 @@ describe("useSettingsFormController", () => {
       await result.current.handleSaveChanges();
     });
 
-    expect(mocks.updateSettingsMutateAsync).toHaveBeenCalledWith(expect.objectContaining({
-      locale: nextLocale,
-    }));
+    const command = mocks.updateSettingsMutateAsync.mock.calls.at(0)?.at(0);
+    expect(command?.patch.locale).toBe(nextLocale);
     expect(mocks.setLocale).toHaveBeenLastCalledWith(nextLocale, {
       persist: false,
       markAsSaved: true,

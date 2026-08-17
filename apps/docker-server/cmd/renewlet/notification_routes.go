@@ -11,6 +11,7 @@ package main
 // 注意： sent=false 是合法业务结果，不是 HTTP 错误；前端依赖该判别字段展示空提醒状态。
 import (
 	"crypto/subtle"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -78,6 +79,7 @@ func handleNotificationTest(app core.App, e *core.RequestEvent) error {
 // handleNotificationRun 为当前用户手动触发一次通知。
 // sent=false 是“没有应发送内容”的正常业务结果，不应当作为错误处理。
 func handleNotificationRun(app core.App, e *core.RequestEvent) error {
+	startedAt := time.Now()
 	locale := requestLocale(e.Request)
 	body, err := decodeOptionalStrictJSON[notificationRunRequest](e.Request, locale)
 	if err != nil {
@@ -97,6 +99,17 @@ func handleNotificationRun(app core.App, e *core.RequestEvent) error {
 		return e.InternalServerError(serverText(locale, "notification.loadSubscriptionsFailed"), err)
 	}
 	message := buildDueNotification(time.Now(), settings, subscriptions, true)
+	batchCount := 0
+	if message.HasPayload {
+		batchCount = 1
+	}
+	defer func() {
+		slog.Info("notification manual run resources",
+			"subscriptions", len(subscriptions),
+			"batches", batchCount,
+			"duration", time.Since(startedAt),
+		)
+	}()
 	if !message.HasPayload && !body.Force {
 		// 手动运行需要给前端一个可判别的 skipped 响应，避免 UI 通过 message 文案猜测结果。
 		return apiSuccessJSON(e, http.StatusOK, notificationRunSkippedResponse{Sent: false, Reason: "no_due_items"})
@@ -109,21 +122,10 @@ func handleNotificationRun(app core.App, e *core.RequestEvent) error {
 	return apiSuccessJSON(e, http.StatusOK, notificationRunSentResponse{Sent: true, Summary: summary})
 }
 
-// handleNotificationHistory 返回调度预览和分页历史。
-// limit+1 用于判断 hasMore，避免额外 count 查询拖慢历史面板。
-func handleNotificationHistory(app core.App, e *core.RequestEvent) error {
+// handleNotificationOverview 单独计算当前调度概览；自动续订和订阅全量读取只允许出现在这个入口。
+func handleNotificationOverview(app core.App, e *core.RequestEvent) error {
+	startedAt := time.Now()
 	locale := requestLocale(e.Request)
-	query := e.Request.URL.Query()
-	status := query.Get("status")
-	if status == "" {
-		status = "all"
-	}
-	if status != "all" && status != notificationStatusSent && status != notificationStatusFailed && status != notificationStatusSkipped && status != notificationStatusSending {
-		return e.BadRequestError(serverText(locale, "notification.historyStatusInvalid"), nil)
-	}
-	limit := clampInt(parseInt(query.Get("limit"), 20), 1, 50)
-	offset := maxInt(parseInt(query.Get("offset"), 0), 0)
-
 	settings, err := currentUserSettings(app, e.Auth, nil)
 	if err != nil {
 		return e.BadRequestError(serverText(locale, "notification.settingsInvalid"), err)
@@ -136,6 +138,41 @@ func handleNotificationHistory(app core.App, e *core.RequestEvent) error {
 		return e.InternalServerError(serverText(locale, "notification.loadSubscriptionsFailed"), err)
 	}
 	overview := buildNotificationOverview(time.Now(), settings, subscriptions, 30)
+	slog.Info("notification overview resources",
+		"subscriptions", len(subscriptions),
+		"batches", len(overview.UpcomingBatches),
+		"duration", time.Since(startedAt),
+	)
+	latestJob, _ := latestNotificationJob(app, e.Auth.Id, "")
+	latestFailedJob, _ := latestNotificationJob(app, e.Auth.Id, notificationStatusFailed)
+
+	return apiSuccessJSON(e, http.StatusOK, notificationOverviewResponse{
+		Summary: notificationHistorySummaryResponse{
+			NextCheck:        overview.NextCheck,
+			NextContentBatch: overview.NextContentBatch,
+			Blockers:         overview.Blockers,
+			EnabledChannels:  overview.EnabledChannels,
+			UpcomingDays:     overview.UpcomingDays,
+			LatestJob:        toHistoryJob(latestJob),
+			LatestFailedJob:  toHistoryJob(latestFailedJob),
+		},
+		Upcoming: overview.UpcomingBatches,
+	})
+}
+
+// handleNotificationHistory 只返回分页审计行；limit+1 判断 hasMore，翻页不得读取 subscriptions。
+func handleNotificationHistory(app core.App, e *core.RequestEvent) error {
+	locale := requestLocale(e.Request)
+	query := e.Request.URL.Query()
+	status := query.Get("status")
+	if status == "" {
+		status = "all"
+	}
+	if status != "all" && status != notificationStatusSent && status != notificationStatusFailed && status != notificationStatusSkipped && status != notificationStatusSending {
+		return e.BadRequestError(serverText(locale, "notification.historyStatusInvalid"), nil)
+	}
+	limit := clampInt(parseInt(query.Get("limit"), 20), 1, 50)
+	offset := maxInt(parseInt(query.Get("offset"), 0), 0)
 
 	filter := "user = {:user}"
 	params := dbx.Params{"user": e.Auth.Id}
@@ -154,26 +191,11 @@ func handleNotificationHistory(app core.App, e *core.RequestEvent) error {
 		jobs = rows[:limit]
 		hasMore = true
 	}
-	latestJob, _ := latestNotificationJob(app, e.Auth.Id, "")
-	latestFailedJob, _ := latestNotificationJob(app, e.Auth.Id, notificationStatusFailed)
-
-	return apiSuccessJSON(e, http.StatusOK, notificationHistoryResponse{
-		Summary: notificationHistorySummaryResponse{
-			NextCheck:        overview.NextCheck,
-			NextContentBatch: overview.NextContentBatch,
-			Blockers:         overview.Blockers,
-			EnabledChannels:  overview.EnabledChannels,
-			UpcomingDays:     overview.UpcomingDays,
-			LatestJob:        toHistoryJob(latestJob),
-			LatestFailedJob:  toHistoryJob(latestFailedJob),
-		},
-		Upcoming: overview.UpcomingBatches,
-		History: notificationHistoryPageResponse{
-			Jobs:    recordsToHistoryJobs(jobs),
-			Status:  status,
-			Limit:   limit,
-			Offset:  offset,
-			HasMore: hasMore,
-		},
+	return apiSuccessJSON(e, http.StatusOK, notificationHistoryPageResponse{
+		Jobs:    recordsToHistoryJobs(jobs),
+		Status:  status,
+		Limit:   limit,
+		Offset:  offset,
+		HasMore: hasMore,
 	})
 }

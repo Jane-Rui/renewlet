@@ -9,6 +9,19 @@ export type UpstreamResponseCaptureOptions = {
   bodyLimitBytes?: number;
 };
 
+type UpstreamResponseHeaders = {
+  forEach(callback: (value: string, key: string) => void): void;
+  get(name: string): string | null;
+};
+
+/** Workers fetch 与 WebDAV 的 fetch adapter 只需共享这组响应能力，不把任一运行时的完整 Response 类型泄漏给调用方。 */
+export type UpstreamFetchResponse = {
+  readonly status: number;
+  readonly statusText: string;
+  readonly headers: UpstreamResponseHeaders;
+  readonly body: unknown;
+};
+
 // 这个结构只在运行时内部保留 status/header/body 以便脱敏取 rawResponseText；公开 API 只暴露 shared 的 details.rawResponseText。
 export type UpstreamProviderResponse = {
   status: number | null;
@@ -29,7 +42,7 @@ export class UpstreamOperationError extends Error {
 }
 
 export async function upstreamProviderResponseFromFetchResponse(
-  response: Response,
+  response: UpstreamFetchResponse,
   options: UpstreamResponseCaptureOptions = {},
 ): Promise<UpstreamProviderResponse> {
   const body = await readUpstreamResponseBody(response, options.bodyLimitBytes);
@@ -37,7 +50,7 @@ export async function upstreamProviderResponseFromFetchResponse(
 }
 
 export function upstreamProviderResponseFromBody(
-  response: Response,
+  response: UpstreamFetchResponse,
   body: string,
   bodyTruncated: boolean,
   secrets: readonly string[] = [],
@@ -83,7 +96,7 @@ export function createUpstreamErrorDetails(input: {
 
 export function createUpstreamHTTPError(input: {
   provider: string;
-  response: Response;
+  response: UpstreamFetchResponse;
   providerResponse: UpstreamProviderResponse;
   providerMessage?: string | null;
 }): UpstreamOperationError {
@@ -110,7 +123,7 @@ export function providerMessageFromResponse(response: UpstreamProviderResponse |
   return response?.body || response?.statusText || null;
 }
 
-export function upstreamHeadersToObject(headers: Headers, secrets: readonly string[] = []): Record<string, string> | null {
+export function upstreamHeadersToObject(headers: UpstreamResponseHeaders, secrets: readonly string[] = []): Record<string, string> | null {
   const out: Record<string, string> = {};
   headers.forEach((value, key) => {
     // response header 也可能带 Set-Cookie、签名或临时 token；只保留排障有用且不含凭据的 header。
@@ -158,11 +171,17 @@ export function redactUpstreamSecrets(value: string, secrets: readonly string[] 
   return redactSignedQueryValues(out);
 }
 
-// Worker 出站错误页可能是 HTML/大 JSON；只读取固定上限，避免 response.text() 把 isolate 内存打满。
-export async function readUpstreamResponseBody(response: Response, limitBytes = UPSTREAM_RAW_RESPONSE_TEXT_CAPTURE_MAX_CHARS): Promise<{ text: string; truncated: boolean }> {
+// WebDAV 的声明仍使用 Node stream，而 Worker 实际使用 Web Stream；两条路径都必须有界读取，不能退回 response.text()。
+export async function readUpstreamResponseBody(response: UpstreamFetchResponse, limitBytes = UPSTREAM_RAW_RESPONSE_TEXT_CAPTURE_MAX_CHARS): Promise<{ text: string; truncated: boolean }> {
   if (!response.body) return { text: "", truncated: false };
   const limit = Math.max(0, Math.floor(limitBytes));
-  const reader = response.body.getReader();
+  if (isWebReadableBody(response.body)) return await readWebReadableBody(response.body, limit);
+  if (isAsyncIterableBody(response.body)) return await readAsyncIterableBody(response.body, limit);
+  throw new Error("Unsupported upstream response body");
+}
+
+async function readWebReadableBody(body: ReadableStream<Uint8Array>, limit: number): Promise<{ text: string; truncated: boolean }> {
+  const reader = body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
   let truncated = false;
@@ -191,7 +210,54 @@ export async function readUpstreamResponseBody(response: Response, limitBytes = 
   };
 }
 
-export async function readUpstreamResponseTextUpToLimit(response: Response, label: string, limitBytes: number): Promise<string> {
+async function readAsyncIterableBody(body: AsyncIterable<unknown>, limit: number): Promise<{ text: string; truncated: boolean }> {
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  let truncated = false;
+  for await (const value of body) {
+    const chunk = upstreamBodyChunkBytes(value);
+    const remaining = limit - total;
+    if (remaining <= 0) {
+      truncated = true;
+      break;
+    }
+    if (chunk.byteLength > remaining) {
+      chunks.push(chunk.slice(0, remaining));
+      total += remaining;
+      truncated = true;
+      break;
+    }
+    chunks.push(chunk);
+    total += chunk.byteLength;
+  }
+  return {
+    text: new TextDecoder().decode(concatUint8Arrays(chunks)),
+    truncated,
+  };
+}
+
+function isWebReadableBody(value: unknown): value is ReadableStream<Uint8Array> {
+  return typeof value === "object"
+    && value !== null
+    && "getReader" in value
+    && typeof value.getReader === "function";
+}
+
+function isAsyncIterableBody(value: unknown): value is AsyncIterable<unknown> {
+  return typeof value === "object"
+    && value !== null
+    && Symbol.asyncIterator in value
+    && typeof value[Symbol.asyncIterator] === "function";
+}
+
+function upstreamBodyChunkBytes(value: unknown): Uint8Array {
+  if (value instanceof Uint8Array) return value;
+  if (value instanceof ArrayBuffer) return new Uint8Array(value);
+  if (typeof value === "string") return textEncoder.encode(value);
+  throw new Error("Unsupported upstream response body chunk");
+}
+
+export async function readUpstreamResponseTextUpToLimit(response: UpstreamFetchResponse, label: string, limitBytes: number): Promise<string> {
   const limit = Math.max(0, Math.floor(limitBytes));
   const declaredLength = Number.parseInt(response.headers.get("content-length") ?? "", 10);
   if (Number.isFinite(declaredLength) && declaredLength > limit) {

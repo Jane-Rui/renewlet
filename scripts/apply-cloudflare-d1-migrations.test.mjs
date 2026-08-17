@@ -19,16 +19,26 @@ const state = JSON.parse(readFileSync(statePath, "utf8"));
 state.calls ??= [];
 const args = process.argv.slice(2);
 state.calls.push(args);
-const expectedPrefix = ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--remote"];
-if (expectedPrefix.some((value, index) => args[index] !== value)) {
+const target = "--" + state.target;
+const migrationPrefix = ["exec", "wrangler", "d1", "migrations", "apply", "DB", target];
+const backfillPrefix = ["exec", "tsx", "scripts/backfill-cloudflare-subscription-derived-state.ts", target];
+const foreignKeyPrefix = ["exec", "wrangler", "d1", "execute", "DB", target, "--command", "PRAGMA foreign_key_check", "--json"];
+const matches = (prefix) => prefix.every((value, index) => args[index] === value);
+let response;
+if (matches(migrationPrefix)) {
+  response = state.migrationResponses.shift();
+} else if (matches(backfillPrefix)) {
+  response = state.backfillResponse;
+} else if (matches(foreignKeyPrefix)) {
+  response = state.foreignKeyResponse;
+} else {
   writeFileSync(statePath, JSON.stringify(state, null, 2));
   console.error("unexpected pnpm invocation: " + args.join(" "));
   process.exit(99);
 }
-const response = state.responses.shift();
 writeFileSync(statePath, JSON.stringify(state, null, 2));
 if (!response) {
-  console.error("missing fake migration response");
+  console.error("missing fake command response");
   process.exit(98);
 }
 if (response.stdout) process.stdout.write(response.stdout);
@@ -38,14 +48,27 @@ process.exit(response.status);
   chmodSync(path, 0o755);
 }
 
-function runApply(responses, { args = [], maxAttempts = 5 } = {}) {
+function runApply(migrationResponses, {
+  args = [],
+  target = "remote",
+  maxAttempts = 5,
+  backfillResponse = { status: 0, stdout: "Backfill complete.\n" },
+  foreignKeyResponse = { status: 0, stdout: '[{"success":true,"results":[]}]\n' },
+} = {}) {
   const tempDir = mkdtempSync(join(tmpdir(), "renewlet-d1-migrations-"));
   const statePath = join(tempDir, "state.json");
   const binDir = join(tempDir, "bin");
   try {
     writeFakePnpm(binDir);
-    writeFileSync(statePath, JSON.stringify({ responses, calls: [] }, null, 2));
-    const result = spawnSync(process.execPath, [scriptPath, ...args], {
+    writeFileSync(statePath, JSON.stringify({
+      migrationResponses,
+      backfillResponse,
+      foreignKeyResponse,
+      target,
+      calls: [],
+    }, null, 2));
+    const scriptArgs = target ? [`--${target}`, ...args] : args;
+    const result = spawnSync(process.execPath, [scriptPath, ...scriptArgs], {
       cwd: repoRoot,
       encoding: "utf8",
       env: {
@@ -73,23 +96,27 @@ test("passes canonical --config to wrangler and succeeds on the first attempt", 
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(state.calls, [
     ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--remote", "--config", "wrangler.generated.jsonc"],
+    ["exec", "tsx", "scripts/backfill-cloudflare-subscription-derived-state.ts", "--remote", "--config", "wrangler.generated.jsonc"],
+    ["exec", "wrangler", "d1", "execute", "DB", "--remote", "--command", "PRAGMA foreign_key_check", "--json", "--config", "wrangler.generated.jsonc"],
   ]);
   assert.doesNotMatch(result.stdout + result.stderr, /super-secret-token/);
 });
 
-test("accepts a historical pnpm separator before --config", () => {
+test("runs migration, derived-state backfill, and foreign-key check for local D1", () => {
   const { result, state } = runApply([
     { status: 0, stdout: "No migrations to apply.\n" },
-  ], { args: ["--", "--config", "wrangler.generated.jsonc"] });
+  ], { target: "local", args: ["--config", "wrangler.generated.jsonc"] });
 
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(state.calls, [
-    ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--remote", "--config", "wrangler.generated.jsonc"],
+    ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--local", "--config", "wrangler.generated.jsonc"],
+    ["exec", "tsx", "scripts/backfill-cloudflare-subscription-derived-state.ts", "--local", "--config", "wrangler.generated.jsonc"],
+    ["exec", "wrangler", "d1", "execute", "DB", "--local", "--command", "PRAGMA foreign_key_check", "--json", "--config", "wrangler.generated.jsonc"],
   ]);
 });
 
-test("prints help even when a package manager separator is present", () => {
-  const { result, state } = runApply([], { args: ["--", "--help"] });
+test("prints help without running a D1 command", () => {
+  const { result, state } = runApply([], { args: ["--help"] });
 
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Usage: node scripts\/apply-cloudflare-d1-migrations\.mjs/);
@@ -104,12 +131,27 @@ test("rejects unknown arguments before invoking wrangler", () => {
   assert.deepEqual(state.calls, []);
 });
 
-test("rejects a separator outside the historical leading position", () => {
-  const { result, state } = runApply([{ status: 0 }], { args: ["--config", "wrangler.generated.jsonc", "--"] });
+test("requires exactly one explicit local or remote target", () => {
+  const missing = runApply([{ status: 0 }], { target: null });
+  assert.notEqual(missing.result.status, 0);
+  assert.match(missing.result.stderr, /A D1 target is required/);
+  assert.deepEqual(missing.state.calls, []);
+
+  const duplicate = runApply([{ status: 0 }], { args: ["--local"] });
+
+  assert.notEqual(duplicate.result.status, 0);
+  assert.match(duplicate.result.stderr, /Specify exactly one D1 target/);
+  assert.deepEqual(duplicate.state.calls, []);
+});
+
+test("does not retry local migration failures", () => {
+  const { result, state } = runApply([
+    { status: 1, stderr: "D1 DB storage operation exceeded timeout [code: 7429]\n" },
+  ], { target: "local" });
 
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /Unknown argument: --/);
-  assert.deepEqual(state.calls, []);
+  assert.match(result.stderr, /Local D1 migrations failed/);
+  assert.equal(state.calls.length, 1);
 });
 
 test("retries Cloudflare D1 timeout code 7429 and then succeeds", () => {
@@ -119,7 +161,7 @@ test("retries Cloudflare D1 timeout code 7429 and then succeeds", () => {
   ]);
 
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(state.calls.length, 2);
+  assert.equal(state.calls.length, 4);
   assert.match(result.stderr, /retrying in 0ms \(attempt 2\/5\)/);
 });
 
@@ -132,7 +174,7 @@ test("retries documented transient D1 reset errors", () => {
   ]);
 
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(state.calls.length, 4);
+  assert.equal(state.calls.length, 6);
 });
 
 test("does not retry authentication, permission, or SQL errors", () => {
@@ -160,4 +202,48 @@ test("fails after retryable errors exceed the configured attempt limit", () => {
   assert.equal(state.calls.length, 3);
   assert.match(result.stderr, /failed after 3 attempts/);
   assert.match(result.stderr, /storage caused object to be reset/);
+});
+
+test("blocks deployment when derived-state backfill fails", () => {
+  const { result, state } = runApply(
+    [{ status: 0, stdout: "Applied migrations.\n" }],
+    { backfillResponse: { status: 1, stderr: "derived invariant failed\n" } },
+  );
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /derived-state backfill failed/);
+  assert.equal(state.calls.length, 2);
+});
+
+test("blocks deployment when foreign-key JSON is invalid or unsuccessful", () => {
+  for (const [name, foreignKeyResponse, message] of [
+    ["invalid JSON", { status: 0, stdout: "not-json\n" }, /invalid Wrangler JSON/],
+    ["unsuccessful result", { status: 0, stdout: '[{"success":false,"results":[]}]\n' }, /unsuccessful Wrangler result/],
+    ["missing results", { status: 0, stdout: '[{"success":true}]\n' }, /unsuccessful Wrangler result/],
+  ]) {
+    const { result, state } = runApply(
+      [{ status: 0, stdout: "Applied migrations.\n" }],
+      { foreignKeyResponse },
+    );
+
+    assert.notEqual(result.status, 0, name);
+    assert.match(result.stderr, message, name);
+    assert.equal(state.calls.length, 3, name);
+  }
+});
+
+test("blocks deployment when foreign_key_check returns any violation", () => {
+  const { result, state } = runApply(
+    [{ status: 0, stdout: "Applied migrations.\n" }],
+    {
+      foreignKeyResponse: {
+        status: 0,
+        stdout: '[{"success":true,"results":[{"table":"subscriptions","rowid":1}]}]\n',
+      },
+    },
+  );
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /foreign key check found violations/);
+  assert.equal(state.calls.length, 3);
 });

@@ -5,6 +5,7 @@ import { createDefaultAppSettings } from "@renewlet/shared/settings-defaults";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readSuccessData } from "./api-test-helpers";
 import { updateSettings } from "./settings";
+import { countSubscriptionStatuses } from "./subscription-derived-state";
 import {
   deleteTelegramBotCommands,
   installTelegramBotCommands,
@@ -113,30 +114,18 @@ class TelegramBotTestStatement {
       const id = String(this.values[0]);
       return this.state.bindings.find((row) => row.id === id) as T | undefined ?? null;
     }
-    if (this.sql.includes("SELECT COUNT(*) AS count") && this.sql.includes("FROM subscriptions")) {
-      const userId = String(this.values[0]);
-      const rows = this.state.subscriptions.filter((row) => row.user_id === userId);
-      return {
-        count: rows.length,
-        source_updated_at: rows.reduce((max, row) => row.updated_at > max ? row.updated_at : max, ""),
-      } as T;
-    }
-    if (this.sql.includes("COUNT(*) AS count FROM subscription_list_index")) {
-      const userId = String(this.values[0]);
-      return { count: this.state.subscriptions.filter((row) => row.user_id === userId).length } as T;
-    }
     if (this.sql.includes("FROM subscription_user_stats")) {
       const userId = String(this.values[0]);
       const rows = this.state.subscriptions.filter((row) => row.user_id === userId);
-      const statusCounts = rows.reduce<Record<string, number>>((counts, row) => {
-        counts[row.status] = (counts[row.status] ?? 0) + 1;
-        return counts;
-      }, {});
+      const statusCounts = countSubscriptionStatuses(rows);
       return {
         user_id: userId,
         total_count: rows.length,
-        status_counts_json: JSON.stringify(statusCounts),
-        source_updated_at: rows.reduce((max, row) => row.updated_at > max ? row.updated_at : max, ""),
+        trial_count: statusCounts.trial,
+        active_count: statusCounts.active,
+        expired_count: statusCounts.expired,
+        paused_count: statusCounts.paused,
+        cancelled_count: statusCounts.cancelled,
         created_at: "2026-06-05T00:00:00.000Z",
         updated_at: "2026-06-05T00:00:00.000Z",
       } as T;
@@ -156,14 +145,6 @@ class TelegramBotTestStatement {
   }
 
   async all<T>(): Promise<D1Result<T>> {
-    if (this.sql.includes("FROM subscriptions") && this.sql.includes("GROUP BY status")) {
-      const userId = String(this.values[0]);
-      const counts = new Map<string, number>();
-      for (const row of this.state.subscriptions.filter((item) => item.user_id === userId)) {
-        counts.set(row.status, (counts.get(row.status) ?? 0) + 1);
-      }
-      return d1Result(Array.from(counts, ([status, count]) => ({ status, count })) as T[]);
-    }
     if (this.sql.includes("FROM subscriptions") && this.sql.includes("next_billing_date >= ?")) {
       const userId = String(this.values[0]);
       return d1Result(this.state.subscriptions.filter((row) => row.user_id === userId) as T[]);

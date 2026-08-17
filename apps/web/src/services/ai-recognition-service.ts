@@ -12,6 +12,7 @@ import {
   type AiRecognizeResponse,
   type AiThinkingControl,
 } from "@/lib/api/schemas/ai-recognition";
+import type { SecretMutation } from "@renewlet/shared/schemas/secrets";
 
 /**
  * AI 识别订阅服务层。
@@ -72,10 +73,11 @@ export const aiRecognitionService = {
     );
   },
 
-  async testConnection(settings: AiRecognitionSettings): Promise<AiRecognitionTestResponse> {
+  async testConnection(settings: AiRecognitionSettings, apiKey: SecretMutation): Promise<AiRecognitionTestResponse> {
+    const { apiKey: _draftApiKey, ...publicSettings } = settings;
     return await apiFetch("/api/app/ai/subscriptions/test", aiRecognitionTestResponseSchema, {
       method: "POST",
-      body: JSON.stringify({ settings }),
+      body: JSON.stringify({ settings: publicSettings, apiKey }),
       timeoutMs: 60_000,
     });
   },

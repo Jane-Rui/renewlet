@@ -1,6 +1,10 @@
 // 通知 schema 测试保护历史响应的空数组和 union 形状，避免前端为旧 null 契约恢复兼容层。
 import { describe, expect, it } from "vitest";
-import { notificationChannelSchema, notificationHistoryResponseSchema } from "./notifications";
+import {
+  notificationChannelSchema,
+  notificationHistoryResponseSchema,
+  notificationOverviewResponseSchema,
+} from "./notifications";
 
 const success = <T>(data: T) => ({ ok: true, data });
 
@@ -49,7 +53,7 @@ const skippedJob = {
   updatedAt: "2026-05-17T08:00:00Z",
 };
 
-const normalizedSkippedHistoryResponse = {
+const normalizedSkippedOverviewResponse = {
   summary: {
     nextCheck: {
       scheduledLocalDate: "2026-05-18",
@@ -65,13 +69,14 @@ const normalizedSkippedHistoryResponse = {
     latestFailedJob: null,
   },
   upcoming: [],
-  history: {
-    jobs: [skippedJob],
-    status: "all",
-    limit: 20,
-    offset: 0,
-    hasMore: false,
-  },
+};
+
+const normalizedSkippedHistoryResponse = {
+  jobs: [skippedJob],
+  status: "all",
+  limit: 20,
+  offset: 0,
+  hasMore: false,
 };
 
 describe("notification API schemas", () => {
@@ -82,8 +87,34 @@ describe("notification API schemas", () => {
   it("accepts ServerChan channel snapshots in notification history", () => {
     const response = {
       ...normalizedSkippedHistoryResponse,
+      jobs: [{
+        ...skippedJob,
+        result: {
+          ...skippedJob.result,
+          settings: {
+            ...skippedJob.result.settings,
+            enabledChannels: ["serverchan"],
+          },
+          channels: {
+            attempted: ["serverchan"],
+            succeeded: ["serverchan"],
+            failed: [{
+              channel: "serverchan",
+              error: "Server酱响应格式无效",
+            }],
+          },
+        },
+      }],
+    };
+
+    expect(notificationHistoryResponseSchema.safeParse(success(response)).success).toBe(true);
+  });
+
+  it("accepts ServerChan channel snapshots in notification overview", () => {
+    const response = {
+      ...normalizedSkippedOverviewResponse,
       summary: {
-        ...normalizedSkippedHistoryResponse.summary,
+        ...normalizedSkippedOverviewResponse.summary,
         enabledChannels: ["serverchan"],
         latestJob: {
           ...skippedJob,
@@ -104,30 +135,9 @@ describe("notification API schemas", () => {
           },
         },
       },
-      history: {
-        ...normalizedSkippedHistoryResponse.history,
-        jobs: [{
-          ...skippedJob,
-          result: {
-            ...skippedJob.result,
-            settings: {
-              ...skippedJob.result.settings,
-              enabledChannels: ["serverchan"],
-            },
-            channels: {
-              attempted: ["serverchan"],
-              succeeded: ["serverchan"],
-              failed: [{
-                channel: "serverchan",
-                error: "Server酱响应格式无效",
-              }],
-            },
-          },
-        }],
-      },
     };
 
-    expect(notificationHistoryResponseSchema.safeParse(success(response)).success).toBe(true);
+    expect(notificationOverviewResponseSchema.safeParse(success(response)).success).toBe(true);
   });
 
   it("accepts normalized skipped history responses with empty arrays", () => {
@@ -138,19 +148,16 @@ describe("notification API schemas", () => {
   it("rejects legacy null channel arrays so the server contract stays strict", () => {
     const legacyNullResponse = {
       ...normalizedSkippedHistoryResponse,
-      history: {
-        ...normalizedSkippedHistoryResponse.history,
-        jobs: [{
-          ...skippedJob,
-          result: {
-            ...skippedJob.result,
-            channels: {
-              ...skippedJob.result.channels,
-              attempted: null,
-            },
+      jobs: [{
+        ...skippedJob,
+        result: {
+          ...skippedJob.result,
+          channels: {
+            ...skippedJob.result.channels,
+            attempted: null,
           },
-        }],
-      },
+        },
+      }],
     };
 
     expect(notificationHistoryResponseSchema.safeParse(success(legacyNullResponse)).success).toBe(false);
@@ -159,34 +166,31 @@ describe("notification API schemas", () => {
   it("accepts repeat reminder snapshots on notification items", () => {
     const response = {
       ...normalizedSkippedHistoryResponse,
-      history: {
-        ...normalizedSkippedHistoryResponse.history,
-        jobs: [{
-          ...skippedJob,
-          result: {
-            ...skippedJob.result,
-            message: {
-              ...skippedJob.result.message,
-              hasPayload: true,
-              items: [{
-                type: "renewal",
-                subscriptionId: "sub-1",
-                name: "Critical SaaS",
-                price: "99",
-                currency: "USD",
-                status: "active",
-                targetDate: "2026-05-17",
-                reminderDays: 3,
-                daysUntil: 2,
-                repeatReminder: {
-                  interval: "1h",
-                  window: "72h",
-                },
-              }],
-            },
+      jobs: [{
+        ...skippedJob,
+        result: {
+          ...skippedJob.result,
+          message: {
+            ...skippedJob.result.message,
+            hasPayload: true,
+            items: [{
+              type: "renewal",
+              subscriptionId: "sub-1",
+              name: "Critical SaaS",
+              price: "99",
+              currency: "USD",
+              status: "active",
+              targetDate: "2026-05-17",
+              reminderDays: 3,
+              daysUntil: 2,
+              repeatReminder: {
+                interval: "1h",
+                window: "72h",
+              },
+            }],
           },
-        }],
-      },
+        },
+      }],
     };
 
     expect(notificationHistoryResponseSchema.safeParse(success(response)).success).toBe(true);
@@ -195,30 +199,27 @@ describe("notification API schemas", () => {
   it("rejects inherited reminder sentinel values in notification history payloads", () => {
     const response = {
       ...normalizedSkippedHistoryResponse,
-      history: {
-        ...normalizedSkippedHistoryResponse.history,
-        jobs: [{
-          ...skippedJob,
-          result: {
-            ...skippedJob.result,
-            message: {
-              ...skippedJob.result.message,
-              hasPayload: true,
-              items: [{
-                type: "renewal",
-                subscriptionId: "sub-1",
-                name: "Critical SaaS",
-                price: "99",
-                currency: "USD",
-                status: "active",
-                targetDate: "2026-05-17",
-                reminderDays: -1,
-                daysUntil: 2,
-              }],
-            },
+      jobs: [{
+        ...skippedJob,
+        result: {
+          ...skippedJob.result,
+          message: {
+            ...skippedJob.result.message,
+            hasPayload: true,
+            items: [{
+              type: "renewal",
+              subscriptionId: "sub-1",
+              name: "Critical SaaS",
+              price: "99",
+              currency: "USD",
+              status: "active",
+              targetDate: "2026-05-17",
+              reminderDays: -1,
+              daysUntil: 2,
+            }],
           },
-        }],
-      },
+        },
+      }],
     };
 
     expect(notificationHistoryResponseSchema.safeParse(success(response)).success).toBe(false);

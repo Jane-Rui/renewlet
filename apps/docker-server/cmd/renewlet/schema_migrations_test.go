@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
@@ -29,6 +30,59 @@ func TestEnsureSchemaNoopDoesNotResaveCollections(t *testing.T) {
 	}
 	if updates != 0 {
 		t.Fatalf("second ensureSchema saved %d collections, want 0", updates)
+	}
+}
+
+func TestSubscriptionDerivedSchemaRejectsWrongIndexDirection(t *testing.T) {
+	app := newSchemaTestApp(t)
+	if err := ensureSchema(app); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.DB().NewQuery("DROP INDEX idx_subscription_list_index_user_order").Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.DB().NewQuery(`CREATE INDEX idx_subscription_list_index_user_order
+		ON subscription_list_index (user_id, created_at, subscription_id)`).Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	current, err := subscriptionDerivedSchemaCurrent(app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current {
+		t.Fatal("ASC list index must not satisfy the DESC derived schema signature")
+	}
+}
+
+func TestSubscriptionDerivedSchemaRejectsMissingStatsChecks(t *testing.T) {
+	app := newSchemaTestApp(t)
+	if err := ensureSchema(app); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.DB().NewQuery("DROP TABLE subscription_user_stats").Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.DB().NewQuery(`CREATE TABLE subscription_user_stats (
+		user_id TEXT PRIMARY KEY,
+		total_count INTEGER NOT NULL DEFAULT 0,
+		trial_count INTEGER NOT NULL DEFAULT 0,
+		active_count INTEGER NOT NULL DEFAULT 0,
+		expired_count INTEGER NOT NULL DEFAULT 0,
+		paused_count INTEGER NOT NULL DEFAULT 0,
+		cancelled_count INTEGER NOT NULL DEFAULT 0,
+		created_at TEXT NOT NULL DEFAULT '',
+		updated_at TEXT NOT NULL DEFAULT ''
+	)`).Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	current, err := subscriptionDerivedSchemaCurrent(app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current {
+		t.Fatal("stats table without non-negative and status-sum checks must be rebuilt")
 	}
 }
 
@@ -102,7 +156,7 @@ func TestSchemaDataMigrationsBackfillSchedulerWithoutListProjection(t *testing.T
 	if projection.Count != 0 {
 		t.Fatalf("list projection count after startup migrations = %d, want 0", projection.Count)
 	}
-	if err := ensureSubscriptionListStateFresh(app, user.Id); err != nil {
+	if err := rebuildSubscriptionDerivedStateForUser(app, user.Id, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	if err := app.DB().NewQuery("SELECT COUNT(*) AS count FROM subscription_list_index WHERE user_id = {:user}").

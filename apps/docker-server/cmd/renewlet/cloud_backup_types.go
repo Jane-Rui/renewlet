@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"io"
+	"os"
 
 	"github.com/pocketbase/pocketbase/core"
 )
@@ -16,7 +18,7 @@ const (
 	cloudBackupDefaultScheduleWeekday       = "monday"
 	cloudBackupDefaultRetention             = 7
 	cloudBackupMaxRetention                 = 30
-	cloudBackupSnapshotMaxBytes       int64 = 50 << 20
+	cloudBackupSnapshotMaxBytes       int64 = 16 << 20
 )
 
 type cloudBackupConfigResponse struct {
@@ -164,16 +166,45 @@ type cloudBackupSnapshotManifest struct {
 }
 
 type cloudBackupSnapshotPayload struct {
-	Content  []byte
+	Source   cloudBackupSnapshotSource
 	ID       string
 	Filename string
 	Manifest cloudBackupSnapshotManifest
 }
 
+// cloudBackupSnapshotSource 是可重开、由调用方清理的临时快照；多 provider 上传必须各自 Open，不能共享已消费 reader。
+type cloudBackupSnapshotSource struct {
+	path string
+	size int64
+}
+
+type cloudBackupSnapshotReader interface {
+	io.Reader
+	io.ReaderAt
+	io.Seeker
+	io.Closer
+}
+
+func (source cloudBackupSnapshotSource) Open() (cloudBackupSnapshotReader, error) {
+	return os.Open(source.path)
+}
+
+func (source cloudBackupSnapshotSource) Size() int64 {
+	return source.size
+}
+
+func (source cloudBackupSnapshotSource) Cleanup() error {
+	if source.path == "" {
+		return nil
+	}
+	return os.Remove(source.path)
+}
+
 type cloudBackupRemoteClient interface {
 	Test(ctx context.Context) error
 	List(ctx context.Context) ([]cloudBackupSnapshotManifest, error)
-	Upload(ctx context.Context, filename string, content []byte, manifest cloudBackupSnapshotManifest) error
+	// Upload 只能在调用期间读取 source；source 的最终 Cleanup 生命周期归创建 payload 的业务层所有。
+	Upload(ctx context.Context, filename string, source cloudBackupSnapshotSource, manifest cloudBackupSnapshotManifest) error
 	Download(ctx context.Context, id string) ([]byte, cloudBackupSnapshotManifest, error)
 	Delete(ctx context.Context, id string) error
 }

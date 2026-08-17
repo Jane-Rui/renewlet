@@ -8,7 +8,7 @@ import (
 	"github.com/pocketbase/dbx"
 )
 
-func TestSubscriptionsProductAPIRebuildsMissingListProjection(t *testing.T) {
+func TestSubscriptionsProductAPIDoesNotRebuildMissingListProjectionOnRead(t *testing.T) {
 	app := newSchemaTestApp(t)
 	if err := ensureSchema(app); err != nil {
 		t.Fatal(err)
@@ -29,15 +29,23 @@ func TestSubscriptionsProductAPIRebuildsMissingListProjection(t *testing.T) {
 		t.Fatalf("expected projection drift list 200, got %d: %s", res.Code, res.Body.String())
 	}
 	body := decodeAPISuccessDataForTest[subscriptionsListResponse](t, res.Body.Bytes())
+	if body.Total != 0 || len(body.Subscriptions) != 0 {
+		t.Fatalf("read path rebuilt a missing projection: %#v", body)
+	}
+	if err := rebuildSubscriptionDerivedStateForUser(app, user.Id, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	res = serveTestRequest(t, app, http.MethodGet, "/api/app/subscriptions?q=projection&limit=10", "", token)
+	body = decodeAPISuccessDataForTest[subscriptionsListResponse](t, res.Body.Bytes())
 	if body.Total != 1 || len(body.Subscriptions) != 1 {
-		t.Fatalf("expected rebuilt projection to return one match, got %#v", body)
+		t.Fatalf("explicit projection repair did not restore one match: %#v", body)
 	}
 	if got, _ := body.Subscriptions[0]["id"].(string); got != target.Id {
 		t.Fatalf("expected rebuilt projection subscription %q, got %#v", target.Id, body.Subscriptions[0])
 	}
 }
 
-func TestSubscriptionsProductAPIRebuildsStaleListProjection(t *testing.T) {
+func TestSubscriptionsProductAPIDoesNotRebuildStaleListProjectionOnRead(t *testing.T) {
 	app := newSchemaTestApp(t)
 	if err := ensureSchema(app); err != nil {
 		t.Fatal(err)
@@ -63,8 +71,16 @@ func TestSubscriptionsProductAPIRebuildsStaleListProjection(t *testing.T) {
 		t.Fatalf("expected stale projection list 200, got %d: %s", res.Code, res.Body.String())
 	}
 	body := decodeAPISuccessDataForTest[subscriptionsListResponse](t, res.Body.Bytes())
+	if body.Total != 0 || len(body.Subscriptions) != 0 {
+		t.Fatalf("read path rebuilt a stale projection: %#v", body)
+	}
+	if err := rebuildSubscriptionDerivedStateForUser(app, user.Id, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	res = serveTestRequest(t, app, http.MethodGet, "/api/app/subscriptions?q=fresh&limit=10", "", token)
+	body = decodeAPISuccessDataForTest[subscriptionsListResponse](t, res.Body.Bytes())
 	if body.Total != 1 || len(body.Subscriptions) != 1 {
-		t.Fatalf("expected source-version rebuild to return one match, got %#v", body)
+		t.Fatalf("explicit projection repair did not restore one match: %#v", body)
 	}
 	if got, _ := body.Subscriptions[0]["name"].(string); got != "Fresh Projection Plan" {
 		t.Fatalf("expected rebuilt projection to read fresh subscription, got %#v", body.Subscriptions[0])

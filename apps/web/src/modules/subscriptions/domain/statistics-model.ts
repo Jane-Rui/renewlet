@@ -152,8 +152,11 @@ function addCashflowTrend(
 ) {
   if (subscription.billingCycle === "one-time" || buckets.length === 0) return;
 
-  const windowStart = buckets[0]!.startDate;
-  const windowEnd = buckets[buckets.length - 1]!.endDate;
+  const firstBucket = buckets.at(0);
+  const lastBucket = buckets.at(-1);
+  if (!firstBucket || !lastBucket) return;
+  const windowStart = firstBucket.startDate;
+  const windowEnd = lastBucket.endDate;
   let dueDate: DateOnly = subscription.nextBillingDate;
 
   // autoRenew 只控制 Renewlet 是否后台推进日期，不代表第三方账单会停止；趋势按当前周期配置预测未来扣费。
@@ -302,13 +305,14 @@ export function buildStatisticsModel({
       acc[subscription.category] = (acc[subscription.category] || 0) + amount;
       return acc;
     }, {} as Record<string, number>),
-  ).map(([name, value], index) => ({
-    name: categoryByValue.get(name)
-      ? localizedLabel(categoryByValue.get(name)!.labels, locale)
-      : name,
-    value: Math.round(value * 1000) / 1000,
-    color: categoryByValue.get(name)?.color ?? chartColorAt(index),
-  }));
+  ).map(([name, value], index) => {
+    const category = categoryByValue.get(name);
+    return {
+      name: category ? localizedLabel(category.labels, locale) : name,
+      value: Math.round(value * 1000) / 1000,
+      color: category?.color ?? chartColorAt(index),
+    };
+  });
 
   const paymentData = Object.entries(
     activeSubscriptions.reduce((acc, subscription) => {
@@ -316,13 +320,14 @@ export function buildStatisticsModel({
       acc[method] = (acc[method] || 0) + 1;
       return acc;
     }, {} as Record<string, number>),
-  ).map(([name, value], index) => ({
-    name: paymentMethodByValue.get(name)
-      ? localizedLabel(paymentMethodByValue.get(name)!.labels, locale)
-      : name,
-    value,
-    color: chartColorAt(index),
-  }));
+  ).map(([name, value], index) => {
+    const paymentMethod = paymentMethodByValue.get(name);
+    return {
+      name: paymentMethod ? localizedLabel(paymentMethod.labels, locale) : name,
+      value,
+      color: chartColorAt(index),
+    };
+  });
 
   const budgetChartData = [
     { name: translate(locale, "statistics.budgetUsed"), value: Math.min(totalMonthly, monthlyBudgetAmount), color: "hsl(350 75% 55%)" },

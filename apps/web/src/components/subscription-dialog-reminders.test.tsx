@@ -1,5 +1,5 @@
 // 订阅弹窗提醒测试覆盖“不提醒”显性开关和一次性买断静默契约。
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -204,6 +204,46 @@ describe("SubscriptionDialog reminders", () => {
       reminderDays: -2,
       repeatReminderEnabled: false,
     }));
+  });
+
+  it("disables collection reminders when an edited subscription becomes a one-time buyout", async () => {
+    const user = setupUser();
+    const onSubmit = vi.fn<(subscription: Subscription) => void>();
+
+    render(
+      <TooltipProvider delayDuration={0}>
+        <SubscriptionDialog
+          mode="edit"
+          open
+          onOpenChange={vi.fn()}
+          onSubmit={onSubmit}
+          subscription={makeSubscription({
+            costSharing: {
+              enabled: true,
+              splitMode: "equal",
+              collectionReminder: { enabled: true, reminderDays: -1 },
+              members: [{
+                id: "partner",
+                name: "Partner",
+                currency: "USD",
+                joinedDate: assertDateOnly("2026-05-14"),
+              }],
+            },
+          })}
+        />
+      </TooltipProvider>,
+    );
+
+    await user.click(screen.getByRole("combobox", { name: "扣费周期" }));
+    await user.click(await screen.findByRole("option", { name: "一次性购买" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("cost-sharing-collection-reminder-summary")).toHaveTextContent("收款提醒：买断不提醒");
+    });
+    await user.click(screen.getByRole("button", { name: "保存修改" }));
+
+    const submitted = onSubmit.mock.calls.at(0)?.at(0);
+    expect(submitted?.billingCycle).toBe("one-time");
+    expect(submitted?.costSharing?.collectionReminder).toEqual({ enabled: false, reminderDays: -1 });
   });
 
   it("calculates and disables the expiry date when switching to one-time fixed term", async () => {

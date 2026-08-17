@@ -13,7 +13,9 @@ import {
   DEFAULT_SETTINGS,
   type AppSettings,
 } from "@/types/subscription";
-import { normalizeSettings, settingsService } from "@/services/settings-service";
+import { EMPTY_SETTINGS_SECRET_STATUS, normalizeSettings, settingsService } from "@/services/settings-service";
+import type { SettingsReadModel } from "@/services/settings-service";
+import type { SettingsSecretUpdates } from "@/lib/api/schemas/settings";
 
 export { normalizeSettings };
 
@@ -29,15 +31,28 @@ export function settingsQueryOptions() {
 }
 
 export function useSettings() {
+  return useQuery({ ...settingsQueryOptions(), select: (data) => data.settings });
+}
+
+export function useSettingsEnvelope() {
   return useQuery(settingsQueryOptions());
 }
+
+type SettingsMutationInput = Partial<AppSettings> | {
+  patch: Partial<AppSettings>;
+  secretUpdates: SettingsSecretUpdates;
+};
 
 export function useUpdateSettings() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (patch: Partial<AppSettings>) => {
-      const current = queryClient.getQueryData<AppSettings>(SETTINGS_QUERY_KEY) ?? DEFAULT_SETTINGS;
-      return await settingsService.update(current, patch);
+    mutationFn: async (input: SettingsMutationInput) => {
+      const current = queryClient.getQueryData<SettingsReadModel>(SETTINGS_QUERY_KEY) ?? {
+        settings: DEFAULT_SETTINGS,
+        secretStatus: EMPTY_SETTINGS_SECRET_STATUS,
+      };
+      const command = "patch" in input ? input : { patch: input, secretUpdates: {} };
+      return await settingsService.update(current.settings, command.patch, command.secretUpdates);
     },
     onSuccess: (settings) => {
       // 设置页保存后直接写缓存，避免等待 refetch 时 UI 回跳到旧值。

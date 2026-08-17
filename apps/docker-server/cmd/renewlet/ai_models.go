@@ -24,15 +24,18 @@ const (
 )
 
 type aiModelListRequest struct {
-	ProviderType string `json:"providerType"`
-	BaseURL      string `json:"baseUrl"`
-	APIKey       string `json:"apiKey"`
+	ProviderType   string                 `json:"providerType"`
+	BaseURL        string                 `json:"baseUrl"`
+	APIKey         settingsSecretMutation `json:"apiKey"`
+	ResolvedAPIKey string                 `json:"-"`
 }
 
 func (r *aiModelListRequest) Validate(locale appLocale) error {
 	r.ProviderType = strings.TrimSpace(r.ProviderType)
 	r.BaseURL = strings.TrimSpace(r.BaseURL)
-	r.APIKey = strings.TrimSpace(r.APIKey)
+	if err := r.APIKey.Validate(locale); err != nil {
+		return err
+	}
 	if !isValidAIRecognitionProviderType(r.ProviderType) {
 		return errors.New(serverText(locale, "common.invalidRequestParameters"))
 	}
@@ -42,13 +45,10 @@ func (r *aiModelListRequest) Validate(locale appLocale) error {
 	endpoint := resolveAIProviderEndpoint(aiRecognitionSettings{
 		ProviderType: r.ProviderType,
 		BaseURL:      r.BaseURL,
-		APIKey:       r.APIKey,
+		APIKey:       "",
 	})
 	if endpoint.BaseURLRequired && r.BaseURL == "" {
 		return errors.New(serverText(locale, "aiRecognition.baseUrlRequired"))
-	}
-	if endpoint.APIKeyRequired && r.APIKey == "" {
-		return errors.New(serverText(locale, "aiRecognition.apiKeyRequired"))
 	}
 	return nil
 }
@@ -140,6 +140,21 @@ func handleAIModelsList(app core.App, e *core.RequestEvent) error {
 	if err != nil {
 		return e.BadRequestError(validationErrorMessage(locale, "common.invalidRequestBody", err), err)
 	}
+	if err := body.Validate(locale); err != nil {
+		return e.BadRequestError(validationErrorMessage(locale, "common.invalidPayload", err), err)
+	}
+	current, err := currentUserSettings(app, e.Auth, nil)
+	if err != nil {
+		return e.InternalServerError(serverText(locale, "common.internalError"), err)
+	}
+	body.ResolvedAPIKey, err = resolveSettingsSecretMutation(body.APIKey, current.AIRecognition.APIKey, locale)
+	if err != nil {
+		return e.BadRequestError(validationErrorMessage(locale, "common.invalidRequestBody", err), err)
+	}
+	endpoint := resolveAIProviderEndpoint(aiRecognitionSettings{ProviderType: body.ProviderType, BaseURL: body.BaseURL, APIKey: body.ResolvedAPIKey})
+	if endpoint.APIKeyRequired && body.ResolvedAPIKey == "" {
+		return e.BadRequestError(serverText(locale, "aiRecognition.apiKeyRequired"), nil)
+	}
 	response, err := listAIModels(e.Request.Context(), body, locale)
 	if err != nil {
 		var httpErr *aiModelListHTTPError
@@ -179,7 +194,7 @@ func buildAIModelListEndpoint(input aiModelListRequest) (aiModelListEndpoint, er
 	endpoint := resolveAIProviderEndpoint(aiRecognitionSettings{
 		ProviderType: input.ProviderType,
 		BaseURL:      input.BaseURL,
-		APIKey:       input.APIKey,
+		APIKey:       input.ResolvedAPIKey,
 	})
 	for key, values := range endpoint.Headers {
 		for _, value := range values {
@@ -189,7 +204,7 @@ func buildAIModelListEndpoint(input aiModelListRequest) (aiModelListEndpoint, er
 	return aiModelListEndpoint{
 		URL:               endpoint.ModelsURL,
 		Headers:           headers,
-		Secrets:           []string{input.APIKey},
+		Secrets:           []string{input.ResolvedAPIKey},
 		ModelListShape:    endpoint.ModelListShape,
 		ProviderType:      endpoint.ProviderType,
 		TransportProtocol: endpoint.TransportProtocol,

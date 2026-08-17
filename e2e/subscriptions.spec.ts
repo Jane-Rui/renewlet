@@ -1,5 +1,5 @@
 // 桌面订阅 E2E 覆盖创建、筛选、编辑、Logo sheet 和持久化回读，是订阅主流程的跨组件回归基线。
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./support/test";
 import {
   createSubscription,
   expectEmptyTagCursorStaysInline,

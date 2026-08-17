@@ -146,10 +146,10 @@ export function TruncatedTooltipText({
     const node = nodeRef.current;
     if (!node || disabled) return;
 
-    const ResizeObserverCtor = node.ownerDocument.defaultView?.ResizeObserver ?? globalThis.ResizeObserver;
     const handleSizeChange = () => {
       if (!measureOverflow()) setOpen(false);
     };
+    const ResizeObserverCtor = node.ownerDocument.defaultView?.ResizeObserver ?? globalThis.ResizeObserver;
     const observer = ResizeObserverCtor ? new ResizeObserverCtor(handleSizeChange) : null;
     observer?.observe(node);
 

@@ -3,6 +3,11 @@ import { afterEach, beforeEach, vi } from "vitest";
 import { DEFAULT_CUSTOM_CONFIG, type CustomConfig } from "@/types/config";
 import { DEFAULT_SETTINGS, type AppSettings } from "@/types/subscription";
 import { BUILT_IN_ICON_PROVIDERS, type BuiltInIconProvider } from "@renewlet/shared/built-in-icons";
+import {
+  applySettingsSecretUpdates,
+  appSettingsSecretStatus,
+  type SettingsSecretUpdates,
+} from "@renewlet/shared/schemas/settings";
 import type { BuiltInIconIndexStatus } from "@/lib/api/schemas/media";
 import {
   APPEARANCE_PENDING_STORAGE_KEY,
@@ -15,6 +20,8 @@ export const BASE_SETTINGS: AppSettings = {
   ...DEFAULT_SETTINGS,
   recipientEmail: "alice@example.com",
 };
+
+type SettingsMutationCommand = { patch: AppSettings; secretUpdates: SettingsSecretUpdates };
 
 function providerStatusFixtures(counts: Record<BuiltInIconProvider, number>) {
   return BUILT_IN_ICON_PROVIDERS.map((provider) => ({
@@ -40,9 +47,10 @@ function providerStatusFixtures(counts: Record<BuiltInIconProvider, number>) {
 
 const mocks = vi.hoisted(() => ({
   toast: vi.fn(),
-  updateSettingsMutateAsync: vi.fn(),
+  updateSettingsMutateAsync: vi.fn<(command: SettingsMutationCommand) => Promise<unknown>>(),
   refreshRates: vi.fn(),
   remoteSettings: undefined as unknown,
+  remoteSecretStatus: undefined as unknown,
   customConfig: undefined as unknown,
   saveConfig: vi.fn(),
   setTheme: vi.fn(),
@@ -88,6 +96,13 @@ const mocks = vi.hoisted(() => ({
   appStatus: { setupRequired: false, setupEnabled: true, demoMode: false, turnstile: { enabled: false, siteKey: "" }, isLoading: false },
 }));
 
+function settingsMutationResult(command: SettingsMutationCommand) {
+  const persisted = applySettingsSecretUpdates(command.patch, command.secretUpdates);
+  const secretStatus = appSettingsSecretStatus(persisted);
+  mocks.remoteSecretStatus = secretStatus;
+  return { settings: command.patch, secretStatus };
+}
+
 vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({
     toast: mocks.toast,
@@ -95,8 +110,11 @@ vi.mock("@/hooks/use-toast", () => ({
 }));
 
 vi.mock("@/hooks/use-settings", () => ({
-  useSettings: () => ({
-    data: mocks.remoteSettings,
+  useSettingsEnvelope: () => ({
+    data: {
+      settings: mocks.remoteSettings,
+      secretStatus: mocks.remoteSecretStatus,
+    },
   }),
   useUpdateSettings: () => ({
     mutateAsync: mocks.updateSettingsMutateAsync,
@@ -425,12 +443,13 @@ export function setupSettingsFormControllerTestEnvironment() {
       refetch: vi.fn(),
     };
     mocks.remoteSettings = BASE_SETTINGS;
+    mocks.remoteSecretStatus = appSettingsSecretStatus(BASE_SETTINGS);
     mocks.customConfig = DEFAULT_CUSTOM_CONFIG;
     mocks.isCloudflareRuntime = false;
     mocks.accountIdentity = { email: "alice@example.com", role: "admin", banned: false };
     mocks.appStatus = { setupRequired: false, setupEnabled: true, demoMode: false, turnstile: { enabled: false, siteKey: "" }, isLoading: false };
     mocks.authSecuritySettings = { data: { turnstile: { enabled: false, siteKey: "", secretConfigured: false } }, isLoading: false };
-    mocks.updateSettingsMutateAsync.mockImplementation(async (settings: AppSettings) => settings);
+    mocks.updateSettingsMutateAsync.mockImplementation(async (command: SettingsMutationCommand) => settingsMutationResult(command));
     mocks.updateAuthSecurityMutateAsync.mockImplementation(async (body: { turnstile: { enabled: boolean; siteKey: string; secret?: string } }) => ({
       turnstile: {
         enabled: body.turnstile.enabled,

@@ -4,16 +4,19 @@ import {
   generateRegistrationOptions,
   verifyAuthenticationResponse,
   verifyRegistrationResponse,
-  type AuthenticationResponseJSON,
   type AuthenticatorTransportFuture,
-  type RegistrationResponseJSON,
   type WebAuthnCredential,
 } from "@simplewebauthn/server";
 import {
   type AuthenticatorMfaMethod,
   type MfaRecoveryCodesResponse,
   type MfaVerifyBody,
-  type PasskeyWebAuthnOptionsResponse,
+  passkeyAuthenticationOptionsSchema,
+  passkeyRegistrationOptionsSchema,
+  type PasskeyAuthenticationOptionsResponse,
+  type PasskeyAuthenticationResponse,
+  type PasskeyRegistrationOptionsResponse,
+  type PasskeyRegistrationResponse,
   type SessionResponse,
 } from "@renewlet/shared/schemas/auth";
 import { type AppLocale } from "./http";
@@ -22,6 +25,7 @@ import { newId, nowIso } from "./db";
 import { randomToken, sha256 } from "./crypto";
 import { requestOrigin } from "./request-origin";
 import { withAccountSecuritySchema } from "./account-security-schema";
+import { authenticationResponseForVerification, registrationResponseForVerification } from "./webauthn-response";
 import {
   base64Url,
   decryptMfaSecret,
@@ -283,11 +287,11 @@ export async function deleteMfaAuthTicketsForUser(env: Env, userId: string): Pro
   });
 }
 
-export async function startPasskeyRegistration(env: Env, request: Request, user: UserRow): Promise<PasskeyWebAuthnOptionsResponse> {
+export async function startPasskeyRegistration(env: Env, request: Request, user: UserRow): Promise<PasskeyRegistrationOptionsResponse> {
   return await withAccountSecuritySchema(env, async () => await startPasskeyRegistrationUnsafe(env, request, user));
 }
 
-async function startPasskeyRegistrationUnsafe(env: Env, request: Request, user: UserRow): Promise<PasskeyWebAuthnOptionsResponse> {
+async function startPasskeyRegistrationUnsafe(env: Env, request: Request, user: UserRow): Promise<PasskeyRegistrationOptionsResponse> {
   const { origin, rpID } = webAuthnRuntime(request);
   const rows = await passkeyCredentialRows(env, user.id);
   const options = await generateRegistrationOptions({
@@ -315,7 +319,7 @@ async function startPasskeyRegistrationUnsafe(env: Env, request: Request, user: 
   return {
     challengeId: challengeId.challengeId,
     expiresAt: challengeId.expiresAt,
-    options: options as unknown as Record<string, unknown>,
+    options: passkeyRegistrationOptionsSchema.parse(options),
   };
 }
 
@@ -325,7 +329,7 @@ export async function finishPasskeyRegistration(
   user: UserRow,
   challengeId: string,
   name: string,
-  response: unknown,
+  response: PasskeyRegistrationResponse,
 ): Promise<IssuedSessionResponse> {
   return await withAccountSecuritySchema(env, async () => await finishPasskeyRegistrationUnsafe(env, request, user, challengeId, name, response));
 }
@@ -336,7 +340,7 @@ async function finishPasskeyRegistrationUnsafe(
   user: UserRow,
   challengeId: string,
   name: string,
-  response: unknown,
+  response: PasskeyRegistrationResponse,
 ): Promise<IssuedSessionResponse> {
   const challenge = await webAuthnChallengeByToken(env, challengeId, "registration");
   if (!challenge || challenge.user_id !== user.id) throw new Error("invalid WebAuthn challenge");
@@ -344,7 +348,7 @@ async function finishPasskeyRegistrationUnsafe(
   assertWebAuthnRuntime(challenge, origin, rpID);
   // 注册校验完全交给 SimpleWebAuthn；Renewlet 只负责把 origin/RP 与短期 challenge 对齐并持久化结果。
   const verification = await verifyRegistrationResponse({
-    response: response as RegistrationResponseJSON,
+    response: registrationResponseForVerification(response),
     expectedChallenge: challenge.challenge,
     expectedOrigin: origin,
     expectedRPID: rpID,
@@ -376,11 +380,11 @@ async function finishPasskeyRegistrationUnsafe(
   return renewal.session;
 }
 
-export async function startPasskeyAuthentication(env: Env, request: Request): Promise<PasskeyWebAuthnOptionsResponse> {
+export async function startPasskeyAuthentication(env: Env, request: Request): Promise<PasskeyAuthenticationOptionsResponse> {
   return await withAccountSecuritySchema(env, async () => await startPasskeyAuthenticationUnsafe(env, request));
 }
 
-async function startPasskeyAuthenticationUnsafe(env: Env, request: Request): Promise<PasskeyWebAuthnOptionsResponse> {
+async function startPasskeyAuthenticationUnsafe(env: Env, request: Request): Promise<PasskeyAuthenticationOptionsResponse> {
   const { origin, rpID } = webAuthnRuntime(request);
   const options = await generateAuthenticationOptions({
     rpID,
@@ -396,7 +400,14 @@ async function startPasskeyAuthenticationUnsafe(env: Env, request: Request): Pro
   return {
     challengeId: challenge.challengeId,
     expiresAt: challenge.expiresAt,
-    options: options as unknown as Record<string, unknown>,
+    options: passkeyAuthenticationOptionsSchema.parse({
+      challenge: options.challenge,
+      timeout: options.timeout,
+      rpId: options.rpId,
+      allowCredentials: options.allowCredentials,
+      userVerification: options.userVerification,
+      hints: [],
+    }),
   };
 }
 
@@ -404,7 +415,7 @@ export async function finishPasskeyAuthentication(
   env: Env,
   request: Request,
   challengeId: string,
-  response: unknown,
+  response: PasskeyAuthenticationResponse,
 ): Promise<IssuedSessionResponse> {
   return await withAccountSecuritySchema(env, async () => await finishPasskeyAuthenticationUnsafe(env, request, challengeId, response));
 }
@@ -413,14 +424,13 @@ async function finishPasskeyAuthenticationUnsafe(
   env: Env,
   request: Request,
   challengeId: string,
-  response: unknown,
+  response: PasskeyAuthenticationResponse,
 ): Promise<IssuedSessionResponse> {
   const challenge = await webAuthnChallengeByToken(env, challengeId, "authentication");
   if (!challenge) throw new Error("invalid WebAuthn challenge");
   const { origin, rpID } = webAuthnRuntime(request);
   assertWebAuthnRuntime(challenge, origin, rpID);
-  const responseId = (response as { id?: unknown }).id;
-  if (typeof responseId !== "string" || !responseId) throw new Error("invalid WebAuthn response");
+  const responseId = response.id;
   const credentialRow = await env.DB.prepare(`
     SELECT * FROM passkey_credentials WHERE credential_id = ? LIMIT 1
   `).bind(responseId).first<PasskeyCredentialRow>();
@@ -433,7 +443,7 @@ async function finishPasskeyAuthenticationUnsafe(
   const credential = passkeyCredentialFromRow(credentialRow);
   // SimpleWebAuthn 负责 assertion、UV、origin/RP ID 与 counter 校验；Worker 只在成功后更新计数并签产品 session。
   const verification = await verifyAuthenticationResponse({
-    response: response as AuthenticationResponseJSON,
+    response: authenticationResponseForVerification(response),
     expectedChallenge: challenge.challenge,
     expectedOrigin: origin,
     expectedRPID: rpID,

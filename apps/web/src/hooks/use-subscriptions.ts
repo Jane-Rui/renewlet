@@ -12,13 +12,11 @@
  * 修改该转换会影响统计折算、表单回填和通知提醒。
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import {
   infiniteQueryOptions,
-  queryOptions,
   useInfiniteQuery,
   useMutation,
-  useQuery,
   useQueryClient,
   type QueryClient,
   type QueryFunctionContext,
@@ -28,9 +26,7 @@ import type { Subscription, SubscriptionDraft } from "@/types/subscription";
 import type { SubscriptionRenewBody } from "@renewlet/shared/schemas/subscriptions";
 
 const SUBSCRIPTIONS_QUERY_KEY = ["subscriptions"] as const;
-const SUBSCRIPTIONS_LIST_QUERY_KEY = [...SUBSCRIPTIONS_QUERY_KEY, "list"] as const;
-const SUBSCRIPTIONS_INFINITE_QUERY_KEY = [...SUBSCRIPTIONS_QUERY_KEY, "infinite"] as const;
-const SUBSCRIPTIONS_PAGE_QUERY_KEY = [...SUBSCRIPTIONS_QUERY_KEY, "page"] as const;
+const SUBSCRIPTIONS_COLLECTION_QUERY_KEY = [...SUBSCRIPTIONS_QUERY_KEY, "collection"] as const;
 const SUBSCRIPTIONS_STALE_TIME_MS = 60_000;
 
 interface UseSubscriptionsOptions {
@@ -40,41 +36,29 @@ interface UseSubscriptionsOptions {
 
 interface UseInfiniteSubscriptionsOptions {
   enabled?: boolean;
+  filters?: SubscriptionListFilters | undefined;
 }
 
-export function subscriptionsListQueryOptions(filters?: SubscriptionListFilters) {
-  return queryOptions({
-    queryKey: [...SUBSCRIPTIONS_LIST_QUERY_KEY, filters ?? null] as const,
-    queryFn: () => subscriptionService.list(filters),
-    staleTime: SUBSCRIPTIONS_STALE_TIME_MS,
-  });
-}
-
-export function subscriptionsInfiniteQueryOptions() {
+export function subscriptionsInfiniteQueryOptions(filters?: SubscriptionListFilters) {
+  const queryKey = [...SUBSCRIPTIONS_COLLECTION_QUERY_KEY, filters ?? null] as const;
   return infiniteQueryOptions({
-    queryKey: SUBSCRIPTIONS_INFINITE_QUERY_KEY,
+    queryKey,
     initialPageParam: null as string | null,
-    queryFn: ({ pageParam }: QueryFunctionContext<typeof SUBSCRIPTIONS_INFINITE_QUERY_KEY, string | null>) =>
-      subscriptionService.listPage(pageParam),
+    queryFn: ({ pageParam }: QueryFunctionContext<typeof queryKey, string | null>) =>
+      subscriptionService.listPage(pageParam, subscriptionService.pageSize, filters),
     getNextPageParam: (lastPage: Awaited<ReturnType<typeof subscriptionService.listPage>>) => lastPage.nextCursor ?? undefined,
     staleTime: SUBSCRIPTIONS_STALE_TIME_MS,
   });
 }
 
-export function subscriptionsPageQueryOptions(cursor?: string | null, limit?: number) {
-  return queryOptions({
-    queryKey: [...SUBSCRIPTIONS_PAGE_QUERY_KEY, cursor ?? null, limit ?? subscriptionService.pageSize] as const,
-    queryFn: () => subscriptionService.listPage(cursor, limit),
-    staleTime: SUBSCRIPTIONS_STALE_TIME_MS,
-  });
-}
-
-/** useSubscriptions 保留全量列表入口，避免统计/导出逻辑自己拼分页结果造成口径漂移。 */
+/** 统计类页面复用无筛选 infinite cache，并串行补齐后续页，不再维护第二份全量列表缓存。 */
 export function useSubscriptions(options: UseSubscriptionsOptions = {}) {
-  return useQuery({
-    ...subscriptionsListQueryOptions(options.filters),
-    enabled: options.enabled ?? true,
-  });
+  const enabled = options.enabled ?? true;
+  const query = useSubscriptionCollection({
+    enabled,
+    filters: enabled ? options.filters : undefined,
+  }, true);
+  return { ...query, data: query.subscriptions };
 }
 
 /**
@@ -83,14 +67,24 @@ export function useSubscriptions(options: UseSubscriptionsOptions = {}) {
  * 页面只消费 `subscriptions`，避免把 Worker/Go 的分页响应形状泄漏到筛选、虚拟列表和 CRUD 控制器。
  */
 export function useInfiniteSubscriptions(options: UseInfiniteSubscriptionsOptions = {}) {
+  return useSubscriptionCollection(options, false);
+}
+
+function useSubscriptionCollection(options: UseInfiniteSubscriptionsOptions, loadAllPages: boolean) {
   const query = useInfiniteQuery({
-    ...subscriptionsInfiniteQueryOptions(),
+    ...subscriptionsInfiniteQueryOptions(options.filters),
     enabled: options.enabled ?? true,
   });
   const subscriptions = useMemo(
     () => query.data?.pages.flatMap((page) => page.subscriptions) ?? [],
     [query.data?.pages],
   );
+  const { fetchNextPage, hasNextPage, isFetchingNextPage } = query;
+  useEffect(() => {
+    if (!loadAllPages || !hasNextPage || isFetchingNextPage) return;
+    // Dashboard/Calendar/Statistics/Settings 需要完整口径，但每次只拉一页，避免并发堆积响应和解析内存。
+    void fetchNextPage();
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage, loadAllPages, subscriptions.length]);
   return {
     ...query,
     subscriptions,
@@ -98,14 +92,7 @@ export function useInfiniteSubscriptions(options: UseInfiniteSubscriptionsOption
   };
 }
 
-/** useSubscriptionsPage 让局部视图显式绑定 cursor/limit，避免复用无限滚动缓存时读到错误页。 */
-export function useSubscriptionsPage(cursor?: string | null, limit?: number) {
-  return useQuery({
-    ...subscriptionsPageQueryOptions(cursor, limit),
-  });
-}
-
-/** invalidateSubscriptionsQueries 让列表、分页和无限滚动缓存共享同一个失效前缀。 */
+/** invalidateSubscriptionsQueries 让所有筛选 collection 共享同一个失效前缀。 */
 export function invalidateSubscriptionsQueries(queryClient: QueryClient) {
   return queryClient.invalidateQueries({ queryKey: SUBSCRIPTIONS_QUERY_KEY });
 }

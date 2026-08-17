@@ -79,116 +79,25 @@ type apiRouteContract struct {
 	Methods []string
 }
 
-// 这张表只服务 API catch-all 的 404/405 判断；新增产品 route 时必须同步，避免错误方法退化成 404。
-var productAPIRouteContracts = []apiRouteContract{
-	{Path: "/api/app/health", Methods: []string{http.MethodGet}},
-	{Path: "/api/app/ready", Methods: []string{http.MethodGet}},
-	{Path: "/api/app/status", Methods: []string{http.MethodGet}},
-	{Path: "/api/app/setup", Methods: []string{http.MethodGet, http.MethodPost}},
-	{Path: "/api/public/status/{token}", Methods: []string{http.MethodGet}},
-	{Path: "/api/public/status/{token}/assets/{assetId}", Methods: []string{http.MethodGet}},
-	{Path: "/api/public/v1/me", Methods: []string{http.MethodGet}},
-	{Path: "/api/public/v1/subscriptions", Methods: []string{http.MethodGet}},
-	{Path: "/api/public/v1/subscriptions/{id}", Methods: []string{http.MethodGet}},
-	{Path: "/api/public/v1/status", Methods: []string{http.MethodGet}},
-	{Path: "/api/public/v1/due", Methods: []string{http.MethodGet}},
-	{Path: "/api/telegram/webhook/{bindingId}", Methods: []string{http.MethodPost}},
-	{Path: "/calendar/renewals.ics", Methods: []string{http.MethodGet}},
-	{Path: "/api/cron/notifications", Methods: []string{http.MethodGet}},
-	{Path: "/api/app/auth/login", Methods: []string{http.MethodPost}},
-	{Path: "/api/app/auth/session", Methods: []string{http.MethodGet}},
-	{Path: "/api/app/auth/logout", Methods: []string{http.MethodPost}},
-	{Path: "/api/app/auth/mfa/verify", Methods: []string{http.MethodPost}},
-	{Path: "/api/app/auth/passkeys/authenticate/options", Methods: []string{http.MethodPost}},
-	{Path: "/api/app/auth/passkeys/authenticate/verify", Methods: []string{http.MethodPost}},
-	{Path: "/api/app/admin/users", Methods: []string{http.MethodGet, http.MethodPost}},
-	{Path: "/api/app/admin/users/{id}", Methods: []string{http.MethodPatch, http.MethodDelete}},
-	{Path: "/api/app/admin/users/{id}/mfa/reset", Methods: []string{http.MethodPost}},
-	{Path: "/api/app/admin/users/{id}/passkeys/reset", Methods: []string{http.MethodPost}},
-	{Path: "/api/app/admin/system/update", Methods: []string{http.MethodPost}},
-	{Path: "/api/app/admin/system/update/status", Methods: []string{http.MethodGet}},
-	{Path: "/api/app/admin/system/restart", Methods: []string{http.MethodPost}},
-	{Path: "/api/app/admin/auth-security", Methods: []string{http.MethodGet, http.MethodPut}},
-	{Path: "/api/app/admin/media/icon-index", Methods: []string{http.MethodGet}},
-	{Path: "/api/app/admin/media/icon-index/providers/{provider}/check", Methods: []string{http.MethodPost}},
-	{Path: "/api/app/admin/media/icon-index/providers/{provider}/refresh", Methods: []string{http.MethodPost}},
-	{Path: "/api/app/system/version", Methods: []string{http.MethodGet}},
-	{Path: "/api/app/account/password", Methods: []string{http.MethodPut}},
-	{Path: "/api/app/account/password-reset/status", Methods: []string{http.MethodGet}},
-	{Path: "/api/app/auth/mfa/status", Methods: []string{http.MethodGet}},
-	{Path: "/api/app/auth/mfa/totp/setup", Methods: []string{http.MethodPost}},
-	{Path: "/api/app/auth/mfa/totp/enable", Methods: []string{http.MethodPost}},
-	{Path: "/api/app/auth/mfa/recovery/regenerate", Methods: []string{http.MethodPost}},
-	{Path: "/api/app/auth/mfa/disable", Methods: []string{http.MethodPost}},
-	{Path: "/api/app/auth/passkeys", Methods: []string{http.MethodGet}},
-	{Path: "/api/app/auth/passkeys/register/options", Methods: []string{http.MethodPost}},
-	{Path: "/api/app/auth/passkeys/register/verify", Methods: []string{http.MethodPost}},
-	{Path: "/api/app/auth/passkeys/{id}/delete", Methods: []string{http.MethodPost}},
-	{Path: "/api/app/notifications/test", Methods: []string{http.MethodPost}},
-	{Path: "/api/app/notifications/history", Methods: []string{http.MethodGet}},
-	{Path: "/api/app/notifications/run", Methods: []string{http.MethodPost}},
-	{Path: "/api/app/import/preview", Methods: []string{http.MethodPost}},
-	{Path: "/api/app/import/apply", Methods: []string{http.MethodPost}},
-	{Path: "/api/app/cloud-backup/config", Methods: []string{http.MethodGet, http.MethodPut}},
-	{Path: "/api/app/cloud-backup/test", Methods: []string{http.MethodPost}},
-	{Path: "/api/app/cloud-backups", Methods: []string{http.MethodGet, http.MethodPost}},
-	{Path: "/api/app/cloud-backups/{id}/download", Methods: []string{http.MethodGet}},
-	{Path: "/api/app/cloud-backups/{id}", Methods: []string{http.MethodDelete}},
-	{Path: "/api/app/ai/subscriptions/recognize/stream", Methods: []string{http.MethodPost}},
-	{Path: "/api/app/ai/subscriptions/recognize", Methods: []string{http.MethodPost}},
-	{Path: "/api/app/ai/subscriptions/test", Methods: []string{http.MethodPost}},
-	{Path: "/api/app/ai/models/list", Methods: []string{http.MethodPost}},
-	{Path: "/api/app/api-tokens", Methods: []string{http.MethodGet, http.MethodPost}},
-	{Path: "/api/app/api-tokens/{id}", Methods: []string{http.MethodDelete}},
-	{Path: "/api/app/telegram-bot/commands", Methods: []string{http.MethodGet, http.MethodPost, http.MethodDelete}},
-	{Path: "/api/app/settings", Methods: []string{http.MethodGet, http.MethodPut}},
-	{Path: "/api/app/custom-config", Methods: []string{http.MethodGet, http.MethodPut}},
-	{Path: "/api/app/subscriptions", Methods: []string{http.MethodGet, http.MethodPost}},
-	{Path: "/api/app/subscriptions/{id}", Methods: []string{http.MethodPatch, http.MethodDelete}},
-	{Path: "/api/app/subscriptions/{id}/renew", Methods: []string{http.MethodPost}},
-	{Path: "/api/app/subscriptions/{id}/calendar.ics", Methods: []string{http.MethodGet}},
-	{Path: "/api/app/subscriptions/{id}/calendar-feed", Methods: []string{http.MethodGet, http.MethodPost, http.MethodDelete}},
-	{Path: "/api/app/assets", Methods: []string{http.MethodGet, http.MethodPost}},
-	{Path: "/api/app/assets/{id}", Methods: []string{http.MethodGet, http.MethodDelete}},
-	{Path: "/api/app/calendar-feed", Methods: []string{http.MethodGet, http.MethodPost, http.MethodDelete}},
-	{Path: "/api/app/public-status-page", Methods: []string{http.MethodGet, http.MethodPost, http.MethodPatch, http.MethodDelete}},
-	{Path: "/api/app/media/candidates", Methods: []string{http.MethodPost}},
-}
-
 // API catch-all 只覆盖 Renewlet 产品 API 前缀和公开 feed，不接管 PocketBase Admin UI 或嵌入式静态资源。
-func registerAPIFallbacks(api *pbrouter.RouterGroup[*core.RequestEvent]) {
-	api.Any("/api/app", apiFallbackError)
-	api.Any("/api/app/{path...}", apiFallbackError)
-	api.Any("/api/public", apiFallbackError)
-	api.Any("/api/public/{path...}", apiFallbackError)
-	api.Any("/api/telegram", apiFallbackError)
-	api.Any("/api/telegram/{path...}", apiFallbackError)
-	api.Any("/api/cron", apiFallbackError)
-	api.Any("/api/cron/{path...}", apiFallbackError)
-	api.Any("/calendar/renewals.ics", apiFallbackError)
+func registerAPIFallbacks(api *pbrouter.RouterGroup[*core.RequestEvent], registry *productRouteRegistry) {
+	api.Any("/api/app", func(e *core.RequestEvent) error { return apiFallbackError(registry, e) })
+	api.Any("/api/app/{path...}", func(e *core.RequestEvent) error { return apiFallbackError(registry, e) })
+	api.Any("/api/public", func(e *core.RequestEvent) error { return apiFallbackError(registry, e) })
+	api.Any("/api/public/{path...}", func(e *core.RequestEvent) error { return apiFallbackError(registry, e) })
+	api.Any("/api/telegram", func(e *core.RequestEvent) error { return apiFallbackError(registry, e) })
+	api.Any("/api/telegram/{path...}", func(e *core.RequestEvent) error { return apiFallbackError(registry, e) })
+	api.Any("/api/cron", func(e *core.RequestEvent) error { return apiFallbackError(registry, e) })
+	api.Any("/api/cron/{path...}", func(e *core.RequestEvent) error { return apiFallbackError(registry, e) })
+	api.Any("/calendar/renewals.ics", func(e *core.RequestEvent) error { return apiFallbackError(registry, e) })
 }
 
-func apiFallbackError(e *core.RequestEvent) error {
+func apiFallbackError(registry *productRouteRegistry, e *core.RequestEvent) error {
 	locale := requestLocale(e.Request)
-	if productAPIPathAllowsDifferentMethod(e.Request.URL.Path, e.Request.Method) {
+	if registry.PathAllowsDifferentMethod(e.Request.URL.Path, e.Request.Method) {
 		return apiErrorJSON(e, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", serverText(locale, "common.methodNotAllowed"), nil)
 	}
 	return apiErrorJSON(e, http.StatusNotFound, "NOT_FOUND", serverText(locale, "common.notFound"), nil)
-}
-
-func productAPIPathAllowsDifferentMethod(path string, method string) bool {
-	for _, route := range productAPIRouteContracts {
-		if !apiPathMatches(route.Path, path) {
-			continue
-		}
-		for _, allowed := range route.Methods {
-			if method == allowed || (method == http.MethodHead && allowed == http.MethodGet) {
-				return false
-			}
-		}
-		return true
-	}
-	return false
 }
 
 func apiPathMatches(pattern string, path string) bool {

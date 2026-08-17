@@ -352,6 +352,7 @@ jobs:
       WORKER_NAME: ${{ secrets.WORKER_NAME }}
       D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
       R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+      CLOUDFLARE_OBSERVABILITY_PROFILE: production
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1

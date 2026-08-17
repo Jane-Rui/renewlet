@@ -570,8 +570,7 @@ async function deleteCloudBackupWithoutProvider(env: Env, userId: string, locale
 async function enforceRetention(client: CloudBackupRemoteClient, retention: number, keepId: string): Promise<void> {
   const manifests = await client.list().catch(() => []);
   manifests.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-  for (let index = 0; index < manifests.length; index += 1) {
-    const manifest = manifests[index]!;
+  for (const [index, manifest] of manifests.entries()) {
     if (index < retention || manifest.id === keepId) continue;
     await client.delete(manifest.id);
   }

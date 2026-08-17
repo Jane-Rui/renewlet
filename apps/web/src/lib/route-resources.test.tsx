@@ -6,7 +6,6 @@ import { preloadRoute, routeFallbackForPathname } from "./route-resources";
 const mocks = vi.hoisted(() => ({
   dashboardModuleLoads: 0,
   readProductSession: vi.fn(),
-  fetchSubscriptions: vi.fn(async () => []),
   fetchSubscriptionPage: vi.fn(async (_pageParam?: string | null) => ({ subscriptions: [], nextCursor: null, total: 0 })),
   fetchSettings: vi.fn(async () => ({ defaultCurrency: "CNY" })),
 }));
@@ -34,13 +33,8 @@ vi.mock("@/services/product-session", () => ({
 }));
 
 vi.mock("@/hooks/use-subscriptions", () => ({
-  subscriptionsListQueryOptions: () => ({
-    queryKey: ["subscriptions", "list", null],
-    queryFn: mocks.fetchSubscriptions,
-    staleTime: 60_000,
-  }),
   subscriptionsInfiniteQueryOptions: () => ({
-    queryKey: ["subscriptions", "infinite"],
+    queryKey: ["subscriptions", "collection", null],
     initialPageParam: null,
     queryFn: ({ pageParam }: { pageParam: string | null }) => mocks.fetchSubscriptionPage(pageParam),
     getNextPageParam: () => undefined,
@@ -68,7 +62,6 @@ function createQueryClient() {
 describe("route resources", () => {
   beforeEach(() => {
     mocks.readProductSession.mockReset();
-    mocks.fetchSubscriptions.mockClear();
     mocks.fetchSubscriptionPage.mockClear();
     mocks.fetchSettings.mockClear();
   });
@@ -86,7 +79,7 @@ describe("route resources", () => {
     ]);
 
     expect(mocks.dashboardModuleLoads).toBe(1);
-    expect(mocks.fetchSubscriptions).toHaveBeenCalledTimes(1);
+    expect(mocks.fetchSubscriptionPage).toHaveBeenCalledTimes(1);
     expect(mocks.fetchSettings).toHaveBeenCalledTimes(1);
   });
 
@@ -96,7 +89,7 @@ describe("route resources", () => {
 
     await preloadRoute("/statistics", queryClient);
 
-    expect(mocks.fetchSubscriptions).not.toHaveBeenCalled();
+    expect(mocks.fetchSubscriptionPage).not.toHaveBeenCalled();
     expect(mocks.fetchSettings).not.toHaveBeenCalled();
   });
 

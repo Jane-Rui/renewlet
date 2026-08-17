@@ -47,6 +47,14 @@ class SettingsTestDB {
   prepare(sql: string) {
     return new SettingsTestStatement(this.state, sql);
   }
+
+  async batch(statements: D1PreparedStatement[]): Promise<D1Result[]> {
+    const results: D1Result[] = [];
+    for (const statement of statements) {
+      results.push(await (statement as unknown as SettingsTestStatement).run());
+    }
+    return results;
+  }
 }
 
 class SettingsTestStatement {
@@ -238,8 +246,57 @@ describe("Cloudflare settings initialization", () => {
     const response = await readSettings(settingsRequest("GET", "zh-CN"), env);
 
     expect(response.status).toBe(200);
-    await expect(readSuccessData(response)).resolves.toMatchObject({ settings: { locale: "zh-CN" } });
+    await expect(readSuccessData(response)).resolves.toMatchObject({
+      settings: { locale: "zh-CN" },
+      secretStatus: { telegramBotToken: { configured: false }, "aiRecognition.apiKey": { configured: false } },
+    });
     expect(JSON.parse(state.rows.get(USER_ID) ?? "{}")).toMatchObject({ locale: "zh-CN" });
+  });
+
+  it("never returns stored secrets and only updates them through discriminated mutations", async () => {
+    const defaults = createDefaultAppSettings({ locale: "en-US" });
+    const existing = {
+      ...defaults,
+      telegramBotToken: "stored-telegram-secret",
+      aiRecognition: { ...defaults.aiRecognition, apiKey: "stored-ai-secret" },
+    };
+    const { env, state } = createEnv(existing);
+
+    const read = await readSettings(settingsRequest("GET", "en-US"), env);
+    const readText = await read.text();
+    expect(readText).not.toContain("stored-telegram-secret");
+    expect(readText).not.toContain("stored-ai-secret");
+    expect(JSON.parse(readText).data.secretStatus).toMatchObject({
+      telegramBotToken: { configured: true },
+      "aiRecognition.apiKey": { configured: true },
+    });
+
+    const update = await updateSettings(settingsRequest("PUT", "en-US", {
+      secretUpdates: {
+        telegramBotToken: { action: "clear" },
+        "aiRecognition.apiKey": { action: "set", value: "new-ai-secret" },
+      },
+    }), env);
+    const updateText = await update.text();
+    expect(updateText).not.toContain("new-ai-secret");
+    expect(JSON.parse(updateText).data.secretStatus).toMatchObject({
+      telegramBotToken: { configured: false },
+      "aiRecognition.apiKey": { configured: true },
+    });
+    expect(JSON.parse(state.rows.get(USER_ID) ?? "{}")).toMatchObject({
+      telegramBotToken: "",
+      aiRecognition: { apiKey: "new-ai-secret" },
+    });
+  });
+
+  it("rejects direct secret fields and malformed secret mutations", async () => {
+    const { env } = createEnv(createDefaultAppSettings({ locale: "en-US" }));
+
+    await expect(updateSettings(settingsRequest("PUT", "en-US", { telegramBotToken: "raw-secret" }), env))
+      .rejects.toMatchObject({ status: 400, code: "INVALID_PAYLOAD" });
+    await expect(updateSettings(settingsRequest("PUT", "en-US", {
+      secretUpdates: { telegramBotToken: { action: "set" } },
+    }), env)).rejects.toMatchObject({ status: 400, code: "INVALID_PAYLOAD" });
   });
 
   it("updateSettings uses the request locale when creating the first row", async () => {

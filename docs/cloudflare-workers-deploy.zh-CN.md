@@ -235,6 +235,29 @@ https://<WORKER_NAME>.<workers-dev-subdomain>.workers.dev/setup
 
 手动部署用户：在你的 fork 里点击 `Sync fork` / `Update branch`，把 fork 更新到 Renewlet 最新版本。如果没有自动部署，进入 `Actions` 手动运行 `Cloudflare Worker`。
 
+## D1 升级与恢复
+
+升级 schema 前，同时创建一份可移植 SQL 导出和 Time Travel bookmark。在 migration、派生状态 backfill 与外键检查全部通过前，保留旧 Worker 版本以便恢复。
+
+```bash
+pnpm exec wrangler d1 export DB --remote --config wrangler.generated.jsonc --output renewlet-before-upgrade.sql
+pnpm exec wrangler d1 time-travel info DB --remote --config wrangler.generated.jsonc
+```
+
+仓库 migration helper 会依次应用未执行的 migration、运行必要的数据 backfill，并执行 `PRAGMA foreign_key_check`。backfill 失败或外键检查返回任意记录都会阻断部署。
+
+```bash
+pnpm cloudflare:migrations:apply --config wrangler.generated.jsonc
+```
+
+命令失败时不要部署新 Worker。使用升级前记录的 bookmark 恢复；也可以用 `renewlet-before-upgrade.sql` 创建替代 D1 数据库，重新绑定 `DB` 后部署旧 Worker 版本。
+
+```bash
+pnpm exec wrangler d1 time-travel restore DB --remote --bookmark="<bookmark>" --config wrangler.generated.jsonc
+```
+
+Docker 与 Cloudflare 运行面的云备份快照上限统一为 16 MiB。若旧版本曾允许更大快照，升级前必须先用旧版本下载或恢复所有超过 16 MiB 的远端快照。
+
 ## 可选：Wrangler CLI
 
 普通部署不需要使用 Wrangler CLI。只有你想在本机直接管理 Cloudflare 资源时，再使用下面的命令。
@@ -257,11 +280,12 @@ export WORKER_NAME="renewlet"
 export D1_DATABASE_ID="..."
 export R2_BUCKET_NAME="renewlet-assets"
 export CI_WRANGLER_CONFIG="wrangler.generated.jsonc"
+export CLOUDFLARE_OBSERVABILITY_PROFILE="development"
 
 pnpm cloudflare:config:ci
 pnpm check:cloudflare
 pnpm build:cloudflare
-pnpm exec wrangler d1 migrations apply DB --remote --config wrangler.generated.jsonc
+pnpm cloudflare:migrations:apply --config wrangler.generated.jsonc
 pnpm cloudflare:queues:ensure
 pnpm exec wrangler deploy --config wrangler.generated.jsonc
 ```
@@ -286,7 +310,7 @@ pnpm exec wrangler deploy --config wrangler.generated.jsonc
 
 ```bash
 pnpm cloudflare:config:ci
-pnpm exec wrangler d1 migrations apply DB --remote --config wrangler.generated.jsonc
+pnpm cloudflare:migrations:apply --config wrangler.generated.jsonc
 ```
 
 **Server酱测试通知返回 HTTP 429？**

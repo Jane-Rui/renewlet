@@ -7,18 +7,21 @@ import {
 } from "@simplewebauthn/browser";
 import { apiFetch } from "@/lib/api-client";
 import {
+  passkeyAuthenticationOptionsResponseSchema,
   passkeyAuthenticateOptionsBodySchema,
   passkeyAuthenticateVerifyBodySchema,
   passkeyDeleteBodySchema,
+  passkeyRegistrationOptionsResponseSchema,
   passkeyRegisterOptionsBodySchema,
   passkeyRegisterVerifyBodySchema,
   passkeysResponseSchema,
-  passkeyWebAuthnOptionsResponseSchema,
   sessionResponseSchema,
   type Passkey,
+  type PasskeyAuthenticationOptions as PasskeyWebAuthnAuthenticationOptions,
+  type PasskeyAuthenticationOptionsResponse,
   type PasskeyDeleteBody,
+  type PasskeyRegistrationOptions,
   type PasskeyRegisterOptionsBody,
-  type PasskeyWebAuthnOptionsResponse,
   type SessionResponse,
 } from "@/lib/api/schemas/auth";
 import { writeProductSession } from "@/services/product-session";
@@ -30,10 +33,12 @@ export type PasskeyAuthenticationResult =
   | { status: "authenticated"; session: SessionResponse }
   | { status: "cancelled" };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 function recordFromError(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
+  return isRecord(value) ? value : null;
 }
 
 function errorName(value: unknown): string | null {
@@ -64,6 +69,40 @@ function isWebAuthnAuthenticationCancelled(error: unknown): boolean {
   return code === "ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY" && errorName(errorCause(error)) === "NotAllowedError";
 }
 
+function registrationOptionsForBrowser(options: PasskeyRegistrationOptions): PublicKeyCredentialCreationOptionsJSON {
+  return {
+    rp: { id: options.rp.id, name: options.rp.name },
+    user: { id: options.user.id, name: options.user.name, displayName: options.user.displayName },
+    challenge: options.challenge,
+    pubKeyCredParams: options.pubKeyCredParams.map((parameter) => ({ ...parameter })),
+    timeout: options.timeout,
+    excludeCredentials: options.excludeCredentials.map((credential) => ({
+      id: credential.id,
+      type: credential.type,
+      transports: [...credential.transports],
+    })),
+    authenticatorSelection: { ...options.authenticatorSelection },
+    hints: [...options.hints],
+    attestation: options.attestation,
+    extensions: { ...options.extensions },
+  };
+}
+
+function authenticationOptionsForBrowser(options: PasskeyWebAuthnAuthenticationOptions): PublicKeyCredentialRequestOptionsJSON {
+  return {
+    challenge: options.challenge,
+    timeout: options.timeout,
+    rpId: options.rpId,
+    allowCredentials: options.allowCredentials.map((credential) => ({
+      id: credential.id,
+      type: credential.type,
+      transports: [...credential.transports],
+    })),
+    userVerification: options.userVerification,
+    hints: [...options.hints],
+  };
+}
+
 /** 通行密钥是独立 WebAuthn 登录能力；它不消费 MFA ticket，也不出现在身份验证器 methods 中。 */
 export const passkeyService = {
   cancelActiveCeremony(): void {
@@ -78,13 +117,13 @@ export const passkeyService = {
 
   async register(body: PasskeyRegisterOptionsBody): Promise<void> {
     const payload = passkeyRegisterOptionsBodySchema.parse(body);
-    const options = await apiFetch("/api/app/auth/passkeys/register/options", passkeyWebAuthnOptionsResponseSchema, {
+    const options = await apiFetch("/api/app/auth/passkeys/register/options", passkeyRegistrationOptionsResponseSchema, {
       method: "POST",
       body: JSON.stringify(payload),
     });
     // WebAuthn challenge 只在本次浏览器凭据流程内存中流转；verify 后服务端会消费并更新 credential。
     const response = await startRegistration({
-      optionsJSON: options.options as unknown as PublicKeyCredentialCreationOptionsJSON,
+      optionsJSON: registrationOptionsForBrowser(options.options),
     });
     const verifyPayload = passkeyRegisterVerifyBodySchema.parse({
       challengeId: options.challengeId,
@@ -98,9 +137,9 @@ export const passkeyService = {
     writeProductSession(data);
   },
 
-  async startAuthentication(): Promise<PasskeyWebAuthnOptionsResponse> {
+  async startAuthentication(): Promise<PasskeyAuthenticationOptionsResponse> {
     const payload = passkeyAuthenticateOptionsBodySchema.parse({});
-    return await apiFetch("/api/app/auth/passkeys/authenticate/options", passkeyWebAuthnOptionsResponseSchema, {
+    return await apiFetch("/api/app/auth/passkeys/authenticate/options", passkeyAuthenticationOptionsResponseSchema, {
       authMode: "none",
       method: "POST",
       body: JSON.stringify(payload),
@@ -111,7 +150,7 @@ export const passkeyService = {
     const webAuthnOptions = await passkeyService.startAuthentication();
     // 前端只把服务端 challenge 交给浏览器凭据 API；origin/RP/counter 由后端 WebAuthn 库验证并签 session。
     const authenticationOptions: { optionsJSON: PublicKeyCredentialRequestOptionsJSON; useBrowserAutofill?: boolean } = {
-      optionsJSON: webAuthnOptions.options as unknown as PublicKeyCredentialRequestOptionsJSON,
+      optionsJSON: authenticationOptionsForBrowser(webAuthnOptions.options),
     };
     if (typeof options.useBrowserAutofill === "boolean") {
       authenticationOptions.useBrowserAutofill = options.useBrowserAutofill;

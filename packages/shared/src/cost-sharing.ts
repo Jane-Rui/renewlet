@@ -143,8 +143,9 @@ export function calculateCostSharingSummary(
   }
 
   // 当前用户不在 members 里：equal 按“我 + 成员”平分，custom 则把成员金额直接视作应收款，允许超过订阅总价。
+  const firstMember = costSharing.members.at(0);
   const memberTotal = costSharing.splitMode === "equal"
-    ? roundMoney(Math.max(numericTotal - calculateCostSharingMemberAmount(costSharing, costSharing.members[0]!, total, options), 0))
+    ? roundMoney(Math.max(numericTotal - (firstMember ? calculateCostSharingMemberAmount(costSharing, firstMember, total, options) : 0), 0))
     : roundMoney(costSharing.members.reduce(
         (sum, member) => sum + calculateCostSharingMemberAmount(costSharing, member, total, options),
         0,

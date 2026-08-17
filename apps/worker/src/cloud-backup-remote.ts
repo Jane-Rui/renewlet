@@ -14,7 +14,6 @@ import { RequestChecksumCalculation, ResponseChecksumValidation } from "@aws-sdk
 import { FetchHttpHandler } from "@smithy/fetch-http-handler";
 import type { HttpRequest, HttpResponse } from "@smithy/protocol-http";
 import type { HttpHandlerOptions, RequestHandler, RequestHandlerOutput } from "@smithy/types";
-import { AuthType, createClient, getPatcher, type FileStat, type WebDAVClient, type WebDAVClientError } from "webdav/web";
 import {
   CLOUD_BACKUP_MAX_SNAPSHOT_BYTES,
   cloudBackupSnapshotManifestSchema,
@@ -25,14 +24,16 @@ import {
 } from "@renewlet/shared/schemas/cloud-backup";
 import { UPSTREAM_RAW_RESPONSE_TEXT_CAPTURE_MAX_CHARS } from "@renewlet/shared/schemas/upstream";
 import { listS3ObjectsV2ViaSignedFetch, S3ListObjectsError } from "./cloud-backup-s3-list";
+import { WorkerWebDAVClient, WorkerWebDAVRequestError } from "./cloud-backup-webdav";
 import {
   recordToUpstreamHeaders,
   redactUpstreamSecrets,
+  type UpstreamFetchResponse,
   type UpstreamProviderResponse,
   upstreamErrorDetailsFromError,
   upstreamProviderResponseFromFetchResponse,
 } from "./upstream-response";
-import { sendUpstreamRequest, upstreamTransportDiagnosticMessage } from "./upstream-http";
+import { upstreamTransportDiagnosticMessage } from "./upstream-http";
 
 /**
  * Worker 云备份远端适配层。
@@ -64,21 +65,20 @@ export type CloudBackupRemoteClient = {
   delete(id: string): Promise<void>;
 };
 
-/** WebDAV 适配器通过 webdav/web 承接 PROPFIND/MKCOL 等浏览器 fetch 兼容路径。 */
+/** WebDAV 适配器通过 Worker 原生 fetch 承接 PROPFIND/MKCOL，并保持与 Docker 端相同的 Basic/Digest 认证能力。 */
 export class WebDAVCloudBackupClient implements CloudBackupRemoteClient {
-  private readonly client: WebDAVClient;
+  private readonly client: WorkerWebDAVClient;
   private readonly attemptedHost: string;
 
   constructor(
     private readonly settings: CloudBackupWebDavConfig,
     private readonly password: string,
   ) {
-    // Worker 使用 webdav/web 的 fetch 入口承接 PROPFIND/MKCOL/XML 兼容；Renewlet 只在 adapter 边界统一脱敏和错误契约。
-    ensureWebDAVUsesGlobalFetch();
-    this.client = createClient(settings.url, {
+    this.client = new WorkerWebDAVClient({
+      baseURL: settings.url,
       username: settings.username ?? "",
       password,
-      authType: AuthType.Auto,
+      timeoutMs: CLOUD_BACKUP_UPSTREAM_TIMEOUT_MS,
     });
     this.attemptedHost = providerHostSummary(settings.url);
   }
@@ -100,11 +100,11 @@ export class WebDAVCloudBackupClient implements CloudBackupRemoteClient {
 
   async list(): Promise<CloudBackupSnapshotManifest[]> {
     await this.ensureDirectory();
-    const files = await this.withWebDAVError("CLOUD_BACKUP_WEBDAV_PROPFIND_FAILED", async () => await this.client.getDirectoryContents(this.remotePath("")));
+    const files = await this.withWebDAVError("CLOUD_BACKUP_WEBDAV_PROPFIND_FAILED", async () => await this.client.list(this.remotePath("")));
     const manifests: CloudBackupSnapshotManifest[] = [];
-    for (const file of webDAVFileStats(files)) {
-      if (file.type === "directory" || !file.basename.endsWith(".manifest.json")) continue;
-      const manifest = await this.readManifest(file.basename).catch(() => null);
+    for (const filename of files) {
+      if (!filename.endsWith(".manifest.json")) continue;
+      const manifest = await this.readManifest(filename).catch(() => null);
       if (manifest) manifests.push(manifest);
     }
     return manifests;
@@ -131,27 +131,22 @@ export class WebDAVCloudBackupClient implements CloudBackupRemoteClient {
   }
 
   private async ensureDirectory(): Promise<void> {
-    await this.withWebDAVError("CLOUD_BACKUP_WEBDAV_MKCOL_FAILED", async () => await this.client.createDirectory(this.remotePath(""), { recursive: true }));
+    await this.withWebDAVError("CLOUD_BACKUP_WEBDAV_MKCOL_FAILED", async () => await this.client.ensureDirectory(this.remotePath("")));
   }
 
   private async put(filename: string, content: Uint8Array, contentType: string): Promise<void> {
     await this.withWebDAVError("CLOUD_BACKUP_WEBDAV_PUT_FAILED", async () => {
-      await this.client.putFileContents(this.remotePath(filename), content.buffer.slice(content.byteOffset, content.byteOffset + content.byteLength) as ArrayBuffer, {
-        contentLength: content.length,
-        overwrite: true,
-        headers: { "Content-Type": contentType },
-      });
+      await this.client.put(this.remotePath(filename), content, contentType);
     });
   }
 
   private async get(filename: string): Promise<Uint8Array> {
-    const body = await this.withWebDAVError("CLOUD_BACKUP_WEBDAV_GET_FAILED", async () => await this.client.getFileContents(this.remotePath(filename), { format: "binary" })) as ArrayBuffer | Uint8Array | string;
-    return bytesFromWebDAVBody(body, CLOUD_BACKUP_MAX_SNAPSHOT_BYTES);
+    return await this.withWebDAVError("CLOUD_BACKUP_WEBDAV_GET_FAILED", async () => await this.client.get(this.remotePath(filename), CLOUD_BACKUP_MAX_SNAPSHOT_BYTES));
   }
 
   private async deleteFile(filename: string): Promise<void> {
     try {
-      await this.withWebDAVError("CLOUD_BACKUP_WEBDAV_DELETE_FAILED", async () => await this.client.deleteFile(this.remotePath(filename)));
+      await this.withWebDAVError("CLOUD_BACKUP_WEBDAV_DELETE_FAILED", async () => await this.client.delete(this.remotePath(filename)));
     } catch (error) {
       if (error instanceof CloudBackupRemoteError && error.code === "CLOUD_BACKUP_WEBDAV_NOT_FOUND") return;
       throw error;
@@ -188,36 +183,8 @@ export class WebDAVCloudBackupClient implements CloudBackupRemoteClient {
   }
 }
 
-function webDAVFileStats(value: FileStat[] | { data: FileStat[] }): FileStat[] {
-  return Array.isArray(value) ? value : value.data;
-}
-
-function bytesFromWebDAVBody(body: ArrayBuffer | Uint8Array | string, limitBytes: number): Uint8Array {
-  const bytes = typeof body === "string" ? textEncoder.encode(body) : body instanceof Uint8Array ? body : new Uint8Array(body);
-  if (bytes.length > limitBytes) throw new Error("CLOUD_BACKUP_SNAPSHOT_TOO_LARGE");
-  return new Uint8Array(bytes);
-}
-
-function webDAVResponseFromError(error: unknown): Response | null {
-  const response = isWebDAVClientError(error) ? error.response : null;
-  if (!response || typeof response !== "object") return null;
-  if (!("status" in response) || !("headers" in response) || !("text" in response)) return null;
-  return response as unknown as Response;
-}
-
-function ensureWebDAVUsesGlobalFetch(): void {
-  const patcher = getPatcher();
-  if (!patcher.isPatched("fetch")) {
-    // webdav/web 在 Worker 下最终仍走 fetch；这里把库内部 PROPFIND/PUT/GET 也纳入统一超时和 Full redacted 诊断。
-    patcher.patch("fetch", async (...args: unknown[]) => await sendUpstreamRequest(args[0] as RequestInfo | URL, (args[1] as RequestInit | undefined) ?? {}, {
-      provider: "WebDAV",
-      timeoutMs: CLOUD_BACKUP_UPSTREAM_TIMEOUT_MS,
-    }));
-  }
-}
-
-function isWebDAVClientError(error: unknown): error is WebDAVClientError {
-  return typeof error === "object" && error !== null && "response" in error;
+function webDAVResponseFromError(error: unknown): UpstreamFetchResponse | null {
+  return error instanceof WorkerWebDAVRequestError ? error.response : null;
 }
 
 function webDAVErrorCodeForStatus(fallback: string, response: CloudBackupProviderResponse): string {
@@ -532,7 +499,7 @@ export function cloudBackupRemoteErrorDetailsFromProviderResponse(code: string, 
   return { rawResponseText: providerMessage };
 }
 
-async function cloudBackupProviderResponseFromFetchResponse(response: Response, secrets: readonly string[]): Promise<CloudBackupProviderResponse> {
+async function cloudBackupProviderResponseFromFetchResponse(response: UpstreamFetchResponse, secrets: readonly string[]): Promise<CloudBackupProviderResponse> {
   return await upstreamProviderResponseFromFetchResponse(response, { secrets });
 }
 

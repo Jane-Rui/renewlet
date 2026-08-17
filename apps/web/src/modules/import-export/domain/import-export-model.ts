@@ -1,4 +1,10 @@
-import type { ImportPayload, ImportSubscription, RenewletExportV1 } from "@/lib/api/schemas/import-export";
+import {
+  IMPORT_PREVIEW_MAX_BYTES,
+  IMPORT_PREVIEW_SUBSCRIPTION_LIMIT,
+  type ImportPayload,
+  type ImportSubscription,
+  type RenewletExportV1,
+} from "@/lib/api/schemas/import-export";
 import type { AppSettings, BillingCycle, CustomCycleUnit, Subscription } from "@/types/subscription";
 import type { ConfigItem, CustomConfig } from "@/types/config";
 import { labels } from "@/i18n/locales";
@@ -8,9 +14,10 @@ import { isValidDateOnly } from "@renewlet/shared/runtime";
 /**
  * 导入文件大小上限。
  *
- * JSON/ZIP/SQLite 解析都发生在浏览器端；50MiB 是为了允许 Wallos 备份带 Logo，同时避免主线程/Worker 被异常文件拖垮。
+ * JSON/ZIP/SQLite 解析都发生在浏览器端；8 MiB 上限与两个后端预览 body 契约保持一致。
  */
-export const MAX_IMPORT_FILE_BYTES = 50 * 1024 * 1024;
+export const MAX_IMPORT_FILE_BYTES = IMPORT_PREVIEW_MAX_BYTES;
+export const MAX_IMPORT_PREVIEW_SUBSCRIPTIONS = IMPORT_PREVIEW_SUBSCRIPTION_LIMIT;
 
 export type ImportAssetKind = "logo" | "icon";
 
@@ -76,6 +83,7 @@ export const IMPORT_MESSAGE_CODES = {
   onlyCurrencyId: "IMPORT_WARNING_WALLOS_CURRENCY_ID_ONLY",
   externalLogo: "IMPORT_WARNING_WALLOS_EXTERNAL_LOGO",
   unknownCycle: "IMPORT_WARNING_WALLOS_UNKNOWN_CYCLE",
+  fileTooLarge: "IMPORT_ERROR_FILE_TOO_LARGE",
   unrecognizedFile: "IMPORT_ERROR_UNRECOGNIZED_FILE",
   wallosTableTooLarge: "IMPORT_ERROR_WALLOS_TABLE_TOO_LARGE",
   workerParseFailed: "IMPORT_ERROR_WORKER_PARSE_FAILED",

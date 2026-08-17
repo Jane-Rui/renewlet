@@ -8,10 +8,20 @@ Renewlet is a pnpm workspace with a React/Vite client, a Go/PocketBase Docker se
 
 Requirements:
 
-- Node.js 22.13 or newer.
-- pnpm 11.1.2 via Corepack.
-- Go 1.26.2 for the Docker server.
+- Node.js `>=24.19.0 <25` or `>=26.5.0 <27`.
+- pnpm 11.20.0 via Corepack.
+- Go 1.26.6 for the Docker server.
 - Docker Compose v2 for Docker deployment checks.
+
+Node 24.19.0 LTS is the reproducible Docker and release baseline. The CI quality matrix also runs on Node 26.5.0 so contributors can use the current even-numbered release without engine warnings; EOL Node 25 and untested Node 27+ are not supported.
+
+Check the toolchain before installing dependencies:
+
+```bash
+node --version       # v24.19.x or >=v26.5.0 <v27
+corepack pnpm --version  # 11.20.0
+go version           # go1.26.6
+```
 
 Install dependencies from the repository root:
 
@@ -28,6 +38,8 @@ pnpm --dir apps/docker-server start
 pnpm dev:cloudflare
 ```
 
+Cloudflare local development uses direct network access by default. On macOS, set `RENEWLET_CLOUDFLARE_DEV_SYSTEM_PROXY=1` only when Worker upstream requests must use the active system HTTP/HTTPS proxy; Wrangler will then print its expected proxy-use notice.
+
 ## Quality Checks
 
 Use the narrowest check that covers your change:
@@ -36,15 +48,22 @@ Use the narrowest check that covers your change:
 pnpm check:file-lines
 pnpm check:deploy
 pnpm check:public-api-docs
-pnpm --filter @renewlet/client lint
+pnpm check:route-parity
+pnpm lint
 pnpm --filter @renewlet/client test:run
 pnpm --dir apps/docker-server test
 pnpm check:cloudflare
+pnpm test:perf
+pnpm build:all
+pnpm typecheck:scripts
+pnpm typecheck:all
 pnpm typecheck:e2e
 pnpm test:e2e
 ```
 
-Before opening a pull request, run the relevant type checks and tests. For cross-runtime API/schema work, run the Docker server, client, and Cloudflare checks together.
+Before opening a pull request, run the relevant type checks and tests. Root `scripts/*.ts` belong to the repository TypeScript project and must pass `pnpm typecheck:scripts`; `pnpm typecheck:all` is the complete monorepo gate. For cross-runtime API/schema work, run the Docker server, client, and Cloudflare checks together.
+
+Performance changes must report the affected dataset size and operation count. Client builds enforce the committed gzip/brotli budgets; do not raise a budget without attaching the new build output and explaining the user-visible tradeoff.
 
 ## Public API Docs
 

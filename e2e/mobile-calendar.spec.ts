@@ -1,5 +1,6 @@
 // 移动端日历 E2E 关注真实 viewport 下的日历格子、详情弹层和横向溢出；这些回归通常不会被单元测试捕捉。
-import { expect, test, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { expect, test } from "./support/test";
 import { expectNoHorizontalOverflow } from "./support/layout";
 import { createProductSubscriptionSeed } from "./support/product-api";
 import { uniqueE2EName } from "./support/subscriptions";

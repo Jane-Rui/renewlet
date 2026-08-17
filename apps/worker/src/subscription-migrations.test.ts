@@ -95,6 +95,7 @@ describe("Cloudflare D1 subscription migrations", () => {
         billingCycle: "monthly",
       });
       applyMigration(db, "0035_rebuild_cost_sharing_collection_reminder_schema.sql");
+      applyMigration(db, "0036_subscription_derived_state_v2.sql");
 
       const response = await readSubscriptions(new Request("https://renewlet.test/api/app/subscriptions?limit=10"), {
         DB: new SqliteD1Database(db) as unknown as D1Database,
@@ -112,6 +113,56 @@ describe("Cloudflare D1 subscription migrations", () => {
           collectionReminder: { enabled: true, reminderDays: 1 },
         },
       });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("migrates derived stats to fixed columns and creates the repeat backfill boundary", () => {
+    const db = openSubscriptionMigrationDatabase();
+    try {
+      insertCostSharingSubscription(db, {
+        costSharingJson: JSON.stringify(costSharingJson({})),
+        billingCycle: "monthly",
+      });
+      applyMigration(db, "0034_cost_sharing_collection_reminders.sql");
+      applyMigration(db, "0035_rebuild_cost_sharing_collection_reminder_schema.sql");
+
+      applyMigration(db, "0036_subscription_derived_state_v2.sql");
+
+      expect(tableColumnNames(db, "subscription_user_stats")).toEqual([
+        "user_id",
+        "total_count",
+        "trial_count",
+        "active_count",
+        "expired_count",
+        "paused_count",
+        "cancelled_count",
+        "created_at",
+        "updated_at",
+      ]);
+      expect(db.prepare(`
+        SELECT total_count, trial_count, active_count, expired_count, paused_count, cancelled_count
+        FROM subscription_user_stats WHERE user_id = ?
+      `).get(USER_ID)).toEqual({
+        total_count: 1,
+        trial_count: 0,
+        active_count: 1,
+        expired_count: 0,
+        paused_count: 0,
+        cancelled_count: 0,
+      });
+      expect(tableColumnNames(db, "subscription_repeat_schedule")).toEqual([
+        "user_id",
+        "subscription_id",
+        "next_due_at_utc",
+      ]);
+      expect(readIndexSql(db, "idx_subscription_repeat_schedule_due")).toContain(
+        "user_id, next_due_at_utc, subscription_id",
+      );
+      expect(tableColumnNames(db, "subscription_derived_backfills")).toEqual(["name", "completed_at"]);
+      expect(readScalar<number>(db, "SELECT COUNT(*) FROM subscription_derived_backfills")).toBe(0);
+      expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
     } finally {
       db.close();
     }
@@ -318,7 +369,11 @@ function applyMigration(db: DatabaseSync, name: string): void {
 }
 
 function subscriptionColumnNames(db: DatabaseSync): string[] {
-  return db.prepare("PRAGMA table_info(subscriptions)").all().map((row) => String(row["name"]));
+  return tableColumnNames(db, "subscriptions");
+}
+
+function tableColumnNames(db: DatabaseSync, table: string): string[] {
+  return db.prepare(`PRAGMA table_info(${table})`).all().map((row) => String(row["name"]));
 }
 
 function readCostSharingJson(db: DatabaseSync): unknown {

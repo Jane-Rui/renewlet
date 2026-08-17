@@ -2,6 +2,7 @@
 import { spawn } from "node:child_process";
 import { execFileSync } from "node:child_process";
 
+const SYSTEM_PROXY_OPT_IN = "RENEWLET_CLOUDFLARE_DEV_SYSTEM_PROXY";
 const childEnv = wranglerDevEnv(process.env);
 const child = spawn(wranglerBin(), ["dev", ...process.argv.slice(2)], {
   cwd: process.cwd(),
@@ -29,7 +30,9 @@ child.on("exit", (code, signal) => {
 });
 
 function wranglerDevEnv(baseEnv) {
-  if (hasProxyEnvironment(baseEnv) || process.platform !== "darwin") return baseEnv;
+  if (hasProxyEnvironment(baseEnv) || process.platform !== "darwin" || baseEnv[SYSTEM_PROXY_OPT_IN] !== "1") {
+    return baseEnv;
+  }
   const systemProxy = macOsSystemProxy();
   if (!systemProxy) return baseEnv;
   const next = { ...baseEnv };

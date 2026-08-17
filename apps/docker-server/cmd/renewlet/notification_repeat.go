@@ -86,7 +86,7 @@ func getRepeatScheduleDecision(now time.Time, settings appSettings, subscription
 			// -2 静默订阅不参与 repeat due，否则会绕过主通知的跳过入口。
 			continue
 		}
-		if !sub.RepeatReminderEnabled {
+		if sub.BillingCycle == "one-time" || !sub.RepeatReminderEnabled {
 			continue
 		}
 		repeat := repeatReminderSnapshot{
@@ -181,7 +181,7 @@ func getNextRepeatScheduleOccurrence(now time.Time, settings appSettings, subscr
 			// 下一次预览也跳过 -2，避免 UI 显示一条不会发送的重复提醒。
 			continue
 		}
-		if !sub.RepeatReminderEnabled {
+		if sub.BillingCycle == "one-time" || !sub.RepeatReminderEnabled {
 			continue
 		}
 		repeat := repeatReminderSnapshot{
@@ -277,25 +277,32 @@ func collectUpcomingRepeatBatches(now time.Time, settings appSettings, subscript
 			Interval: normalizeRepeatReminderInterval(sub.RepeatReminderInterval),
 			Window:   normalizeRepeatReminderWindow(sub.RepeatReminderWindow),
 		}
-		targets := []string{sub.NextBillingDate}
+		targets := []struct {
+			itemType string
+			date     string
+		}{{itemType: "renewal", date: sub.NextBillingDate}}
 		if sub.Status == "trial" {
-			targets = append(targets, sub.TrialEndDate)
+			targets = append(targets, struct {
+				itemType string
+				date     string
+			}{itemType: "trial", date: sub.TrialEndDate})
 		}
 		reminderDays, ok := effectiveReminderDays(sub, settings)
 		if !ok {
 			continue
 		}
-		for _, targetDate := range targets {
-			occurrence, ok := nextRepeatOccurrenceAfter(now, settings, reminderDays, targetDate, repeat)
+		for _, target := range targets {
+			occurrence, ok := nextRepeatOccurrenceAfter(now, settings, reminderDays, target.date, repeat)
 			for ok {
 				instant, err := time.Parse(time.RFC3339, occurrence.ScheduledInstantUTC)
 				if err != nil || instant.After(end) {
 					break
 				}
-				items := collectRepeatNotificationItems(occurrence, settings, subscriptions)
-				appendUpcomingBatch(batchesByKey, occurrence, items)
+				item := newNotificationContentItem(target.itemType, sub, target.date, daysBetweenDateOnly(occurrence.ScheduledLocalDate, target.date), reminderDays, &repeat)
+				// 当前订阅已足够构造 occurrence item；禁止在内层重新扫描全部订阅。
+				appendUpcomingBatch(batchesByKey, occurrence, []notificationContentItem{item})
 				// 下一轮从当前 occurrence 后一分钟开始，避免 nextRepeatOccurrenceAfter 返回同一个时间点造成死循环。
-				occurrence, ok = nextRepeatOccurrenceAfter(instant.Add(time.Minute), settings, reminderDays, targetDate, repeat)
+				occurrence, ok = nextRepeatOccurrenceAfter(instant.Add(time.Minute), settings, reminderDays, target.date, repeat)
 			}
 		}
 	}

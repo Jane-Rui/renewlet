@@ -8,13 +8,14 @@ import {
   mfaTotpEnableBodySchema,
   mfaTotpSetupPayloadSchema,
   mfaVerifyBodySchema,
+  passkeyAuthenticationOptionsPayloadSchema,
   passkeyAuthenticateOptionsBodySchema,
   passkeyAuthenticateVerifyBodySchema,
   passkeyDeleteBodySchema,
+  passkeyRegistrationOptionsPayloadSchema,
   passkeyRegisterOptionsBodySchema,
   passkeyRegisterVerifyBodySchema,
   passkeysPayloadSchema,
-  passkeyWebAuthnOptionsPayloadSchema,
   sessionPayloadSchema,
   setupCreateBodySchema,
   type SessionResponse,
@@ -71,8 +72,8 @@ import {
   type IssuedSessionResponse,
 } from "./mfa";
 import { isAccountSecuritySchemaError } from "./account-security-schema";
-import { refreshSubscriptionSchedulerState } from "./subscription-scheduler-state";
 import { publicTurnstileConfig, requireTurnstileForPasswordLogin } from "./auth-security-store";
+import { buildInitialUserStateQueries } from "./initial-user-state";
 
 const DEFAULT_SESSION_TTL_DAYS = 30;
 const SESSION_LAST_SEEN_TOUCH_INTERVAL_MS = 15 * 60 * 1000;
@@ -118,17 +119,24 @@ export async function createInitialAdmin(request: Request, env: Env): Promise<Re
   const locale = requestLocale(request);
   // 初始化只允许“还没有启用管理员”这一瞬间进入；Cloudflare 版没有 PocketBase installer 可兜底。
   if (!setupEnabled(env)) throw new HttpError(403, serverText(locale, "auth.setupDisabled"));
-  if (await hasEnabledAdmin(env)) throw new HttpError(403, serverText(locale, "auth.setupAlreadyInitialized"));
   const body = await readJson(request, setupCreateBodySchema, locale);
   const timestamp = nowIso();
-  const userId = newId("usr");
-  // email 唯一索引是初始化竞态的最后闸门；并发首装失败必须暴露为创建失败，而不是补兼容重试。
-  await env.DB.prepare(`
-    INSERT INTO users (id, email, name, role, banned, ban_reason, password_hash, created_at, updated_at)
-    VALUES (?, ?, ?, 'admin', 0, '', ?, ?, ?)
-  `).bind(userId, body.email.trim(), body.name.trim(), await hashPassword(body.password), timestamp, timestamp).run();
-  await ensureSettings(env, userId, locale);
-  await refreshSubscriptionSchedulerState(env, userId, { resetAutoRenewCheck: false });
+  const user: UserRow = {
+    id: newId("usr"),
+    email: body.email.trim(),
+    name: body.name.trim(),
+    role: "admin",
+    banned: 0,
+    ban_reason: "",
+    password_hash: await hashPassword(body.password),
+    reset_token_hash: null,
+    reset_token_expires_at: null,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+  if (!(await createUserWithInitialState(env, user, locale, true))) {
+    throw new HttpError(403, serverText(locale, "auth.setupAlreadyInitialized"));
+  }
   return ok(201);
 }
 
@@ -256,7 +264,7 @@ export async function passkeyRegisterOptions(request: Request, env: Env): Promis
   const response = await startPasskeyRegistration(env, request, auth.user).catch(() => {
     throw new HttpError(400, serverText(locale, "common.invalidRequestParameters"));
   });
-  return successJson(passkeyWebAuthnOptionsPayloadSchema.parse(response));
+  return successJson(passkeyRegistrationOptionsPayloadSchema.parse(response));
 }
 
 export async function passkeyRegisterVerify(request: Request, env: Env): Promise<Response> {
@@ -276,7 +284,7 @@ export async function passkeyAuthenticateOptions(request: Request, env: Env): Pr
   const response = await startPasskeyAuthentication(env, request).catch(() => {
     throw new HttpError(400, serverText(locale, "common.invalidRequestParameters"));
   });
-  return successJson(passkeyWebAuthnOptionsPayloadSchema.parse(response));
+  return successJson(passkeyAuthenticationOptionsPayloadSchema.parse(response));
 }
 
 export async function passkeyAuthenticateVerify(request: Request, env: Env): Promise<Response> {
@@ -390,12 +398,20 @@ export async function adminCreateUser(request: Request, env: Env): Promise<Respo
     created_at: timestamp,
     updated_at: timestamp,
   };
-  await env.DB.prepare(`
-    INSERT INTO users (id, email, name, role, banned, ban_reason, password_hash, created_at, updated_at)
-    VALUES (?, ?, ?, ?, 0, '', ?, ?, ?)
-  `).bind(user.id, user.email, user.name, user.role, user.password_hash, timestamp, timestamp).run();
-  await refreshSubscriptionSchedulerState(env, user.id, { resetAutoRenewCheck: false });
+  await createUserWithInitialState(env, user, locale, false);
   return successJson(adminUserPayloadSchema.parse({ user: toAdminUser(user) }), { status: 201 });
+}
+
+async function createUserWithInitialState(
+  env: Env,
+  user: UserRow,
+  locale: AppLocale,
+  initialSetup: boolean,
+): Promise<boolean> {
+  // D1 batch 是账号创建的唯一事务边界；setup loser 的 user id 不存在，后三条 SELECT INSERT 因而全部零写入。
+  const queries = buildInitialUserStateQueries(user, locale, initialSetup);
+  const results = await env.DB.batch(queries.map((query) => env.DB.prepare(query.sql).bind(...query.bindings)));
+  return results[0]?.meta.changes === 1;
 }
 
 /**

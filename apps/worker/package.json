@@ -5,7 +5,9 @@
   "version": "0.3.0",
   "type": "module",
   "scripts": {
-    "test:run": "vitest run",
+    "build": "wrangler deploy --dry-run --config ../../wrangler.jsonc --outdir dist",
+    "test:perf": "vitest run src/subscription-derived-state.performance.test.ts",
+    "test:run": "vitest run --exclude '**/*.performance.test.ts'",
     "typecheck": "tsc --noEmit --project tsconfig.json"
   },
   "dependencies": {
@@ -16,6 +18,7 @@
     "@aws-sdk/client-s3": "^3.1104.0",
     "@aws-sdk/middleware-flexible-checksums": "3.974.51",
     "@aws-sdk/s3-request-presigner": "^3.1104.0",
+    "@noble/hashes": "2.2.0",
     "@renewlet/shared": "workspace:*",
     "@simplewebauthn/server": "^13.3.2",
     "@smithy/fetch-http-handler": "^5.6.13",
@@ -25,13 +28,12 @@
     "fast-xml-parser": "5.10.1",
     "hono": "4.13.0",
     "otpauth": "^9.5.1",
-    "webdav": "5.10.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20260804.1",
+    "@cloudflare/workers-types": "^5.20260811.1",
     "typescript": "6.0.3",
     "vitest": "^4.1.10",
-    "wrangler": "^4.121.0"
+    "wrangler": "^4.123.0"
   }
 }

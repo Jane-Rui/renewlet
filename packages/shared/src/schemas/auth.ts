@@ -119,7 +119,94 @@ export const mfaCurrentPasswordBodySchema = z.object({
 }).strict();
 export type MfaCurrentPasswordBody = z.infer<typeof mfaCurrentPasswordBodySchema>;
 
-const webAuthnJsonSchema = z.record(z.string(), z.unknown());
+const webAuthnBase64UrlSchema = z.string().min(1).max(16_384);
+const webAuthnCredentialTypeSchema = z.literal("public-key");
+const webAuthnTransportSchema = z.enum(["ble", "cable", "hybrid", "internal", "nfc", "smart-card", "usb"]);
+const webAuthnUserVerificationSchema = z.enum(["discouraged", "preferred", "required"]);
+const webAuthnCredentialDescriptorSchema = z.object({
+  id: webAuthnBase64UrlSchema,
+  type: webAuthnCredentialTypeSchema,
+  transports: z.array(webAuthnTransportSchema).default([]),
+}).strict();
+const webAuthnClientExtensionInputsSchema = z.object({
+  credProps: z.boolean().default(false),
+}).strict();
+const webAuthnClientExtensionOutputsSchema = z.object({
+  appid: z.boolean().optional(),
+  credProps: z.object({ rk: z.boolean().optional() }).strict().optional(),
+  hmacCreateSecret: z.boolean().optional(),
+}).strict();
+
+// Docker 与 Worker 使用不同 WebAuthn 库；shared 校验两者共同发送给浏览器的标准 JSON，而不是接受任意 record。
+export const passkeyRegistrationOptionsSchema = z.object({
+  rp: z.object({
+    id: z.string().min(1),
+    name: z.string().min(1),
+  }).strict(),
+  user: z.object({
+    id: webAuthnBase64UrlSchema,
+    name: z.string().min(1),
+    displayName: z.string(),
+  }).strict(),
+  challenge: webAuthnBase64UrlSchema,
+  pubKeyCredParams: z.array(z.object({
+    alg: z.number().int(),
+    type: webAuthnCredentialTypeSchema,
+  }).strict()).min(1),
+  timeout: z.number().int().positive().default(60_000),
+  excludeCredentials: z.array(webAuthnCredentialDescriptorSchema).default([]),
+  authenticatorSelection: z.object({
+    requireResidentKey: z.boolean().default(true),
+    residentKey: z.literal("required").default("required"),
+    userVerification: z.literal("required").default("required"),
+  }).strict(),
+  hints: z.array(z.enum(["hybrid", "security-key", "client-device"])).default([]),
+  attestation: z.enum(["direct", "enterprise", "indirect", "none"]).default("none"),
+  extensions: webAuthnClientExtensionInputsSchema.default({ credProps: false }),
+}).strict();
+export type PasskeyRegistrationOptions = z.infer<typeof passkeyRegistrationOptionsSchema>;
+
+export const passkeyAuthenticationOptionsSchema = z.object({
+  challenge: webAuthnBase64UrlSchema,
+  timeout: z.number().int().positive().default(60_000),
+  rpId: z.string().min(1),
+  allowCredentials: z.array(webAuthnCredentialDescriptorSchema).default([]),
+  userVerification: webAuthnUserVerificationSchema.default("required"),
+  hints: z.array(z.enum(["hybrid", "security-key", "client-device"])).default([]),
+}).strict();
+export type PasskeyAuthenticationOptions = z.infer<typeof passkeyAuthenticationOptionsSchema>;
+
+export const passkeyRegistrationResponseSchema = z.object({
+  id: webAuthnBase64UrlSchema,
+  rawId: webAuthnBase64UrlSchema,
+  response: z.object({
+    clientDataJSON: webAuthnBase64UrlSchema,
+    attestationObject: webAuthnBase64UrlSchema,
+    authenticatorData: webAuthnBase64UrlSchema.optional(),
+    transports: z.array(webAuthnTransportSchema).optional(),
+    publicKeyAlgorithm: z.number().int().optional(),
+    publicKey: webAuthnBase64UrlSchema.optional(),
+  }).strict(),
+  authenticatorAttachment: z.enum(["cross-platform", "platform"]).optional(),
+  clientExtensionResults: webAuthnClientExtensionOutputsSchema,
+  type: webAuthnCredentialTypeSchema,
+}).strict();
+export type PasskeyRegistrationResponse = z.infer<typeof passkeyRegistrationResponseSchema>;
+
+export const passkeyAuthenticationResponseSchema = z.object({
+  id: webAuthnBase64UrlSchema,
+  rawId: webAuthnBase64UrlSchema,
+  response: z.object({
+    clientDataJSON: webAuthnBase64UrlSchema,
+    authenticatorData: webAuthnBase64UrlSchema,
+    signature: webAuthnBase64UrlSchema,
+    userHandle: webAuthnBase64UrlSchema.optional(),
+  }).strict(),
+  authenticatorAttachment: z.enum(["cross-platform", "platform"]).optional(),
+  clientExtensionResults: webAuthnClientExtensionOutputsSchema,
+  type: webAuthnCredentialTypeSchema,
+}).strict();
+export type PasskeyAuthenticationResponse = z.infer<typeof passkeyAuthenticationResponseSchema>;
 
 export const passkeySchema = z.object({
   id: z.string().min(1),
@@ -134,14 +221,21 @@ export const passkeysPayloadSchema = z.object({
 export const passkeysResponseSchema = apiSuccessResponseSchema(passkeysPayloadSchema);
 export type PasskeysResponse = z.infer<typeof passkeysPayloadSchema>;
 
-export const passkeyWebAuthnOptionsPayloadSchema = z.object({
+export const passkeyRegistrationOptionsPayloadSchema = z.object({
   challengeId: z.string().min(1),
   expiresAt: z.iso.datetime(),
-  // WebAuthn options 是浏览器/库之间的 opaque JSON；shared 只校验外层 challenge 生命周期，密码学验证在后端库完成。
-  options: webAuthnJsonSchema,
+  options: passkeyRegistrationOptionsSchema,
 }).strict();
-export const passkeyWebAuthnOptionsResponseSchema = apiSuccessResponseSchema(passkeyWebAuthnOptionsPayloadSchema);
-export type PasskeyWebAuthnOptionsResponse = z.infer<typeof passkeyWebAuthnOptionsPayloadSchema>;
+export const passkeyRegistrationOptionsResponseSchema = apiSuccessResponseSchema(passkeyRegistrationOptionsPayloadSchema);
+export type PasskeyRegistrationOptionsResponse = z.infer<typeof passkeyRegistrationOptionsPayloadSchema>;
+
+export const passkeyAuthenticationOptionsPayloadSchema = z.object({
+  challengeId: z.string().min(1),
+  expiresAt: z.iso.datetime(),
+  options: passkeyAuthenticationOptionsSchema,
+}).strict();
+export const passkeyAuthenticationOptionsResponseSchema = apiSuccessResponseSchema(passkeyAuthenticationOptionsPayloadSchema);
+export type PasskeyAuthenticationOptionsResponse = z.infer<typeof passkeyAuthenticationOptionsPayloadSchema>;
 
 export const passkeyRegisterOptionsBodySchema = z.object({
   name: z.string().trim().min(1).max(80),
@@ -152,7 +246,7 @@ export type PasskeyRegisterOptionsBody = z.infer<typeof passkeyRegisterOptionsBo
 export const passkeyRegisterVerifyBodySchema = z.object({
   challengeId: z.string().min(1),
   name: z.string().trim().min(1).max(80),
-  response: webAuthnJsonSchema,
+  response: passkeyRegistrationResponseSchema,
 }).strict();
 export type PasskeyRegisterVerifyBody = z.infer<typeof passkeyRegisterVerifyBodySchema>;
 
@@ -162,7 +256,7 @@ export type PasskeyAuthenticateOptionsBody = z.infer<typeof passkeyAuthenticateO
 
 export const passkeyAuthenticateVerifyBodySchema = z.object({
   challengeId: z.string().min(1),
-  response: webAuthnJsonSchema,
+  response: passkeyAuthenticationResponseSchema,
 }).strict();
 export type PasskeyAuthenticateVerifyBody = z.infer<typeof passkeyAuthenticateVerifyBodySchema>;
 

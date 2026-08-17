@@ -3,6 +3,7 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api-client";
 import { DEFAULT_SETTINGS } from "@/types/subscription";
+import { toPublicAppSettings } from "@/lib/api/schemas/settings";
 import { useNotificationTest } from "./use-notification-test";
 
 type ApiFetchMock = (
@@ -48,7 +49,10 @@ describe("useNotificationTest", () => {
     expect(call?.[0]).toBe("/api/app/notifications/test");
     expect(call?.[2]).toEqual({
       method: "POST",
-      body: JSON.stringify({ channel: "telegram", settings: DEFAULT_SETTINGS }),
+      body: JSON.stringify({
+        channel: "telegram",
+        settings: { ...toPublicAppSettings(DEFAULT_SETTINGS), secretUpdates: {} },
+      }),
       timeoutMs: 20_000,
     });
     expect(mocks.toast).not.toHaveBeenCalledWith(expect.objectContaining({

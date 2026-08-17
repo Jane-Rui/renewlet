@@ -217,8 +217,17 @@ export async function readJsonWithLimit<Schema extends z.ZodType>(
   locale: AppLocale,
   limitBytes: number,
 ): Promise<z.infer<Schema>> {
-  const text = await readLimitedTextWithLimit(request, locale, false, limitBytes);
-  return parseJsonText(text, schema, locale);
+  return (await readJsonWithLimitAndSize(request, schema, locale, limitBytes)).data;
+}
+
+export async function readJsonWithLimitAndSize<Schema extends z.ZodType>(
+  request: Request,
+  schema: Schema,
+  locale: AppLocale,
+  limitBytes: number,
+): Promise<{ data: z.infer<Schema>; bodyBytes: number }> {
+  const body = await readLimitedTextBodyWithLimit(request, locale, false, limitBytes);
+  return { data: parseJsonText(body.text, schema, locale), bodyBytes: body.bytes };
 }
 
 function parseJsonText<Schema extends z.ZodType>(
@@ -264,20 +273,29 @@ async function readLimitedText(request: Request, locale: AppLocale, allowEmpty: 
 }
 
 async function readLimitedTextWithLimit(request: Request, locale: AppLocale, allowEmpty: boolean, limitBytes: number): Promise<string> {
+	return (await readLimitedTextBodyWithLimit(request, locale, allowEmpty, limitBytes)).text;
+}
+
+async function readLimitedTextBodyWithLimit(
+  request: Request,
+  locale: AppLocale,
+  allowEmpty: boolean,
+  limitBytes: number,
+): Promise<{ text: string; bytes: number }> {
   const declaredLength = Number.parseInt(request.headers.get("content-length") ?? "", 10);
   if (Number.isFinite(declaredLength) && declaredLength > limitBytes) {
     throw new HttpError(413, serverText(locale, "common.requestBodyTooLarge"), "BODY_TOO_LARGE");
   }
-  const text = await readRequestTextUpToLimit(request, locale, limitBytes);
-  if (!allowEmpty && text.trim() === "") {
+  const body = await readRequestTextUpToLimit(request, locale, limitBytes);
+  if (!allowEmpty && body.text.trim() === "") {
     throw new HttpError(400, serverText(locale, "common.emptyBody"), "EMPTY_BODY");
   }
-  return text;
+  return body;
 }
 
-async function readRequestTextUpToLimit(request: Request, locale: AppLocale, limitBytes: number): Promise<string> {
+async function readRequestTextUpToLimit(request: Request, locale: AppLocale, limitBytes: number): Promise<{ text: string; bytes: number }> {
   const reader = request.body?.getReader();
-  if (!reader) return "";
+  if (!reader) return { text: "", bytes: 0 };
   // 不能退回 request.text()：content-length 缺失时仍要边读边截断，避免大 body 把 Worker isolate 拖垮。
   const decoder = new TextDecoder();
   let total = 0;
@@ -292,7 +310,7 @@ async function readRequestTextUpToLimit(request: Request, locale: AppLocale, lim
     }
     text += decoder.decode(value, { stream: true });
   }
-  return text + decoder.decode();
+  return { text: text + decoder.decode(), bytes: total };
 }
 
 /** 结构化 HTTP 错误；前端 ApiError 只读取 error.code/details 来定位字段或展示通用错误。 */

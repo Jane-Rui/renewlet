@@ -118,12 +118,12 @@ func (client *s3CloudBackupClient) List(ctx context.Context) ([]cloudBackupSnaps
 	return manifests, nil
 }
 
-func (client *s3CloudBackupClient) Upload(ctx context.Context, filename string, content []byte, manifest cloudBackupSnapshotManifest) error {
+func (client *s3CloudBackupClient) Upload(ctx context.Context, filename string, source cloudBackupSnapshotSource, manifest cloudBackupSnapshotManifest) error {
 	key := client.key(filename)
-	if err := client.putObject(ctx, key, content); err != nil {
+	if err := client.putObjectSource(ctx, key, source); err != nil {
 		return err
 	}
-	if size, err := client.headObject(ctx, key); err != nil || (size >= 0 && size != int64(len(content))) {
+	if size, err := client.headObject(ctx, key); err != nil || (size >= 0 && size != source.Size()) {
 		if err != nil {
 			return err
 		}
@@ -134,6 +134,24 @@ func (client *s3CloudBackupClient) Upload(ctx context.Context, filename string, 
 		return err
 	}
 	return client.putObject(ctx, client.key(manifestNameForSnapshotID(manifest.ID)), manifestBytes)
+}
+
+func (client *s3CloudBackupClient) putObjectSource(ctx context.Context, key string, source cloudBackupSnapshotSource) error {
+	reader, err := source.Open()
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+	return client.captureS3Error("CLOUD_BACKUP_S3_PUT_FAILED", func() error {
+		_, err := client.client.PutObject(ctx, &s3.PutObjectInput{
+			Bucket:        aws.String(client.settings.Bucket),
+			Key:           aws.String(key),
+			Body:          reader,
+			ContentLength: aws.Int64(source.Size()),
+			ContentType:   aws.String(contentTypeForS3Key(key)),
+		})
+		return err
+	})
 }
 
 func (client *s3CloudBackupClient) Download(ctx context.Context, id string) ([]byte, cloudBackupSnapshotManifest, error) {

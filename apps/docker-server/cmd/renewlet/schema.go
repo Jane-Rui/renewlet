@@ -82,10 +82,10 @@ func ensureCollectionsSchema(app core.App) error {
 	if err := ensureSubscriptionSchedulerStatesCollection(app, users); err != nil {
 		return err
 	}
-	if err := ensureSubscriptionDerivedTables(app); err != nil {
+	if err := ensureSettingsCollection(app, users); err != nil {
 		return err
 	}
-	if err := ensureSettingsCollection(app, users); err != nil {
+	if err := ensureSubscriptionDerivedTables(app); err != nil {
 		return err
 	}
 	if err := ensureCustomConfigsCollection(app, users); err != nil {

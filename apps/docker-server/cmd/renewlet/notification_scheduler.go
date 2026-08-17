@@ -348,24 +348,25 @@ func processNotificationCronUser(app core.App, options notificationCronOptions, 
 	}
 	settings := settingsFromRecord(row)
 	schedule := getLocalScheduleDecision(options.Now, settings.Timezone, settings.NotificationTimeLocal, options.WindowMinutes, options.Force)
+	var repeatCandidates []notificationSubscription
 	if !schedule.Due && !options.Force {
 		state, err := getSubscriptionSchedulerState(app, userID)
 		if err != nil {
 			return notificationCronUserResult{}, err
 		}
 		if state.RepeatReminderCount > 0 {
-			subscriptions, err := listRepeatReminderCandidateSubscriptions(app, userID, settings, options.Now)
+			repeatCandidates, err = listRepeatReminderCandidateSubscriptions(app, userID, settings, options.Now)
 			if err != nil {
 				return notificationCronUserResult{}, err
 			}
 			// 日常窗口未命中时只让 repeat 候选参与 due 判断；gate=0 时不查 subscriptions，避免每分钟空跑 I/O。
-			if repeat := getRepeatScheduleDecision(options.Now, settings, subscriptions, options.WindowMinutes); repeat.Due {
+			if repeat := getRepeatScheduleDecision(options.Now, settings, repeatCandidates, options.WindowMinutes); repeat.Due {
 				schedule = repeat
 			}
 		}
 	}
 	if !schedule.Due {
-		if _, err := refreshSubscriptionSchedulerStateWithOptions(app, userID, subscriptionSchedulerRefreshOptions{Now: options.Now}); err != nil {
+		if _, err := advanceSubscriptionSchedulerDueState(app, userID, settings, options.Now, false, repeatCandidates); err != nil {
 			return notificationCronUserResult{}, err
 		}
 		return notificationCronUserResult{
@@ -520,7 +521,11 @@ func refreshNotificationSettledDerivedState(app core.App, userID string, setting
 	if err := refreshCostSharingCollectionReminderMirrorsForUser(app, userID, settings, addDateOnly(schedule.ScheduledLocalDate, 1)); err != nil {
 		return err
 	}
-	_, err := refreshSubscriptionSchedulerStateWithOptions(app, userID, subscriptionSchedulerRefreshOptions{Now: options.Now, SkipCurrentNotificationWindow: true})
+	repeatCandidates, err := listRepeatReminderCandidateSubscriptions(app, userID, settings, options.Now)
+	if err != nil {
+		return err
+	}
+	_, err = advanceSubscriptionSchedulerDueState(app, userID, settings, options.Now, true, repeatCandidates)
 	return err
 }
 

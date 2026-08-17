@@ -4,9 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -30,6 +33,65 @@ func TestCloudBackupConfigValidationRejectsUnsafeRemotePaths(t *testing.T) {
 	}
 	if err := s3.NormalizeAndValidate(); err == nil {
 		t.Fatal("expected S3 parent prefix to be rejected")
+	}
+}
+
+func TestCloudBackupSnapshotSourceCanReopenAndCleanup(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "snapshot.zip")
+	content := []byte("renewlet snapshot")
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	source := cloudBackupSnapshotSource{path: path, size: int64(len(content))}
+
+	for attempt := 0; attempt < 2; attempt++ {
+		reader, err := source.Open()
+		if err != nil {
+			t.Fatalf("open attempt %d failed: %v", attempt+1, err)
+		}
+		actual, readErr := io.ReadAll(reader)
+		closeErr := reader.Close()
+		if readErr != nil || closeErr != nil {
+			t.Fatalf("read attempt %d failed: read=%v close=%v", attempt+1, readErr, closeErr)
+		}
+		if string(actual) != string(content) {
+			t.Fatalf("open attempt %d read %q, want %q", attempt+1, actual, content)
+		}
+	}
+
+	if err := source.Cleanup(); err != nil {
+		t.Fatalf("cleanup failed: %v", err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected temporary snapshot to be removed, got %v", err)
+	}
+}
+
+func TestWithCloudBackupSnapshotPayloadAlwaysCleansTemporaryFile(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		useErr error
+	}{
+		{name: "success"},
+		{name: "upload failure", useErr: errors.New("upload failed")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "snapshot.zip")
+			if err := os.WriteFile(path, []byte("snapshot"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			payload := cloudBackupSnapshotPayload{Source: cloudBackupSnapshotSource{path: path, size: 8}}
+
+			err := withCloudBackupSnapshotPayload("usr_cloud", payload, func(cloudBackupSnapshotPayload) error {
+				return test.useErr
+			})
+			if !errors.Is(err, test.useErr) {
+				t.Fatalf("use error = %v, want %v", err, test.useErr)
+			}
+			if _, statErr := os.Stat(path); !errors.Is(statErr, os.ErrNotExist) {
+				t.Fatalf("expected temporary snapshot to be removed, got %v", statErr)
+			}
+		})
 	}
 }
 
@@ -202,6 +264,32 @@ func TestVerifyCloudBackupSnapshotBytesRejectsChecksumMismatch(t *testing.T) {
 	}
 }
 
+func TestVerifyCloudBackupSnapshotBytesEnforcesUnifiedSnapshotLimit(t *testing.T) {
+	content := make([]byte, int(cloudBackupSnapshotMaxBytes)+1)
+	allowed := content[:159*(1<<20)/10]
+	allowedHash := sha256.Sum256(allowed)
+	allowedManifest := cloudBackupSnapshotManifest{
+		Kind:          "renewlet-cloud-backup-snapshot",
+		SchemaVersion: 1,
+		SizeBytes:     int64(len(allowed)),
+		SHA256:        hex.EncodeToString(allowedHash[:]),
+	}
+	if err := verifyCloudBackupSnapshotBytes(allowed, allowedManifest); err != nil {
+		t.Fatalf("expected 15.9 MiB snapshot to pass, got %v", err)
+	}
+
+	tooLarge := content
+	tooLargeManifest := cloudBackupSnapshotManifest{
+		Kind:          "renewlet-cloud-backup-snapshot",
+		SchemaVersion: 1,
+		SizeBytes:     int64(len(tooLarge)),
+		SHA256:        "not-evaluated-before-size-check",
+	}
+	if err := verifyCloudBackupSnapshotBytes(tooLarge, tooLargeManifest); err == nil || err.Error() != "CLOUD_BACKUP_SNAPSHOT_TOO_LARGE" {
+		t.Fatalf("expected snapshot above 16 MiB to fail before restore, got %v", err)
+	}
+}
+
 func TestCloudBackupProviderFromRequestRequiresExplicitProviderForList(t *testing.T) {
 	provider, hasProvider, err := cloudBackupProviderFromRequest(httptest.NewRequest(http.MethodGet, "/api/app/cloud-backups", nil))
 	if err != nil || hasProvider || provider != "" {
@@ -349,8 +437,17 @@ func (client *fakeCloudBackupRemoteClient) List(ctx context.Context) ([]cloudBac
 	return client.listManifests, nil
 }
 
-func (client *fakeCloudBackupRemoteClient) Upload(ctx context.Context, filename string, content []byte, manifest cloudBackupSnapshotManifest) error {
+func (client *fakeCloudBackupRemoteClient) Upload(ctx context.Context, filename string, source cloudBackupSnapshotSource, manifest cloudBackupSnapshotManifest) error {
 	return nil
+}
+
+func cloudBackupSnapshotSourceForTest(t *testing.T, content []byte) cloudBackupSnapshotSource {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "snapshot.zip")
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return cloudBackupSnapshotSource{path: path, size: int64(len(content))}
 }
 
 func (client *fakeCloudBackupRemoteClient) Download(ctx context.Context, id string) ([]byte, cloudBackupSnapshotManifest, error) {

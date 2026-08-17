@@ -255,7 +255,9 @@ export function normalizeStatuses(items: ConfigItem[]): ConfigItem[] {
     if (!DEFAULT_STATUS_VALUE_SET.has(item.value) || seen.has(item.value)) continue;
     seen.add(item.value);
     // 状态会参与统计/筛选逻辑，升级时只保留用户排序，不继承旧 label/color，避免 expired 缺色或被旧文案改名后语义漂移。
-    normalized.push(defaultByValue.get(item.value)!);
+    const defaultItem = defaultByValue.get(item.value);
+    if (!defaultItem) throw new Error(`Missing built-in subscription status: ${item.value}`);
+    normalized.push(defaultItem);
   }
 
   // 旧版本没有 expired；这里追加缺失内置项，让老用户进入状态管理/表单/筛选时都能看到完整状态集。

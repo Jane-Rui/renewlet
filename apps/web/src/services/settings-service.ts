@@ -1,7 +1,13 @@
 import { apiFetch } from "@/lib/api-client";
 import {
+  appSettingsSecretStatus,
   settingsResponseSchema,
   type ApiAppSettings,
+  type PublicAppSettings,
+  type SettingsSecretStatus,
+  type SettingsSecretUpdates,
+  toEditableAppSettings,
+  toPublicAppSettings,
 } from "@/lib/api/schemas/settings";
 import { getApiLocale } from "@/i18n/api-locale";
 import { translate } from "@/i18n/messages";
@@ -34,24 +40,43 @@ export function normalizeSettings(value: unknown): AppSettings {
   };
 }
 
+export interface SettingsReadModel {
+  settings: AppSettings;
+  secretStatus: SettingsSecretStatus;
+}
+
+export const EMPTY_SETTINGS_SECRET_STATUS = appSettingsSecretStatus(DEFAULT_SETTINGS);
+
+function editableSettingsFromPublicView(settings: PublicAppSettings): AppSettings {
+  const editable = toEditableAppSettings(settings);
+  return {
+    ...editable,
+    webhookPayload: clearLegacyWebhookExample(editable.webhookPayload, WEBHOOK_PAYLOAD_PLACEHOLDER),
+  };
+}
+
 /** 设置服务统一调用 Renewlet 产品 API；Docker 端也不能回退到 PocketBase collection REST。 */
 export const settingsService = {
-  async get(): Promise<AppSettings> {
+  async get(): Promise<SettingsReadModel> {
     const userId = getCurrentUserId();
-    if (!userId) return DEFAULT_SETTINGS;
+    if (!userId) return { settings: DEFAULT_SETTINGS, secretStatus: EMPTY_SETTINGS_SECRET_STATUS };
     const data = await apiFetch("/api/app/settings", settingsResponseSchema);
-    return normalizeSettings(data.settings);
+    return { settings: editableSettingsFromPublicView(data.settings), secretStatus: data.secretStatus };
   },
 
-  async update(current: AppSettings, patch: Partial<AppSettings>): Promise<AppSettings> {
+  async update(
+    current: AppSettings,
+    patch: Partial<AppSettings>,
+    secretUpdates: SettingsSecretUpdates = {},
+  ): Promise<SettingsReadModel> {
     const userId = getCurrentUserId();
     if (!userId) throw new Error(translate(getApiLocale(), "auth.loginRequired"));
     const next = normalizeSettings({ ...current, ...patch });
-    // Docker 与 Cloudflare 都只接受 shared ApiAppSettings；前端历史占位符先在 normalize 阶段被剥掉。
+    // 浏览器只发送公开 settings 与判别式 secret mutation；任何 draft secret 都不会混入普通字段。
     const data = await apiFetch("/api/app/settings", settingsResponseSchema, {
       method: "PUT",
-      body: JSON.stringify(next satisfies ApiAppSettings),
+      body: JSON.stringify({ ...toPublicAppSettings(next satisfies ApiAppSettings), secretUpdates }),
     });
-    return normalizeSettings(data.settings);
+    return { settings: editableSettingsFromPublicView(data.settings), secretStatus: data.secretStatus };
   },
 };

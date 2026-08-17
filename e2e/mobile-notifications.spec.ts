@@ -1,5 +1,6 @@
 // 移动端通知历史 E2E 用大量失败 job 撑开抽屉，专门保护长错误文本、滚动区域和顶部遮罩的布局边界。
-import { expect, test, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { expect, test } from "./support/test";
 import { expectOverlayLeavesTopScrim } from "./support/layout";
 import { gotoSettingsAfterHydration } from "./support/settings";
 

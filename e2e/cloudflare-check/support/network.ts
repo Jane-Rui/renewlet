@@ -213,12 +213,14 @@ export function expectNoBlockingNetworkIssues(
   ).toEqual([]);
 
   const allowedResourceErrors = getAllowedBrowserResourceErrors(monitor, options);
-  const unexpectedConsoleErrors = monitor.consoleMessages
-    .filter((message) => message.type === "error")
-    .filter((message) => !(options.allowConsoleError ?? []).some((pattern) => pattern.test(message.text)))
-    .filter((message) => !consumeAllowedBrowserResourceError(message, allowedResourceErrors))
-    .map((message) => message.text);
-  expect(unexpectedConsoleErrors, `${label}: unexpected console errors`).toEqual([]);
+  const unexpectedConsoleMessages = monitor.consoleMessages
+    .filter((message) => {
+      if (message.type !== "error") return true;
+      if ((options.allowConsoleError ?? []).some((pattern) => pattern.test(message.text))) return false;
+      return !consumeAllowedBrowserResourceError(message, allowedResourceErrors);
+    })
+    .map((message) => `${message.type}: ${message.text}`);
+  expect(unexpectedConsoleMessages, `${label}: unexpected console warnings or errors`).toEqual([]);
 }
 
 type AllowedBrowserResourceError = {

@@ -21,6 +21,7 @@ import {
 } from "./upstream";
 import { apiSuccessResponseSchema } from "./api";
 import { moneyStringSchema } from "../money";
+import { secretMutationSchema } from "./secrets";
 
 export const AI_RECOGNITION_MAX_TEXT_CHARS = 30_000;
 export const AI_RECOGNITION_MAX_IMAGES = 5;
@@ -138,14 +139,21 @@ function aiThinkingControlMatchesProviderType(providerType: AiRecognitionProvide
   return control.provider === providerType;
 }
 
-const aiRecognitionSettingsBaseSchema = z.object({
+const aiRecognitionPublicSettingsShape = {
   providerType: aiRecognitionProviderTypeSchema,
   transportProtocol: aiRecognitionTransportProtocolSchema,
   model: z.string().trim().max(160),
   modelInputMode: aiRecognitionModelInputModeSchema.default("select"),
   baseUrl: optionalProviderBaseUrlSchema,
-  apiKey: z.string().trim().max(4096),
   defaultThinkingControl: aiThinkingControlSchema.nullable(),
+};
+
+export const aiRecognitionPublicSettingsSchema = z.object(aiRecognitionPublicSettingsShape).strict();
+export type AiRecognitionPublicSettings = z.infer<typeof aiRecognitionPublicSettingsSchema>;
+
+const aiRecognitionSettingsBaseSchema = z.object({
+  ...aiRecognitionPublicSettingsShape,
+  apiKey: z.string().trim().max(4096),
 }).strict().transform((settings) => ({
   ...settings,
   transportProtocol: canonicalAIRecognitionTransportProtocol(settings.providerType),
@@ -359,7 +367,8 @@ export const aiGeneratedRecognizeObjectSchema = z.object({
 export type AiGeneratedRecognizeObject = z.infer<typeof aiGeneratedRecognizeObjectSchema>;
 
 export const aiRecognitionTestRequestSchema = z.object({
-  settings: aiRecognitionSettingsSchema,
+  settings: aiRecognitionPublicSettingsSchema,
+  apiKey: secretMutationSchema,
 }).strict();
 export type AiRecognitionTestRequest = z.infer<typeof aiRecognitionTestRequestSchema>;
 
@@ -383,7 +392,7 @@ export type AiModelCapability = z.infer<typeof aiModelCapabilitySchema>;
 export const aiModelListRequestSchema = z.object({
   providerType: aiRecognitionProviderTypeSchema,
   baseUrl: optionalProviderBaseUrlSchema,
-  apiKey: z.string().trim().max(4096),
+  apiKey: secretMutationSchema,
 }).strict();
 export type AiModelListRequest = z.infer<typeof aiModelListRequestSchema>;
 

@@ -10,8 +10,11 @@ import {
   StatisticsPageSkeleton,
   SubscriptionsPageSkeleton,
 } from "@/components/loading-skeleton";
-import { subscriptionsInfiniteQueryOptions, subscriptionsListQueryOptions } from "@/hooks/use-subscriptions";
-import { readProductSession, readProductSessionSnapshot } from "@/services/product-session";
+import { subscriptionsInfiniteQueryOptions } from "@/hooks/use-subscriptions";
+import { readProductSession } from "@/services/product-session";
+
+// 路由资源只响应 render 或链接 hover/focus/touch 意图预加载；登录后禁止空闲遍历全部私有 chunk。
+// 私有数据预取还要经过产品 session 门禁，并统一写入 subscriptions infinite cache，避免保留第二份全量列表。
 
 type RouteModule = { default: ComponentType };
 type RouteLoader = () => Promise<RouteModule>;
@@ -25,16 +28,6 @@ interface RouteResource {
   fallback: RouteFallbackComponent;
   preloadData?: (queryClient: QueryClient) => Promise<void>;
 }
-
-interface NetworkInformationLike {
-  saveData?: boolean | undefined;
-  effectiveType?: string | undefined;
-}
-
-type IdleWindowLike = {
-  requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
-  cancelIdleCallback?: (handle: number) => void;
-};
 
 const loadDashboard = () => import("@/pages/dashboard");
 const loadSubscriptions = () => import("@/pages/subscriptions");
@@ -83,10 +76,6 @@ function LightweightRouteFallback() {
   return <LightweightRouteSkeleton />;
 }
 
-async function preloadSubscriptionsList(queryClient: QueryClient) {
-  await queryClient.prefetchQuery(subscriptionsListQueryOptions());
-}
-
 async function preloadSubscriptionsInfinite(queryClient: QueryClient) {
   await queryClient.prefetchInfiniteQuery(subscriptionsInfiniteQueryOptions());
 }
@@ -98,7 +87,7 @@ async function preloadSettings(queryClient: QueryClient) {
 
 async function preloadSubscriptionsAndSettings(queryClient: QueryClient) {
   await Promise.all([
-    preloadSubscriptionsList(queryClient),
+    preloadSubscriptionsInfinite(queryClient),
     preloadSettings(queryClient),
   ]);
 }
@@ -106,12 +95,9 @@ async function preloadSubscriptionsAndSettings(queryClient: QueryClient) {
 async function preloadSubscriptionsPageData(queryClient: QueryClient) {
   await Promise.all([
     preloadSubscriptionsInfinite(queryClient),
-    preloadSubscriptionsList(queryClient),
     preloadSettings(queryClient),
   ]);
 }
-
-const primaryPrivateRoutePaths = ["/", "/subscriptions", "/calendar", "/statistics", "/settings"] as const;
 
 export const routeResources = {
   dashboard: {
@@ -130,7 +116,7 @@ export const routeResources = {
     path: "/calendar",
     load: loadCalendar,
     fallback: CalendarRouteFallback,
-    preloadData: preloadSubscriptionsList,
+    preloadData: preloadSubscriptionsInfinite,
   },
   statistics: {
     path: "/statistics",
@@ -200,7 +186,6 @@ const resourcesByExactPath = new Map<string, RouteResource>(
 const inFlightPreloads = new Map<string, Promise<void>>();
 const preloadListeners = new Set<() => void>();
 let routePreloadPendingCount = 0;
-let lastIdlePreloadSessionKey: string | null = null;
 
 function routeResourceForPathname(pathname: string): RouteResource | null {
   if (pathname.startsWith("/status/")) return routeResources.publicStatus;
@@ -236,27 +221,6 @@ function canPrefetchPrivateData() {
   return Boolean(readProductSession());
 }
 
-function canIdlePreloadRoutes() {
-  if (typeof navigator === "undefined") return false;
-  const connection =
-    (navigator as Navigator & { connection?: NetworkInformationLike }).connection ??
-    (navigator as Navigator & { mozConnection?: NetworkInformationLike }).mozConnection ??
-    (navigator as Navigator & { webkitConnection?: NetworkInformationLike }).webkitConnection;
-  if (connection?.saveData) return false;
-  return connection?.effectiveType !== "slow-2g" && connection?.effectiveType !== "2g";
-}
-
-function scheduleIdleTask(task: () => void): () => void {
-  if (typeof window === "undefined") return () => undefined;
-  const idleWindow = window as Window & IdleWindowLike;
-  if (idleWindow.requestIdleCallback && idleWindow.cancelIdleCallback) {
-    const handle = idleWindow.requestIdleCallback(task, { timeout: 2_000 });
-    return () => idleWindow.cancelIdleCallback?.(handle);
-  }
-  const timeoutId = window.setTimeout(task, 700);
-  return () => window.clearTimeout(timeoutId);
-}
-
 export function lazyRouteLoader(key: keyof typeof routeResources): RouteLoader {
   return routeResources[key].load;
 }
@@ -273,6 +237,7 @@ export function preloadRoute(pathname: string, queryClient?: QueryClient | null)
   const existing = inFlightPreloads.get(resource.path);
   if (existing) return existing;
 
+  // 同一路由的 chunk 与数据预取共享 in-flight promise，快速 hover/focus 切换不会制造重复网络请求。
   const preload = Promise.all([
     resource.load(),
     queryClient && resource.preloadData && canPrefetchPrivateData()
@@ -289,22 +254,6 @@ export function preloadRoute(pathname: string, queryClient?: QueryClient | null)
   };
   preload.then(clearInFlight, clearInFlight);
   return preload;
-}
-
-export function scheduleAuthenticatedRoutePreloads(queryClient: QueryClient): () => void {
-  const snapshot = readProductSessionSnapshot();
-  const sessionKey = snapshot ? `${snapshot.userId}:${snapshot.expiresAt}:${snapshot.verifiedAt}` : "";
-  if (!sessionKey || sessionKey === lastIdlePreloadSessionKey || !canIdlePreloadRoutes()) {
-    return () => undefined;
-  }
-  lastIdlePreloadSessionKey = sessionKey;
-
-  return scheduleIdleTask(() => {
-    // 登录后的 H5 主导航没有 hover；只在浏览器空闲且非省流量网络下预热主工作区路由。
-    for (const pathname of primaryPrivateRoutePaths) {
-      void preloadRoute(pathname, queryClient).catch(() => undefined);
-    }
-  });
 }
 
 export function useRoutePreloadPending(): boolean {

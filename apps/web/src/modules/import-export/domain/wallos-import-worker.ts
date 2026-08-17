@@ -1,6 +1,17 @@
+import { CLOUD_BACKUP_MAX_SNAPSHOT_BYTES } from "@/lib/api/schemas/cloud-backup";
+import { MAX_IMAGE_BYTES } from "@/lib/upload-constraints";
 import { renewletExportV1Schema } from "@/lib/api/schemas/import-export";
-import { IMPORT_MESSAGE_CODES } from "./import-export-model";
+import { IMPORT_MESSAGE_CODES, MAX_IMPORT_FILE_BYTES, MAX_IMPORT_PREVIEW_SUBSCRIPTIONS } from "./import-export-model";
 import type { PreparedImport } from "./import-export-model";
+import {
+  assertZipEntryWithinLimit,
+  inspectZipCentralDirectory,
+  MAX_IMPORT_ZIP_ENTRIES,
+  ZipFormatError,
+  ZipLimitExceededError,
+  type ZipCentralDirectory,
+  type ZipCentralDirectoryEntry,
+} from "./zip-central-directory";
 import {
   buildFromRenewletExport,
   buildFromWallosDatabase,
@@ -15,6 +26,7 @@ type WorkerRequest = {
   id: number;
   buffer: ArrayBuffer;
   context: ImportBuildBaseContext;
+  maxFileBytes: number;
   wallosUserId?: string;
 };
 
@@ -23,9 +35,9 @@ type WorkerResponse =
   | { id: number; ok: false; error: string };
 
 const WALLOS_TABLE_PAGE_SIZE = 500;
-const WALLOS_TABLE_MAX_ROWS = 5000;
+const WALLOS_TABLE_MAX_ROWS = MAX_IMPORT_PREVIEW_SUBSCRIPTIONS;
 
-// Wallos 备份解析运行在专用 Worker 内；容量上限保护浏览器内存，也和服务端导入预览 5000 条上限对齐。
+// Wallos 备份解析运行在专用 Worker 内；容量上限保护浏览器内存，也和服务端 1000 条预览上限对齐。
 class WallosTableTooLargeError extends Error {
   constructor() {
     super(IMPORT_MESSAGE_CODES.wallosTableTooLarge);
@@ -81,7 +93,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
     try {
       // sql.js 的 Wasm 编译只发生在 Worker 内；主线程只拿结构化结果，避免大 DB/ZIP 阻塞弹窗交互。
       const bytes = new Uint8Array(request.buffer);
-      const prepared = await parseImportBytes(bytes, request.context, request.wallosUserId);
+      const prepared = await parseImportBytes(bytes, request.context, request.wallosUserId, request.maxFileBytes);
       postMessage({ id: request.id, ok: true, prepared } satisfies WorkerResponse);
     } catch (error) {
       postMessage({ id: request.id, ok: false, error: error instanceof Error ? error.message : IMPORT_MESSAGE_CODES.workerParseFailed } satisfies WorkerResponse);
@@ -93,7 +105,13 @@ async function parseImportBytes(
   bytes: Uint8Array,
   context: ImportBuildBaseContext,
   wallosUserId?: string,
+  maxFileBytes = MAX_IMPORT_FILE_BYTES,
 ): Promise<PreparedImport> {
+  // 只有已由后端校验 manifest/hash 的云恢复 ZIP 可放宽到 16 MiB；解压后的 data/db entry 仍受 8 MiB 限制。
+  const inputLimit = Number.isSafeInteger(maxFileBytes) && maxFileBytes > 0
+    ? Math.min(maxFileBytes, CLOUD_BACKUP_MAX_SNAPSHOT_BYTES)
+    : MAX_IMPORT_FILE_BYTES;
+  if (bytes.byteLength > inputLimit) throw new Error(IMPORT_MESSAGE_CODES.wallosTableTooLarge);
   if (isZipBytes(bytes)) {
     return await parseZipBytes(bytes, context, wallosUserId);
   }
@@ -108,37 +126,75 @@ async function parseZipBytes(
   context: ImportBuildBaseContext,
   wallosUserId?: string,
 ): Promise<PreparedImport> {
+  const directory = inspectImportZip(bytes);
   const { default: JSZip } = await import("jszip");
   // ZIP 初次解析只索引条目；JSZip 的 CRC 校验会读取全部文件，大备份会抵消 Logo 懒加载收益。
   const zip = await JSZip.loadAsync(bytes, { checkCRC32: false });
-  const dataJson = zip.file("data.json");
-  if (dataJson) {
-    const data = JSON.parse(await dataJson.async("string")) as unknown;
-    const assetEntries = collectRenewletAssetEntries(zip);
+  const dataMetadata = directory.byName.get("data.json");
+  const dataJson = dataMetadata ? zip.file(dataMetadata.name) : null;
+  if (dataJson && dataMetadata) {
+    assertImportZipEntrySize(dataMetadata, MAX_IMPORT_FILE_BYTES);
+    const dataBytes = await dataJson.async("uint8array");
+    if (dataBytes.byteLength > MAX_IMPORT_FILE_BYTES) throw new Error(IMPORT_MESSAGE_CODES.wallosTableTooLarge);
+    const data: unknown = JSON.parse(new TextDecoder().decode(dataBytes));
+    const assetEntries = collectRenewletAssetEntries(directory.entries);
     const renewletExport = renewletExportV1Schema.safeParse(data);
     if (renewletExport.success) return buildFromRenewletExport(renewletExport.data, context, assetEntries);
   }
-  const dbEntry = zip.file(/(^|\/)wallos\.db$/i)[0];
-  if (!dbEntry) throw new Error(IMPORT_MESSAGE_CODES.unrecognizedFile);
-  const logoFiles = collectWallosLogoEntries(zip);
-  const model = await readWallosDatabase(new Uint8Array(await dbEntry.async("arraybuffer")), logoFiles);
+  const dbMetadata = directory.entries.find((entry) => /(^|\/)wallos\.db$/i.test(entry.name));
+  const dbEntry = dbMetadata ? zip.file(dbMetadata.name) : null;
+  if (!dbEntry || !dbMetadata) throw new Error(IMPORT_MESSAGE_CODES.unrecognizedFile);
+  assertImportZipEntrySize(dbMetadata, MAX_IMPORT_FILE_BYTES);
+  const logoFiles = collectWallosLogoEntries(directory.entries);
+  const dbBytes = await dbEntry.async("uint8array");
+  if (dbBytes.byteLength > MAX_IMPORT_FILE_BYTES) throw new Error(IMPORT_MESSAGE_CODES.wallosTableTooLarge);
+  const model = await readWallosDatabase(dbBytes, logoFiles);
   return buildFromWallosDatabase(model, context, wallosUserId);
 }
 
-function collectRenewletAssetEntries(zip: { file: (pattern: RegExp) => Array<{ name: string }> }): Map<string, ImportAssetSource> {
+function inspectImportZip(bytes: Uint8Array): ZipCentralDirectory {
+  try {
+    return inspectZipCentralDirectory(bytes, MAX_IMPORT_ZIP_ENTRIES);
+  } catch (error) {
+    if (error instanceof ZipLimitExceededError) {
+      throw new Error(IMPORT_MESSAGE_CODES.wallosTableTooLarge, { cause: error });
+    }
+    if (error instanceof ZipFormatError) {
+      throw new Error(IMPORT_MESSAGE_CODES.unrecognizedFile, { cause: error });
+    }
+    throw error;
+  }
+}
+
+function assertImportZipEntrySize(entry: ZipCentralDirectoryEntry, maxBytes: number): void {
+  try {
+    assertZipEntryWithinLimit(entry, maxBytes);
+  } catch (error) {
+    if (error instanceof ZipLimitExceededError) {
+      throw new Error(IMPORT_MESSAGE_CODES.wallosTableTooLarge, { cause: error });
+    }
+    throw error;
+  }
+}
+
+function collectRenewletAssetEntries(entries: readonly ZipCentralDirectoryEntry[]): Map<string, ImportAssetSource> {
   const result = new Map<string, ImportAssetSource>();
-  for (const file of zip.file(/^assets\//)) {
-    result.set(file.name, file.name);
+  for (const entry of entries) {
+    if (!/^assets\//.test(entry.name)) continue;
+    assertImportZipEntrySize(entry, MAX_IMAGE_BYTES);
+    result.set(entry.name, entry.name);
   }
   return result;
 }
 
-function collectWallosLogoEntries(zip: { file: (pattern: RegExp) => Array<{ name: string }> }): Map<string, ImportAssetSource> {
+function collectWallosLogoEntries(entries: readonly ZipCentralDirectoryEntry[]): Map<string, ImportAssetSource> {
   const result = new Map<string, ImportAssetSource>();
-  for (const file of zip.file(/(^|\/)logos\/[^/]+$/i)) {
-    const filename = file.name.split("/").pop();
+  for (const entry of entries) {
+    if (!/(^|\/)logos\/[^/]+$/i.test(entry.name)) continue;
+    const filename = entry.name.split("/").pop();
     if (!filename) continue;
-    result.set(filename, file.name);
+    assertImportZipEntrySize(entry, MAX_IMAGE_BYTES);
+    result.set(filename, entry.name);
   }
   return result;
 }
