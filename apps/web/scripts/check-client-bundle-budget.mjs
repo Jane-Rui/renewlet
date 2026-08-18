@@ -1,14 +1,18 @@
 #!/usr/bin/env node
+
+/**
+ * 客户端压缩包体守卫。
+ * 初始入口按 manifest 静态依赖闭包计费，lazy route 与 vendor 分开限额，避免总量正常时隐藏单路由退化。
+ */
 import { brotliCompressSync, constants as zlibConstants, gzipSync } from "node:zlib";
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// 预算基于 Vite manifest 的真实入口关系计算；initial 递归包含静态依赖，lazy route 与 vendor 分别取最大单 chunk。
 // gzip/brotli 都是硬门，避免只优化一种发布压缩格式后把另一种回归隐藏在总构建成功里。
 
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const distRoot = join(repoRoot, "apps/web/dist");
+const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const distRoot = join(workspaceRoot, "dist");
 const manifestPath = join(distRoot, ".vite/manifest.json");
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 
@@ -21,6 +25,7 @@ const budgets = {
 
 const compressedSizeCache = new Map();
 function compressedSizes(file) {
+  // 同一 chunk 可能同时属于入口闭包和最大项候选；缓存压缩结果避免构建门禁重复做最高质量 Brotli。
   const cached = compressedSizeCache.get(file);
   if (cached) return cached;
   const content = readFileSync(join(distRoot, file));
@@ -35,6 +40,7 @@ function compressedSizes(file) {
 }
 
 function collectStaticImports(key, files = new Set()) {
+  // 首屏预算只递归 manifest.imports；dynamicImports 属于 lazy route，必须留在独立预算中暴露退化。
   const entry = manifest[key];
   if (!entry || !entry.file.endsWith(".js") || files.has(entry.file)) return files;
   files.add(entry.file);

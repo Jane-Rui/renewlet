@@ -336,7 +336,7 @@ function SnapshotErrorMessage({ message, onOpenErrorDetails }: { message: string
     <div className="flex flex-col gap-3 rounded-md border border-border bg-background p-3 text-sm text-foreground sm:flex-row sm:items-center sm:justify-between">
       <div className="flex min-w-0 gap-2">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-        <span className="min-w-0 break-words">{message}</span>
+        <span className="min-w-0 wrap-break-word">{message}</span>
       </div>
       <Button type="button" variant="outline" size="sm" className="shrink-0 justify-center gap-2 border-border text-destructive hover:text-destructive" onClick={onOpenErrorDetails}>
         {t("settings.cloudBackupUpstreamOpen")}

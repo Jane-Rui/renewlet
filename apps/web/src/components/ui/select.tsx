@@ -212,7 +212,7 @@ const SelectTrigger = React.forwardRef<
   return (
     <Tooltip>
       <TooltipTrigger asChild>{trigger}</TooltipTrigger>
-      <TooltipContent className="max-w-[calc(100vw-2rem)] whitespace-normal break-words text-xs leading-relaxed sm:max-w-md">
+      <TooltipContent className="max-w-[calc(100vw-2rem)] whitespace-normal wrap-break-word text-xs leading-relaxed sm:max-w-md">
         {tooltipContent}
       </TooltipContent>
     </Tooltip>

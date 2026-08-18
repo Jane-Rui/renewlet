@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "tsc --noEmit --project tsconfig.app.json && vite build && node ../../scripts/check-client-csp.mjs && node ../../scripts/check-client-bundle-budget.mjs",
+    "build": "tsc --noEmit --project tsconfig.app.json && vite build && node scripts/check-client-csp.mjs && node scripts/check-client-bundle-budget.mjs",
     "preview": "vite preview --host 0.0.0.0",
     "lint": "eslint . --max-warnings 0",
     "i18n:check": "node ../../scripts/check-i18n-catalogs.mjs",

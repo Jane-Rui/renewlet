@@ -30,6 +30,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkCloudflareDevRunner } from "./check-cloudflare-dev-runner.mjs";
+import { checkCloudflareD1DeployContract } from "./check-cloudflare-d1-deploy-contract.mjs";
+import { checkDockerBuildContract } from "./check-docker-build-contract.mjs";
 import { checkSyncRenewletUpstream } from "./check-deploy-sync-upstream.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -393,7 +395,7 @@ function checkCloudflareDeployMigrationScript() {
   if (workerPackageJson.scripts?.build !== "wrangler deploy --dry-run --config ../../wrangler.jsonc --outdir dist") {
     throw new Error("apps/worker build must produce a real Wrangler dry-run bundle from the root deployment config.");
   }
-  if (checkDeployScript !== "node scripts/check-deploy-config.mjs && node --test scripts/ensure-cloudflare-queues.test.mjs scripts/apply-cloudflare-d1-migrations.test.mjs") {
+  if (checkDeployScript !== "node scripts/check-deploy-config.mjs && pnpm test:scripts") {
     throw new Error("package.json check:deploy must include Cloudflare deployment helper tests.");
   }
   if (migrationScript !== "node scripts/apply-cloudflare-d1-migrations.mjs --remote") {
@@ -472,26 +474,6 @@ function checkCloudflareObservabilityProfiles() {
   }
   if (!releaseWorkflow.includes("CLOUDFLARE_OBSERVABILITY_PROFILE: production")) {
     throw new Error("Stable Cloudflare release must select the production observability profile.");
-  }
-}
-
-function checkResourceAndRouteGates() {
-  const ci = readFileSync(join(repoRoot, ".github/workflows/ci.yml"), "utf8");
-  const clientPackage = JSON.parse(readFileSync(join(repoRoot, "apps/web/package.json"), "utf8"));
-  const viteConfig = readFileSync(join(repoRoot, "apps/web/vite.config.ts"), "utf8");
-  const budgetScript = readFileSync(join(repoRoot, "scripts/check-client-bundle-budget.mjs"), "utf8");
-
-  for (const snippet of ["run: pnpm build:all", "run: pnpm check:route-parity", "run: pnpm test:perf"]) {
-    if (!ci.includes(snippet)) throw new Error(`CI must keep resource/contract gate: ${snippet}`);
-  }
-  if (!clientPackage.scripts?.build?.includes("check-client-bundle-budget.mjs")) {
-    throw new Error("Client build must enforce the compressed bundle budget.");
-  }
-  if (!viteConfig.includes("manifest: true")) {
-    throw new Error("Vite build must emit a manifest for deterministic bundle accounting.");
-  }
-  for (const value of ["556075", "468559", "73240", "60088", "112455", "93798"]) {
-    if (!budgetScript.includes(value)) throw new Error(`Client bundle budget must keep baseline byte value: ${value}`);
   }
 }
 
@@ -642,6 +624,7 @@ function checkCloudflareDeployButtonVersionFallback() {
 }
 
 function checkCloudflareWorkflowBuildMetadata() {
+  checkCloudflareD1DeployContract(repoRoot);
   const selfHostedWorkflow = readFileSync(join(repoRoot, ".github/workflows/cloudflare-worker.yml"), "utf8");
   const releaseWorkflow = readFileSync(join(repoRoot, ".github/workflows/release-publish.yml"), "utf8");
 
@@ -776,12 +759,12 @@ checkGeneratedSecrets();
 checkInvalidExistingPBKeyIsRejected();
 checkGoToolchainConsistency();
 checkDockerSelfUpdateLayout();
+checkDockerBuildContract(repoRoot);
 checkDockerCustomHeadScriptEnv();
 checkDockerProxyEnv();
 checkCloudflareDeployMigrationScript();
 checkCloudflareDevRunner(repoRoot);
 checkCloudflareObservabilityProfiles();
-checkResourceAndRouteGates();
 checkCloudflareStaticAssetHeadersContract();
 checkCloudflareScheduledLocalRoute();
 checkCloudflareQueueConfig();

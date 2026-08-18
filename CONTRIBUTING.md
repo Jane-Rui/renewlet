@@ -53,6 +53,7 @@ pnpm lint
 pnpm --filter @renewlet/client test:run
 pnpm --dir apps/docker-server test
 pnpm check:cloudflare
+pnpm test:scripts
 pnpm test:perf
 pnpm build:all
 pnpm typecheck:scripts
@@ -61,7 +62,7 @@ pnpm typecheck:e2e
 pnpm test:e2e
 ```
 
-Before opening a pull request, run the relevant type checks and tests. Root `scripts/*.ts` belong to the repository TypeScript project and must pass `pnpm typecheck:scripts`; `pnpm typecheck:all` is the complete monorepo gate. For cross-runtime API/schema work, run the Docker server, client, and Cloudflare checks together.
+Before opening a pull request, run the relevant type checks and tests. Root operations scripts must pass both `pnpm typecheck:scripts` and `pnpm test:scripts`; `pnpm typecheck:all` is the complete monorepo type gate. For cross-runtime API/schema work, run the Docker server, client, and Cloudflare checks together.
 
 Performance changes must report the affected dataset size and operation count. Client builds enforce the committed gzip/brotli budgets; do not raise a budget without attaching the new build output and explaining the user-visible tradeoff.
 
@@ -97,6 +98,8 @@ The full Playwright suite still runs through `pnpm test:e2e`. AI provider calls 
 - Keep user-visible client text in Lingui catalogs.
 - Do not hard-code secrets, real credentials, or private deployment data.
 - Add comments only for business intent, historical workarounds, implicit constraints, or core state transitions. Avoid comments that restate ordinary syntax.
+- Document exported Go APIs with Go doc comments and cross-module TypeScript helpers with TSDoc when callers need non-obvious guarantees, side effects, or failure behavior.
+- Explain Cloudflare/D1/R2, Docker, retry, concurrency, and recovery ordering at the boundary where the platform constraint matters; test names should describe behavior without line-by-line fixture narration.
 - Do not weaken strict JSON parsing, user isolation, CSRF/session boundaries, private asset checks, or Public API bearer-token separation.
 
 ## Pull Requests

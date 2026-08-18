@@ -186,7 +186,7 @@ export function TruncatedTooltipText({
       <TooltipContent
         side={side}
         align={align}
-        className={cn("max-w-[calc(100vw-2rem)] whitespace-normal break-words text-xs leading-relaxed sm:max-w-md", tooltipClassName)}
+        className={cn("max-w-[calc(100vw-2rem)] whitespace-normal wrap-break-word text-xs leading-relaxed sm:max-w-md", tooltipClassName)}
       >
         {text}
       </TooltipContent>

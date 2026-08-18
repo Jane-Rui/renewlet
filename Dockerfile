@@ -1,4 +1,5 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1.8
+# check=error=true
 
 # 构建链路：Node 阶段产出 Vite 静态资源，Go 阶段嵌入静态资源并生成单文件 server，runner 只保留运行依赖。
 FROM --platform=$BUILDPLATFORM node:24.19.0-alpine3.24 AS client-deps
@@ -15,10 +16,9 @@ COPY apps/website/package.json apps/website/package.json
 RUN pnpm install --frozen-lockfile
 
 FROM client-deps AS client-builder
-# 客户端构建会解析 @renewlet/shared workspace export，并在 Vite 产物后跑 CSP 守卫。
+# Web 自有的产物守卫随 workspace 整体复制，避免 package build 与 Docker builder 的输入清单再次漂移。
 COPY apps/web apps/web
 COPY packages/shared packages/shared
-COPY scripts/check-client-csp.mjs scripts/check-client-csp.mjs
 RUN pnpm --filter @renewlet/client build
 
 FROM --platform=$BUILDPLATFORM golang:1.26.6-alpine3.24 AS server-builder

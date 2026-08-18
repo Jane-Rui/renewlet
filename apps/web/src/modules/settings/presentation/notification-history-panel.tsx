@@ -176,7 +176,7 @@ function UpcomingBatchCard({ batch }: { batch: UpcomingNotificationBatch }) {
         {batch.items.map((item, index) => (
           <div key={`${item.subscriptionId}-${item.type}-${item.targetDate}-${index}`} className="flex min-w-0 flex-col gap-1 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-3">
             <TruncatedTooltipText text={item.name} className="min-w-0 flex-1 text-foreground" />
-            <span className="break-words text-xs text-muted-foreground sm:shrink-0 sm:text-right">
+            <span className="wrap-break-word text-xs text-muted-foreground sm:shrink-0 sm:text-right">
               {formatUpcomingItemTarget(item, t, formatCurrency)}
             </span>
           </div>
@@ -263,7 +263,7 @@ function HistoryRow({ job, selected, onSelect }: { job: NotificationHistoryJob; 
         {t(`notification.status.${job.status}`)}
       </Badge>
       <div className="whitespace-nowrap text-xs text-muted-foreground">{t("notification.items", { count: items.length })}</div>
-      <div className="min-w-0 break-words text-xs text-muted-foreground">{t("notification.attempts", { count: job.attempts })}</div>
+      <div className="min-w-0 wrap-break-word text-xs text-muted-foreground">{t("notification.attempts", { count: job.attempts })}</div>
     </button>
   );
 }
@@ -289,7 +289,7 @@ function HistoryDetail({ job, className, testId }: { job: NotificationHistoryJob
       {Array.isArray(failed) && failed.length > 0 ? (
         <div className="mt-4 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">
           {failed.map((item, index) => (
-            <div key={index} className="break-words">
+            <div key={index} className="wrap-break-word">
               {formatNotificationChannel(item.channel, label)}：{item.error}
             </div>
           ))}
@@ -297,7 +297,7 @@ function HistoryDetail({ job, className, testId }: { job: NotificationHistoryJob
       ) : null}
 
       {content ? (
-        <pre className="mt-4 max-h-48 max-w-full overflow-auto whitespace-pre-wrap break-words rounded-lg bg-background p-3 text-xs text-foreground">{content}</pre>
+        <pre className="mt-4 max-h-48 max-w-full overflow-auto whitespace-pre-wrap wrap-break-word rounded-lg bg-background p-3 text-xs text-foreground">{content}</pre>
       ) : null}
     </div>
   );

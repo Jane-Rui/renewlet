@@ -107,9 +107,9 @@ const StatBox = ({ value, label, icon, variant = 'default', description }: StatB
 
   return (
     <div className="min-w-0 rounded-xl border border-border bg-card p-5 flex flex-col items-center justify-center text-center transition-all hover:bg-card-hover hover:shadow-lg">
-      <p className={cn("max-w-full break-words text-2xl sm:text-3xl font-bold", valueColor)}>{value}</p>
+      <p className={cn("max-w-full wrap-break-word text-2xl sm:text-3xl font-bold", valueColor)}>{value}</p>
       <div className="mt-1 flex max-w-full items-center justify-center gap-1 text-sm text-muted-foreground">
-        <span className="min-w-0 break-words">{label}</span>
+        <span className="min-w-0 wrap-break-word">{label}</span>
         {description ? (
           <Tooltip>
             <TooltipTrigger asChild>

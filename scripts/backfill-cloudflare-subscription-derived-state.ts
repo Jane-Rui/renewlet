@@ -15,6 +15,22 @@ import {
   scheduleOccurrence,
   toRfc3339Seconds,
 } from "../apps/worker/src/notification-schedule";
+import {
+  bindLocalD1Parameters,
+  D1RemoteClient,
+  parseD1QueryResults,
+  type D1Client,
+  type D1QueryResult,
+  type D1RowParser,
+  type D1Statement,
+  type D1Value,
+} from "./cloudflare-d1-client";
+import {
+  classifyDerivedSchema,
+  executeDerivedBackfillState,
+  type DerivedBackfillState,
+  type DerivedSchemaShape,
+} from "./cloudflare-derived-backfill-state";
 
 // 0036 只完成 SQL 可表达的固定计数回填；本脚本复用 Worker 日期/时区规则补齐逐订阅 repeat schedule。
 // marker 只能在全量分页回填、逐行 schedule 复算和 aggregate 不变量全部通过后写入，失败可安全重跑。
@@ -30,53 +46,12 @@ interface Options {
   target: "local" | "remote";
 }
 
-interface D1Query {
-  sql: string;
-  params?: unknown[];
-}
-
-interface D1QueryResult {
-  success: true;
-  results: unknown[];
-}
-
-type D1RowParser<T> = (value: unknown) => T;
-
-interface D1Client {
-  query<T>(sql: string, params: unknown[], parseRow: D1RowParser<T>): Promise<T[]>;
-  batch(queries: D1Query[]): Promise<D1QueryResult[]>;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isUnknownArray(value: unknown): value is unknown[] {
   return Array.isArray(value);
-}
-
-function parseD1QueryResults(payload: unknown, expectedCount: number, source: string): D1QueryResult[] {
-  const entries: unknown[] = isUnknownArray(payload) ? payload : [payload];
-  if (entries.length !== expectedCount) {
-    throw new Error(`${source} returned an unexpected result count`);
-  }
-  return entries.map((entry) => {
-    if (!isRecord(entry) || entry["success"] !== true || !isUnknownArray(entry["results"])) {
-      throw new Error(`${source} returned an unsuccessful result`);
-    }
-    return {
-      success: true,
-      results: entry["results"],
-    };
-  });
-}
-
-function cloudflareErrorDetail(payload: unknown, fallback: string): string {
-  if (!isRecord(payload) || !isUnknownArray(payload["errors"])) return fallback;
-  const messages = payload["errors"].flatMap((entry) => (
-    isRecord(entry) && typeof entry["message"] === "string" ? [entry["message"]] : []
-  ));
-  return messages.join("; ") || fallback;
 }
 
 function requireLast<T>(rows: readonly T[], context: string): T {
@@ -142,6 +117,9 @@ type SchedulerBackfillRow = z.infer<typeof schedulerBackfillRowSchema>;
 
 const countRowSchema = z.object({ count: z.union([z.number(), z.string()]) }).passthrough();
 const backfillMarkerRowSchema = z.object({ name: z.string() }).passthrough();
+const migrationRowSchema = z.object({ name: z.string() }).passthrough();
+const tableColumnRowSchema = z.object({ cid: z.number(), name: z.string() }).passthrough();
+const indexColumnRowSchema = z.object({ seqno: z.number(), name: z.string() }).passthrough();
 
 function parseArgs(argv: string[]): Options {
   let target: Options["target"] | undefined;
@@ -222,113 +200,6 @@ function resolveDatabaseId(options: Options): string {
   return databaseId;
 }
 
-class D1RemoteClient implements D1Client {
-  constructor(
-    private readonly accountId: string,
-    private readonly databaseId: string,
-    private readonly apiToken: string,
-  ) {}
-
-  async query<T>(sql: string, params: unknown[], parseRow: D1RowParser<T>): Promise<T[]> {
-    const [result] = await this.batch([{ sql, params }]);
-    return (result?.results ?? []).map(parseRow);
-  }
-
-  async batch(queries: D1Query[]): Promise<D1QueryResult[]> {
-    if (queries.length === 0) return [];
-    const response = await fetch(
-      `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(this.accountId)}/d1/database/${encodeURIComponent(this.databaseId)}/query`,
-      {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${this.apiToken}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify(queries.length === 1 ? queries[0] : queries),
-      },
-    );
-    const payload: unknown = await response.json();
-    if (!response.ok || !isRecord(payload) || payload["success"] !== true || payload["result"] === undefined) {
-      throw new Error(`Cloudflare D1 query failed: ${cloudflareErrorDetail(payload, response.statusText)}`);
-    }
-    // Cloudflare API 是远端不可信边界；只有 envelope 和逐语句结果都通过结构检查后才交给泛型调用方。
-    return parseD1QueryResults(payload["result"], queries.length, "Cloudflare D1 query");
-  }
-}
-
-function sqliteLiteral(value: unknown): string {
-  if (value === null) return "NULL";
-  if (typeof value === "string") return `'${value.replaceAll("'", "''")}'`;
-  if (typeof value === "boolean") return value ? "1" : "0";
-  if (typeof value === "number" && Number.isFinite(value)) return String(value);
-  throw new Error(`Unsupported local D1 parameter type: ${typeof value}`);
-}
-
-function bindLocalParameters(sql: string, params: unknown[]): string {
-  // 本地 Wrangler 不支持 params；扫描器必须跳过字符串与 SQL 注释里的问号，不能做全局 replace。
-  let output = "";
-  let parameterIndex = 0;
-  let quote: "'" | '"' | null = null;
-  let lineComment = false;
-  let blockComment = false;
-  for (let index = 0; index < sql.length; index += 1) {
-    const character = sql.charAt(index);
-    const next = sql.charAt(index + 1);
-    if (lineComment) {
-      output += character;
-      if (character === "\n") lineComment = false;
-      continue;
-    }
-    if (blockComment) {
-      output += character;
-      if (character === "*" && next === "/") {
-        output += next;
-        index += 1;
-        blockComment = false;
-      }
-      continue;
-    }
-    if (quote) {
-      output += character;
-      if (character === quote) {
-        if (next === quote) {
-          output += next;
-          index += 1;
-        } else {
-          quote = null;
-        }
-      }
-      continue;
-    }
-    if (character === "-" && next === "-") {
-      output += character + next;
-      index += 1;
-      lineComment = true;
-      continue;
-    }
-    if (character === "/" && next === "*") {
-      output += character + next;
-      index += 1;
-      blockComment = true;
-      continue;
-    }
-    if (character === "'" || character === '"') {
-      quote = character;
-      output += character;
-      continue;
-    }
-    if (character === "?") {
-      if (parameterIndex >= params.length) throw new Error("Local D1 query has fewer parameters than placeholders");
-      output += sqliteLiteral(params[parameterIndex]);
-      parameterIndex += 1;
-      continue;
-    }
-    output += character;
-  }
-  if (parameterIndex !== params.length) throw new Error("Local D1 query has more parameters than placeholders");
-  return output;
-}
-
 function parseWranglerResults(stdout: string, expectedCount: number): D1QueryResult[] {
   let payload: unknown;
   try {
@@ -339,19 +210,22 @@ function parseWranglerResults(stdout: string, expectedCount: number): D1QueryRes
   return parseD1QueryResults(payload, expectedCount, "Local D1 query");
 }
 
+// local 适配器只为迁移演练复用同一状态机；生产远端仍走结构化 D1 REST params，不能复用 literal 编码路径。
 class D1LocalClient implements D1Client {
   constructor(private readonly configPath?: string) {}
 
-  async query<T>(sql: string, params: unknown[], parseRow: D1RowParser<T>): Promise<T[]> {
-    const [result] = await this.batch([{ sql, params }]);
-    return (result?.results ?? []).map(parseRow);
+  async query<T>(sql: string, params: readonly D1Value[], parseRow: D1RowParser<T>): Promise<T[]> {
+    const results = await this.batch([{ sql, params }]);
+    const result = results.at(0);
+    if (result === undefined) throw new Error("Local D1 query returned no result");
+    return result.results.map(parseRow);
   }
 
-  async batch(queries: D1Query[]): Promise<D1QueryResult[]> {
+  async batch(queries: readonly D1Statement[]): Promise<D1QueryResult[]> {
     if (queries.length === 0) return [];
     // Wrangler local 没有参数绑定入口；只在进程参数边界做类型化 SQLite literal 编码，绝不经 shell 或输出账本 SQL。
     const command = queries
-      .map((query) => bindLocalParameters(query.sql, query.params ?? []).replace(/;\s*$/, ""))
+      .map((query) => bindLocalD1Parameters(query.sql, query.params ?? []).replace(/;\s*$/, ""))
       .join(";\n");
     const args = ["exec", "wrangler", "d1", "execute", "DB", "--local", "--command", command, "--json"];
     if (this.configPath) args.push("--config", this.configPath);
@@ -376,6 +250,54 @@ class D1LocalClient implements D1Client {
   }
 }
 
+async function tableColumns(client: D1Client, table: string): Promise<string[]> {
+  const rows = await client.query(
+    `PRAGMA table_info(${table})`,
+    [],
+    tableColumnRowSchema.parse,
+  );
+  return rows.sort((left, right) => left.cid - right.cid).map((row) => row.name);
+}
+
+async function indexColumns(client: D1Client, index: string): Promise<string[]> {
+  const rows = await client.query(
+    `PRAGMA index_info(${index})`,
+    [],
+    indexColumnRowSchema.parse,
+  );
+  return rows.sort((left, right) => left.seqno - right.seqno).map((row) => row.name);
+}
+
+async function probeDerivedBackfillState(client: D1Client): Promise<DerivedBackfillState> {
+  const migrationRows = await client.query(
+    "SELECT name FROM d1_migrations WHERE name = ? LIMIT 1",
+    ["0036_subscription_derived_state_v2.sql"],
+    migrationRowSchema.parse,
+  );
+  const statsColumns = await tableColumns(client, "subscription_user_stats");
+  const repeatScheduleColumns = await tableColumns(client, "subscription_repeat_schedule");
+  const repeatScheduleIndexColumns = await indexColumns(client, "idx_subscription_repeat_schedule_due");
+  const backfillColumns = await tableColumns(client, "subscription_derived_backfills");
+  const canReadMarker = backfillColumns.includes("name") && backfillColumns.includes("completed_at");
+  const markerRows = canReadMarker
+    ? await client.query(
+        "SELECT name FROM subscription_derived_backfills WHERE name = ? LIMIT 1",
+        [backfillName],
+        backfillMarkerRowSchema.parse,
+      )
+    : [];
+  const shape: DerivedSchemaShape = {
+    migrationApplied: migrationRows.length === 1,
+    statsColumns,
+    repeatScheduleColumns,
+    repeatScheduleIndexColumns,
+    backfillColumns,
+    markerPresent: markerRows.length === 1,
+  };
+  // migration 记录、完整列签名与 marker 必须一致；半升级只允许走可重入 backfill，混合 schema 绝不自动修复。
+  return classifyDerivedSchema(shape);
+}
+
 function nextRepeatDue(row: SubscriptionBackfillRow, now: Date): string | null {
   if (row.repeat_reminder_enabled !== 1) return null;
   const settings = normalizeSettingsJson(row.settings_json ?? "{}");
@@ -385,13 +307,15 @@ function nextRepeatDue(row: SubscriptionBackfillRow, now: Date): string | null {
   return getNextRepeatScheduleOccurrence(now, settings, [subscription])?.scheduledInstantUtc ?? null;
 }
 
-async function writeStatements(client: D1Client, statements: D1Query[]): Promise<void> {
+async function writeStatements(client: D1Client, statements: readonly D1Statement[]): Promise<void> {
+  // 每批限制 50 条控制 REST/CLI 请求体；语句均以业务键 UPSERT/DELETE，整批可在响应丢失后安全重放。
   for (let offset = 0; offset < statements.length; offset += writeBatchSize) {
     await client.batch(statements.slice(offset, offset + writeBatchSize));
   }
 }
 
 async function assertBackfilledSchedules(client: D1Client, now: Date): Promise<number> {
+  // 校验重新运行同一 Worker 时间规则作为 oracle，不读取 scheduler aggregate 推导预期值，避免派生数据自证正确。
   let cursorUserId = "";
   let cursorSubscriptionId = "";
   let expectedCount = 0;
@@ -424,6 +348,11 @@ async function assertBackfilledSchedules(client: D1Client, now: Date): Promise<n
     cursorSubscriptionId = last.id;
     if (rows.length < pageSize) break;
   }
+  return expectedCount;
+}
+
+async function assertDerivedInvariants(client: D1Client, expectedScheduleCount?: number): Promise<void> {
+  // 所有计数都回到 subscriptions 事实表复算；marker 只有在这些跨表不变量和外键同时通过后才允许写入。
   const [orphaned] = await client.query(`
     SELECT COUNT(*) AS count
     FROM subscription_repeat_schedule AS repeat_schedule
@@ -433,10 +362,7 @@ async function assertBackfilledSchedules(client: D1Client, now: Date): Promise<n
   if (Number(orphaned?.count ?? 0) !== 0) {
     throw new Error("subscription_repeat_schedule owner invariant failed");
   }
-  return expectedCount;
-}
 
-async function assertDerivedInvariants(client: D1Client, expectedScheduleCount?: number): Promise<void> {
   const [statsMismatch] = await client.query(`
     SELECT COUNT(*) AS count
     FROM users
@@ -480,20 +406,28 @@ async function assertDerivedInvariants(client: D1Client, expectedScheduleCount?:
   }
 }
 
+async function assertForeignKeys(client: D1Client): Promise<void> {
+  const violations = await client.query("PRAGMA foreign_key_check", [], (value): unknown => value);
+  if (violations.length > 0) throw new Error("Cloudflare D1 foreign key check found violations");
+}
+
 function nextAutoRenewCheckAt(now: Date, timezone: string, autoRenewCount: number, lastAutoRenewLocalDate: string): string | null {
   if (autoRenewCount <= 0) return null;
   const today = dateOnlyInZone(now, timezone);
+  // 当天已执行过自动续订时推迟到下一本地日，避免 backfill 部署立即触发同日第二次续订。
   if (lastAutoRenewLocalDate !== today) return toRfc3339Seconds(now);
   return scheduleOccurrence(addDays(today, 1), "00:00", timezone).scheduledInstantUtc;
 }
 
 function nextDailyNotificationDueAt(now: Date, timezone: string, localTime: string): string {
+  // 当前仍在容差窗口时保留本次 occurrence，否则直接指向下一次，避免迁移把刚到期提醒跳过一天。
   const current = getLocalScheduleDecision(now, timezone, localTime, notificationWindowMinutes, false);
   if (current.due) return current.scheduledInstantUtc;
   return getNextLocalScheduleOccurrence(now, timezone, localTime).scheduledInstantUtc;
 }
 
 async function upsertSchedulerRows(client: D1Client, now: Date): Promise<void> {
+  // repeat schedule 先逐订阅落库，再由索引最小值汇总用户级 next due，避免聚合指向尚未写完的分页。
   let cursorUserId = "";
   for (;;) {
     const rows = await client.query(`
@@ -514,7 +448,7 @@ async function upsertSchedulerRows(client: D1Client, now: Date): Promise<void> {
     `, [cursorUserId, pageSize], (value): SchedulerBackfillRow => schedulerBackfillRowSchema.parse(value));
     if (rows.length === 0) return;
 
-    const statements = rows.map((row): D1Query => {
+    const statements = rows.map((row): D1Statement => {
       const settings = normalizeSettingsJson(row.settings_json ?? "{}");
       const autoRenewCount = Number(row.auto_renew_count) || 0;
       const repeatReminderCount = Number(row.repeat_reminder_count) || 0;
@@ -553,20 +487,14 @@ async function upsertSchedulerRows(client: D1Client, now: Date): Promise<void> {
   }
 }
 
-async function runBackfill(client: D1Client): Promise<void> {
-  const marker = await client.query(
-    "SELECT name FROM subscription_derived_backfills WHERE name = ? LIMIT 1",
-    [backfillName],
-    backfillMarkerRowSchema.parse,
-  );
-  if (marker.length > 0) {
-    await assertDerivedInvariants(client);
-    console.log("Cloudflare subscription derived-state backfill already complete; invariants passed.");
-    return;
-  }
+interface DerivedRebuildResult {
+  now: Date;
+  processed: number;
+  expectedScheduleCount: number;
+}
 
-  // 整轮固定同一 now，保证写入与复算校验跨分页时不会因分钟窗口滚动产生假不一致。
-  const now = new Date();
+async function rebuildDerivedState(client: D1Client, now: Date): Promise<DerivedRebuildResult> {
+  // 复合游标保证跨用户分页稳定；每条 schedule 都以 owner+subscription 为幂等键，可从任意中断点整轮重放。
   let cursorUserId = "";
   let cursorSubscriptionId = "";
   let processed = 0;
@@ -586,7 +514,7 @@ async function runBackfill(client: D1Client): Promise<void> {
     ));
     if (rows.length === 0) break;
 
-    const statements: D1Query[] = [];
+    const statements: D1Statement[] = [];
     for (const row of rows) {
       const dueAt = nextRepeatDue(row, now);
       if (dueAt) {
@@ -613,19 +541,57 @@ async function runBackfill(client: D1Client): Promise<void> {
   }
 
   await upsertSchedulerRows(client, now);
+  return { now, processed, expectedScheduleCount };
+}
 
-  const verifiedScheduleCount = await assertBackfilledSchedules(client, now);
-  if (verifiedScheduleCount !== expectedScheduleCount) {
-    throw new Error(`subscription_repeat_schedule verification mismatch: expected ${expectedScheduleCount}, verified ${verifiedScheduleCount}`);
+async function runBackfill(client: D1Client): Promise<void> {
+  const state = await probeDerivedBackfillState(client);
+  console.log(`Cloudflare subscription derived-state schema state: ${state}`);
+  let rebuilt: DerivedRebuildResult | undefined;
+
+  await executeDerivedBackfillState(state, {
+    rebuild: async (): Promise<void> => {
+      // 整轮固定同一 now，保证写入与复算校验跨分页时不会因分钟窗口滚动产生假不一致。
+      rebuilt = await rebuildDerivedState(client, new Date());
+    },
+    verify: async (): Promise<void> => {
+      if (state === "v2-complete") {
+        await assertDerivedInvariants(client);
+        await assertForeignKeys(client);
+        return;
+      }
+      const current = rebuilt;
+      if (current === undefined) throw new Error("Derived-state verification started before rebuild");
+      const verifiedScheduleCount = await assertBackfilledSchedules(client, current.now);
+      if (verifiedScheduleCount !== current.expectedScheduleCount) {
+        throw new Error(
+          `subscription_repeat_schedule verification mismatch: expected ${current.expectedScheduleCount}, verified ${verifiedScheduleCount}`,
+        );
+      }
+      await assertDerivedInvariants(client, verifiedScheduleCount);
+      await assertForeignKeys(client);
+    },
+    markComplete: async (): Promise<void> => {
+      const current = rebuilt;
+      if (current === undefined) throw new Error("Derived-state completion marker started before rebuild");
+      // completion marker 是最后一次独立提交；响应丢失后的重跑会先校验 marker 和全部派生不变量。
+      await client.batch([{
+        sql: `INSERT INTO subscription_derived_backfills (name, completed_at) VALUES (?, ?)
+              ON CONFLICT(name) DO UPDATE SET completed_at = excluded.completed_at`,
+        params: [backfillName, current.now.toISOString()],
+      }]);
+    },
+  });
+
+  if (state === "v2-complete") {
+    console.log("Cloudflare subscription derived-state backfill already complete; invariants passed.");
+    return;
   }
-  await assertDerivedInvariants(client, verifiedScheduleCount);
-  const timestamp = now.toISOString();
-  // completion marker 是最后一次独立提交；前面的任一步失败都不会把未验证状态伪装成已完成。
-  await client.batch([{
-    sql: "INSERT INTO subscription_derived_backfills (name, completed_at) VALUES (?, ?)",
-    params: [backfillName, timestamp],
-  }]);
-  console.log(`Cloudflare subscription derived-state backfill complete: subscriptions=${processed}, schedules=${expectedScheduleCount}`);
+  const completed = rebuilt;
+  if (completed === undefined) throw new Error("Derived-state backfill completed without rebuild evidence");
+  console.log(
+    `Cloudflare subscription derived-state backfill complete: subscriptions=${completed.processed}, schedules=${completed.expectedScheduleCount}`,
+  );
 }
 
 async function main(): Promise<void> {

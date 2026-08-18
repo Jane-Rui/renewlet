@@ -237,11 +237,11 @@ Manual deploy users: update your fork to the latest Renewlet version with `Sync 
 
 ## D1 Upgrade and Recovery
 
-Before a schema upgrade, create both a portable export and a Time Travel bookmark. Keep the old Worker version available until the migration, derived-state backfill, and foreign-key check have all passed.
+Before a schema upgrade, create both a portable export and a Time Travel bookmark. The portable export remains an operator responsibility. GitHub deployments capture the current bookmark automatically before migrations and record it in the job summary; manual deployments should run the same bookmark command below. Keep the old Worker version available until the migration, derived-state backfill, and foreign-key check have all passed.
 
 ```bash
 pnpm exec wrangler d1 export DB --remote --config wrangler.generated.jsonc --output renewlet-before-upgrade.sql
-pnpm exec wrangler d1 time-travel info DB --remote --config wrangler.generated.jsonc
+pnpm exec wrangler d1 time-travel info DB --json --config wrangler.generated.jsonc
 ```
 
 The repository migration helper applies pending migrations, runs required data backfills, and executes `PRAGMA foreign_key_check`. A failed backfill or non-empty foreign-key result stops deployment.
@@ -250,10 +250,10 @@ The repository migration helper applies pending migrations, runs required data b
 pnpm cloudflare:migrations:apply --config wrangler.generated.jsonc
 ```
 
-If that command fails, do not deploy the new Worker. Restore the bookmark printed before the upgrade, or create a replacement D1 database from `renewlet-before-upgrade.sql`, reconnect the `DB` binding, and redeploy the previous Worker version.
+If that command fails, do not deploy the new Worker. The workflow prints a reviewed restore command but never runs it automatically because Time Travel overwrites the database in place. After checking writes made since the checkpoint, restore the pre-upgrade bookmark, or create a replacement D1 database from `renewlet-before-upgrade.sql`, reconnect the `DB` binding, and redeploy the previous Worker version. A bookmark captured after a failed migration only protects later changes and is not a substitute for the pre-upgrade bookmark.
 
 ```bash
-pnpm exec wrangler d1 time-travel restore DB --remote --bookmark="<bookmark>" --config wrangler.generated.jsonc
+pnpm exec wrangler d1 time-travel restore DB --bookmark="<bookmark>" --config wrangler.generated.jsonc
 ```
 
 Cloud backup snapshots are limited to 16 MiB in both Docker and Cloudflare runtimes. Before upgrading from a version with a larger limit, download or restore every remote snapshot over 16 MiB with the old version.

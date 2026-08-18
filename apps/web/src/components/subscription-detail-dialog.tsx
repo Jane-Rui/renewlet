@@ -194,11 +194,11 @@ function SubscriptionDetailContent({
           </div>
         ) : null}
         <DetailRow label={t("subscription.detail.category")}>
-          <span className="break-words">{category ? label(category.labels) : subscription.category}</span>
+          <span className="wrap-break-word">{category ? label(category.labels) : subscription.category}</span>
         </DetailRow>
         {subscription.paymentMethod ? (
           <DetailRow label={t("subscription.field.paymentMethod")}>
-            <span className="break-words">{paymentMethod ? label(paymentMethod.labels) : subscription.paymentMethod}</span>
+            <span className="wrap-break-word">{paymentMethod ? label(paymentMethod.labels) : subscription.paymentMethod}</span>
           </DetailRow>
         ) : null}
         {isBuyout ? (
@@ -262,7 +262,7 @@ function SubscriptionDetailContent({
         {subscription.notes ? (
           <div className="grid gap-2 border-t border-border pt-3">
             <p className="text-sm text-muted-foreground">{t("subscription.field.notes")}</p>
-            <div className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-secondary/40 p-3 text-sm leading-6 text-foreground">
+            <div className="max-h-48 overflow-y-auto whitespace-pre-wrap wrap-break-word rounded-lg border border-border bg-secondary/40 p-3 text-sm leading-6 text-foreground">
               {subscription.notes}
             </div>
           </div>
