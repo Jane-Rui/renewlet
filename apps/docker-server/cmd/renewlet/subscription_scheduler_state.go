@@ -1,5 +1,8 @@
 package main
 
+// subscription_scheduler_state.go 维护 Cron 的用户级 due-index 和逐订阅 repeat schedule。
+// next_* 只负责缩小候选集，最终幂等仍由本地日期规则、lastAutoRenewLocalDate 与 notification job 唯一键保证。
+
 import (
 	"database/sql"
 	"errors"
@@ -10,6 +13,7 @@ import (
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/zhiyingzzhou/renewlet/apps/docker-server/internal/subscriptionderived"
 )
 
 const subscriptionSchedulerStatesCollection = "subscription_scheduler_states"
@@ -27,6 +31,11 @@ type subscriptionSchedulerRefreshOptions struct {
 	ResetAutoRenewCheck           bool
 	Now                           time.Time
 	SkipCurrentNotificationWindow bool
+}
+
+type subscriptionSchedulerAggregateInput struct {
+	AutoRenewCount      int `db:"auto_renew_count"`
+	RepeatReminderCount int `db:"repeat_reminder_count"`
 }
 
 func getSubscriptionSchedulerState(app core.App, userID string) (subscriptionSchedulerState, error) {
@@ -55,13 +64,40 @@ func refreshSubscriptionSchedulerStateWithOptions(app core.App, userID string, o
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	autoRenewCount, err := app.CountRecords("subscriptions", dbx.NewExp("[[user]] = {:user} AND [[autoRenew]] = true", dbx.Params{"user": userID}))
+	counts, err := readSubscriptionSchedulerAggregateInput(app, userID)
 	if err != nil {
 		return subscriptionSchedulerState{}, err
 	}
-	repeatReminderCount, err := app.CountRecords("subscriptions", dbx.NewExp("[[user]] = {:user} AND [[repeatReminderEnabled]] = true", dbx.Params{"user": userID}))
-	if err != nil {
+	settings := schedulerSettingsForUser(app, userID)
+	// 这个入口只用于缺失状态、设置变化和离线重建；普通订阅 mutation 与通知推进不得调用用户级 schedule rebuild。
+	if err := rebuildSubscriptionRepeatScheduleForUser(app, userID, settings, now); err != nil {
 		return subscriptionSchedulerState{}, err
+	}
+	options.Now = now
+	return writeSubscriptionSchedulerAggregate(app, userID, counts, options)
+}
+
+func readSubscriptionSchedulerAggregateInput(app core.App, userID string) (subscriptionSchedulerAggregateInput, error) {
+	var counts subscriptionSchedulerAggregateInput
+	err := app.DB().NewQuery(`SELECT
+		COALESCE(SUM(CASE WHEN autoRenew = 1 THEN 1 ELSE 0 END), 0) AS auto_renew_count,
+		COALESCE(SUM(CASE WHEN repeatReminderEnabled = 1 THEN 1 ELSE 0 END), 0) AS repeat_reminder_count
+		FROM subscriptions WHERE user = {:user}`).Bind(dbx.Params{"user": userID}).One(&counts)
+	return counts, err
+}
+
+func writeSubscriptionSchedulerAggregate(
+	app core.App,
+	userID string,
+	counts subscriptionSchedulerAggregateInput,
+	options subscriptionSchedulerRefreshOptions,
+) (subscriptionSchedulerState, error) {
+	if userID == "" {
+		return subscriptionSchedulerState{}, nil
+	}
+	now := options.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
 	}
 	collection, err := app.FindCollectionByNameOrId(subscriptionSchedulerStatesCollection)
 	if err != nil {
@@ -81,25 +117,144 @@ func refreshSubscriptionSchedulerStateWithOptions(app core.App, userID string, o
 		lastAutoRenewLocalDate = ""
 	}
 	settings := schedulerSettingsForUser(app, userID)
-	nextRepeat := ""
-	if repeatReminderCount > 0 {
-		candidates, err := listRepeatReminderCandidateSubscriptions(app, userID, settings, now)
-		if err != nil {
-			return subscriptionSchedulerState{}, err
-		}
-		nextRepeat = nextRepeatNotificationDueAt(now, settings, candidates)
+	nextRepeat, err := earliestSubscriptionRepeatDue(app, userID)
+	if err != nil {
+		return subscriptionSchedulerState{}, err
 	}
-	record.Set("autoRenewCount", int(autoRenewCount))
-	record.Set("repeatReminderCount", int(repeatReminderCount))
+	record.Set("autoRenewCount", counts.AutoRenewCount)
+	record.Set("repeatReminderCount", counts.RepeatReminderCount)
 	record.Set("lastAutoRenewLocalDate", lastAutoRenewLocalDate)
 	// next* 字段是 Cron 热路径索引，不是幂等事实源；单用户逻辑和 notification_jobs 唯一键仍负责防重。
-	record.Set("nextAutoRenewCheckAtUTC", nextAutoRenewCheckAt(now, settings.Timezone, int(autoRenewCount), lastAutoRenewLocalDate))
+	record.Set("nextAutoRenewCheckAtUTC", nextAutoRenewCheckAt(now, settings.Timezone, counts.AutoRenewCount, lastAutoRenewLocalDate))
 	record.Set("nextDailyNotificationDueAtUTC", nextDailyNotificationDueAt(now, settings.Timezone, settings.NotificationTimeLocal, options.SkipCurrentNotificationWindow))
 	record.Set("nextRepeatNotificationDueAtUTC", nextRepeat)
 	if err := app.Save(record); err != nil {
 		return subscriptionSchedulerState{}, err
 	}
 	return subscriptionSchedulerStateFromRecord(record), nil
+}
+
+func advanceSubscriptionSchedulerDueState(
+	app core.App,
+	userID string,
+	settings appSettings,
+	now time.Time,
+	skipCurrentNotificationWindow bool,
+	repeatCandidates []notificationSubscription,
+) (subscriptionSchedulerState, error) {
+	if userID == "" {
+		return subscriptionSchedulerState{}, nil
+	}
+	record, err := app.FindFirstRecordByFilter(subscriptionSchedulerStatesCollection, "user = {:user}", dbx.Params{"user": userID})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return refreshSubscriptionSchedulerStateWithOptions(app, userID, subscriptionSchedulerRefreshOptions{
+				Now:                           now,
+				SkipCurrentNotificationWindow: skipCurrentNotificationWindow,
+			})
+		}
+		return subscriptionSchedulerState{}, err
+	}
+	for _, candidate := range repeatCandidates {
+		if err := replaceNotificationSubscriptionRepeatSchedule(app, userID, candidate, settings, now); err != nil {
+			return subscriptionSchedulerState{}, err
+		}
+	}
+	nextRepeat, err := earliestSubscriptionRepeatDue(app, userID)
+	if err != nil {
+		return subscriptionSchedulerState{}, err
+	}
+	// 通知运行时只推进两个 due 索引；订阅计数由 mutation delta 维护，不能在每分钟 Cron 中回扫事实表。
+	record.Set("nextDailyNotificationDueAtUTC", nextDailyNotificationDueAt(now, settings.Timezone, settings.NotificationTimeLocal, skipCurrentNotificationWindow))
+	record.Set("nextRepeatNotificationDueAtUTC", nextRepeat)
+	if err := app.Save(record); err != nil {
+		return subscriptionSchedulerState{}, err
+	}
+	return subscriptionSchedulerStateFromRecord(record), nil
+}
+
+func applySubscriptionSchedulerDelta(app core.App, userID string, before *core.Record, after *core.Record, now time.Time) (subscriptionSchedulerState, error) {
+	// stats 与 scheduler 共用同一份 before/after 投影，避免两个 aggregate 对 autoRenew/repeat 状态产生不同解释。
+	delta, err := subscriptionderived.Between(subscriptionDerivedSnapshot(before), subscriptionDerivedSnapshot(after), userID)
+	if err != nil {
+		return subscriptionSchedulerState{}, err
+	}
+	collection, err := app.FindCollectionByNameOrId(subscriptionSchedulerStatesCollection)
+	if err != nil {
+		return subscriptionSchedulerState{}, err
+	}
+	record, err := app.FindFirstRecordByFilter(subscriptionSchedulerStatesCollection, "user = {:user}", dbx.Params{"user": userID})
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return subscriptionSchedulerState{}, err
+		}
+		if before != nil || after == nil {
+			return subscriptionSchedulerState{}, errors.New("SUBSCRIPTION_DERIVED_SCHEDULER_MISSING")
+		}
+		hasOther, lookupErr := subscriptionHasOtherFact(app, userID, after.Id)
+		if lookupErr != nil {
+			return subscriptionSchedulerState{}, lookupErr
+		}
+		if hasOther {
+			return subscriptionSchedulerState{}, errors.New("SUBSCRIPTION_DERIVED_SCHEDULER_MISSING")
+		}
+		record = core.NewRecord(collection)
+		record.Set("user", userID)
+	}
+	autoRenewCount := record.GetInt("autoRenewCount") + delta.AutoRenew
+	repeatReminderCount := record.GetInt("repeatReminderCount") + delta.RepeatReminder
+	if autoRenewCount < 0 || repeatReminderCount < 0 {
+		return subscriptionSchedulerState{}, errors.New("SUBSCRIPTION_DERIVED_SCHEDULER_INVALID")
+	}
+	settings := schedulerSettingsForUser(app, userID)
+	nextRepeat, err := earliestSubscriptionRepeatDue(app, userID)
+	if err != nil {
+		return subscriptionSchedulerState{}, err
+	}
+	// mutation 与事实行处于同一 PocketBase transaction；派生失败必须让订阅保存一起回滚。
+	record.Set("autoRenewCount", autoRenewCount)
+	record.Set("repeatReminderCount", repeatReminderCount)
+	record.Set("lastAutoRenewLocalDate", "")
+	record.Set("nextAutoRenewCheckAtUTC", nextAutoRenewCheckAt(now, settings.Timezone, autoRenewCount, ""))
+	record.Set("nextDailyNotificationDueAtUTC", nextDailyNotificationDueAt(now, settings.Timezone, settings.NotificationTimeLocal, false))
+	record.Set("nextRepeatNotificationDueAtUTC", nextRepeat)
+	if err := app.Save(record); err != nil {
+		return subscriptionSchedulerState{}, err
+	}
+	return subscriptionSchedulerStateFromRecord(record), nil
+}
+
+func rebuildSubscriptionRepeatScheduleForUser(app core.App, userID string, settings appSettings, now time.Time) error {
+	// 这是用户级破坏性重建，只能由设置时区/提醒规则变化、迁移或离线修复触发。
+	if _, err := app.DB().NewQuery("DELETE FROM subscription_repeat_schedule WHERE user_id = {:user}").Bind(dbx.Params{"user": userID}).Execute(); err != nil {
+		return err
+	}
+	for offset := 0; ; offset += notificationSubscriptionPageSize {
+		records, err := app.FindRecordsByFilter("subscriptions", "user = {:user} && repeatReminderEnabled = true", "id", notificationSubscriptionPageSize, offset, dbx.Params{"user": userID})
+		if err != nil {
+			return err
+		}
+		for _, record := range records {
+			if err := replaceSubscriptionRepeatSchedule(app, record, settings, now); err != nil {
+				return err
+			}
+		}
+		if len(records) < notificationSubscriptionPageSize {
+			return nil
+		}
+	}
+}
+
+func earliestSubscriptionRepeatDue(app core.App, userID string) (string, error) {
+	var row struct {
+		NextDue string `db:"next_due_at_utc"`
+	}
+	err := app.DB().NewQuery(`SELECT next_due_at_utc FROM subscription_repeat_schedule
+		WHERE user_id = {:user} ORDER BY next_due_at_utc ASC, subscription_id ASC LIMIT 1`).Bind(dbx.Params{"user": userID}).One(&row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return row.NextDue, err
 }
 
 func markSubscriptionAutoRenewChecked(app core.App, userID string, localDate string) error {

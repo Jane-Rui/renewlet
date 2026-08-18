@@ -256,13 +256,13 @@ describe("aiRecognitionService", () => {
     await expect(aiRecognitionService.listModels({
       providerType: "openai",
       baseUrl: "",
-      apiKey: "sk-test",
+      apiKey: { action: "set", value: "sk-test" },
     })).resolves.toEqual(modelList);
 
     expect(mocks.apiFetch.mock.calls[0]?.[0]).toBe("/api/app/ai/models/list");
     expect(mocks.apiFetch.mock.calls[0]?.[2]).toMatchObject({
       method: "POST",
-      body: JSON.stringify({ providerType: "openai", baseUrl: "", apiKey: "sk-test" }),
+      body: JSON.stringify({ providerType: "openai", baseUrl: "", apiKey: { action: "set", value: "sk-test" } }),
       timeoutMs: 20_000,
     });
   });

@@ -406,7 +406,7 @@ msgstr "Wallos Logo is an external URL and was kept as-is."
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/subscription.ts:457
 msgid "import.error.wallosTableTooLarge"
-msgstr "A Wallos SQLite table has more than 5000 rows. Split the backup before importing."
+msgstr "A Wallos SQLite table has more than 1000 rows. Split the backup before importing."
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/subscription.ts:446
@@ -1241,7 +1241,7 @@ msgstr "Failed to parse import file."
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/subscription.ts:362
 msgid "import.fileTooLarge"
-msgstr "Import file is larger than 50 MB. Split it and try again."
+msgstr "The import exceeds 8 MB or 1,000 subscriptions. Split it and try again."
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/subscription.ts:463

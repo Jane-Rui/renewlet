@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { expect, test } from "./support/test";
 import { expectNoHorizontalOverflow } from "./support/layout";
 
 const mobileReleasePages: Array<{ path: string; label: string; assertReady: (page: Page) => Promise<void> }> = [

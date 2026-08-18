@@ -20,7 +20,6 @@ const mocks = vi.hoisted(() => ({
   setTheme: vi.fn(),
   theme: "dark",
   writeAppearancePendingToStorage: vi.fn(),
-  scheduleAuthenticatedRoutePreloads: vi.fn(() => vi.fn()),
   useRoutePreloadPending: vi.fn(() => false),
 }));
 
@@ -54,7 +53,6 @@ vi.mock("@/lib/theme-storage", () => ({
 }));
 
 vi.mock("@/lib/route-resources", () => ({
-  scheduleAuthenticatedRoutePreloads: mocks.scheduleAuthenticatedRoutePreloads,
   useRoutePreloadPending: mocks.useRoutePreloadPending,
 }));
 
@@ -175,8 +173,6 @@ describe("Header system version entry", () => {
     mocks.setTheme.mockReset();
     mocks.theme = "dark";
     mocks.writeAppearancePendingToStorage.mockReset();
-    mocks.scheduleAuthenticatedRoutePreloads.mockReset();
-    mocks.scheduleAuthenticatedRoutePreloads.mockReturnValue(vi.fn());
     mocks.useRoutePreloadPending.mockReset();
     mocks.useRoutePreloadPending.mockReturnValue(false);
     mocks.useSystemVersion.mockReturnValue({
@@ -250,15 +246,13 @@ describe("Header system version entry", () => {
 
     expect(screen.queryByRole("button", { name: "打开系统更新" })).not.toBeInTheDocument();
     expect(mocks.useSystemVersion).not.toHaveBeenCalled();
-    expect(mocks.scheduleAuthenticatedRoutePreloads).not.toHaveBeenCalled();
   });
 
-  it("preloads primary routes after sign-in without changing header layout", () => {
+  it("keeps the header stable after sign-in without scheduling private route preloads", () => {
     mocks.useSession.mockReturnValue(adminSession("user"));
 
     renderHeader();
 
-    expect(mocks.scheduleAuthenticatedRoutePreloads).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId("app-header-route-preload-indicator")).toHaveClass("opacity-0");
   });
 

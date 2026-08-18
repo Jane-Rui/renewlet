@@ -134,7 +134,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       queryClient.setQueryData(SETTINGS_QUERY_KEY, (current: unknown) => {
         // 先更新缓存可以让 Settings 页和 Header 立即看到新语言，失败回滚交给保存流程处理。
         if (!current || typeof current !== "object") return current;
-        return { ...current, locale: nextLocale };
+        const envelope = current as { settings?: Record<string, unknown> };
+        if (!envelope.settings) return current;
+        return { ...envelope, settings: { ...envelope.settings, locale: nextLocale } };
       });
 
       if (getCurrentUserId()) {

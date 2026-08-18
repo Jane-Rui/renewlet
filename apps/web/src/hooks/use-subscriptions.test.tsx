@@ -16,7 +16,6 @@ import {
   useInfiniteSubscriptions,
   usePatchSubscription,
   useSubscriptions,
-  useSubscriptionsPage,
   useUpdateSubscription,
 } from "./use-subscriptions";
 
@@ -284,18 +283,7 @@ describe("use-subscriptions pagination", () => {
     mocks.getCurrentUserId.mockReturnValue("user-1");
   });
 
-  it("loads a single page through the page hook", async () => {
-    const first = apiSubscriptionFromDraft("sub-1", subscriptionDraft({ name: "First" }));
-    mocks.apiFetch.mockResolvedValue({ subscriptions: [first], nextCursor: "cursor-2", total: 2 });
-
-    const { result } = renderHook(() => useSubscriptionsPage(null, 1), { wrapper: createWrapper() });
-
-    await waitFor(() => expect(result.current.data?.subscriptions).toHaveLength(1));
-    expect(mocks.apiFetch).toHaveBeenCalledWith("/api/app/subscriptions?limit=1", expect.anything());
-    expect(result.current.data?.nextCursor).toBe("cursor-2");
-  });
-
-  it("merges loaded infinite pages without sharing the aggregate query cache shape", async () => {
+  it("reuses loaded infinite pages for aggregate consumers without a second request", async () => {
     const first = apiSubscriptionFromDraft("sub-1", subscriptionDraft({ name: "First" }));
     const second = apiSubscriptionFromDraft("sub-2", subscriptionDraft({ name: "Second" }));
     mocks.apiFetch
@@ -315,23 +303,27 @@ describe("use-subscriptions pagination", () => {
     const aggregate = renderHook(() => useSubscriptions(), { wrapper });
     await waitFor(() => expect(aggregate.result.current.data?.map((item) => item.name)).toEqual(["First", "Second"]));
     expect(Array.isArray(aggregate.result.current.data)).toBe(true);
+    expect(mocks.apiFetch).toHaveBeenCalledTimes(2);
   });
 
-  it("caps aggregate subscription loading at five thousand records", async () => {
-    const pageItems = Array.from({ length: 50 }, (_, index) => apiSubscriptionFromDraft(`sub-${index}`, subscriptionDraft({ name: `Sub ${index}` })));
-    mocks.apiFetch.mockImplementation(async (_url: string) => {
-      const callNumber = mocks.apiFetch.mock.calls.length;
-      const page = callNumber;
+  it("loads aggregate pages sequentially into the same infinite cache until the cursor ends", async () => {
+    mocks.apiFetch.mockImplementation(async () => {
+      const page = mocks.apiFetch.mock.calls.length;
       return {
-        subscriptions: pageItems.map((item, index) => ({ ...item, id: `sub-${page}-${index}` })),
-        nextCursor: page < 120 ? `cursor-${page + 1}` : null,
-        total: 6000,
+        subscriptions: [apiSubscriptionFromDraft(`sub-${page}`, subscriptionDraft({ name: `Sub ${page}` }))],
+        nextCursor: page < 3 ? `cursor-${page + 1}` : null,
+        total: 3,
       };
     });
 
-    const { result } = renderHook(() => useSubscriptions(), { wrapper: createWrapper() });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(() => useSubscriptions(), { wrapper });
 
-    await waitFor(() => expect(result.current.data).toHaveLength(5000));
-    expect(mocks.apiFetch).toHaveBeenCalledTimes(100);
+    await waitFor(() => expect(result.current.data).toHaveLength(3));
+    expect(mocks.apiFetch).toHaveBeenCalledTimes(3);
+    expect(queryClient.getQueryCache().findAll({ queryKey: ["subscriptions", "collection"] })).toHaveLength(1);
   });
 });

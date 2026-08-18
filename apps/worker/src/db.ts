@@ -35,7 +35,7 @@ const userColumnNames = [
   "updated_at",
 ] as const;
 
-const subscriptionColumnNames = [
+export const SUBSCRIPTION_COLUMN_NAMES = [
   "id",
   "user_id",
   "name",
@@ -126,7 +126,11 @@ const telegramBotBindingColumnNames = [
 
 export const USER_COLUMNS = userColumnNames.join(", ");
 export const USER_COLUMNS_FROM_USERS = userColumnNames.map((column) => `users.${column} AS ${column}`).join(", ");
-export const SUBSCRIPTION_COLUMNS = subscriptionColumnNames.join(", ");
+export const SUBSCRIPTION_COLUMNS = SUBSCRIPTION_COLUMN_NAMES.join(", ");
+
+export function subscriptionRowValues(row: SubscriptionRow): unknown[] {
+  return SUBSCRIPTION_COLUMN_NAMES.map((column) => row[column]);
+}
 export const ASSET_COLUMNS = assetColumnNames.join(", ");
 export const NOTIFICATION_JOB_COLUMNS = notificationJobColumnNames.join(", ");
 export const API_TOKEN_COLUMNS = apiTokenColumnNames.join(", ");
@@ -249,13 +253,18 @@ export async function ensureSettings(env: Env, userId: string, locale: ApiAppSet
 /** 保存设置前重跑完整 shared schema，确保 D1 写入后的数据仍可被 Go/前端同一契约消费。 */
 export async function putSettings(env: Env, userId: string, settings: ApiAppSettings): Promise<ApiAppSettings> {
   const parsed = appSettingsSchema.parse(settings);
+  await settingsUpsertStatement(env, userId, parsed).run();
+  return parsed;
+}
+
+export function settingsUpsertStatement(env: Env, userId: string, settings: ApiAppSettings): D1PreparedStatement {
+  const parsed = appSettingsSchema.parse(settings);
   const timestamp = nowIso();
-  await env.DB.prepare(`
+  return env.DB.prepare(`
     INSERT INTO settings (user_id, settings_json, created_at, updated_at)
     VALUES (?, ?, ?, ?)
     ON CONFLICT(user_id) DO UPDATE SET settings_json = excluded.settings_json, updated_at = excluded.updated_at
-  `).bind(userId, JSON.stringify(parsed), timestamp, timestamp).run();
-  return parsed;
+  `).bind(userId, JSON.stringify(parsed), timestamp, timestamp);
 }
 
 export function normalizeSettingsJson(value: string): ApiAppSettings {
@@ -351,7 +360,9 @@ export async function listSubscriptions(env: Env, userId: string): Promise<Subsc
     const page = await listSubscriptionsPage(env, userId, { limit: 100, cursor });
     rows.push(...page);
     if (page.length < 100) return rows;
-    cursor = subscriptionCursor(page[page.length - 1]!);
+    const last = page.at(-1);
+    if (!last) return rows;
+    cursor = subscriptionCursor(last);
   }
 }
 

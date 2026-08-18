@@ -6,6 +6,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { assertDateOnly } from "@/lib/time/date-only";
 import type { CustomConfig } from "@/types/config";
 import { DEFAULT_SETTINGS, type Subscription } from "@/types/subscription";
+import { appSettingsSecretStatus } from "@renewlet/shared/schemas/settings";
+import type { SettingsReadModel } from "@/services/settings-service";
 import Subscriptions from "./subscriptions";
 
 type RecurringBillingCycle = Exclude<Subscription["billingCycle"], "custom" | "one-time">;
@@ -15,11 +17,12 @@ interface MockInfiniteSubscriptionsResult {
   subscriptions?: Subscription[];
   isPending: boolean;
 }
+type MockSettingsEnvelopeResult = { data?: SettingsReadModel };
 
 const mocks = vi.hoisted(() => ({
   useInfiniteSubscriptions: vi.fn<() => MockInfiniteSubscriptionsResult>(),
   useSubscriptions: vi.fn(),
-  useSettings: vi.fn(),
+  useSettingsEnvelope: vi.fn<() => MockSettingsEnvelopeResult>(),
   handleAddSubscription: vi.fn(),
   handleDeleteSubscription: vi.fn(),
   handleEditSubscription: vi.fn(),
@@ -74,7 +77,11 @@ vi.mock("@/hooks/use-subscriptions", () => ({
 }));
 
 vi.mock("@/hooks/use-settings", () => ({
-  useSettings: mocks.useSettings,
+  useSettingsEnvelope: mocks.useSettingsEnvelope,
+  useSettings: () => {
+    const envelope = mocks.useSettingsEnvelope();
+    return { ...envelope, data: envelope.data?.settings };
+  },
 }));
 
 vi.mock("@/hooks/use-exchange-rates", () => ({
@@ -262,12 +269,16 @@ describe("Subscriptions page category filters", () => {
       const infinite = mocks.useInfiniteSubscriptions();
       return { data: infinite.subscriptions ?? [], isPending: false };
     });
-    mocks.useSettings.mockReturnValue({
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      timezone: "Asia/Shanghai",
+      defaultCurrency: "CNY",
+      notificationReminderDays: 5,
+    };
+    mocks.useSettingsEnvelope.mockReturnValue({
       data: {
-        ...DEFAULT_SETTINGS,
-        timezone: "Asia/Shanghai",
-        defaultCurrency: "CNY",
-        notificationReminderDays: 5,
+        settings,
+        secretStatus: appSettingsSecretStatus(settings),
       },
     });
     mocks.useInfiniteSubscriptions.mockReturnValue({

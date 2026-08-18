@@ -9,15 +9,14 @@
  * 注意： data URL 体积可能很大，不能直接持久化；上传 hook 会负责替换成资产 URL。
  */
 
-import { useState, useRef, useCallback, useEffect, type ComponentType } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import {
-  ReactCrop as ReactCropComponent,
+  ReactCrop,
   centerCrop,
   makeAspectCrop,
   type Crop,
   type PercentCrop,
   type PixelCrop,
-  type ReactCropProps,
 } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -27,8 +26,6 @@ import { Label } from '@/components/ui/label';
 import { RotateCcw, ZoomIn } from 'lucide-react';
 import { useI18n } from '@/i18n/I18nProvider';
 import { reportClientError } from "@/lib/report-client-error";
-
-const ReactCrop = ReactCropComponent as unknown as ComponentType<ReactCropProps>;
 
 interface ImageCropDialogProps {
   /** 外层上传 hook 持有 open 状态，用于在关闭时废弃未完成的裁剪链路。 */

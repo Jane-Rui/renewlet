@@ -183,7 +183,7 @@ describe("AIRecognitionSettingsSection provider model layout", () => {
       expect(aiRecognitionService.listModels).toHaveBeenCalledWith({
         providerType: "anthropic",
         baseUrl: "",
-        apiKey: "anthropic-key",
+        apiKey: { action: "set", value: "anthropic-key" },
       });
     });
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ modelInputMode: "select" }));

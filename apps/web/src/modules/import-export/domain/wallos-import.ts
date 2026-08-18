@@ -1,5 +1,6 @@
 import { importPayloadSchema, renewletExportV1Schema, type ImportPayload, type ImportPreviewItem } from "@renewlet/shared/schemas/import-export";
 import type JSZip from "jszip";
+import { MAX_IMAGE_BYTES } from "@/lib/upload-constraints";
 import type { ImportBuildBaseContext } from "./wallos-import-mapping";
 import {
   buildFromRenewletExport,
@@ -14,11 +15,19 @@ import {
 } from "./wallos-import-mapping";
 import {
   IMPORT_MESSAGE_CODES,
+  MAX_IMPORT_FILE_BYTES,
+  MAX_IMPORT_PREVIEW_SUBSCRIPTIONS,
   type ImportAssetRef,
   type ImportLogoAutoMatch,
   type PreparedImport,
 } from "./import-export-model";
 import { assetService } from "@/services/asset-service";
+import {
+  assertZipEntryWithinLimit,
+  inspectZipCentralDirectory,
+  MAX_IMPORT_ZIP_ENTRIES,
+  type ZipCentralDirectory,
+} from "./zip-central-directory";
 
 type ImportSubscription = ImportPayload["subscriptions"][number];
 
@@ -32,7 +41,12 @@ type WorkerResponse =
   | { id: number; ok: true; prepared: PreparedImport }
   | { id: number; ok: false; error: string };
 
-const ZIP_CACHE = new WeakMap<File, Promise<JSZip>>();
+interface CachedImportZip {
+  zip: JSZip;
+  directory: ZipCentralDirectory;
+}
+
+const ZIP_CACHE = new WeakMap<File, Promise<CachedImportZip>>();
 let workerRequestId = 0;
 
 /**
@@ -48,11 +62,13 @@ export async function parseImportFile(
   file: File,
   context: ImportBuildBaseContext,
   wallosUserId?: string,
+  maxFileBytes = MAX_IMPORT_FILE_BYTES,
 ): Promise<PreparedImport> {
+  if (file.size > maxFileBytes) throw new Error(IMPORT_MESSAGE_CODES.fileTooLarge);
   const buffer = await file.arrayBuffer();
   const bytes = new Uint8Array(buffer);
   if (isZipBytes(bytes) || isSqliteBytes(bytes)) {
-    const prepared = await parseHeavyFileInWorker(buffer, context, wallosUserId);
+    const prepared = await parseHeavyFileInWorker(buffer, context, wallosUserId, maxFileBytes);
     return attachSourceFile(prepared, file);
   }
   return parseJsonText(new TextDecoder().decode(bytes), context);
@@ -68,12 +84,17 @@ export async function parseJsonText(
   context: ImportBuildBaseContext,
   wallosUserId?: string,
 ): Promise<PreparedImport> {
+  if (text.length > MAX_IMPORT_FILE_BYTES || new TextEncoder().encode(text).byteLength > MAX_IMPORT_FILE_BYTES) {
+    throw new Error(IMPORT_MESSAGE_CODES.fileTooLarge);
+  }
   const parsed = JSON.parse(text) as unknown;
   const renewletExport = renewletExportV1Schema.safeParse(parsed);
   if (renewletExport.success) {
+    assertPreviewSubscriptionCount(renewletExport.data.data.subscriptions.length);
     return buildFromRenewletExport(renewletExport.data, context);
   }
   if (isWallosApiPayload(parsed)) {
+    assertPreviewSubscriptionCount(parsed.subscriptions.length);
     const users = wallosUsersFromApiPayload(parsed);
     const selectedUserId = wallosUserId ?? users[0]?.id;
     const rows = selectedUserId
@@ -90,12 +111,20 @@ export async function parseJsonText(
     });
   }
   if (isWallosDisplayRows(parsed)) {
+    assertPreviewSubscriptionCount(parsed.length);
     return buildFromWallosDisplayRows(parsed, context);
   }
   if (isWallosDisplayPayload(parsed)) {
+    assertPreviewSubscriptionCount(parsed.subscriptions.length);
     return buildFromWallosDisplayRows(parsed.subscriptions, context);
   }
   throw new Error(IMPORT_MESSAGE_CODES.unrecognizedFile);
+}
+
+function assertPreviewSubscriptionCount(count: number): void {
+  if (count > MAX_IMPORT_PREVIEW_SUBSCRIPTIONS) {
+    throw new Error(IMPORT_MESSAGE_CODES.fileTooLarge);
+  }
 }
 
 /**
@@ -160,10 +189,14 @@ export function updatePreparedSubscriptionLogos(
 export async function loadImportAssetBlob(asset: ImportAssetRef): Promise<Blob> {
   if (asset.blob) return asset.blob;
   if (!asset.sourceFile || !asset.zipEntryName) throw new Error("Import asset is not available.");
-  const zip = await getZip(asset.sourceFile);
-  const entry = zip.file(asset.zipEntryName);
-  if (!entry) throw new Error("Import asset entry is missing.");
-  return await entry.async("blob");
+  const archive = await getZip(asset.sourceFile);
+  const metadata = archive.directory.byName.get(asset.zipEntryName);
+  const entry = archive.zip.file(asset.zipEntryName);
+  if (!entry || !metadata) throw new Error("Import asset entry is missing.");
+  assertZipEntryWithinLimit(metadata, MAX_IMAGE_BYTES);
+  const blob = await entry.async("blob");
+  if (blob.size > MAX_IMAGE_BYTES) throw new Error("Import asset exceeds the upload limit.");
+  return blob;
 }
 
 /**
@@ -213,6 +246,7 @@ async function parseHeavyFileInWorker(
   buffer: ArrayBuffer,
   context: ImportBuildBaseContext,
   wallosUserId?: string,
+  maxFileBytes = MAX_IMPORT_FILE_BYTES,
 ): Promise<PreparedImport> {
   if (typeof Worker === "undefined") {
     throw new Error(IMPORT_MESSAGE_CODES.workerUnsupported);
@@ -233,7 +267,7 @@ async function parseHeavyFileInWorker(
       };
       worker.onerror = () => reject(new Error(IMPORT_MESSAGE_CODES.workerParseFailed));
       // ZIP/SQLite 只在用户显式选择文件后传入 Worker；不从后端代取 Wallos URL，避免 SSRF/CORS 差异。
-      worker.postMessage({ id, buffer, context, ...(wallosUserId ? { wallosUserId } : {}) }, [buffer]);
+      worker.postMessage({ id, buffer, context, maxFileBytes, ...(wallosUserId ? { wallosUserId } : {}) }, [buffer]);
     });
   } finally {
     worker.terminate();
@@ -266,9 +300,10 @@ function buildPayloadWithAssetOverrides(
   if (iconOverrides.size === 0 || !nextPayload.customConfig) return nextPayload;
   const customConfig = {
     ...nextPayload.customConfig,
-    paymentMethods: nextPayload.customConfig.paymentMethods.map((item, index) => (
-      iconOverrides.has(index) ? { ...item, icon: iconOverrides.get(index)! } : item
-    )),
+    paymentMethods: nextPayload.customConfig.paymentMethods.map((item, index) => {
+      const icon = iconOverrides.get(index);
+      return icon === undefined ? item : { ...item, icon };
+    }),
   };
   return importPayloadSchema.parse({ ...nextPayload, customConfig });
 }
@@ -278,10 +313,15 @@ function optionalRows(value: unknown): WallosTableRow[] {
   return value.filter((row): row is WallosTableRow => Boolean(row) && typeof row === "object" && !Array.isArray(row));
 }
 
-async function getZip(file: File): Promise<JSZip> {
+async function getZip(file: File): Promise<CachedImportZip> {
   const cached = ZIP_CACHE.get(file);
   if (cached) return cached;
-  const promise: Promise<JSZip> = import("jszip").then(({ default: JSZipCtor }) => JSZipCtor.loadAsync(file, { checkCRC32: false }));
+  const promise = Promise.all([file.arrayBuffer(), import("jszip")]).then(async ([buffer, { default: JSZipCtor }]) => {
+    const bytes = new Uint8Array(buffer);
+    const directory = inspectZipCentralDirectory(bytes, MAX_IMPORT_ZIP_ENTRIES);
+    const zip = await JSZipCtor.loadAsync(bytes, { checkCRC32: false });
+    return { zip, directory };
+  });
   ZIP_CACHE.set(file, promise);
   return await promise;
 }

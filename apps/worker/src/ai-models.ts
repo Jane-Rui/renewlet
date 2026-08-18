@@ -21,6 +21,8 @@ import type { Env } from "./types";
 import { providerResponseFromFetchResponse } from "./ai-provider-response";
 import type { UpstreamProviderResponse as AiProviderResponse } from "./upstream-response";
 import { UpstreamRequestError, sendUpstreamRequest } from "./upstream-http";
+import { resolveSecretMutation } from "@renewlet/shared/schemas/secrets";
+import { getSettings } from "./db";
 
 const AI_MODEL_LIST_TIMEOUT_MS = 15_000;
 const AI_MODEL_LIST_RESPONSE_BYTES = 1 << 20;
@@ -51,9 +53,13 @@ type AIModelListResponseText = {
  */
 export async function listAIModels(request: Request, env: Env): Promise<Response> {
   const locale = requestLocale(request);
-  await requireAuth(request, env);
+  const auth = await requireAuth(request, env);
   const body = await readJson(request, aiModelListRequestSchema, locale);
-  const input = normalizeAIModelListRequest(body);
+  const current = await getSettings(env, auth.user.id);
+  const input = normalizeAIModelListRequest({
+    ...body,
+    apiKey: resolveSecretMutation(body.apiKey, current.aiRecognition.apiKey),
+  });
   assertAIModelListRequest(input, locale);
 
   try {
@@ -77,7 +83,9 @@ export async function listAIModels(request: Request, env: Env): Promise<Response
   }
 }
 
-function normalizeAIModelListRequest(input: AiModelListRequest): AiModelListRequest {
+type ResolvedAIModelListRequest = Omit<AiModelListRequest, "apiKey"> & { apiKey: string };
+
+function normalizeAIModelListRequest(input: ResolvedAIModelListRequest): ResolvedAIModelListRequest {
   return {
     providerType: input.providerType,
     baseUrl: input.baseUrl.trim(),
@@ -85,7 +93,7 @@ function normalizeAIModelListRequest(input: AiModelListRequest): AiModelListRequ
   };
 }
 
-function assertAIModelListRequest(input: AiModelListRequest, locale: AppLocale): void {
+function assertAIModelListRequest(input: ResolvedAIModelListRequest, locale: AppLocale): void {
   const endpoint = resolveAIProviderEndpoint(input);
   if (endpoint.baseUrlRequired && !input.baseUrl) {
     throw new HttpError(400, serverText(locale, "aiRecognition.baseUrlRequired"), "AI_MODEL_LIST_BASE_URL_REQUIRED");
@@ -95,7 +103,7 @@ function assertAIModelListRequest(input: AiModelListRequest, locale: AppLocale):
   }
 }
 
-function buildAIModelListEndpoint(input: AiModelListRequest): ModelListEndpoint {
+function buildAIModelListEndpoint(input: ResolvedAIModelListRequest): ModelListEndpoint {
   const headers = new Headers({ accept: "application/json" });
   const endpoint = resolveAIProviderEndpoint(input);
   // 鉴权头由 shared resolver 按协议生成；Worker 只补模型列表代理自己的 Accept。

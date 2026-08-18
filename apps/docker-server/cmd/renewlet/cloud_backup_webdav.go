@@ -101,11 +101,11 @@ func (client *webDAVCloudBackupClient) List(ctx context.Context) ([]cloudBackupS
 	return manifests, nil
 }
 
-func (client *webDAVCloudBackupClient) Upload(ctx context.Context, filename string, content []byte, manifest cloudBackupSnapshotManifest) error {
+func (client *webDAVCloudBackupClient) Upload(ctx context.Context, filename string, source cloudBackupSnapshotSource, manifest cloudBackupSnapshotManifest) error {
 	if err := client.ensureDirectory(ctx); err != nil {
 		return err
 	}
-	if err := client.put(ctx, filename, content); err != nil {
+	if err := client.putSource(ctx, filename, source); err != nil {
 		return err
 	}
 	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
@@ -113,6 +113,17 @@ func (client *webDAVCloudBackupClient) Upload(ctx context.Context, filename stri
 		return err
 	}
 	return client.put(ctx, manifestNameForSnapshotID(manifest.ID), manifestBytes)
+}
+
+func (client *webDAVCloudBackupClient) putSource(ctx context.Context, filename string, source cloudBackupSnapshotSource) error {
+	reader, err := source.Open()
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+	return client.captureWebDAVError(ctx, "CLOUD_BACKUP_WEBDAV_PUT_FAILED", func() error {
+		return client.client.WriteStreamWithLength(client.remotePath(filename), reader, source.Size(), 0o644)
+	})
 }
 
 func (client *webDAVCloudBackupClient) Download(ctx context.Context, id string) ([]byte, cloudBackupSnapshotManifest, error) {

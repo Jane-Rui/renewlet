@@ -1,6 +1,7 @@
 // Public API 与 Telegram command controller 测试独立成文件，避免通用 integrations 测试继续膨胀。
 import { act } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { appSettingsSecretStatus } from "@renewlet/shared/schemas/settings";
 import {
   BASE_SETTINGS,
   mocks,
@@ -63,10 +64,11 @@ describe("useSettingsFormController public API integrations", () => {
       await result.current.handleSaveChanges();
     });
 
-    expect(mocks.updateSettingsMutateAsync).toHaveBeenCalledWith(expect.objectContaining({
-      telegramBotToken: "123456:bot-token",
-      telegramChatId: "123456",
-    }));
+    const command = mocks.updateSettingsMutateAsync.mock.calls.at(0)?.at(0);
+    expect(command?.patch.telegramChatId).toBe("123456");
+    expect(command?.secretUpdates).toEqual({
+      telegramBotToken: { action: "set", value: "123456:bot-token" },
+    });
     expect(mocks.telegramBotCommands.refetch).toHaveBeenCalledTimes(1);
     expect(result.current.hasUnsavedChanges).toBe(false);
   });
@@ -75,9 +77,13 @@ describe("useSettingsFormController public API integrations", () => {
     vi.stubGlobal("location", { ...window.location, protocol: "https:" });
     mocks.remoteSettings = {
       ...BASE_SETTINGS,
-      telegramBotToken: "123456:bot-token",
       telegramChatId: "123456",
     };
+    mocks.remoteSecretStatus = appSettingsSecretStatus({
+      ...BASE_SETTINGS,
+      telegramBotToken: "123456:bot-token",
+      telegramChatId: "123456",
+    });
     mocks.telegramBotCommands = {
       data: {
         configComplete: true,

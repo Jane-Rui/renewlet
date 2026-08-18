@@ -106,8 +106,10 @@ describe("Cloudflare notification test endpoint upstream details", () => {
     })));
 
     await expect(notificationTest(notificationTestRequest("serverchan", {
-      serverchanSendKey: "SCTsecret",
       enabledChannels: ["serverchan"],
+      secretUpdates: {
+        serverchanSendKey: { action: "set", value: "SCTsecret" },
+      },
     }), settingsEnv())).rejects.toMatchObject({
       status: 400,
       code: "NOTIFICATION_TEST_FAILED",
@@ -125,8 +127,10 @@ describe("Cloudflare notification test endpoint upstream details", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const caughtPromise = notificationTest(notificationTestRequest("discord", {
-      discordWebhookUrl: "https://discord.com/api/webhooks/123/discord-secret",
       enabledChannels: ["discord"],
+      secretUpdates: {
+        discordWebhookUrl: { action: "set", value: "https://discord.com/api/webhooks/123/discord-secret" },
+      },
     }), settingsEnv()).catch((error: unknown) => error);
     await flushMicrotasks(20);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -151,8 +155,10 @@ describe("Cloudflare notification test endpoint upstream details", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const caught = await notificationTest(notificationTestRequest("discord", {
-      discordWebhookUrl: "https://discord.com/api/webhooks/123/discord-secret?wait=true",
       enabledChannels: ["discord"],
+      secretUpdates: {
+        discordWebhookUrl: { action: "set", value: "https://discord.com/api/webhooks/123/discord-secret?wait=true" },
+      },
     }), settingsEnv()).catch((error: unknown) => error);
 
     expect(caught).toMatchObject({

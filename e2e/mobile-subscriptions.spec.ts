@@ -1,5 +1,6 @@
 // 移动端订阅 E2E 同时保护标签抽屉、tag 输入和底部操作区；这些交互依赖真实触控布局与浮层栈。
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
+import { expect, test } from "./support/test";
 import {
   createSubscription,
   expectTagInputPopoverLayout,

@@ -71,7 +71,7 @@ http://localhost:3000/setup
 生产环境固定到稳定版本：
 
 ```bash
-sed -i.bak 's#RENEWLET_IMAGE=.*#RENEWLET_IMAGE="zhiyingzzhou/renewlet:0.3.0"#' .env
+sed -i.bak 's#RENEWLET_IMAGE=.*#RENEWLET_IMAGE="zhiyingzzhou/renewlet:0.3.1"#' .env
 docker compose pull
 docker compose up -d
 ```
@@ -79,7 +79,7 @@ docker compose up -d
 如果 Docker Hub 拉取不可用，改用 GHCR：
 
 ```env
-RENEWLET_IMAGE="ghcr.io/zhiyingzzhou/renewlet:0.3.0"
+RENEWLET_IMAGE="ghcr.io/zhiyingzzhou/renewlet:0.3.1"
 ```
 
 ## Cloudflare Workers
@@ -109,13 +109,13 @@ tar -czf renewlet-backup-$(date +%F).tgz .env docker-compose.yml data
 使用 Docker Compose 升级：
 
 ```bash
-sed -i.bak 's#RENEWLET_IMAGE=.*#RENEWLET_IMAGE="zhiyingzzhou/renewlet:0.3.0"#' .env
+sed -i.bak 's#RENEWLET_IMAGE=.*#RENEWLET_IMAGE="zhiyingzzhou/renewlet:0.3.1"#' .env
 docker compose pull
 docker compose up -d
 docker compose logs -f
 ```
 
-当前二进制布局的 Docker release 镜像也可以从页面顶部版本号进入系统更新。旧布局镜像需要先执行一次 `docker compose pull && docker compose up -d`，之后才会开放页面内更新。
+Docker 发布镜像也支持页面内更新；管理员可点击页面顶部版本号进入“系统更新”。
 
 ## 常用命令
 

@@ -101,14 +101,17 @@ func runDueCloudBackups(app core.App, now time.Time) error {
 			}
 			continue
 		}
-		for _, target := range group.targets {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-			_, err := uploadCloudBackupSnapshotToTarget(ctx, app, userID, payload, target)
-			cancel()
-			if err != nil {
-				markCloudBackupStatus(app, userID, target.Provider, cloudBackupStatusFailed, persistedCloudBackupErrorMessage(err))
+		_ = withCloudBackupSnapshotPayload(userID, payload, func(payload cloudBackupSnapshotPayload) error {
+			for _, target := range group.targets {
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+				_, err := uploadCloudBackupSnapshotToTarget(ctx, app, userID, payload, target)
+				cancel()
+				if err != nil {
+					markCloudBackupStatus(app, userID, target.Provider, cloudBackupStatusFailed, persistedCloudBackupErrorMessage(err))
+				}
 			}
-		}
+			return nil
+		})
 	}
 	return nil
 }

@@ -1,5 +1,6 @@
 // 移动端设置/订阅弹窗测试覆盖 visualViewport、软键盘和 Radix 动画交界；这些问题只有真实浏览器布局能暴露。
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
+import { expect, test } from "./support/test";
 import { expectNoHorizontalOverflow } from "./support/layout";
 import { gotoSettingsAfterHydration } from "./support/settings";
 import {

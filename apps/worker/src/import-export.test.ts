@@ -4,6 +4,12 @@ import { readSuccessData } from "./api-test-helpers";
 import { applyImport, previewImport } from "./import-export";
 import { HttpError } from "./http";
 import type { Env, SubscriptionRow } from "./types";
+import {
+  IMPORT_APPLY_SUBSCRIPTION_LIMIT,
+  IMPORT_PREVIEW_MAX_BYTES,
+  IMPORT_PREVIEW_SUBSCRIPTION_LIMIT,
+} from "@renewlet/shared/schemas/import-export";
+import { createDefaultAppSettings } from "@renewlet/shared/settings-defaults";
 
 const authUser = {
   id: "usr_import",
@@ -76,6 +82,15 @@ function envFixture() {
 
 function d1Result<T = unknown>(results: T[] = [], changes = 0): D1Result<T> {
   return { success: true, results, meta: { changes } } as D1Result<T>;
+}
+
+function insertedSubscriptionRow(statements: Array<{ sql: string; values: unknown[] }>, index = 0): unknown[] {
+  const insert = statements.find((statement) => statement.sql.includes("INSERT INTO subscriptions"));
+  if (!insert || typeof insert.values[0] !== "string") throw new Error("Missing bulk subscription insert");
+  const rows = JSON.parse(insert.values[0]) as unknown[][];
+  const row = rows[index];
+  if (!row) throw new Error(`Missing bulk subscription row ${index}`);
+  return row;
 }
 
 function requestFor(path: string, body: unknown): Request {
@@ -162,7 +177,7 @@ describe("Cloudflare import", () => {
     dbMocks.newId.mockReset();
     authMocks.requireAuth.mockResolvedValue({ user: authUser, session: { id: "ses" } });
     dbMocks.listSubscriptions.mockResolvedValue([]);
-    dbMocks.getSettings.mockResolvedValue({});
+    dbMocks.getSettings.mockResolvedValue(createDefaultAppSettings());
     dbMocks.nowIso.mockReturnValue("2026-06-05T00:00:00.000Z");
     dbMocks.newId.mockReturnValue("sub_new");
   });
@@ -190,6 +205,43 @@ describe("Cloudflare import", () => {
     expect(db.batch).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["preview", IMPORT_PREVIEW_SUBSCRIPTION_LIMIT + 1],
+    ["apply", IMPORT_APPLY_SUBSCRIPTION_LIMIT + 1],
+  ] as const)("rejects %s subscription counts with IMPORT_TOO_LARGE before D1 writes", async (operation, count) => {
+    const { env, db } = envFixture();
+    const subscriptions = Array.from({ length: count }, (_, index) => importSubscription({
+      extra: { import: { source: "wallos", sourceId: `usr:${index}`, confidence: "high" } },
+    }));
+    const request = requestFor(`/api/app/import/${operation}`, importPayload(subscriptions));
+    const execute = operation === "preview" ? previewImport : applyImport;
+
+    await expect(execute(request, env)).rejects.toMatchObject({
+      status: 413,
+      code: "IMPORT_TOO_LARGE",
+    } satisfies Partial<HttpError>);
+    expect(db.batch).not.toHaveBeenCalled();
+  });
+
+  it("rejects request bodies over 8 MiB before D1 writes", async () => {
+    const { env, db } = envFixture();
+    const request = new Request("https://renewlet.test/api/app/import/preview", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer test",
+        "x-renewlet-locale": "en-US",
+      },
+      body: `{"padding":"${"x".repeat(IMPORT_PREVIEW_MAX_BYTES)}"}`,
+    });
+
+    await expect(previewImport(request, env)).rejects.toMatchObject({
+      status: 413,
+      code: "IMPORT_TOO_LARGE",
+    } satisfies Partial<HttpError>);
+    expect(db.batch).not.toHaveBeenCalled();
+  });
+
   it("applies manual recurring imports with nullable start dates", async () => {
     const { env, db, statements } = envFixture();
     const response = await applyImport(requestFor("/api/app/import/apply", importPayload([
@@ -201,11 +253,11 @@ describe("Cloudflare import", () => {
     ])), env);
 
     expect(response.status).toBe(200);
-    expect(db.batch).toHaveBeenCalledTimes(2);
-    const insert = statements.find((statement) => statement.sql.includes("INSERT INTO subscriptions"));
-    expect(insert?.values[16]).toBeNull();
-    expect(insert?.values[17]).toBe("2026-06-21");
-    expect(insert?.values[19]).toBe(0);
+    expect(db.batch).toHaveBeenCalledTimes(1);
+    const row = insertedSubscriptionRow(statements);
+    expect(row[16]).toBeNull();
+    expect(row[17]).toBe("2026-06-21");
+    expect(row[19]).toBe(0);
   });
 
   it("normalizes one-time imports before binding D1 statements", async () => {
@@ -220,15 +272,15 @@ describe("Cloudflare import", () => {
     ])), env);
 
     expect(response.status).toBe(200);
-    expect(db.batch).toHaveBeenCalledTimes(2);
-    const insert = statements.find((statement) => statement.sql.includes("INSERT INTO subscriptions"));
-    expect(insert?.values[6]).toBe("one-time");
-    expect(insert?.values[7]).toBeNull();
-    expect(insert?.values[8]).toBeNull();
-    expect(insert?.values[9]).toBeNull();
-    expect(insert?.values[10]).toBeNull();
-    expect(insert?.values[18]).toBe(0);
-    expect(insert?.values[19]).toBe(0);
+    expect(db.batch).toHaveBeenCalledTimes(1);
+    const row = insertedSubscriptionRow(statements);
+    expect(row[6]).toBe("one-time");
+    expect(row[7]).toBeNull();
+    expect(row[8]).toBeNull();
+    expect(row[9]).toBeNull();
+    expect(row[10]).toBeNull();
+    expect(row[18]).toBe(0);
+    expect(row[19]).toBe(0);
   });
 
   it("restores historical exchange rate snapshots only from Renewlet ZIP payloads", async () => {
@@ -271,15 +323,15 @@ describe("Cloudflare import", () => {
     ])), env);
 
     expect(response.status).toBe(200);
-    expect(db.batch).toHaveBeenCalledTimes(2);
-    const insert = statements.find((statement) => statement.sql.includes("INSERT INTO subscriptions"));
-    expect(insert?.values[6]).toBe("one-time");
-    expect(insert?.values[7]).toBeNull();
-    expect(insert?.values[8]).toBeNull();
-    expect(insert?.values[9]).toBe(6);
-    expect(insert?.values[10]).toBe("month");
-    expect(insert?.values[18]).toBe(0);
-    expect(insert?.values[19]).toBe(0);
+    expect(db.batch).toHaveBeenCalledTimes(1);
+    const row = insertedSubscriptionRow(statements);
+    expect(row[6]).toBe("one-time");
+    expect(row[7]).toBeNull();
+    expect(row[8]).toBeNull();
+    expect(row[9]).toBe(6);
+    expect(row[10]).toBe("month");
+    expect(row[18]).toBe(0);
+    expect(row[19]).toBe(0);
   });
 
   it("preserves disabled reminder days before binding D1 statements", async () => {
@@ -291,9 +343,8 @@ describe("Cloudflare import", () => {
     ])), env);
 
     expect(response.status).toBe(200);
-    expect(db.batch).toHaveBeenCalledTimes(2);
-    const insert = statements.find((statement) => statement.sql.includes("INSERT INTO subscriptions"));
-    expect(insert?.values[24]).toBe(-2);
+    expect(db.batch).toHaveBeenCalledTimes(1);
+    expect(insertedSubscriptionRow(statements)[24]).toBe(-2);
   });
 
   it("preserves cost sharing before binding D1 statements", async () => {
@@ -312,23 +363,43 @@ describe("Cloudflare import", () => {
     ])), env);
 
     expect(response.status).toBe(200);
-    expect(db.batch).toHaveBeenCalledTimes(2);
+    expect(db.batch).toHaveBeenCalledTimes(1);
+    const row = insertedSubscriptionRow(statements);
     const insert = statements.find((statement) => statement.sql.includes("INSERT INTO subscriptions"));
     expect(insert?.sql).toContain("cost_sharing_json");
-    expect(JSON.parse(insert?.values[28] as string)).toEqual(costSharing);
-    expect(insert?.values[29]).toBe(1);
-    expect(insert?.values[30] as string).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(JSON.parse(row[28] as string)).toEqual(costSharing);
+    expect(row[29]).toBe(1);
+    expect(row[30] as string).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
-  it("refreshes scheduler state after applying subscription imports", async () => {
+  it("updates scheduler counts incrementally after applying subscription imports", async () => {
     const { env, db, statements } = envFixture();
     const response = await applyImport(requestFor("/api/app/import/apply", importPayload([
       importSubscription({ autoRenew: true, repeatReminderEnabled: true }),
     ])), env);
 
     expect(response.status).toBe(200);
-    expect(db.batch).toHaveBeenCalledTimes(2);
-    expect(statements.some((statement) => statement.sql.includes("INSERT INTO subscription_scheduler_state"))).toBe(true);
+    expect(db.batch).toHaveBeenCalledTimes(1);
+    const schedulerMutation = statements.find((statement) => statement.sql.includes("UPDATE subscription_scheduler_state SET"));
+    expect(schedulerMutation?.values.slice(0, 5)).toEqual([1, 1, 1, 1, 1]);
+    expect(schedulerMutation?.values.at(-1)).toBe(authUser.id);
+  });
+
+  it("keeps a 200-item apply inside one fixed-size D1 transaction", async () => {
+    let sequence = 0;
+    dbMocks.newId.mockImplementation(() => `sub_bulk_${sequence += 1}`);
+    const { env, db } = envFixture();
+    const subscriptions = Array.from({ length: IMPORT_APPLY_SUBSCRIPTION_LIMIT }, (_, index) => importSubscription({
+      name: `Imported ${index}`,
+      extra: { import: { source: "wallos", sourceId: `usr:bulk:${index}`, confidence: "high" } },
+    }));
+
+    const response = await applyImport(requestFor("/api/app/import/apply", importPayload(subscriptions)), env);
+
+    expect(response.status).toBe(200);
+    expect(db.batch).toHaveBeenCalledTimes(1);
+    const batch = db.batch.mock.calls[0]?.[0] as D1PreparedStatement[] | undefined;
+    expect(batch).toHaveLength(9);
   });
 
   it("defaults missing import autoRenew to manual renewal before binding D1 statements", async () => {
@@ -338,9 +409,8 @@ describe("Cloudflare import", () => {
     const response = await applyImport(requestFor("/api/app/import/apply", importPayload([subscription])), env);
 
     expect(response.status).toBe(200);
-    expect(db.batch).toHaveBeenCalledTimes(2);
-    const insert = statements.find((statement) => statement.sql.includes("INSERT INTO subscriptions"));
-    expect(insert?.values[18]).toBe(0);
+    expect(db.batch).toHaveBeenCalledTimes(1);
+    expect(insertedSubscriptionRow(statements)[18]).toBe(0);
   });
 
   it("skips existing import keys unless replace is selected", async () => {

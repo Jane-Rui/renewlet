@@ -158,7 +158,8 @@ export async function readPublicApiSubscriptionsForUser(
   }
   const rows = await listSubscriptionsPage(env, userId, { limit: options.limit + 1, cursor: options.cursor });
   const pageRows = rows.slice(0, options.limit);
-  const nextCursor = rows.length > options.limit ? subscriptionCursor(pageRows[pageRows.length - 1]!) : null;
+  const lastPageRow = pageRows.at(-1);
+  const nextCursor = rows.length > options.limit && lastPageRow ? subscriptionCursor(lastPageRow) : null;
   return publicApiSubscriptionsListPayloadSchema.parse({
     subscriptions: pageRows.map(toApiSubscription),
     nextCursor,

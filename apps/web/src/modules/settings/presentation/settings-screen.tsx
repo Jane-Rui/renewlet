@@ -44,6 +44,7 @@ import { NotificationHistoryPanel } from './notification-history-panel';
 import { Settings2, FolderKanban, Activity, CreditCard, Coins, Palette } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MAX_REMINDER_DAYS, type NotificationChannel, type PublicStatusCurrency, type SubscriptionPriceReferenceCurrency } from '@/types/subscription';
+import { CLOUD_BACKUP_MAX_SNAPSHOT_BYTES } from '@/lib/api/schemas/cloud-backup';
 import { isBuiltInPaymentMethodValue } from '@/types/config';
 import { assertLocalTime } from '@/lib/time/local-time';
 import { getSupportedTimeZones } from '@/lib/time/time-zone';
@@ -87,6 +88,8 @@ export function SettingsScreen() {
   const { t, locale, setLocale, formatDateTime } = useI18n();
   const {
     settings,
+    secretStatus,
+    clearSecret,
     effectiveThemeMode,
     accountEmail,
     canManageUsers,
@@ -365,6 +368,8 @@ export function SettingsScreen() {
                 className={SETTINGS_SECTION_SCROLL_CLASS}
                 settings={settings.aiRecognition}
                 onChange={(aiRecognition) => updateSetting('aiRecognition', aiRecognition)}
+                apiKeyConfigured={secretStatus?.["aiRecognition.apiKey"]?.configured ?? false}
+                onClearApiKey={() => clearSecret?.("aiRecognition.apiKey")}
                 disabled={externalIntegrationsDisabled}
               />
 
@@ -637,6 +642,8 @@ export function SettingsScreen() {
                       onTest={handleTestConnection}
                       disabled={externalIntegrationsDisabled}
                       telegramBotCommands={telegramBotCommands}
+                      secretStatus={secretStatus}
+                      onClearSecret={clearSecret}
                     />
                   </div>
 
@@ -742,6 +749,7 @@ export function SettingsScreen() {
         settings={settings}
         config={customConfig}
         initialFile={cloudBackupRestoreFile}
+        initialFileMaxBytes={CLOUD_BACKUP_MAX_SNAPSHOT_BYTES}
         onInitialFileConsumed={() => setCloudBackupRestoreFile(null)}
       />
 

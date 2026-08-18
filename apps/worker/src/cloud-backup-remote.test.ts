@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getPatcher } from "webdav/web";
 import { CloudBackupRemoteError, S3CloudBackupClient, WebDAVCloudBackupClient, sha256Hex } from "./cloud-backup-remote";
 
 // Worker 远端测试锁定 S3 签名输入和 raw response 契约，避免靠供应商域名表逐个打补丁。
@@ -195,7 +194,7 @@ describe("S3CloudBackupClient endpoint addressing", () => {
 });
 
 function patchWebDAVFetch(handler: (request: Request) => Promise<Response> | Response): void {
-  getPatcher().patch("fetch", async (...args: unknown[]) => await handler(new Request(args[0] as RequestInfo | URL, args[1] as RequestInit | undefined)));
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => await handler(new Request(input, init))));
 }
 
 function webDAVClient(): WebDAVCloudBackupClient {
@@ -243,13 +242,12 @@ function installFakeWebDAVServer(): string[] {
   return calls;
 }
 
-describe("WebDAVCloudBackupClient SDK adapter", () => {
+describe("WebDAVCloudBackupClient protocol adapter", () => {
   afterEach(() => {
-    getPatcher().patch("fetch", async (...args: unknown[]) => await globalThis.fetch(args[0] as RequestInfo | URL, args[1] as RequestInit | undefined));
     vi.unstubAllGlobals();
   });
 
-  it("runs probe, upload, list, download and delete through the WebDAV SDK", async () => {
+  it("runs probe, upload, list, download and delete through Worker fetch", async () => {
     const calls = installFakeWebDAVServer();
     const client = webDAVClient();
     const content = new TextEncoder().encode("renewlet");
@@ -321,7 +319,46 @@ describe("WebDAVCloudBackupClient SDK adapter", () => {
       throw new TypeError("Network connection lost.");
     });
 
-    await expect(webDAVClient().list()).rejects.toThrow("attempted host: https://dav.example.com");
+    let localError: CloudBackupRemoteError | null = null;
+    try {
+      await webDAVClient().list();
+    } catch (caught) {
+      if (caught instanceof CloudBackupRemoteError) localError = caught;
+      else throw caught;
+    }
+    expect(localError).toMatchObject({
+      code: "CLOUD_BACKUP_WEBDAV_MKCOL_FAILED",
+      details: {
+        rawResponseText: expect.stringContaining("WebDAV PROPFIND request to https://dav.example.com/remote.php/dav/files/alice/renewlet"),
+      },
+    } satisfies Partial<CloudBackupRemoteError>);
+    expect(JSON.stringify(localError?.details)).not.toContain("webdav-secret");
+  });
+
+  it("switches from Basic to Digest after an explicit WebDAV challenge", async () => {
+    const authorizations: string[] = [];
+    patchWebDAVFetch((request) => {
+      const authorization = request.headers.get("authorization") ?? "";
+      authorizations.push(authorization);
+      if (authorization.startsWith("Basic ")) {
+        return new Response("", {
+          status: 401,
+          headers: {
+            "www-authenticate": 'Digest realm="renewlet", nonce="nonce-value", algorithm=MD5, qop="auth"',
+          },
+        });
+      }
+      return new Response(webDAVMultiStatus("/remote.php/dav/files/alice/renewlet/", new Map()), {
+        status: 207,
+        headers: { "content-type": "application/xml" },
+      });
+    });
+
+    await expect(webDAVClient().list()).resolves.toEqual([]);
+
+    expect(authorizations[0]).toMatch(/^Basic /);
+    expect(authorizations.slice(1).every((value) => value.startsWith("Digest "))).toBe(true);
+    expect(authorizations.join(" ")).not.toContain("webdav-secret");
   });
 });
 

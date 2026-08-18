@@ -406,7 +406,7 @@ msgstr "Wallos Logo 是外链，已按原地址保留。"
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/subscription.ts:457
 msgid "import.error.wallosTableTooLarge"
-msgstr "Wallos SQLite 单表超过 5000 行，请先拆分备份后再导入。"
+msgstr "Wallos SQLite 单表超过 1000 行，请先拆分备份后再导入。"
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/subscription.ts:446
@@ -1241,7 +1241,7 @@ msgstr "导入文件解析失败"
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/subscription.ts:362
 msgid "import.fileTooLarge"
-msgstr "导入文件超过 50 MB，请拆分后再试。"
+msgstr "导入文件超过 8 MB 或 1000 条订阅，请拆分后再试。"
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/subscription.ts:463

@@ -19,7 +19,13 @@ const requiredEnv = [
   "WORKER_NAME",
   "D1_DATABASE_ID",
   "R2_BUCKET_NAME",
+  "CLOUDFLARE_OBSERVABILITY_PROFILE",
 ];
+
+const observabilityProfiles = {
+  development: { logs: 1, traces: 1 },
+  production: { logs: 0.1, traces: 0.05 },
+};
 
 function requireEnv(name) {
   const value = process.env[name]?.trim();
@@ -90,6 +96,17 @@ for (const name of requiredEnv) requireEnv(name);
 
 const config = JSON.parse(stripJsoncComments(readFileSync(templatePath, "utf8")));
 config.name = requireEnv("WORKER_NAME");
+const observabilityProfile = requireEnv("CLOUDFLARE_OBSERVABILITY_PROFILE");
+const sampling = observabilityProfiles[observabilityProfile];
+if (!sampling) {
+  throw new Error("CLOUDFLARE_OBSERVABILITY_PROFILE must be development or production");
+}
+// profile 必须由部署工作流显式选择，避免 fork 或开发部署意外继承生产采样，也避免稳定发布保留 100% trace。
+config.observability = {
+  enabled: true,
+  logs: { enabled: true, head_sampling_rate: sampling.logs },
+  traces: { enabled: true, head_sampling_rate: sampling.traces },
+};
 
 // CI 只替换租户资源标识；路由、binding 名和兼容日期仍以仓库模板为事实源。
 const d1 = findBinding(config, "d1_databases", "DB");
@@ -106,4 +123,4 @@ config.vars = {
 };
 
 writeFileSync(outputPath, `${JSON.stringify(config, null, 2)}\n`);
-console.log(`Generated Cloudflare Wrangler config: ${outputPath}`);
+console.log(`Generated Cloudflare Wrangler config: ${outputPath} (${observabilityProfile})`);

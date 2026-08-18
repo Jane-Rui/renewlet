@@ -321,11 +321,11 @@ describe("AI model list schema", () => {
     expect(aiModelListRequestSchema.parse({
       providerType: "gemini",
       baseUrl: "",
-      apiKey: "AIza-test-key",
+      apiKey: { action: "set", value: "AIza-test-key" },
     })).toEqual({
       providerType: "gemini",
       baseUrl: "",
-      apiKey: "AIza-test-key",
+      apiKey: { action: "set", value: "AIza-test-key" },
     });
 
     expect(aiModelListResponseSchema.safeParse(success({
@@ -353,7 +353,7 @@ describe("AI model list schema", () => {
     expect(aiModelListRequestSchema.safeParse({
       providerType: "openai",
       baseUrl: "",
-      apiKey: "sk-test",
+      apiKey: { action: "keep" },
       model: "gpt-5.1",
     }).success).toBe(false);
 

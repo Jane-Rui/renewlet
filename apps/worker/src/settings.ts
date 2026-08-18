@@ -1,26 +1,34 @@
 import { customConfigPayloadSchema } from "@renewlet/shared/schemas/custom-config";
-import { settingsPayloadSchema, settingsUpdateBodySchema } from "@renewlet/shared/schemas/settings";
+import {
+  appSettingsSecretStatus,
+  applySettingsSecretUpdates,
+  settingsPayloadSchema,
+  settingsUpdateBodySchema,
+  toPublicAppSettings,
+  type ApiAppSettings,
+} from "@renewlet/shared/schemas/settings";
 import { mergeAppSettingsPatch } from "@renewlet/shared/settings-normalization";
-import { ensureSettings, getCustomConfig, getTelegramBotBinding, putCustomConfig, putSettings } from "./db";
+import { ensureSettings, getCustomConfig, getTelegramBotBinding, putCustomConfig, settingsUpsertStatement } from "./db";
 import { HttpError, readJson, requestLocale, successJson } from "./http";
 import { requireAuth } from "./auth";
 import { serverText } from "./server-i18n";
-import { refreshSubscriptionSchedulerState } from "./subscription-scheduler-state";
-import { refreshCostSharingCollectionReminderMirrors } from "./subscriptions";
+import { buildSubscriptionSchedulerRefreshStatements } from "./subscription-scheduler-state";
+import { buildCostSharingCollectionReminderMirrorStatements } from "./subscriptions";
 import type { Env } from "./types";
 
 /**
- * readSettings 返回当前用户的完整应用设置。
+ * readSettings 返回当前用户的公共设置与 secret configured 状态。
  *
- * Cloudflare 运行面按用户隔离 D1 setting 行；前端收到的是已合并默认值后的完整契约，不需要知道存储层是否缺省。
+ * Cloudflare 运行面按用户隔离 D1 setting 行；持久化 secret 只参与服务端合并，不能进入浏览器响应。
  */
 export async function readSettings(request: Request, env: Env): Promise<Response> {
   const auth = await requireAuth(request, env);
-  return successJson(settingsPayloadSchema.parse({ settings: await ensureSettings(env, auth.user.id, requestLocale(request)) }));
+  const settings = await ensureSettings(env, auth.user.id, requestLocale(request));
+  return successJson(settingsResponse(settings));
 }
 
 /**
- * updateSettings 执行设置 PATCH 并返回规范化后的完整设置。
+ * updateSettings 执行公共字段 PATCH 与 write-only secret mutation，并返回公共读取模型。
  *
  * Worker 必须复用 shared schema 作为事实来源，保证 Cloudflare/D1 与 Go/PocketBase 在字段默认值和内置图标来源上不漂移。
  */
@@ -29,13 +37,41 @@ export async function updateSettings(request: Request, env: Env): Promise<Respon
   const auth = await requireAuth(request, env);
   const patch = await readJson(request, settingsUpdateBodySchema, locale);
   const current = await ensureSettings(env, auth.user.id, locale);
-  // PATCH 语义由“当前设置 + 局部字段”合成，最终仍过完整 schema，防止删除隐式默认项。
-  const next = mergeAppSettingsPatch(current, patch);
+  const { secretUpdates, ...publicPatch } = patch;
+  // HTTP patch 不含 secret 字段；先合并公开配置，再在内存应用判别联合，最终统一过完整持久化 schema。
+  const withPublicPatch = mergeAppSettingsPatch(current, publicPatch);
+  const next = applySettingsSecretUpdates(withPublicPatch, secretUpdates);
   await rejectInstalledTelegramBotSettingsChange(env, auth.user.id, current, next, locale);
-  const settings = await putSettings(env, auth.user.id, next);
-  await refreshCostSharingCollectionReminderMirrors(env, auth.user.id, settings);
-  await refreshSubscriptionSchedulerState(env, auth.user.id, { resetAutoRenewCheck: false });
-  return successJson(settingsPayloadSchema.parse({ settings }));
+  const statements = [settingsUpsertStatement(env, auth.user.id, next)];
+  if (costSharingScheduleSettingsChanged(current, next)) {
+    statements.push(...await buildCostSharingCollectionReminderMirrorStatements(env, auth.user.id, next));
+  }
+  if (subscriptionScheduleSettingsChanged(current, next)) {
+    statements.push(...await buildSubscriptionSchedulerRefreshStatements(env, auth.user.id, {
+      resetAutoRenewCheck: false,
+      settings: next,
+    }));
+  }
+  // settings、受全局规则影响的镜像和 scheduler schedule 必须同批提交，失败时浏览器仍看到旧配置。
+  await env.DB.batch(statements);
+  return successJson(settingsResponse(next));
+}
+
+function subscriptionScheduleSettingsChanged(before: ApiAppSettings, after: ApiAppSettings): boolean {
+  return before.notificationTimeLocal !== after.notificationTimeLocal
+    || costSharingScheduleSettingsChanged(before, after);
+}
+
+function costSharingScheduleSettingsChanged(before: ApiAppSettings, after: ApiAppSettings): boolean {
+  return before.timezone !== after.timezone
+    || before.notificationReminderDays !== after.notificationReminderDays;
+}
+
+function settingsResponse(settings: ApiAppSettings) {
+  return settingsPayloadSchema.parse({
+    settings: toPublicAppSettings(settings),
+    secretStatus: appSettingsSecretStatus(settings),
+  });
 }
 
 /**

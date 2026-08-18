@@ -342,7 +342,7 @@ function ResolvedAddToCalendarDialog({ open, onOpenChange, subscription }: Resol
           <DialogHeader className="border-b border-border px-5 py-4 pr-12 text-left">
             <DialogTitle className="flex items-center gap-2 text-base leading-6">
               <CalendarPlus className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-              <span className="min-w-0 break-words">{title}</span>
+              <span className="min-w-0 wrap-break-word">{title}</span>
             </DialogTitle>
             <DialogDescription className="text-left leading-5">{description}</DialogDescription>
           </DialogHeader>

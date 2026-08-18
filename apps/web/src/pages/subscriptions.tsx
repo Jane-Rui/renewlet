@@ -44,7 +44,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useInfiniteSubscriptions, useSubscriptions } from '@/hooks/use-subscriptions';
 import { useCustomConfig } from '@/contexts/CustomConfigContext';
-import { useSettings } from '@/hooks/use-settings';
+import { useSettingsEnvelope } from '@/hooks/use-settings';
 import { useSubscriptionCrud } from '@/modules/subscriptions/application/use-subscription-crud';
 import { useSubscriptionExport } from '@/modules/subscriptions/application/use-subscription-export';
 import { useSubscriptionFilters } from '@/modules/subscriptions/application/use-subscription-filters';
@@ -197,15 +197,15 @@ function SubscriptionGrid({
 }
 
 /** 订阅列表页组件。 */
-  const Subscriptions = () => {
+const Subscriptions = () => {
   const subscriptionsQuery = useInfiniteSubscriptions();
   const subscriptions = subscriptionsQuery.subscriptions ?? EMPTY_SUBSCRIPTIONS;
   const { fetchNextPage } = subscriptionsQuery;
-  const settingsQuery = useSettings();
-  const timeZone = settingsQuery.data?.timezone ?? "UTC";
-  const defaultCurrency = settingsQuery.data?.defaultCurrency ?? "CNY";
-  const exchangeRateProvider = settingsQuery.data?.exchangeRateProvider;
-  const inheritedReminderDays = settingsQuery.data?.notificationReminderDays ?? DEFAULT_NOTIFICATION_REMINDER_DAYS;
+  const settingsQuery = useSettingsEnvelope();
+  const timeZone = settingsQuery.data?.settings.timezone ?? "UTC";
+  const defaultCurrency = settingsQuery.data?.settings.defaultCurrency ?? "CNY";
+  const exchangeRateProvider = settingsQuery.data?.settings.exchangeRateProvider;
+  const inheritedReminderDays = settingsQuery.data?.settings.notificationReminderDays ?? DEFAULT_NOTIFICATION_REMINDER_DAYS;
   const { config } = useCustomConfig();
   const categoryByValue = useMemo(() => new Map(config.categories.map((category) => [category.value, category])), [config.categories]);
   const paymentMethodByValue = useMemo(() => new Map(config.paymentMethods.map((method) => [method.value, method])), [config.paymentMethods]);
@@ -298,7 +298,7 @@ function SubscriptionGrid({
     handleCloneDialogOpenChange,
     handleRenewDialogOpenChange,
   } = useSubscriptionCrud(displaySourceSubscriptions);
-  const settings = settingsQuery.data ?? DEFAULT_SETTINGS;
+  const settings = settingsQuery.data?.settings ?? DEFAULT_SETTINGS;
   const priceReferenceCurrency = resolveSubscriptionPriceReferenceCurrency(settings);
   const { exportToJSON, exportToJSONWithSecrets, exportToCSV } =
     useSubscriptionExport(filteredSubscriptions, displaySourceSubscriptions, config, settings, locale, timeZone, convert);
@@ -309,12 +309,12 @@ function SubscriptionGrid({
     handleViewDetails,
     handleDetailDialogOpenChange,
   } = useSubscriptionDetailDialog(displaySourceSubscriptions);
-  const statusFilterLabel =
-    statusFilter === "all"
-      ? t("subscriptions.allStatuses")
-      : config.statuses.find((status) => status.value === statusFilter)?.labels
-        ? label(config.statuses.find((status) => status.value === statusFilter)!.labels)
-        : statusFilter;
+  const selectedStatus = config.statuses.find((status) => status.value === statusFilter);
+  const statusFilterLabel = statusFilter === "all"
+    ? t("subscriptions.allStatuses")
+    : selectedStatus
+      ? label(selectedStatus.labels)
+      : statusFilter;
   const renewalFilterLabel = t(RENEWAL_FILTER_LABEL_KEYS[renewalFilter]);
   const sortOptionLabel = t(SORT_OPTION_LABEL_KEYS[sortOption]);
   const removeSelectedTag = useCallback((tag: string) => {
@@ -751,6 +751,7 @@ function SubscriptionGrid({
           open={aiRecognitionDialogOpen}
           onOpenChange={setAIRecognitionDialogOpen}
           settings={settings}
+          apiKeyConfigured={settingsQuery.data?.secretStatus["aiRecognition.apiKey"].configured ?? false}
           config={config}
           availableTags={allTags}
         />

@@ -35,9 +35,6 @@ function envFixture(row: SubscriptionRow | null) {
         const statement = {
           bind: (...params: unknown[]) => ({
           first: vi.fn(async () => {
-            if (sql.includes("COUNT(*) AS count") && sql.includes("MAX(updated_at)")) {
-              return { count: row ? 1 : 0, source_updated_at: row?.updated_at ?? "" };
-            }
             if (sql.includes("FROM subscriptions") && sql.includes("WHERE user_id = ? AND id = ?")) {
               subscriptionLookupParams = params;
               return row;

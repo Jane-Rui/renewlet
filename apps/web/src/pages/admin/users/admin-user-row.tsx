@@ -61,7 +61,7 @@ export function AdminUserRow({
     <div className="border-b border-border px-4 py-5 last:border-b-0 sm:px-5 lg:grid lg:grid-cols-[minmax(0,1fr)_120px_108px_132px_132px_430px] lg:items-center lg:gap-4 lg:py-4">
       <div className="min-w-0">
         <div className="truncate font-medium text-foreground">{user.name}</div>
-        <div className="break-words text-sm text-muted-foreground">{user.email}</div>
+        <div className="wrap-break-word text-sm text-muted-foreground">{user.email}</div>
         {protectionMessage ? (
           <p id={protectedMessageId} className="mt-1 text-xs text-muted-foreground">
             {protectionMessage}

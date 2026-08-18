@@ -20,8 +20,14 @@ concurrency:
 
 jobs:
   quality:
+    name: Quality (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      # Docker 与发布继续固定 Node 24 LTS；Node 26 lane 只验证贡献者环境兼容性，不扩大到 EOL 奇数版或未来主版本。
+      matrix:
+        node-version: ["24.19.0", "26.5.0"]
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
@@ -29,7 +35,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v7.0.0
         with:
-          node-version: 24.19.0
+          node-version: ${{ matrix.node-version }}
 
       - name: Set up Go
         uses: actions/setup-go@v7.0.0
@@ -52,20 +58,28 @@ jobs:
       - name: Check Public API docs
         run: pnpm check:public-api-docs
 
-      - name: Lint client
-        run: pnpm --filter @renewlet/client lint
+      - name: Lint frontends
+        run: pnpm lint
 
       - name: Check i18n catalogs
         run: pnpm --filter @renewlet/client i18n:check
 
       - name: Typecheck
-        run: pnpm typecheck
+        run: pnpm typecheck:all
 
-      - name: Test client
-        run: pnpm --filter @renewlet/client test:run
+      - name: Build all workspaces
+        # 客户端 build 同时执行 manifest gzip/brotli 预算；其余 workspace 与 Go module 也必须实际产出。
+        run: pnpm build:all
 
-      - name: Test server
-        run: pnpm --dir apps/docker-server test
+      - name: Check product route parity
+        run: pnpm check:route-parity
+
+      - name: Test unit suites
+        run: pnpm test:unit
+
+      - name: Check performance operation budgets
+        # 操作数是稳定硬门；耗时、RSS 和分配量只由各测试输出趋势，不设共享 runner 阈值。
+        run: pnpm test:perf
 
       - name: Check Cloudflare build path
         # 只做类型和构建前检查，避免普通分支 CI 触发 D1 migration 或 Worker 部署副作用。

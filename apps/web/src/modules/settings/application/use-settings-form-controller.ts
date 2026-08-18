@@ -19,10 +19,11 @@
  * ```
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { aiRecognitionSettingsSchema } from "@renewlet/shared/schemas/ai-recognition";
 import { clearThemeModeOverride, useTheme } from "@/lib/theme-provider";
 import { useCustomConfig } from "@/contexts/CustomConfigContext";
-import { useReportExchangeRates, type ReportExchangeRateBasisStatus } from "@/hooks/use-report-exchange-rates";
-import { useSettings, useUpdateSettings } from "@/hooks/use-settings";
+import { useReportExchangeRates } from "@/hooks/use-report-exchange-rates";
+import { useSettingsEnvelope, useUpdateSettings } from "@/hooks/use-settings";
 import { useSubscriptions } from "@/hooks/use-subscriptions";
 import { usePasswordResetAvailability } from "@/hooks/use-password-reset-availability";
 import { useSetupStatus } from "@/hooks/use-setup-status";
@@ -40,13 +41,8 @@ import {
   writeSettingsThemeModeToStorage,
   writeThemeVariantToStorage,
 } from "@/lib/theme-storage";
-import type {
-  ExchangeRateCoverageWarning,
-  ExchangeRateProvider,
-  ExchangeRates,
-} from "@/lib/api/schemas/exchange-rates";
-import type { CalendarFeedStatus } from "@/lib/api/schemas/calendar-feed";
-import { DEFAULT_SETTINGS, type AppSettings, type NotificationChannel, type Subscription } from "@/types/subscription";
+import type { ExchangeRateProvider } from "@/lib/api/schemas/exchange-rates";
+import { DEFAULT_SETTINGS, type AppSettings, type NotificationChannel } from "@/types/subscription";
 import { normalizePaymentMethods, type ConfigItem, type CustomConfig } from "@/types/config";
 import type { CustomThemeColor, ThemeMode, ThemeVariant } from "@/types/theme";
 import { parseMoneyInput } from "@/lib/subscription-form";
@@ -56,7 +52,7 @@ import { countSubscriptionsByCategory } from "../domain/category-usage";
 import { enforceCurrencyConfigPolicy } from "../domain/currency-config-policy";
 import { useAccountIdentity } from "./use-account-email";
 import { useNotificationTest } from "./use-notification-test";
-import { usePasswordChange, type PasswordChangeController } from "./use-password-change";
+import { usePasswordChange } from "./use-password-change";
 import {
   areJsonSnapshotsEqual,
   createDraftSettingsFromRemote,
@@ -64,121 +60,18 @@ import {
   EXTERNAL_INTEGRATION_SETTING_KEYS,
   getExchangeRateProviderSaveErrorMessage,
 } from "./settings-form-controller-utils";
-import {
-  usePublicStatusPageSettingsController,
-  type SettingsPublicStatusPageController,
-} from "./use-public-status-page-settings-controller";
-import {
-  usePublicApiSettingsController,
-  type SettingsPublicApiController,
-} from "./use-public-api-settings-controller";
-import {
-  useTelegramBotCommandsController,
-  type SettingsTelegramBotCommandsController,
-} from "./use-telegram-bot-commands-controller";
-import {
-  useSettingsBuiltInIconIndexController,
-  type SettingsBuiltInIconIndexController,
-} from "./use-built-in-icon-index-controller";
-import {
-  useAuthSecuritySettingsController,
-  type SettingsAuthSecurityController,
-} from "./use-auth-security-settings-controller";
-import {
-  useNotificationHistory,
-  type NotificationHistoryResponse,
-  type NotificationHistoryStatusFilter,
-} from "./use-notification-history";
+import { usePublicStatusPageSettingsController } from "./use-public-status-page-settings-controller";
+import { usePublicApiSettingsController } from "./use-public-api-settings-controller";
+import { useTelegramBotCommandsController } from "./use-telegram-bot-commands-controller";
+import { useSettingsBuiltInIconIndexController } from "./use-built-in-icon-index-controller";
+import { useAuthSecuritySettingsController } from "./use-auth-security-settings-controller";
+import { useNotificationHistory } from "./use-notification-history";
 import { useI18n } from "@/i18n/I18nProvider";
-
-type UpdateSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
-
-interface SettingsSubscriptionsQuery {
-  data: Subscription[] | undefined;
-  isPending: boolean;
-  status: "pending" | "error" | "success";
-}
-
-interface SettingsNotificationHistoryController {
-  data: NotificationHistoryResponse | undefined;
-  isLoading: boolean;
-  isFetching: boolean;
-  error: unknown;
-  historyStatus: NotificationHistoryStatusFilter;
-  setStatus: (status: NotificationHistoryStatusFilter) => void;
-  loadMore: () => void;
-  refetch: () => void | Promise<unknown>;
-}
-
-interface SettingsCalendarFeedController {
-  data: CalendarFeedStatus | undefined;
-  feedUrl: string | null;
-  isLoading: boolean;
-  isCreating: boolean;
-  isDeleting: boolean;
-  createOrRotate: () => Promise<void>;
-  copyUrl: (target?: ClipboardCopyTarget | null) => Promise<void>;
-  openSystem: () => Promise<void>;
-  regenerate: () => Promise<void>;
-  revoke: () => Promise<void>;
-}
-
-export interface SettingsFormController {
-  settings: AppSettings;
-  effectiveThemeMode: ThemeMode;
-  accountEmail: string | null;
-  canManageUsers: boolean;
-  canAccessPocketBaseAdmin: boolean;
-  customConfig: CustomConfig;
-  subscriptionsQuery: SettingsSubscriptionsQuery;
-  categoryUsageCount: Map<string, number>;
-  rates: ExchangeRates;
-  activeRateProvider: ExchangeRateProvider | "builtin";
-  ratesLoading: boolean;
-  lastUpdated: Date | null;
-  ratesError: string | null;
-  ratesErrorDetails: RawErrorResponseDetails | null;
-  ratesWarning: ExchangeRateCoverageWarning | null;
-  reportBasisStatus: ReportExchangeRateBasisStatus;
-  getCurrencySymbol: (currency: string) => string;
-  updateCategories: (items: ConfigItem[]) => void;
-  updateStatuses: (items: ConfigItem[]) => void;
-  updatePaymentMethods: (items: ConfigItem[]) => void;
-  updateCurrencies: (items: ConfigItem[]) => void;
-  updateSetting: UpdateSetting;
-  monthlyBudgetInput: string;
-  monthlyBudgetError: string | null;
-  handleMonthlyBudgetInputChange: (rawValue: string) => void;
-  toggleChannel: (channel: NotificationChannel) => void;
-  handleRefreshRates: () => Promise<void>;
-  handleUpdateCurrencies: (items: ConfigItem[]) => void;
-  hasUnsavedChanges: boolean;
-  handleSaveChanges: () => Promise<void>;
-  handleDiscardChanges: () => void;
-  isSavingSettings: boolean;
-  handleDefaultCurrencyChange: (value: string) => void;
-  handleExchangeRateProviderChange: (value: ExchangeRateProvider) => void;
-  handleThemeModeChange: (value: ThemeMode) => void;
-  handleThemeVariantChange: (value: ThemeVariant) => void;
-  handleThemeCustomColorChange: (value: CustomThemeColor) => void;
-  testingChannel: NotificationChannel | null;
-  handleTestConnection: (channel: NotificationChannel) => void | Promise<void>;
-  notificationTestErrorDetails: RawErrorResponseDetails | null;
-  notificationTestErrorDetailsOpen: boolean;
-  setNotificationTestErrorDetailsOpen: (open: boolean) => void;
-  notificationHistory: SettingsNotificationHistoryController;
-  calendarFeed: SettingsCalendarFeedController;
-  builtInIconIndex: SettingsBuiltInIconIndexController;
-  publicStatusPage: SettingsPublicStatusPageController;
-  publicApi: SettingsPublicApiController;
-  telegramBotCommands: SettingsTelegramBotCommandsController;
-  authSecurity: SettingsAuthSecurityController;
-  password: PasswordChangeController;
-  passwordResetEnabled: boolean;
-  externalIntegrationsDisabled: boolean;
-  sensitiveAccountActionsDisabled: boolean;
-  sensitiveAccountActionsDemoDisabled: boolean;
-}
+import { type SettingsSecretKey } from "@/lib/api/schemas/settings";
+import { EMPTY_SETTINGS_SECRET_STATUS } from "@/services/settings-service";
+import { useSettingsSecretDrafts } from "./use-settings-secret-drafts";
+import type { SettingsFormController } from "./settings-form-controller-types";
+export type { SettingsFormController } from "./settings-form-controller-types";
 
 /**
  * 集中协调 Settings 页的远端状态、本地编辑态和跨模块用例。
@@ -198,7 +91,9 @@ export function useSettingsFormController(): SettingsFormController {
   const accountIdentity = useAccountIdentity();
   const accountEmail = accountIdentity.email;
   const canManageUsers = accountIdentity.role === "admin" && !accountIdentity.banned;
-  const { data: remoteSettings } = useSettings();
+  const { data: remoteEnvelope } = useSettingsEnvelope();
+  const remoteSettings = remoteEnvelope?.settings;
+  const secretStatus = remoteEnvelope?.secretStatus ?? EMPTY_SETTINGS_SECRET_STATUS;
   const subscriptionsQuery = useSubscriptions();
   const updateSettings = useUpdateSettings();
   const { theme, setTheme } = useTheme();
@@ -224,7 +119,21 @@ export function useSettingsFormController(): SettingsFormController {
   const sensitiveAccountActionsDemoDisabled = appStatus.demoMode;
   const password = usePasswordChange();
   const passwordResetEnabled = usePasswordResetAvailability();
-  const notificationTest = useNotificationTest(settings);
+  const {
+    drafts: secretDrafts,
+    cleared: clearedSecrets,
+    settingsWithDrafts,
+    dirty: secretsDirty,
+    stageSetting: stageSecretSetting,
+    clear: clearSecretDraft,
+    updates: buildSecretUpdates,
+    reset: resetSecretDrafts,
+  } = useSettingsSecretDrafts(settings, externalIntegrationsDisabled);
+  const notificationTest = useNotificationTest(
+    settings,
+    secretDrafts,
+    clearedSecrets,
+  );
   const notificationHistory = useNotificationHistory();
   const calendarFeedStatus = useCalendarFeedStatus();
   const createCalendarFeed = useCreateCalendarFeed();
@@ -245,16 +154,18 @@ export function useSettingsFormController(): SettingsFormController {
   const publicStatusPage = usePublicStatusPageSettingsController(subscriptionsQuery.data);
   const publicApi = usePublicApiSettingsController();
   const telegramBotCommands = useTelegramBotCommandsController({
-    settings,
+    settings: settingsWithDrafts,
     savedSettings,
+    telegramTokenConfigured: secretStatus.telegramBotToken.configured,
     externalIntegrationsDisabled,
   });
   const { refetch: refetchTelegramBotCommands } = telegramBotCommands;
 
   const monthlyBudgetInputDirty = monthlyBudgetInput !== String(settings.monthlyBudget);
   const settingsDirty = useMemo(
-    () => !areJsonSnapshotsEqual(settings, savedSettings),
-    [settings, savedSettings],
+    () => !areJsonSnapshotsEqual(settings, savedSettings)
+      || secretsDirty,
+    [secretsDirty, settings, savedSettings],
   );
   const settingsInputDirty = settingsDirty || monthlyBudgetInputDirty;
   const customConfigDirty = useMemo(
@@ -324,8 +235,23 @@ export function useSettingsFormController(): SettingsFormController {
   const updateSetting = useCallback(<K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     // Demo 置灰只是体验层；controller 也阻止本地草稿改动外部集成字段，真正安全边界仍在后端 route/hook。
     if (externalIntegrationsDisabled && EXTERNAL_INTEGRATION_SETTING_KEYS.has(key)) return;
+    const secretResult = stageSecretSetting(key, value);
+    if (secretResult === "blocked") return;
+    if (secretResult === "staged" && key === "aiRecognition") {
+      const aiRecognition = aiRecognitionSettingsSchema.parse(value);
+      setSettings((prev) => ({
+        ...prev,
+        aiRecognition: { ...aiRecognition, apiKey: "" },
+      }));
+      return;
+    }
+    if (secretResult === "staged") return;
     setSettings((prev) => ({ ...prev, [key]: value }));
-  }, [externalIntegrationsDisabled]);
+  }, [externalIntegrationsDisabled, stageSecretSetting]);
+
+  const clearSecret = useCallback((key: SettingsSecretKey) => {
+    clearSecretDraft(key);
+  }, [clearSecretDraft]);
 
   const handleMonthlyBudgetInputChange = useCallback(
     (rawValue: string) => {
@@ -445,8 +371,9 @@ export function useSettingsFormController(): SettingsFormController {
       || !areJsonSnapshotsEqual(settings.themeCustomColor, savedSettings.themeCustomColor);
 
     try {
-      const settingsPromise: Promise<AppSettings | null> = shouldSaveSettings
-        ? updateSettings.mutateAsync(settings)
+      const secretUpdates = buildSecretUpdates();
+      const settingsPromise = shouldSaveSettings
+        ? updateSettings.mutateAsync({ patch: settings, secretUpdates })
         : Promise.resolve(null);
       const customConfigPromise: Promise<CustomConfig | null> = shouldSaveCustomConfig
         ? saveConfig(customConfig)
@@ -462,9 +389,10 @@ export function useSettingsFormController(): SettingsFormController {
       let firstError: unknown = null;
 
       if (settingsResult.status === "fulfilled" && settingsResult.value) {
-        const saved = settingsResult.value;
+        const saved = settingsResult.value.settings;
         setSavedSettings(saved);
         setSettings(saved);
+        resetSecretDrafts();
         setMonthlyBudgetInput(String(saved.monthlyBudget));
         setMonthlyBudgetError(null);
         syncSavedPreviewState(saved, { syncAppearance: appearanceChanged, rememberLocalePreference: localeChanged });
@@ -495,7 +423,7 @@ export function useSettingsFormController(): SettingsFormController {
 
       if (failedScopes.length === 0) {
         const committedSettings = settingsResult.status === "fulfilled" && settingsResult.value
-          ? settingsResult.value
+          ? settingsResult.value.settings
           : settings;
         setMonthlyBudgetInput(String(committedSettings.monthlyBudget));
         setMonthlyBudgetError(null);
@@ -534,6 +462,8 @@ export function useSettingsFormController(): SettingsFormController {
     savedSettings.themeMode,
     savedSettings.themeVariant,
     settings,
+    buildSecretUpdates,
+    resetSecretDrafts,
     settingsDirty,
     syncSavedPreviewState,
     t,
@@ -544,11 +474,12 @@ export function useSettingsFormController(): SettingsFormController {
 
   const handleDiscardChanges = useCallback(() => {
     setSettings(savedSettings);
+    resetSecretDrafts();
     setMonthlyBudgetInput(String(savedSettings.monthlyBudget));
     setCustomConfig(savedCustomConfig);
     setMonthlyBudgetError(null);
     syncSavedPreviewState(savedSettings, { syncAppearance: true });
-  }, [savedCustomConfig, savedSettings, syncSavedPreviewState]);
+  }, [resetSecretDrafts, savedCustomConfig, savedSettings, syncSavedPreviewState]);
 
   const handleDefaultCurrencyChange = useCallback(
     (value: string) => {
@@ -707,7 +638,9 @@ export function useSettingsFormController(): SettingsFormController {
   );
 
   return {
-    settings,
+    settings: settingsWithDrafts,
+    secretStatus,
+    clearSecret,
     effectiveThemeMode,
     accountEmail,
     canManageUsers,

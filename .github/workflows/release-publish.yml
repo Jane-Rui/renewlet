@@ -342,6 +342,10 @@ jobs:
       contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    concurrency:
+      # 不同 stable tag 也可能指向同一生产 D1；生产 migration 与 Worker 覆盖必须跨 tag 串行完成。
+      group: production-cloudflare-${{ github.repository }}
+      cancel-in-progress: false
     # GitHub Environment 是生产部署的人审闸门，保护远端 D1 migration 和 Worker 覆盖。
     environment:
       name: production-cloudflare
@@ -352,6 +356,7 @@ jobs:
       WORKER_NAME: ${{ secrets.WORKER_NAME }}
       D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
       R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+      CLOUDFLARE_OBSERVABILITY_PROFILE: production
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
@@ -393,6 +398,11 @@ jobs:
       - name: Build Cloudflare assets
         run: pnpm build:cloudflare
 
+      # 生产恢复点属于本次发布证据，必须在 migration/backfill 对 D1 产生写入前捕获。
+      - name: Capture D1 Time Travel checkpoint
+        id: d1-checkpoint
+        run: pnpm exec tsx scripts/cloudflare-d1-checkpoint.ts capture --config "$CI_WRANGLER_CONFIG"
+
       - name: Apply D1 migrations
         run: pnpm cloudflare:migrations:apply --config "$CI_WRANGLER_CONFIG"
 
@@ -401,6 +411,12 @@ jobs:
 
       - name: Deploy Worker
         run: pnpm exec wrangler deploy --config "$CI_WRANGLER_CONFIG"
+
+      - name: Report manual D1 recovery command
+        if: ${{ failure() && steps.d1-checkpoint.outputs.bookmark != '' }}
+        env:
+          D1_TIME_TRAVEL_BOOKMARK: ${{ steps.d1-checkpoint.outputs.bookmark }}
+        run: pnpm exec tsx scripts/cloudflare-d1-checkpoint.ts recovery-hint --config "$CI_WRANGLER_CONFIG"
 
   fork-notice:
     needs: metadata

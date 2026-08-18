@@ -37,21 +37,61 @@ const sessionResponse = {
   },
 };
 
+const authenticationOptions = {
+  challenge: "challenge-value",
+  timeout: 60_000,
+  rpId: "renewlet.example",
+  allowCredentials: [],
+  userVerification: "required" as const,
+  hints: [],
+};
+
+const registrationOptions = {
+  rp: { id: "renewlet.example", name: "Renewlet" },
+  user: { id: "dXNlci0x", name: "passkey@example.com", displayName: "Passkey User" },
+  challenge: "challenge-value",
+  pubKeyCredParams: [{ alg: -7, type: "public-key" as const }],
+  timeout: 60_000,
+  excludeCredentials: [],
+  authenticatorSelection: {
+    requireResidentKey: true,
+    residentKey: "required" as const,
+    userVerification: "required" as const,
+  },
+  hints: [],
+  attestation: "none" as const,
+  extensions: { credProps: true },
+};
+
+const authenticationResponse = {
+  id: "credential-id",
+  rawId: "credential-id",
+  response: {
+    clientDataJSON: "client-data",
+    authenticatorData: "authenticator-data",
+    signature: "signature",
+    userHandle: "user-handle",
+  },
+  type: "public-key" as const,
+  clientExtensionResults: {},
+};
+
+const registrationResponse = {
+  id: "new-credential-id",
+  rawId: "new-credential-id",
+  response: {
+    clientDataJSON: "client-data",
+    attestationObject: "attestation-object",
+  },
+  type: "public-key" as const,
+  clientExtensionResults: {},
+};
+
 describe("passkeyService", () => {
   beforeEach(() => {
     mocks.apiFetch.mockReset();
-    mocks.startAuthentication.mockReset().mockResolvedValue({
-      id: "credential-id",
-      response: { clientDataJSON: "client-data" },
-      type: "public-key",
-      clientExtensionResults: {},
-    });
-    mocks.startRegistration.mockReset().mockResolvedValue({
-      id: "new-credential-id",
-      response: { clientDataJSON: "client-data" },
-      type: "public-key",
-      clientExtensionResults: {},
-    });
+    mocks.startAuthentication.mockReset().mockResolvedValue(authenticationResponse);
+    mocks.startRegistration.mockReset().mockResolvedValue(registrationResponse);
     mocks.cancelCeremony.mockReset();
     mocks.writeProductSession.mockReset();
   });
@@ -67,7 +107,7 @@ describe("passkeyService", () => {
       .mockResolvedValueOnce({
         challengeId: "challenge-1",
         expiresAt: "2026-07-03T00:00:00.000Z",
-        options: { challenge: "challenge-value", rpId: "renewlet.example" },
+        options: authenticationOptions,
       })
       .mockResolvedValueOnce(sessionResponse);
 
@@ -95,7 +135,7 @@ describe("passkeyService", () => {
     mocks.apiFetch.mockResolvedValueOnce({
       challengeId: "challenge-1",
       expiresAt: "2026-07-03T00:00:00.000Z",
-      options: { challenge: "challenge-value", rpId: "renewlet.example" },
+      options: authenticationOptions,
     });
     const cause = Object.assign(new Error("The operation either timed out or was not allowed."), {
       name: "NotAllowedError",
@@ -116,7 +156,7 @@ describe("passkeyService", () => {
     mocks.apiFetch.mockResolvedValueOnce({
       challengeId: "challenge-1",
       expiresAt: "2026-07-03T00:00:00.000Z",
-      options: { challenge: "challenge-value", rpId: "renewlet.example" },
+      options: authenticationOptions,
     });
     mocks.startAuthentication.mockRejectedValueOnce(Object.assign(new Error("Manually cancelling existing WebAuthn API call"), {
       name: "WebAuthnError",
@@ -134,7 +174,7 @@ describe("passkeyService", () => {
       .mockResolvedValueOnce({
         challengeId: "register-challenge",
         expiresAt: "2026-07-03T00:00:00.000Z",
-        options: { challenge: "challenge-value", rp: { name: "Renewlet" } },
+        options: registrationOptions,
       })
       .mockResolvedValueOnce(sessionResponse);
 

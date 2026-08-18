@@ -122,7 +122,7 @@ beforeEach(() => {
   mocks.startPasskeyAuthentication.mockReset().mockResolvedValue({
     challengeId: "challenge-1",
     expiresAt: "2026-06-03T00:05:00.000Z",
-    options: { challenge: "challenge-value" },
+    options: passkeyAuthenticationOptions(),
   });
   mocks.verifyMfaLogin.mockReset().mockResolvedValue({
     response: {
@@ -188,17 +188,53 @@ describe("Cloudflare auth settings initialization", () => {
   });
 
   it("creates initial admin settings from the setup request locale", async () => {
-    const run = vi.fn().mockResolvedValue({});
+    const setup = setupEnvFixture([[1, 1, 1, 1]]);
 
     const response = await createInitialAdmin(jsonRequest("/api/app/setup", "POST", {
       name: "Admin",
       email: "admin@example.com",
       password: "password123",
-    }, { "x-renewlet-locale": "zh-CN" }), envFixture(run));
+    }, { "x-renewlet-locale": "zh-CN" }), setup.env);
 
     expect(response.status).toBe(201);
-    expect(run).toHaveBeenCalledTimes(2);
-    expect(mocks.ensureSettings).toHaveBeenCalledWith(expect.anything(), expect.stringMatching(/^usr_/), "zh-CN");
+    expect(setup.batches).toHaveLength(1);
+    const batch = setup.batches.at(0);
+    const boundBatch = setup.boundValues.at(0);
+    if (!batch || !boundBatch) throw new Error("expected the setup transaction batch");
+    const userInsert = batch.at(0);
+    const settingsBindings = boundBatch.at(1);
+    if (!userInsert || !settingsBindings) throw new Error("expected setup user and settings statements");
+    expect(batch).toHaveLength(4);
+    expect(userInsert).toContain("WHERE NOT EXISTS");
+    expect(batch.slice(1).every((sql) => /FROM users WHERE id = \?/.test(sql))).toBe(true);
+    expect(String(settingsBindings.at(1))).toContain('"locale":"zh-CN"');
+    expect(mocks.ensureSettings).not.toHaveBeenCalled();
+  });
+
+  it("allows only one concurrent setup request to initialize settings and scheduler", async () => {
+    const setup = setupEnvFixture([
+      [1, 1, 1, 1],
+      [0, 0, 0, 0],
+    ]);
+
+    const responses = await Promise.all([
+      createInitialAdmin(jsonRequest("/api/app/setup", "POST", {
+        name: "First",
+        email: "first@example.com",
+        password: "password123",
+      }), setup.env).catch((error: unknown) => toResponse(error)),
+      createInitialAdmin(jsonRequest("/api/app/setup", "POST", {
+        name: "Second",
+        email: "second@example.com",
+        password: "password123",
+      }), setup.env).catch((error: unknown) => toResponse(error)),
+    ]);
+
+    expect(responses.map((response) => response.status).sort()).toEqual([201, 403]);
+    expect(setup.batches).toHaveLength(2);
+    expect(setup.batches.every((batch) => batch.length === 4)).toBe(true);
+    expect(setup.batches.flatMap((batch) => batch.slice(1)).every((sql) => /FROM users WHERE id = \?/.test(sql))).toBe(true);
+    expect(mocks.ensureSettings).not.toHaveBeenCalled();
   });
 
   it("ensures settings before returning a login session", async () => {
@@ -346,7 +382,7 @@ describe("Cloudflare account security session renewal", () => {
     const registerResponse = await passkeyRegisterVerify(jsonRequest("/api/app/auth/passkeys/register/verify", "POST", {
       challengeId: "challenge-1",
       name: "MacBook Touch ID",
-      response: { id: "credential-id" },
+      response: passkeyRegistrationResponse(),
     }, authHeaders()), env);
     const deleteResponse = await passkeyDelete(jsonRequest("/api/app/auth/passkeys/pkey_1/delete", "POST", {
       currentPassword: "password123",
@@ -401,7 +437,7 @@ describe("Cloudflare passkey authenticate options boundary", () => {
     mocks.startPasskeyAuthentication.mockReset().mockResolvedValue({
       challengeId: "challenge-1",
       expiresAt: "2026-06-03T00:05:00.000Z",
-      options: { challenge: "challenge-value" },
+      options: passkeyAuthenticationOptions(),
     });
   });
 
@@ -415,7 +451,7 @@ describe("Cloudflare passkey authenticate options boundary", () => {
     await expect(readSuccessData(response)).resolves.toEqual({
       challengeId: "challenge-1",
       expiresAt: "2026-06-03T00:05:00.000Z",
-      options: { challenge: "challenge-value" },
+      options: passkeyAuthenticationOptions(),
     });
     expect(mocks.startPasskeyAuthentication).toHaveBeenCalledTimes(1);
   });
@@ -452,7 +488,7 @@ describe("Cloudflare account security infrastructure errors", () => {
 
     await expect(passkeyAuthenticateVerify(jsonRequest("/api/app/auth/passkeys/authenticate/verify", "POST", {
       challengeId: "challenge-1",
-      response: { id: "credential-1" },
+      response: passkeyAuthenticationResponse(),
     }), envFixture(vi.fn()))).rejects.toMatchObject({
       name: "AccountSecuritySchemaError",
       message: "D1_ERROR: permission denied",
@@ -572,8 +608,9 @@ function envFixture(updateRun: ReturnType<typeof vi.fn>, authSecurity?: AuthSecu
   return {
     DB: {
       batch: vi.fn(async (statements: Array<{ run?: () => Promise<unknown> }>) => {
-        await Promise.all(statements.map(async (statement) => await statement.run?.()));
-        return [];
+        const results = [];
+        for (const statement of statements) results.push(await statement.run?.());
+        return results;
       }),
       prepare: vi.fn((sql: string) => ({
         first: vi.fn().mockResolvedValue(sql.includes("SELECT id FROM users") ? null : undefined),
@@ -603,6 +640,32 @@ function envFixture(updateRun: ReturnType<typeof vi.fn>, authSecurity?: AuthSecu
     ASSETS: {} as Fetcher,
     ASSETS_BUCKET: {} as R2Bucket,
   };
+}
+
+function setupEnvFixture(batchChanges: number[][]): {
+  env: Env;
+  batches: string[][];
+  boundValues: unknown[][][];
+} {
+  const batches: string[][] = [];
+  const boundValues: unknown[][][] = [];
+  let batchIndex = 0;
+  const env = {
+    DB: {
+      prepare: vi.fn((sql: string) => ({
+        bind: vi.fn((...values: unknown[]) => ({ sql, values })),
+      })),
+      batch: vi.fn(async (statements: Array<{ sql: string; values: unknown[] }>) => {
+        const index = batchIndex++;
+        batches.push(statements.map((statement) => statement.sql));
+        boundValues.push(statements.map((statement) => statement.values));
+        return (batchChanges[index] ?? []).map((changes) => ({ meta: { changes } }));
+      }),
+    } as unknown as D1Database,
+    ASSETS: {} as Fetcher,
+    ASSETS_BUCKET: {} as R2Bucket,
+  };
+  return { env, batches, boundValues };
 }
 
 function authSecurityRow(overrides: Partial<AuthSecuritySettingsRow> = {}): AuthSecuritySettingsRow {
@@ -648,6 +711,45 @@ function renewedSession(token: string) {
     sessionToken: token,
     csrfToken: "csrf-token",
     expiresAt: "2026-07-03T00:00:00.000Z",
+  };
+}
+
+function passkeyAuthenticationOptions() {
+  return {
+    challenge: "challenge-value",
+    timeout: 60_000,
+    rpId: "renewlet.example",
+    allowCredentials: [],
+    userVerification: "required" as const,
+    hints: [],
+  };
+}
+
+function passkeyRegistrationResponse() {
+  return {
+    id: "credential-id",
+    rawId: "credential-id",
+    response: {
+      clientDataJSON: "client-data",
+      attestationObject: "attestation-object",
+    },
+    clientExtensionResults: {},
+    type: "public-key",
+  };
+}
+
+function passkeyAuthenticationResponse() {
+  return {
+    id: "credential-1",
+    rawId: "credential-1",
+    response: {
+      clientDataJSON: "client-data",
+      authenticatorData: "authenticator-data",
+      signature: "signature",
+      userHandle: "user-handle",
+    },
+    clientExtensionResults: {},
+    type: "public-key",
   };
 }
 

@@ -231,8 +231,11 @@ export interface SubscriptionListIndexRow {
 export interface SubscriptionUserStatsRow {
   user_id: string;
   total_count: number;
-  status_counts_json: string;
-  source_updated_at: string | null;
+  trial_count: number;
+  active_count: number;
+  expired_count: number;
+  paused_count: number;
+  cancelled_count: number;
   created_at: string;
   updated_at: string;
 }

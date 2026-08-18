@@ -12,8 +12,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # 同一仓库的 D1 migration/backfill/deploy 是一个不可中断序列；新 push 只能排队，不能取消正在写库的 run。
+  group: cloudflare-worker-${{ github.repository }}
+  cancel-in-progress: false
 
 env:
   CI_WRANGLER_CONFIG: wrangler.generated.jsonc
@@ -22,6 +23,7 @@ env:
   WORKER_NAME: ${{ secrets.WORKER_NAME }}
   D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
   R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+  CLOUDFLARE_OBSERVABILITY_PROFILE: development
   RENEWLET_COMMIT: ${{ github.sha }}
 
 jobs:
@@ -90,6 +92,12 @@ jobs:
         if: steps.deployment-secrets.outputs.ready == 'true'
         run: pnpm cloudflare:config:ci
 
+      # checkpoint 必须先于任何远端写入；后续失败只引用该证据，不自动执行破坏性恢复。
+      - name: Capture D1 Time Travel checkpoint
+        id: d1-checkpoint
+        if: steps.deployment-secrets.outputs.ready == 'true'
+        run: pnpm exec tsx scripts/cloudflare-d1-checkpoint.ts capture --config "$CI_WRANGLER_CONFIG"
+
       - name: Apply D1 migrations
         if: steps.deployment-secrets.outputs.ready == 'true'
         run: pnpm cloudflare:migrations:apply --config "$CI_WRANGLER_CONFIG"
@@ -101,3 +109,9 @@ jobs:
       - name: Deploy Worker
         if: steps.deployment-secrets.outputs.ready == 'true'
         run: pnpm exec wrangler deploy --config "$CI_WRANGLER_CONFIG"
+
+      - name: Report manual D1 recovery command
+        if: ${{ failure() && steps.deployment-secrets.outputs.ready == 'true' && steps.d1-checkpoint.outputs.bookmark != '' }}
+        env:
+          D1_TIME_TRAVEL_BOOKMARK: ${{ steps.d1-checkpoint.outputs.bookmark }}
+        run: pnpm exec tsx scripts/cloudflare-d1-checkpoint.ts recovery-hint --config "$CI_WRANGLER_CONFIG"

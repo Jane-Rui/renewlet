@@ -143,7 +143,7 @@ export const notificationHistoryJobResponseSchema = z.object({
   updatedAt: z.string(),
 }).strict();
 
-export const notificationHistoryPayloadSchema = z.object({
+export const notificationOverviewPayloadSchema = z.object({
   summary: z.object({
     nextCheck: localScheduleOccurrenceResponseSchema,
     nextContentBatch: upcomingNotificationBatchResponseSchema.nullable(),
@@ -154,13 +154,15 @@ export const notificationHistoryPayloadSchema = z.object({
     latestFailedJob: notificationHistoryJobResponseSchema.nullable(),
   }).strict(),
   upcoming: z.array(upcomingNotificationBatchResponseSchema),
-  history: z.object({
-    jobs: z.array(notificationHistoryJobResponseSchema),
-    status: notificationHistoryStatusSchema,
-    limit: z.number().int().nonnegative(),
-    offset: z.number().int().nonnegative(),
-    hasMore: z.boolean(),
-  }).strict(),
+}).strict();
+export const notificationOverviewResponseSchema = apiSuccessResponseSchema(notificationOverviewPayloadSchema);
+
+export const notificationHistoryPayloadSchema = z.object({
+  jobs: z.array(notificationHistoryJobResponseSchema),
+  status: notificationHistoryStatusSchema,
+  limit: z.number().int().nonnegative(),
+  offset: z.number().int().nonnegative(),
+  hasMore: z.boolean(),
 }).strict();
 export const notificationHistoryResponseSchema = apiSuccessResponseSchema(notificationHistoryPayloadSchema);
 
@@ -182,5 +184,6 @@ export const notificationRunResponseSchema = apiSuccessResponseSchema(notificati
 export type NotificationHistoryStatusFilter = z.infer<typeof notificationHistoryStatusSchema>;
 export type NotificationHistoryJob = z.infer<typeof notificationHistoryJobResponseSchema>;
 export type UpcomingNotificationBatch = z.infer<typeof upcomingNotificationBatchResponseSchema>;
+export type NotificationOverviewResponse = z.infer<typeof notificationOverviewPayloadSchema>;
 export type NotificationHistoryResponse = z.infer<typeof notificationHistoryPayloadSchema>;
 export type NotificationJobResult = z.infer<typeof notificationJobResultResponseSchema>;

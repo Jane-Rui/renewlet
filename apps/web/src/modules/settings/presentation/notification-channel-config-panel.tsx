@@ -33,6 +33,7 @@ import {
 import { ChoiceRadioGroup, CheckboxSettingRow, LoadingButtonContent, type UpdateSetting } from './settings-shared-controls';
 import { NotificationDingTalkConfigPanel, NotificationWebhookConfigPanel } from './notification-webhook-dingtalk-configs';
 import type { SettingsTelegramBotCommandsController } from '../application/use-telegram-bot-commands-controller';
+import type { SettingsSecretKey, SettingsSecretStatus } from '@/lib/api/schemas/settings';
 
 type Translate = (key: MessageKey, params?: Record<string, string | number>) => string;
 
@@ -57,6 +58,19 @@ const TELEGRAM_BOT_COMMAND_STATUS_LABEL_KEYS = {
 } as const satisfies Record<string, MessageKey>;
 
 const SMTP_PORT_MAX = 65_535;
+
+const CHANNEL_SECRET_KEYS: Record<NotificationChannel, SettingsSecretKey[]> = {
+  telegram: ["telegramBotToken"],
+  notifyx: ["notifyxApiKey"],
+  webhook: ["webhookUrl", "webhookHeaders"],
+  dingtalk: ["dingtalkWebhookUrl", "dingtalkSecret"],
+  wechat: ["wechatWebhookUrl"],
+  email: ["smtpPassword"],
+  bark: ["barkDeviceKey"],
+  serverchan: ["serverchanSendKey"],
+  discord: ["discordWebhookUrl"],
+  pushplus: ["pushplusToken"],
+};
 
 type NumericAllowedValues = {
   floatValue: number | undefined;
@@ -140,6 +154,8 @@ export function NotificationChannelConfigPanel({
   onTest,
   disabled = false,
   telegramBotCommands,
+  secretStatus,
+  onClearSecret,
 }: {
   channel: NotificationChannel;
   settings: AppSettings;
@@ -149,6 +165,8 @@ export function NotificationChannelConfigPanel({
   onTest: (channel: NotificationChannel) => void;
   disabled?: boolean;
   telegramBotCommands?: SettingsTelegramBotCommandsController;
+  secretStatus?: SettingsSecretStatus;
+  onClearSecret?: (key: SettingsSecretKey) => void;
 }) {
   const { t, label, formatDateTime } = useI18n();
   const [deleteCommandsOpen, setDeleteCommandsOpen] = useState(false);
@@ -166,6 +184,7 @@ export function NotificationChannelConfigPanel({
   const commandTime = (value: string | null | undefined) => value
     ? formatDateTime(value, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
     : t("settings.telegramBotCommandsNever");
+  const configuredSecrets = CHANNEL_SECRET_KEYS[channel].filter((key) => secretStatus?.[key]?.configured);
 
   return (
     <div className="rounded-lg border border-border bg-secondary/30 p-4">
@@ -188,6 +207,28 @@ export function NotificationChannelConfigPanel({
           </a>
         ) : null}
       </div>
+
+      {configuredSecrets.length > 0 ? (
+        <div className="mb-4 flex flex-wrap items-center gap-2" data-testid="configured-channel-secrets">
+          {configuredSecrets.map((key) => (
+            <div key={key} className="inline-flex items-center gap-1.5">
+              <Badge variant="secondary">{t("settings.turnstileSecretConfigured")}</Badge>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                disabled={disabled}
+                onClick={() => onClearSecret?.(key)}
+                title={t("settings.turnstileClearSecret")}
+                aria-label={`${t("settings.turnstileClearSecret")}: ${key}`}
+              >
+                <Trash2 aria-hidden="true" className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       {channel === 'telegram' ? (
         <>

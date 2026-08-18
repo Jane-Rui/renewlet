@@ -12,8 +12,7 @@
 import Link, { NavLink } from '@/components/router-link';
 import { useRouter } from '@/lib/router';
 import { LayoutDashboard, List, CalendarDays, BarChart3, Settings, Sun, Moon, LogOut } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 import type { ReactNode } from 'react';
 import type { SubscriptionDraft } from '@/types/subscription';
 import { Button } from '@/components/ui/button';
@@ -26,7 +25,7 @@ import { AddSubscriptionDialog } from '@/components/add-subscription-dialog';
 import { SystemUpdateDialog } from '@/components/system-update-dialog';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { MessageKey } from '@/i18n/messages';
-import { scheduleAuthenticatedRoutePreloads, useRoutePreloadPending } from '@/lib/route-resources';
+import { useRoutePreloadPending } from '@/lib/route-resources';
 import { cn } from '@/lib/utils';
 
 interface HeaderProps {
@@ -67,7 +66,6 @@ function renderNavIcon(icon: NavIconKey, className: string) {
 /** Header 组件：全局导航 + 主题切换 + 新增订阅入口。 */
 export function Header({ onAddSubscription, availableTags, subscriptionActions }: HeaderProps) {
   const router = useRouter();
-  const queryClient = useQueryClient();
   const { theme, setTheme } = useTheme();
   const { toast } = useToast();
   const { t } = useI18n();
@@ -75,11 +73,6 @@ export function Header({ onAddSubscription, availableTags, subscriptionActions }
   const [systemDialogOpen, setSystemDialogOpen] = useState(false);
   const isAuthenticated = Boolean(sessionData?.user);
   const isRoutePreloadPending = useRoutePreloadPending();
-
-  useEffect(() => {
-    if (!isAuthenticated) return undefined;
-    return scheduleAuthenticatedRoutePreloads(queryClient);
-  }, [isAuthenticated, queryClient]);
 
   /**
    * Header 是全局快捷开关，只写本机偏好；账户级外观草稿必须从 Settings 页外观控件产生。

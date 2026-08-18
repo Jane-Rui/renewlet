@@ -4,9 +4,10 @@ import {
   type SubscriptionRenewalInput,
   type SubscriptionRenewalResult,
 } from "@renewlet/shared/subscription-renewal";
+import type { ApiAppSettings } from "@renewlet/shared/schemas/settings";
 import { getSettings, nowIso, SUBSCRIPTION_COLUMNS } from "./db";
-import { refreshSubscriptionDerivedState } from "./subscription-derived-state";
-import { getSubscriptionSchedulerState, listAutoRenewDueUsers, markAutoRenewCheckedForLocalDate, refreshSubscriptionSchedulerState } from "./subscription-scheduler-state";
+import { subscriptionDerivedMutationPlan } from "./subscription-derived-state";
+import { getSubscriptionSchedulerState, listAutoRenewDueUsers, markAutoRenewCheckedForLocalDate } from "./subscription-scheduler-state";
 import { dateOnlyInZone } from "./time";
 import type { Env, SubscriptionRow, SubscriptionSchedulerStateRow } from "./types";
 export { dateOnlyInZone } from "./time";
@@ -48,23 +49,22 @@ export async function renewAutoSubscriptionsForUser(env: Env, userId: string, no
   const state = await getSubscriptionSchedulerState(env, userId);
   if (state.auto_renew_count <= 0) return 0;
   const settings = await getSettings(env, userId);
-  return renewAutoSubscriptionsForUserInTimezone(env, userId, settings.timezone, now, state);
+  return renewAutoSubscriptionsForUserWithSettings(env, userId, settings, now, state);
 }
 
-export async function renewAutoSubscriptionsForUserInTimezone(
+/** 已持有 settings 的通知路径复用完整配置，保证续订事实行和派生提醒计划在同一口径下提交。 */
+export async function renewAutoSubscriptionsForUserWithSettings(
   env: Env,
   userId: string,
-  timezone: string,
+  settings: ApiAppSettings,
   now = new Date(),
   cachedState?: SubscriptionSchedulerStateRow,
 ): Promise<number> {
   if (!userId) return 0;
-  const today = dateOnlyInZone(now, timezone);
+  const today = dateOnlyInZone(now, settings.timezone);
   const state = cachedState ?? await getSubscriptionSchedulerState(env, userId);
   if (state.auto_renew_count <= 0) return 0;
   if (state.last_auto_renew_local_date === today) {
-    // 被旧 due 选中的用户如果今天已检查，只推进 gate，不再触碰 subscriptions 候选查询。
-    await refreshSubscriptionSchedulerState(env, userId, { resetAutoRenewCheck: false, now });
     return 0;
   }
   let updated = 0;
@@ -80,16 +80,13 @@ export async function renewAutoSubscriptionsForUserInTimezone(
     for (const row of rows.results) {
       const result = advanceSubscriptionRenewal(row, today, "auto");
       if (!result) continue;
-      await persistRenewalResult(env, userId, row.id, result);
+      await persistRenewalResult(env, userId, row, result, settings, now);
       updated += 1;
       pageUpdated += 1;
     }
     // 本轮更新后继续从头查，保证一次 cron 能追上跨多期过期订阅，同时不会依赖被改写的游标。
     if (pageUpdated === 0 || rows.results.length < RENEWAL_MAINTENANCE_PAGE_SIZE) {
       await markAutoRenewCheckedForLocalDate(env, userId, today);
-      if (updated > 0) {
-        await refreshSubscriptionDerivedState(env, userId, { resetAutoRenewCheck: false, now });
-      }
       return updated;
     }
   }
@@ -108,11 +105,21 @@ function subscriptionRenewalInputFromRow(row: SubscriptionRow): SubscriptionRene
   };
 }
 
-async function persistRenewalResult(env: Env, userId: string, id: string, result: SubscriptionRenewalResult): Promise<void> {
+async function persistRenewalResult(
+  env: Env,
+  userId: string,
+  row: SubscriptionRow,
+  result: SubscriptionRenewalResult,
+  settings: Awaited<ReturnType<typeof getSettings>>,
+  now: Date,
+): Promise<void> {
   const timestamp = nowIso();
+  const after: SubscriptionRow = { ...row, next_billing_date: result.nextBillingDate, status: result.status, updated_at: timestamp };
   // 自动续订在通知内容生成前改写 next_billing_date；写入保持 owner 过滤，防止维护任务误碰其它用户行。
-  await env.DB.prepare(`
+  const factStatement = env.DB.prepare(`
     UPDATE subscriptions SET next_billing_date = ?, status = ?, updated_at = ?
     WHERE user_id = ? AND id = ?
-  `).bind(result.nextBillingDate, result.status, timestamp, userId, id).run();
+    `).bind(result.nextBillingDate, result.status, timestamp, userId, row.id);
+  const derived = subscriptionDerivedMutationPlan(env, { before: row, after, kind: "update" }, settings, now);
+  await env.DB.batch([...derived.beforeFact, factStatement, ...derived.afterFact]);
 }

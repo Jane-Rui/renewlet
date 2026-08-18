@@ -8,7 +8,7 @@ import {
   listSubscriptionsPage,
   parseSubscriptionCursor,
 } from "./db";
-import { ensureSubscriptionListStateFresh, getSubscriptionTotal } from "./subscription-derived-state";
+import { getSubscriptionTotal } from "./subscription-derived-state";
 import type { Env, SubscriptionListIndexRow, SubscriptionRow } from "./types";
 
 const subscriptionListScanPageSize = 500;
@@ -30,7 +30,6 @@ export async function listSubscriptionsForQuery(
       total: await getSubscriptionTotal(env, userId),
     };
   }
-  await ensureSubscriptionListStateFresh(env, userId);
   return await collectFilteredSubscriptions(env, userId, query, today);
 }
 
@@ -51,7 +50,8 @@ async function collectFilteredSubscriptions(env: Env, userId: string, query: Sub
       }
     }
     if (candidates.length < subscriptionListScanPageSize) break;
-    const last = candidates[candidates.length - 1]!;
+    const last = candidates.at(-1);
+    if (!last) break;
     scanCursor = { createdAt: last.created_at, id: last.subscription_id };
   }
   return { rows: await getSubscriptionsByIds(env, userId, pageIds), total };

@@ -99,9 +99,6 @@ func renewAutoSubscriptionsForUser(app core.App, userID string, timezone string,
 	}
 	today := todayDateOnly(now, timezone)
 	if state.LastAutoRenewLocalDate == today {
-		if _, err := refreshSubscriptionSchedulerStateWithOptions(app, userID, subscriptionSchedulerRefreshOptions{Now: now}); err != nil {
-			return 0, err
-		}
 		return 0, nil
 	}
 	updated := 0
@@ -138,11 +135,6 @@ func renewAutoSubscriptionsForUser(app core.App, userID string, timezone string,
 		if pageUpdated == 0 || len(rows) < subscriptionRenewalMaintenancePageSize {
 			if err := markSubscriptionAutoRenewChecked(app, userID, today); err != nil {
 				return updated, err
-			}
-			if updated > 0 {
-				if err := refreshSubscriptionListState(app, userID); err != nil {
-					return updated, err
-				}
 			}
 			return updated, nil
 		}

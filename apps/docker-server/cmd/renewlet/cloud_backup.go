@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -433,25 +434,52 @@ func createCloudBackupSnapshotForTargets(ctx context.Context, app core.App, user
 		return nil, err
 	}
 	snapshots := make([]cloudBackupSnapshotDTO, 0, len(targets))
-	for _, target := range targets {
-		snapshot, err := uploadCloudBackupSnapshotToTarget(ctx, app, user.Id, payload, target)
-		if err != nil {
-			return nil, err
+	err = withCloudBackupSnapshotPayload(user.Id, payload, func(payload cloudBackupSnapshotPayload) error {
+		for _, target := range targets {
+			snapshot, err := uploadCloudBackupSnapshotToTarget(ctx, app, user.Id, payload, target)
+			if err != nil {
+				return err
+			}
+			snapshots = append(snapshots, snapshot)
 		}
-		snapshots = append(snapshots, snapshot)
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return snapshots, nil
 }
 
+func withCloudBackupSnapshotPayload(userID string, payload cloudBackupSnapshotPayload, use func(cloudBackupSnapshotPayload) error) error {
+	// 临时 ZIP 只在一个用户的一轮上传中存活，避免 cron 扫描多个用户时把快照累积到整轮结束。
+	defer func() {
+		if cleanupErr := payload.Source.Cleanup(); cleanupErr != nil {
+			slog.Warn("cloud backup temporary snapshot cleanup failed", "user", userID, "error", cleanupErr)
+		}
+	}()
+	return use(payload)
+}
+
 func buildCloudBackupSnapshotPayload(app core.App, user *core.Record) (cloudBackupSnapshotPayload, error) {
-	content, exportedAt, err := buildCloudBackupExportZip(app, user)
+	source, exportedAt, err := buildCloudBackupExportZip(app, user)
 	if err != nil {
 		return cloudBackupSnapshotPayload{}, err
 	}
-	if int64(len(content)) > cloudBackupSnapshotMaxBytes {
-		return cloudBackupSnapshotPayload{}, errors.New("CLOUD_BACKUP_SNAPSHOT_TOO_LARGE")
+	reader, err := source.Open()
+	if err != nil {
+		_ = source.Cleanup()
+		return cloudBackupSnapshotPayload{}, err
 	}
-	hash := sha256.Sum256(content)
+	hash := sha256.New()
+	_, copyErr := io.Copy(hash, reader)
+	closeErr := reader.Close()
+	if copyErr != nil || closeErr != nil {
+		_ = source.Cleanup()
+		if copyErr != nil {
+			return cloudBackupSnapshotPayload{}, copyErr
+		}
+		return cloudBackupSnapshotPayload{}, closeErr
+	}
 	id := cloudBackupSnapshotID(exportedAt)
 	filename := id + ".zip"
 	manifest := cloudBackupSnapshotManifest{
@@ -460,17 +488,17 @@ func buildCloudBackupSnapshotPayload(app core.App, user *core.Record) (cloudBack
 		ID:                  id,
 		Filename:            filename,
 		CreatedAt:           exportedAt.Format(time.RFC3339Nano),
-		SizeBytes:           int64(len(content)),
-		SHA256:              hex.EncodeToString(hash[:]),
+		SizeBytes:           source.Size(),
+		SHA256:              hex.EncodeToString(hash.Sum(nil)),
 		ExportKind:          "renewlet-export",
 		ExportSchemaVersion: 1,
 	}
-	return cloudBackupSnapshotPayload{Content: content, ID: id, Filename: filename, Manifest: manifest}, nil
+	return cloudBackupSnapshotPayload{Source: source, ID: id, Filename: filename, Manifest: manifest}, nil
 }
 
 func uploadCloudBackupSnapshotToTarget(ctx context.Context, app core.App, userID string, payload cloudBackupSnapshotPayload, target cloudBackupTarget) (cloudBackupSnapshotDTO, error) {
 	// 远端只信任 sidecar manifest + 本地重算 sha256；恢复下载前后都会再次校验，避免坏快照进入导入预览。
-	if err := target.Client.Upload(ctx, payload.Filename, payload.Content, payload.Manifest); err != nil {
+	if err := target.Client.Upload(ctx, payload.Filename, payload.Source, payload.Manifest); err != nil {
 		return cloudBackupSnapshotDTO{}, err
 	}
 	if err := enforceCloudBackupRetention(ctx, target.Client, target.Retention, payload.ID); err != nil {
@@ -481,6 +509,9 @@ func uploadCloudBackupSnapshotToTarget(ctx context.Context, app core.App, userID
 }
 
 func verifyCloudBackupSnapshotBytes(content []byte, manifest cloudBackupSnapshotManifest) error {
+	if int64(len(content)) > cloudBackupSnapshotMaxBytes {
+		return errors.New("CLOUD_BACKUP_SNAPSHOT_TOO_LARGE")
+	}
 	if manifest.Kind != "renewlet-cloud-backup-snapshot" || manifest.SchemaVersion != 1 {
 		return errors.New("CLOUD_BACKUP_MANIFEST_INVALID")
 	}

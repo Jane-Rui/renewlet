@@ -415,8 +415,39 @@ func TestImportApplyRejectsMoreThanTwoHundredSubscriptions(t *testing.T) {
 	}
 
 	res := serveTestRequest(t, app, http.MethodPost, "/api/app/import/apply", importRequestBodyWithGeneratedSourceIds("skip", "wallos", prices...), token)
-	if res.Code != http.StatusBadRequest {
+	if res.Code != http.StatusRequestEntityTooLarge || !strings.Contains(res.Body.String(), `"code":"IMPORT_TOO_LARGE"`) {
 		t.Fatalf("expected apply over limit to fail, got %d: %s", res.Code, res.Body.String())
+	}
+}
+
+func TestImportPreviewRejectsMoreThanOneThousandSubscriptions(t *testing.T) {
+	app := newSchemaTestApp(t)
+	if err := ensureSchema(app); err != nil {
+		t.Fatal(err)
+	}
+	_, token := createRouteTestUser(t, app, "preview-limit")
+	prices := make([]int, maxImportPreviewSubscriptions+1)
+	for index := range prices {
+		prices[index] = index + 1
+	}
+
+	res := serveTestRequest(t, app, http.MethodPost, "/api/app/import/preview", importRequestBodyWithGeneratedSourceIds("skip", "wallos", prices...), token)
+	if res.Code != http.StatusRequestEntityTooLarge || !strings.Contains(res.Body.String(), `"code":"IMPORT_TOO_LARGE"`) {
+		t.Fatalf("expected preview over limit to return IMPORT_TOO_LARGE, got %d: %s", res.Code, res.Body.String())
+	}
+}
+
+func TestImportPreviewRejectsBodyOverEightMiB(t *testing.T) {
+	app := newSchemaTestApp(t)
+	if err := ensureSchema(app); err != nil {
+		t.Fatal(err)
+	}
+	_, token := createRouteTestUser(t, app, "preview-body-limit")
+	body := `{"payload":"` + strings.Repeat("x", int(maxImportJSONBodyBytes)) + `"}`
+
+	res := serveTestRequest(t, app, http.MethodPost, "/api/app/import/preview", body, token)
+	if res.Code != http.StatusRequestEntityTooLarge || !strings.Contains(res.Body.String(), `"code":"IMPORT_TOO_LARGE"`) {
+		t.Fatalf("expected oversized preview body to return IMPORT_TOO_LARGE, got %d: %s", res.Code, res.Body.String())
 	}
 }
 

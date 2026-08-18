@@ -47,14 +47,22 @@ type PublicStatusSubscription = PublicStatusResponse["subscriptions"][number];
 type PublicStatusExchangeRateBasis = NonNullable<PublicStatusResponse["page"]["exchangeRateBasis"]>;
 type PublicStatusCurrencyConverter = (amount: number | string, fromCurrency: string, toCurrency: string) => number;
 
-const PUBLIC_STATUS_THEME_OPTIONS: Array<{
+interface PublicStatusThemeOption {
   value: ThemeMode;
   labelKey: MessageKey;
   Icon: LucideIcon;
-}> = [
+}
+
+const SYSTEM_PUBLIC_STATUS_THEME_OPTION: PublicStatusThemeOption = {
+  value: "system",
+  labelKey: "theme.system",
+  Icon: Monitor,
+};
+
+const PUBLIC_STATUS_THEME_OPTIONS: PublicStatusThemeOption[] = [
   { value: "light", labelKey: "theme.light", Icon: Sun },
   { value: "dark", labelKey: "theme.dark", Icon: Moon },
-  { value: "system", labelKey: "theme.system", Icon: Monitor },
+  SYSTEM_PUBLIC_STATUS_THEME_OPTION,
 ];
 
 function useNoIndexMeta() {
@@ -121,7 +129,7 @@ function PublicStatusThemeMenu() {
   const { theme, setTheme } = useTheme();
   const { t } = useI18n();
   const currentOption = PUBLIC_STATUS_THEME_OPTIONS.find((option) => option.value === theme)
-    ?? PUBLIC_STATUS_THEME_OPTIONS[1]!;
+    ?? SYSTEM_PUBLIC_STATUS_THEME_OPTION;
   const CurrentIcon = currentOption.Icon;
 
   const handleThemeChange = (value: string) => {
@@ -276,7 +284,8 @@ function PublicStatusMoneySummary({ data }: { data: PublicStatusResponse }) {
 function PublicStatusLiveMoneySummary({ data }: { data: PublicStatusResponse }) {
   const { t, formatCurrency, formatNumber } = useI18n();
   const { convert, loading: ratesLoading } = useExchangeRates();
-  const currency = data.page.currency!;
+  const currency = data.page.currency;
+  if (!currency) return null;
   const moneySubtitle = ratesLoading
     ? t("publicStatus.ratesLoading")
     : data.page.exchangeRateBasis?.status === "live"
@@ -309,8 +318,9 @@ function PublicStatusMoneyCards({
 }) {
   const stats = publicStatusStats(data);
   const monthlyTotal = publicStatusMonthlyTotal(data, convert);
-  const currency = data.page.currency!;
+  const currency = data.page.currency;
   const { t } = useI18n();
+  if (!currency) return null;
 
   return (
     <div className="grid gap-5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,14rem),1fr))]">

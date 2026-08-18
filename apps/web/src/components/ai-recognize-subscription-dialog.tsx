@@ -63,6 +63,7 @@ interface AIRecognizeSubscriptionDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   settings: AppSettings;
+  apiKeyConfigured?: boolean;
   config: CustomConfig;
   availableTags?: readonly string[];
 }
@@ -75,6 +76,7 @@ export function AIRecognizeSubscriptionDialog({
   open,
   onOpenChange,
   settings,
+  apiKeyConfigured = false,
   config,
   availableTags = [],
 }: AIRecognizeSubscriptionDialogProps) {
@@ -111,7 +113,7 @@ export function AIRecognizeSubscriptionDialog({
     handleRootDialogOpenChange,
   );
   const aiSettings = settings.aiRecognition;
-  const settingsBlocker = getAIRecognitionSettingsBlocker(aiSettings);
+  const settingsBlocker = getAIRecognitionSettingsBlocker(aiSettings, apiKeyConfigured);
   const thinkingOptions = useMemo(
     () => getAIThinkingOptions(aiSettings.providerType, aiSettings.transportProtocol, aiSettings.model),
     [aiSettings.model, aiSettings.providerType, aiSettings.transportProtocol],

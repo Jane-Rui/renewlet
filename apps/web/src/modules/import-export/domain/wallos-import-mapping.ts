@@ -563,10 +563,13 @@ function currencyFromSymbol(symbol: string, config: Pick<CustomConfig, "currenci
   if (stableDefault && (enabledCandidates.includes(stableDefault) || enabledCandidates.length !== 1) && unique.includes(stableDefault)) {
     return stableDefault;
   }
-  if (enabledCandidates.length === 1) return enabledCandidates[0]!;
-  if (unique.length === 1) return unique[0]!;
+  const onlyEnabledCandidate = enabledCandidates.length === 1 ? enabledCandidates.at(0) : undefined;
+  if (onlyEnabledCandidate) return onlyEnabledCandidate;
+  const onlyCandidate = unique.length === 1 ? unique.at(0) : undefined;
+  if (onlyCandidate) return onlyCandidate;
   // Wallos UI JSON 只给符号；多义符号必须落到真实候选币种，不能退到候选外的设置默认币种。
-  const selected = enabledCandidates[0] ?? unique[0]!;
+  const selected = enabledCandidates.at(0) ?? unique.at(0);
+  if (!selected) return fallback;
   warnings.push(importMessage(IMPORT_MESSAGE_CODES.currencySymbolAmbiguous, normalizedSymbol, selected));
   return selected;
 }

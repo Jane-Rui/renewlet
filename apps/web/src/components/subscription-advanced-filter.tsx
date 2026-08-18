@@ -220,7 +220,7 @@ function DesktopSection({ section }: { section: AdvancedFilterSectionConfig }) {
       {/* 桌面摘要必须吃剩余空间；固定宽度截断会让完整日期范围在空间足够时仍显示省略号。 */}
       <div className="flex min-w-0 items-start justify-between gap-3">
         <h3 className="shrink-0 text-sm font-semibold text-foreground">{section.title}</h3>
-        <span data-testid={`advanced-section-${section.id}-summary`} className="min-w-0 flex-1 break-words text-right text-xs leading-5 text-muted-foreground">
+        <span data-testid={`advanced-section-${section.id}-summary`} className="min-w-0 flex-1 wrap-break-word text-right text-xs leading-5 text-muted-foreground">
           {section.summary}
         </span>
       </div>

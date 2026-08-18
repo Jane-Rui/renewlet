@@ -55,7 +55,7 @@ export function CloudBackupActionsPanel({
       {lastError ? (
         <div className="flex max-w-5xl gap-2 rounded-md border border-destructive/25 bg-destructive/5 p-3 text-xs leading-5 text-destructive">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <span className="min-w-0 break-words">{lastError}</span>
+          <span className="min-w-0 wrap-break-word">{lastError}</span>
         </div>
       ) : null}
 

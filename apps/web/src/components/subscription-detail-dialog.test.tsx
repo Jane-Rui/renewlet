@@ -170,7 +170,7 @@ describe("SubscriptionDetailDialog", () => {
       "href",
       "https://fastmail.example/billing",
     );
-    expect(within(dialog).getByText(/团队年度订阅/)).toHaveClass("whitespace-pre-wrap", "break-words");
+    expect(within(dialog).getByText(/团队年度订阅/)).toHaveClass("whitespace-pre-wrap", "wrap-break-word");
     expect(within(dialog).getByText(/负责人：Alice/)).toBeInTheDocument();
   });
 

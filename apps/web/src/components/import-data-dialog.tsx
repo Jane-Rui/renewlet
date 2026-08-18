@@ -11,6 +11,7 @@ import type { CustomConfig } from "@/types/config";
 import type { AppSettings } from "@/types/subscription";
 import {
   MAX_IMPORT_FILE_BYTES,
+  MAX_IMPORT_PREVIEW_SUBSCRIPTIONS,
   type WallosImportUser,
 } from "@/modules/import-export/domain/import-export-model";
 import {
@@ -29,10 +30,12 @@ interface ImportDataDialogProps {
   config: CustomConfig;
   /** 外部恢复入口预载的文件；仍然只进入 preview/apply，不在弹窗外写库。 */
   initialFile?: File | null;
+  /** 云快照外层 ZIP 已通过后端 hash 校验，可使用独立于普通导入的 16 MiB 存储包上限。 */
+  initialFileMaxBytes?: number;
   onInitialFileConsumed?: () => void;
 }
 
-export function ImportDataDialog({ open, onOpenChange, settings, config, initialFile, onInitialFileConsumed }: ImportDataDialogProps) {
+export function ImportDataDialog({ open, onOpenChange, settings, config, initialFile, initialFileMaxBytes, onInitialFileConsumed }: ImportDataDialogProps) {
   const { t } = useI18n();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadButtonRef = useRef<HTMLButtonElement>(null);
@@ -83,12 +86,15 @@ export function ImportDataDialog({ open, onOpenChange, settings, config, initial
     onOpenChange(nextOpen);
   }
 
-  const parseFile = useCallback(async (nextFile: File, wallosUserId?: string) => {
-    if (nextFile.size > MAX_IMPORT_FILE_BYTES) {
+  const parseFile = useCallback(async (nextFile: File, wallosUserId?: string, maxFileBytes = MAX_IMPORT_FILE_BYTES) => {
+    if (nextFile.size > maxFileBytes) {
       throw new Error(t("import.fileTooLarge"));
     }
     // 文件类型只做入口提示，真实识别按内容探测；zip/db 解析器只在导入弹窗内动态加载。
-    const parsed = await parseImportFile(nextFile, { config, settings, today }, wallosUserId);
+    const parsed = await parseImportFile(nextFile, { config, settings, today }, wallosUserId, maxFileBytes);
+    if (parsed.payload.subscriptions.length > MAX_IMPORT_PREVIEW_SUBSCRIPTIONS) {
+      throw new Error(t("import.fileTooLarge"));
+    }
     setWallosUsers(parsed.wallosUsers ?? []);
     if (parsed.wallosUsers?.length && !wallosUserId) {
       setSelectedWallosUser(parsed.wallosUsers[0]?.id ?? "");
@@ -96,14 +102,14 @@ export function ImportDataDialog({ open, onOpenChange, settings, config, initial
     await previewPrepared(parsed, conflictMode);
   }, [config, conflictMode, previewPrepared, settings, t, today]);
 
-  const handleFileSelected = useCallback(async (nextFile: File | null) => {
+  const handleFileSelected = useCallback(async (nextFile: File | null, maxFileBytes = MAX_IMPORT_FILE_BYTES) => {
     if (!nextFile) return;
     // 文件对象只保存在弹窗生命周期内；预览失败时清掉 PreparedImport，避免应用上一次成功解析的包。
     setFile(nextFile);
     setParsing(true);
     setError(null);
     try {
-      await parseFile(nextFile);
+      await parseFile(nextFile, undefined, maxFileBytes);
     } catch (err) {
       resetImportPreview();
       setError(err instanceof Error ? formatImportMessage(err.message, t) : t("import.parseFailed"));
@@ -123,7 +129,13 @@ export function ImportDataDialog({ open, onOpenChange, settings, config, initial
     setParsing(true);
     setError(null);
     try {
+      if (new TextEncoder().encode(pasteValue).byteLength > MAX_IMPORT_FILE_BYTES) {
+        throw new Error(t("import.fileTooLarge"));
+      }
       const parsed = await parseJsonText(pasteValue, { config, settings, today });
+      if (parsed.payload.subscriptions.length > MAX_IMPORT_PREVIEW_SUBSCRIPTIONS) {
+        throw new Error(t("import.fileTooLarge"));
+      }
       setWallosUsers(parsed.wallosUsers ?? []);
       if (parsed.wallosUsers?.length) {
         setSelectedWallosUser(parsed.wallosUsers[0]?.id ?? "");
@@ -145,7 +157,13 @@ export function ImportDataDialog({ open, onOpenChange, settings, config, initial
       if (file) {
         await parseFile(file, value);
       } else if (pasteValue.trim()) {
+        if (new TextEncoder().encode(pasteValue).byteLength > MAX_IMPORT_FILE_BYTES) {
+          throw new Error(t("import.fileTooLarge"));
+        }
         const parsed = await parseJsonText(pasteValue, { config, settings, today }, value);
+        if (parsed.payload.subscriptions.length > MAX_IMPORT_PREVIEW_SUBSCRIPTIONS) {
+          throw new Error(t("import.fileTooLarge"));
+        }
         await previewPrepared(parsed, conflictMode);
       }
     } catch (err) {
@@ -159,10 +177,10 @@ export function ImportDataDialog({ open, onOpenChange, settings, config, initial
     if (!open || !initialFile || consumedInitialFileRef.current === initialFile) return;
     consumedInitialFileRef.current = initialFile;
     setMode("file");
-    void handleFileSelected(initialFile).finally(() => {
+    void handleFileSelected(initialFile, initialFileMaxBytes ?? MAX_IMPORT_FILE_BYTES).finally(() => {
       onInitialFileConsumed?.();
     });
-  }, [handleFileSelected, initialFile, onInitialFileConsumed, open]);
+  }, [handleFileSelected, initialFile, initialFileMaxBytes, onInitialFileConsumed, open]);
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>

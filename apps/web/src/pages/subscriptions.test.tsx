@@ -5,17 +5,20 @@ import type { ReactNode } from "react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { assertDateOnly } from "@/lib/time/date-only";
-import { DEFAULT_SETTINGS, type Subscription } from "@/types/subscription";
+import type { Subscription } from "@/types/subscription";
+import type { SettingsReadModel } from "@/services/settings-service";
+import { DEFAULT_SUBSCRIPTIONS_PAGE_SETTINGS } from "./subscriptions.test-fixtures";
 import Subscriptions from "./subscriptions";
 
 type SubscriptionBaseFixture = Omit<Subscription, "billingCycle" | "customDays" | "customCycleUnit" | "oneTimeTermCount" | "oneTimeTermUnit">;
 type SubscriptionOverrides = Partial<Subscription>;
 type MockInfiniteSubscriptionsResult = { subscriptions?: Subscription[]; isPending: boolean; hasNextPage?: boolean; isFetchingNextPage?: boolean; fetchNextPage?: () => void };
+type MockSettingsEnvelopeResult = { data?: SettingsReadModel };
 
 const mocks = vi.hoisted(() => ({
   useInfiniteSubscriptions: vi.fn<() => MockInfiniteSubscriptionsResult>(),
   useSubscriptions: vi.fn(),
-  useSettings: vi.fn(),
+  useSettingsEnvelope: vi.fn<() => MockSettingsEnvelopeResult>(),
   handleDeleteSubscription: vi.fn(),
   handleEditSubscription: vi.fn(),
   handleTogglePinnedSubscription: vi.fn(),
@@ -34,7 +37,11 @@ vi.mock("@/hooks/use-subscriptions", () => ({
 }));
 
 vi.mock("@/hooks/use-settings", () => ({
-  useSettings: mocks.useSettings,
+  useSettingsEnvelope: mocks.useSettingsEnvelope,
+  useSettings: () => {
+    const envelope = mocks.useSettingsEnvelope();
+    return { ...envelope, data: envelope.data?.settings };
+  },
 }));
 
 vi.mock("@/hooks/use-exchange-rates", () => ({
@@ -324,15 +331,8 @@ function installPointerCaptureMocks() {
 }
 
 function mockDefaultSubscriptionsPageSettings() {
-  mocks.useSettings.mockReturnValue({
-    data: {
-      ...DEFAULT_SETTINGS,
-      timezone: "Asia/Shanghai",
-      defaultCurrency: "CNY",
-      notificationReminderDays: 5,
-      subscriptionPriceReferenceEnabled: true,
-      subscriptionPriceReferenceCurrency: "USD",
-    },
+  mocks.useSettingsEnvelope.mockReturnValue({
+    data: DEFAULT_SUBSCRIPTIONS_PAGE_SETTINGS,
   });
 }
 
@@ -780,7 +780,7 @@ describe("Subscriptions page virtualization", () => {
     await waitFor(() => {
       expect(screen.getAllByTestId("subscription-card").length).toBeGreaterThan(0);
     });
-    const settingsCallsAfterMount = mocks.useSettings.mock.calls.length;
+    const settingsCallsAfterMount = mocks.useSettingsEnvelope.mock.calls.length;
 
     root.scrollTop = 1200;
     fireEvent.scroll(root);
@@ -788,6 +788,6 @@ describe("Subscriptions page virtualization", () => {
     await waitFor(() => {
       expect(screen.getAllByTestId("subscription-card").length).toBeGreaterThan(0);
     });
-    expect(mocks.useSettings).toHaveBeenCalledTimes(settingsCallsAfterMount);
+    expect(mocks.useSettingsEnvelope).toHaveBeenCalledTimes(settingsCallsAfterMount);
   });
 });

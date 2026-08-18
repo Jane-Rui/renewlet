@@ -12,7 +12,9 @@ describe("notification schemas", () => {
     expect(notificationChannelSchema.parse("pushplus")).toBe("pushplus");
     expect(notificationsTestBodySchema.parse({
       channel: "pushplus",
-      settings: { pushplusToken: "push-token" },
+      settings: {
+        secretUpdates: { pushplusToken: { action: "set", value: "push-token" } },
+      },
     }).channel).toBe("pushplus");
 
     const cronResult = {

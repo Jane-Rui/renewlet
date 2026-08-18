@@ -66,7 +66,7 @@ export function RawErrorResponseDialog({
             </span>
             <div className="min-w-0">
               <DialogTitle className="text-base leading-6">{title ?? t("rawErrorResponse.title")}</DialogTitle>
-              <DialogDescription className="mt-1 break-words text-xs leading-5">
+              <DialogDescription className="mt-1 wrap-break-word text-xs leading-5">
                 {description ?? details?.message ?? t("rawErrorResponse.description")}
               </DialogDescription>
             </div>
@@ -78,7 +78,7 @@ export function RawErrorResponseDialog({
             ref={responseTextRef}
             tabIndex={-1}
             className={[
-              "min-h-0 flex-1 overflow-auto rounded-md border border-border bg-secondary/30 p-3 font-mono text-xs leading-5 whitespace-pre-wrap break-words",
+              "min-h-0 flex-1 overflow-auto rounded-md border border-border bg-secondary/30 p-3 font-mono text-xs leading-5 whitespace-pre-wrap wrap-break-word",
               displayText ? "text-foreground" : "text-muted-foreground",
             ].join(" ")}
           >

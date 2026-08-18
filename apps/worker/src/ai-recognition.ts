@@ -43,6 +43,7 @@ import {
   runAIRecognition,
   runAIRecognitionStream,
 } from "./ai-recognition-runner";
+import { resolveSecretMutation } from "@renewlet/shared/schemas/secrets";
 
 const AI_RECOGNITION_MULTIPART_OVERHEAD = 1024 * 1024;
 const AI_RECOGNITION_MAX_BODY_BYTES =
@@ -235,12 +236,16 @@ async function prepareAIRecognitionRun(request: Request, env: Env): Promise<AIRe
   };
 }
 
-/** testAIRecognitionConnection 使用当前表单配置做一次最小文本调用；它不读取/写入持久设置。 */
+/** testAIRecognitionConnection 使用当前表单配置做一次最小文本调用；keep 只读已存 key，任何 mutation 都不会写入设置。 */
 export async function testAIRecognitionConnection(request: Request, env: Env): Promise<Response> {
   const locale = requestLocale(request);
-  await requireAuth(request, env);
+  const auth = await requireAuth(request, env);
   const body = await readJson(request, aiRecognitionTestRequestSchema, locale);
-  const settings = body.settings;
+  const current = await getSettings(env, auth.user.id);
+  const settings = aiRecognitionSettingsSchema.parse({
+    ...body.settings,
+    apiKey: resolveSecretMutation(body.apiKey, current.aiRecognition.apiKey),
+  });
   assertAIRecognitionSettings(settings, locale);
   try {
     await runAIRecognitionConnectionTest(settings, request.signal);

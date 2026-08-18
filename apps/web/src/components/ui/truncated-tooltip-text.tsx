@@ -146,10 +146,10 @@ export function TruncatedTooltipText({
     const node = nodeRef.current;
     if (!node || disabled) return;
 
-    const ResizeObserverCtor = node.ownerDocument.defaultView?.ResizeObserver ?? globalThis.ResizeObserver;
     const handleSizeChange = () => {
       if (!measureOverflow()) setOpen(false);
     };
+    const ResizeObserverCtor = node.ownerDocument.defaultView?.ResizeObserver ?? globalThis.ResizeObserver;
     const observer = ResizeObserverCtor ? new ResizeObserverCtor(handleSizeChange) : null;
     observer?.observe(node);
 
@@ -186,7 +186,7 @@ export function TruncatedTooltipText({
       <TooltipContent
         side={side}
         align={align}
-        className={cn("max-w-[calc(100vw-2rem)] whitespace-normal break-words text-xs leading-relaxed sm:max-w-md", tooltipClassName)}
+        className={cn("max-w-[calc(100vw-2rem)] whitespace-normal wrap-break-word text-xs leading-relaxed sm:max-w-md", tooltipClassName)}
       >
         {text}
       </TooltipContent>

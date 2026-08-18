@@ -87,7 +87,7 @@ func currentUserSettings(app core.App, user *core.Record, patch json.RawMessage)
 	if len(bytes.TrimSpace(patch)) == 0 {
 		return settings, nil
 	}
-	return mergeSettingsForWrite(settings, patch)
+	return mergeSettingsRequest(settings, patch)
 }
 
 // settingsFromRecord 从 PocketBase settings 记录读取强类型设置。

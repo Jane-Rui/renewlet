@@ -1,5 +1,6 @@
 // 统计页 E2E 保护 Recharts 容器尺寸和焦点样式；图表空尺寸警告在 jsdom 中不可见，必须用浏览器控制台捕获。
-import { expect, test, type ConsoleMessage } from "@playwright/test";
+import type { ConsoleMessage } from "@playwright/test";
+import { expect, test } from "./support/test";
 import { createSubscription, uniqueE2EName } from "./support/subscriptions";
 
 test("desktop statistics charts render without Recharts size warnings", async ({ page }, testInfo) => {

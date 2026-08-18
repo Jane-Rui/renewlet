@@ -37,9 +37,9 @@ func TestAIModelListOpenAIShape(t *testing.T) {
 	})
 
 	response, err := listAIModels(context.Background(), aiModelListRequest{
-		ProviderType: aiProviderTypeOpenAI,
-		BaseURL:      server.URL + "/v1",
-		APIKey:       "sk-test-secret",
+		ProviderType:   aiProviderTypeOpenAI,
+		BaseURL:        server.URL + "/v1",
+		ResolvedAPIKey: "sk-test-secret",
 	}, localeZhCN)
 	if err != nil {
 		t.Fatal(err)
@@ -64,9 +64,9 @@ func TestAIModelListGeminiShape(t *testing.T) {
 	})
 
 	response, err := listAIModels(context.Background(), aiModelListRequest{
-		ProviderType: aiProviderTypeGemini,
-		BaseURL:      server.URL + "/v1beta",
-		APIKey:       "AIza-test-secret",
+		ProviderType:   aiProviderTypeGemini,
+		BaseURL:        server.URL + "/v1beta",
+		ResolvedAPIKey: "AIza-test-secret",
 	}, localeZhCN)
 	if err != nil {
 		t.Fatal(err)
@@ -94,9 +94,9 @@ func TestAIModelListAnthropicShape(t *testing.T) {
 	})
 
 	response, err := listAIModels(context.Background(), aiModelListRequest{
-		ProviderType: aiProviderTypeAnthropic,
-		BaseURL:      server.URL + "/v1",
-		APIKey:       "sk-ant-test-secret",
+		ProviderType:   aiProviderTypeAnthropic,
+		BaseURL:        server.URL + "/v1",
+		ResolvedAPIKey: "sk-ant-test-secret",
 	}, localeZhCN)
 	if err != nil {
 		t.Fatal(err)
@@ -121,9 +121,9 @@ func TestAIModelListCompatibleWithoutAPIKey(t *testing.T) {
 	})
 
 	response, err := listAIModels(context.Background(), aiModelListRequest{
-		ProviderType: aiProviderTypeOpenAICompatible,
-		BaseURL:      server.URL + "/v1/",
-		APIKey:       "",
+		ProviderType:   aiProviderTypeOpenAICompatible,
+		BaseURL:        server.URL + "/v1/",
+		ResolvedAPIKey: "",
 	}, localeZhCN)
 	if err != nil {
 		t.Fatal(err)
@@ -141,9 +141,9 @@ func TestAIModelListProviderErrorReturnsRawProviderResponse(t *testing.T) {
 	})
 
 	_, err := listAIModels(context.Background(), aiModelListRequest{
-		ProviderType: aiProviderTypeOpenAI,
-		BaseURL:      server.URL + "/v1",
-		APIKey:       "sk-test-secret",
+		ProviderType:   aiProviderTypeOpenAI,
+		BaseURL:        server.URL + "/v1",
+		ResolvedAPIKey: "sk-test-secret",
 	}, localeZhCN)
 	var httpErr *aiModelListHTTPError
 	if !errors.As(err, &httpErr) {
@@ -191,9 +191,9 @@ func TestAIModelListProviderStatusPassthrough(t *testing.T) {
 			})
 
 			_, err := listAIModels(context.Background(), aiModelListRequest{
-				ProviderType: aiProviderTypeOpenAI,
-				BaseURL:      server.URL + "/v1",
-				APIKey:       "sk-test-secret",
+				ProviderType:   aiProviderTypeOpenAI,
+				BaseURL:        server.URL + "/v1",
+				ResolvedAPIKey: "sk-test-secret",
 			}, localeZhCN)
 			var httpErr *aiModelListHTTPError
 			if !errors.As(err, &httpErr) {
@@ -215,9 +215,9 @@ func TestAIModelListInvalidJSONReturnsBadRequest(t *testing.T) {
 	})
 
 	_, err := listAIModels(context.Background(), aiModelListRequest{
-		ProviderType: aiProviderTypeOpenAI,
-		BaseURL:      server.URL + "/v1",
-		APIKey:       "sk-test-secret",
+		ProviderType:   aiProviderTypeOpenAI,
+		BaseURL:        server.URL + "/v1",
+		ResolvedAPIKey: "sk-test-secret",
 	}, localeZhCN)
 	var httpErr *aiModelListHTTPError
 	if !errors.As(err, &httpErr) || httpErr.status != http.StatusBadRequest || httpErr.code != "AI_MODEL_LIST_INVALID_JSON" {
@@ -234,9 +234,9 @@ func TestAIModelListLargeProviderResponseReturnsPayloadTooLarge(t *testing.T) {
 	})
 
 	_, err := listAIModels(context.Background(), aiModelListRequest{
-		ProviderType: aiProviderTypeOpenAI,
-		BaseURL:      server.URL + "/v1",
-		APIKey:       "sk-test-secret",
+		ProviderType:   aiProviderTypeOpenAI,
+		BaseURL:        server.URL + "/v1",
+		ResolvedAPIKey: "sk-test-secret",
 	}, localeZhCN)
 	var httpErr *aiModelListHTTPError
 	if !errors.As(err, &httpErr) || httpErr.status != http.StatusRequestEntityTooLarge || httpErr.code != "AI_MODEL_LIST_RESPONSE_TOO_LARGE" {
@@ -259,9 +259,9 @@ func TestAIModelListTimeout(t *testing.T) {
 	})
 
 	_, err := listAIModels(context.Background(), aiModelListRequest{
-		ProviderType: aiProviderTypeOpenAI,
-		BaseURL:      server.URL + "/v1",
-		APIKey:       "sk-test-secret",
+		ProviderType:   aiProviderTypeOpenAI,
+		BaseURL:        server.URL + "/v1",
+		ResolvedAPIKey: "sk-test-secret",
 	}, localeZhCN)
 	var httpErr *aiModelListHTTPError
 	if !errors.As(err, &httpErr) || httpErr.status != http.StatusRequestTimeout || httpErr.code != "AI_MODEL_LIST_TIMEOUT" {
@@ -285,8 +285,8 @@ func TestAIModelListTransportErrorUsesFullRedactedRequestContext(t *testing.T) {
 	})
 
 	_, err := listAIModels(context.Background(), aiModelListRequest{
-		ProviderType: aiProviderTypeOpenAI,
-		APIKey:       "sk-test-secret",
+		ProviderType:   aiProviderTypeOpenAI,
+		ResolvedAPIKey: "sk-test-secret",
 	}, localeZhCN)
 	var httpErr *aiModelListHTTPError
 	if !errors.As(err, &httpErr) || httpErr.status != http.StatusBadRequest || httpErr.code != "AI_MODEL_LIST_FAILED" {

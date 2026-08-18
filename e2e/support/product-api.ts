@@ -108,14 +108,28 @@ export async function updateProductSettings(page: Page, patch: JsonObject) {
     throw new Error(`Invalid settings response: ${currentResult.body}`);
   }
 
-  const aiRecognitionPatch = isRecord(patch.aiRecognition) && isRecord(currentSettings.aiRecognition)
-    ? { ...currentSettings.aiRecognition, ...patch.aiRecognition }
+  const aiRecognitionSecret = isRecord(patch.aiRecognition) && typeof patch.aiRecognition.apiKey === "string"
+    ? patch.aiRecognition.apiKey
+    : undefined;
+  const aiRecognitionPublicPatch = isRecord(patch.aiRecognition)
+    ? Object.fromEntries(Object.entries(patch.aiRecognition).filter(([key]) => key !== "apiKey"))
     : patch.aiRecognition;
+  const publicPatch = Object.fromEntries(Object.entries(patch).filter(([key]) => key !== "aiRecognition"));
+  const aiRecognitionPatch = isRecord(aiRecognitionPublicPatch) && isRecord(currentSettings.aiRecognition)
+    ? { ...currentSettings.aiRecognition, ...aiRecognitionPublicPatch }
+    : aiRecognitionPublicPatch;
   // 设置接口是严格 PUT 全量契约；E2E 只覆盖目标字段时也要先合并远端当前值，避免把其它设置误清空。
   const nextSettings = {
     ...currentSettings,
-    ...patch,
+    ...publicPatch,
     ...(aiRecognitionPatch === undefined ? {} : { aiRecognition: aiRecognitionPatch }),
+    ...(aiRecognitionSecret === undefined ? {} : {
+      secretUpdates: {
+        "aiRecognition.apiKey": aiRecognitionSecret
+          ? { action: "set", value: aiRecognitionSecret }
+          : { action: "clear" },
+      },
+    }),
   };
 
   const updateResult = await productApiFetch(page, "/api/app/settings", {

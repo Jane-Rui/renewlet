@@ -235,6 +235,29 @@ One-click deploy users: follow the Upgrade steps above and run `Sync Renewlet Up
 
 Manual deploy users: update your fork to the latest Renewlet version with `Sync fork` / `Update branch`. If deployment does not start automatically, open `Actions` and run `Cloudflare Worker`.
 
+## D1 Upgrade and Recovery
+
+Before a schema upgrade, create both a portable export and a Time Travel bookmark. The portable export remains an operator responsibility. GitHub deployments capture the current bookmark automatically before migrations and record it in the job summary; manual deployments should run the same bookmark command below. Keep the old Worker version available until the migration, derived-state backfill, and foreign-key check have all passed.
+
+```bash
+pnpm exec wrangler d1 export DB --remote --config wrangler.generated.jsonc --output renewlet-before-upgrade.sql
+pnpm exec wrangler d1 time-travel info DB --json --config wrangler.generated.jsonc
+```
+
+The repository migration helper applies pending migrations, runs required data backfills, and executes `PRAGMA foreign_key_check`. A failed backfill or non-empty foreign-key result stops deployment.
+
+```bash
+pnpm cloudflare:migrations:apply --config wrangler.generated.jsonc
+```
+
+If that command fails, do not deploy the new Worker. The workflow prints a reviewed restore command but never runs it automatically because Time Travel overwrites the database in place. After checking writes made since the checkpoint, restore the pre-upgrade bookmark, or create a replacement D1 database from `renewlet-before-upgrade.sql`, reconnect the `DB` binding, and redeploy the previous Worker version. A bookmark captured after a failed migration only protects later changes and is not a substitute for the pre-upgrade bookmark.
+
+```bash
+pnpm exec wrangler d1 time-travel restore DB --bookmark="<bookmark>" --config wrangler.generated.jsonc
+```
+
+Cloud backup snapshots are limited to 16 MiB in both Docker and Cloudflare runtimes. Before upgrading from a version with a larger limit, download or restore every remote snapshot over 16 MiB with the old version.
+
 ## Optional: Wrangler CLI
 
 Most deployments do not need Wrangler CLI. Use these commands only if you want to manage Cloudflare resources from your own machine.
@@ -257,11 +280,12 @@ export WORKER_NAME="renewlet"
 export D1_DATABASE_ID="..."
 export R2_BUCKET_NAME="renewlet-assets"
 export CI_WRANGLER_CONFIG="wrangler.generated.jsonc"
+export CLOUDFLARE_OBSERVABILITY_PROFILE="development"
 
 pnpm cloudflare:config:ci
 pnpm check:cloudflare
 pnpm build:cloudflare
-pnpm exec wrangler d1 migrations apply DB --remote --config wrangler.generated.jsonc
+pnpm cloudflare:migrations:apply --config wrangler.generated.jsonc
 pnpm cloudflare:queues:ensure
 pnpm exec wrangler deploy --config wrangler.generated.jsonc
 ```
@@ -286,7 +310,7 @@ This means the Worker was updated before the remote D1 migrations finished or ra
 
 ```bash
 pnpm cloudflare:config:ci
-pnpm exec wrangler d1 migrations apply DB --remote --config wrangler.generated.jsonc
+pnpm cloudflare:migrations:apply --config wrangler.generated.jsonc
 ```
 
 **ServerChan test notifications return HTTP 429?**

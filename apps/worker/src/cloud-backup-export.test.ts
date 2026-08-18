@@ -114,15 +114,57 @@ describe("Cloudflare cloud backup export ZIP", () => {
       capturedAt: "2026-08-06T00:00:00.000Z",
     }]);
   });
+
+  it("loads multiple R2 assets sequentially through the export call chain", async () => {
+    dbMocks.getCustomConfig.mockResolvedValue({
+      categories: [],
+      statuses: [],
+      paymentMethods: [
+        { id: "pm_one", value: "one", labels: { "zh-CN": "One", "en-US": "One" }, icon: "/api/app/assets/asset_one" },
+        { id: "pm_two", value: "two", labels: { "zh-CN": "Two", "en-US": "Two" }, icon: "/api/app/assets/asset_two" },
+      ],
+      currencies: [],
+    });
+    dbMocks.getAsset.mockImplementation(async (_env: Env, _userId: string, assetId: string) => (
+      assetRow({ id: assetId, r2_key: `${assetId}.svg`, size_bytes: null })
+    ));
+    const reads: string[] = [];
+    let activeReads = 0;
+    let maxActiveReads = 0;
+    const env = envWithR2({
+      "asset_one.svg": "<svg>one</svg>",
+      "asset_two.svg": "<svg>two</svg>",
+    }, async (key) => {
+      activeReads += 1;
+      maxActiveReads = Math.max(maxActiveReads, activeReads);
+      await Promise.resolve();
+      reads.push(key);
+      activeReads -= 1;
+    });
+
+    await buildCloudBackupExportZip(env, "usr_cloud");
+
+    expect(reads).toEqual(["asset_one.svg", "asset_two.svg"]);
+    expect(maxActiveReads).toBe(1);
+  });
 });
 
-function envWithR2(objects: Record<string, string>): Env {
+function envWithR2(objects: Record<string, string>, beforeGet?: (key: string) => Promise<void>): Env {
   const encoder = new TextEncoder();
   return {
     ASSETS_BUCKET: {
+      head: vi.fn(async (key: string) => {
+        const value = objects[key];
+        if (value === undefined) return null;
+        return {
+          size: encoder.encode(value).byteLength,
+          httpMetadata: { contentType: "image/svg+xml" },
+        } as R2Object;
+      }),
       get: vi.fn(async (key: string) => {
         const value = objects[key];
         if (value === undefined) return null;
+        await beforeGet?.(key);
         const bytes = encoder.encode(value);
         return {
           arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,

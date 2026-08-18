@@ -289,7 +289,7 @@ export const ConfigManagerDialog = ({
           data-config-manager-footer=""
           className="flex shrink-0 flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between"
         >
-          <p className="min-w-0 break-words text-xs text-muted-foreground">
+          <p className="min-w-0 wrap-break-word text-xs text-muted-foreground">
             {toggleMode
               ? t("customConfig.dragSortEnabled", { enabled: enabledCount, total: items.length })
               : readOnly

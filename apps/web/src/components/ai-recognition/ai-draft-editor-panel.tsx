@@ -89,25 +89,28 @@ export function AIDraftEditorPanel({
           <div className="grid gap-2 rounded-md border border-amber-500/25 bg-amber-500/10 p-3 text-xs text-amber-900 dark:text-amber-100">
             <p className="font-medium">{t("aiRecognition.draftBlockingEditorTitle", { count: blockingIssues.length })}</p>
             <div className="grid gap-1.5">
-              {blockingIssues.map((issue) => (
-                <div key={`${issue.field}:${issue.code}`} className="flex min-w-0 items-center justify-between gap-2">
-                  <span className="flex min-w-0 items-start gap-1.5">
-                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
-                    <span>{t(issue.messageKey, issue.params)}</span>
-                  </span>
-                  {issue.confirmationField === "currency" || issue.confirmationField === "billingCycle" ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 shrink-0 px-2 text-xs text-amber-900 hover:bg-amber-500/15 dark:text-amber-100"
-                      onClick={() => onConfirmField(issue.confirmationField!)}
-                    >
-                      {t("aiRecognition.useCurrentDraftValue")}
-                    </Button>
-                  ) : null}
-                </div>
-              ))}
+              {blockingIssues.map((issue) => {
+                const confirmationField = issue.confirmationField;
+                return (
+                  <div key={`${issue.field}:${issue.code}`} className="flex min-w-0 items-center justify-between gap-2">
+                    <span className="flex min-w-0 items-start gap-1.5">
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+                      <span>{t(issue.messageKey, issue.params)}</span>
+                    </span>
+                    {confirmationField === "currency" || confirmationField === "billingCycle" ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 shrink-0 px-2 text-xs text-amber-900 hover:bg-amber-500/15 dark:text-amber-100"
+                        onClick={() => onConfirmField(confirmationField)}
+                      >
+                        {t("aiRecognition.useCurrentDraftValue")}
+                      </Button>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           </div>
         ) : null}

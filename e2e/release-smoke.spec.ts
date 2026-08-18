@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { expect, installE2EPageGuards, test } from "./support/test";
 import { loginThroughProductUI } from "./support/auth";
 import { createAdminManagedUser, deleteProductSubscriptionsByName, updateProductSettings } from "./support/product-api";
 import { subscriptionCard, uniqueE2EName } from "./support/subscriptions";
@@ -152,6 +153,7 @@ test.describe("release smoke", () => {
       timezoneId: "Asia/Shanghai",
     });
     const userPage = await userContext.newPage();
+    const userPageGuards = await installE2EPageGuards(userPage);
     try {
       await loginThroughProductUI(userPage, email, initialPassword);
       await changeCurrentUserPassword(userPage, initialPassword, nextPassword);
@@ -159,7 +161,11 @@ test.describe("release smoke", () => {
       await loginThroughProductUI(userPage, email, nextPassword);
       await changeCurrentUserPassword(userPage, nextPassword, initialPassword);
     } finally {
-      await userContext.close();
+      try {
+        await userPageGuards.close();
+      } finally {
+        await userContext.close();
+      }
     }
 
     await page.goto("/settings");

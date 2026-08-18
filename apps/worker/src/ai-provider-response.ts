@@ -59,8 +59,7 @@ function findAPICallError(error: unknown, seen = new WeakSet<object>()): APICall
 }
 
 function isAPICallError(error: unknown): error is APICallErrorLike {
-  const guard = APICallError as unknown as { isInstance?: (value: unknown) => boolean } | undefined;
-  if (typeof guard?.isInstance === "function" && guard.isInstance(error)) return true;
+  if (APICallError.isInstance(error)) return true;
   return Boolean(
     error
       && typeof error === "object"

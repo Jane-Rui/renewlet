@@ -26,6 +26,7 @@ import { getAIRecognitionSettingsBlocker } from "@/modules/ai-recognition/domain
 import { aiRecognitionService } from "@/services/ai-recognition-service";
 import { AIModelCombobox, AIModelModeSwitch } from "./ai-model-combobox";
 import { LoadingButtonContent } from "./settings-shared-controls";
+import type { SecretMutation } from "@renewlet/shared/schemas/secrets";
 import { getSettingsSectionClassName } from "./settings-layout";
 
 const AI_PROVIDER_TYPES = ["openai", "anthropic", "gemini", "openai-compatible"] as const satisfies readonly AiRecognitionProviderType[];
@@ -51,10 +52,10 @@ const EMPTY_MODEL_LIST_STATE: AIModelListState = {
   truncated: false,
 };
 
-function canListAIModels(settings: AiRecognitionSettings): boolean {
+function canListAIModels(settings: AiRecognitionSettings, apiKeyConfigured: boolean): boolean {
   const endpoint = resolveAIProviderEndpoint(settings);
   if (endpoint.baseUrlRequired && !settings.baseUrl.trim()) return false;
-  if (endpoint.apiKeyRequired && !settings.apiKey.trim()) return false;
+  if (endpoint.apiKeyRequired && !settings.apiKey.trim() && !apiKeyConfigured) return false;
   return true;
 }
 
@@ -64,6 +65,8 @@ interface AIRecognitionSettingsSectionProps {
   settings: AiRecognitionSettings;
   onChange: (settings: AiRecognitionSettings) => void;
   disabled?: boolean;
+  apiKeyConfigured?: boolean;
+  onClearApiKey?: () => void;
 }
 
 export function AIRecognitionSettingsSection({
@@ -72,6 +75,8 @@ export function AIRecognitionSettingsSection({
   settings,
   onChange,
   disabled = false,
+  apiKeyConfigured = false,
+  onClearApiKey = () => undefined,
 }: AIRecognitionSettingsSectionProps) {
   const { t } = useI18n();
   const { toast } = useToast();
@@ -103,7 +108,10 @@ export function AIRecognitionSettingsSection({
   const selectedThinkingId = canonicalSettings.defaultThinkingControl
     ? thinkingOptionId(canonicalSettings.defaultThinkingControl)
     : MODEL_DEFAULT_THINKING_ID;
-  const testBlocker = getAIRecognitionSettingsBlocker(canonicalSettings);
+  const testBlocker = getAIRecognitionSettingsBlocker(canonicalSettings, apiKeyConfigured);
+  const apiKeyMutation = (): SecretMutation => canonicalSettings.apiKey.trim()
+    ? { action: "set", value: canonicalSettings.apiKey.trim() }
+    : { action: "keep" };
 
   useEffect(() => {
     // 模型列表来自第三方 provider，必须随凭证/地址变化失效；旧请求返回较慢时也不能覆盖新配置。
@@ -145,7 +153,7 @@ export function AIRecognitionSettingsSection({
       setModelListState({ ...EMPTY_MODEL_LIST_STATE, status: "error", error: t("aiRecognition.baseUrlRequired") });
       return;
     }
-    if (endpoint.apiKeyRequired && !apiKey) {
+    if (endpoint.apiKeyRequired && !apiKey && !apiKeyConfigured) {
       setModelListState({ ...EMPTY_MODEL_LIST_STATE, status: "error", error: t("aiRecognition.apiKeyRequired") });
       return;
     }
@@ -157,7 +165,7 @@ export function AIRecognitionSettingsSection({
       const response = await aiRecognitionService.listModels({
         providerType: canonicalSettings.providerType,
         baseUrl,
-        apiKey,
+        apiKey: apiKeyMutation(),
       });
       if (modelListRequestRef.current !== requestId) return;
       setModelListState({
@@ -184,7 +192,7 @@ export function AIRecognitionSettingsSection({
     update({ modelInputMode });
     if (
       modelInputMode === "select"
-      && canListAIModels(canonicalSettings)
+      && canListAIModels(canonicalSettings, apiKeyConfigured)
       && modelListState.status !== "loading"
       && (modelListState.status === "idle" || modelListState.status === "error" || modelListState.models.length === 0)
     ) {
@@ -204,7 +212,7 @@ export function AIRecognitionSettingsSection({
     }
     setTesting(true);
     try {
-      await aiRecognitionService.testConnection(canonicalSettings);
+      await aiRecognitionService.testConnection(canonicalSettings, apiKeyMutation());
       setAIErrorDetails(null);
       toast({
         title: t("aiRecognition.testSucceeded"),
@@ -298,7 +306,7 @@ export function AIRecognitionSettingsSection({
                 status={modelListState.status}
                 error={modelListState.error}
                 truncated={modelListState.truncated}
-                canAutoRefreshModels={canListAIModels(canonicalSettings)}
+              canAutoRefreshModels={canListAIModels(canonicalSettings, apiKeyConfigured)}
                 onRequestModels={() => void handleRefreshModels()}
                 disabled={disabled}
                 placeholder={t("aiRecognition.modelPlaceholder")}
@@ -323,7 +331,14 @@ export function AIRecognitionSettingsSection({
           </div>
 
           <div className="grid gap-2">
-            <Label htmlFor="ai-api-key">{t("aiRecognition.apiKey")}</Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label htmlFor="ai-api-key">{t("aiRecognition.apiKey")}</Label>
+              {apiKeyConfigured ? (
+                <Button type="button" variant="ghost" size="sm" disabled={disabled} onClick={onClearApiKey}>
+                  {t("settings.turnstileClearSecret")}
+                </Button>
+              ) : null}
+            </div>
             <Input
               id="ai-api-key"
               type="password"
@@ -331,7 +346,7 @@ export function AIRecognitionSettingsSection({
               value={canonicalSettings.apiKey}
               disabled={disabled}
               onChange={(event) => update({ apiKey: event.target.value })}
-              placeholder={endpoint.apiKeyRequired ? "sk-..." : t("aiRecognition.apiKeyOptionalPlaceholder")}
+              placeholder={apiKeyConfigured ? t("settings.turnstileSecretConfiguredPlaceholder") : endpoint.apiKeyRequired ? "sk-..." : t("aiRecognition.apiKeyOptionalPlaceholder")}
               className="border-border bg-secondary"
             />
             <p className="text-xs text-muted-foreground">{t("aiRecognition.apiKeyHelp")}</p>

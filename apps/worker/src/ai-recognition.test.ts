@@ -120,7 +120,16 @@ function requestForTextWithThinking(text: string, thinkingControl: string): Requ
   });
 }
 
-function testConnectionRequestFor(settings: unknown): Request {
+function testConnectionRequestFor(
+  settings: Record<string, unknown>,
+  apiKeyMutation?: { action: "keep" | "clear" } | { action: "set"; value: string },
+): Request {
+  const { apiKey, ...publicSettings } = settings;
+  const mutation = apiKeyMutation ?? (
+    typeof apiKey === "string" && apiKey.length > 0
+      ? { action: "set" as const, value: apiKey }
+      : { action: "clear" as const }
+  );
   return new Request("https://renewlet.test/api/app/ai/subscriptions/test", {
     method: "POST",
     headers: {
@@ -128,7 +137,7 @@ function testConnectionRequestFor(settings: unknown): Request {
       "content-type": "application/json",
       "x-renewlet-locale": "zh-CN",
     },
-    body: JSON.stringify({ settings }),
+    body: JSON.stringify({ settings: publicSettings, apiKey: mutation }),
   });
 }
 
@@ -373,7 +382,7 @@ describe("Cloudflare AI recognition", () => {
       baseUrl: "",
       apiKey: "sk-test",
       defaultThinkingControl: { provider: "openai", effort: "high" },
-    }), envFixture());
+    }, { action: "keep" }), envFixture());
     const body = await readSuccessData<{ providerType: string; transportProtocol: string; model: string }>(response);
 
     expect(response.status).toBe(200);

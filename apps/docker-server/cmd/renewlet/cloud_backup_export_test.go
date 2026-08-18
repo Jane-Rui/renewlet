@@ -2,7 +2,6 @@ package main
 
 import (
 	"archive/zip"
-	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -74,11 +73,12 @@ func TestCloudBackupExportZipAuditsMissingPrivateAssets(t *testing.T) {
 		}}
 	})
 
-	content, _, err := buildCloudBackupExportZip(app, user)
+	source, _, err := buildCloudBackupExportZip(app, user)
 	if err != nil {
 		t.Fatal(err)
 	}
-	data := cloudBackupExportZipJSONForTest(t, content, "data.json")
+	defer source.Cleanup()
+	data := cloudBackupExportZipJSONForTest(t, source, "data.json")
 	payload := data["data"].(map[string]interface{})
 	subscriptions := payload["subscriptions"].([]interface{})
 	exportedSubscription := subscriptions[0].(map[string]interface{})
@@ -92,7 +92,7 @@ func TestCloudBackupExportZipAuditsMissingPrivateAssets(t *testing.T) {
 		t.Fatalf("missing payment method icon must not stay in data.json: %#v", exportedPaymentMethod)
 	}
 
-	manifest := cloudBackupExportZipJSONForTest(t, content, "manifest.json")
+	manifest := cloudBackupExportZipJSONForTest(t, source, "manifest.json")
 	missingAssets := manifest["missingAssets"].([]interface{})
 	if len(missingAssets) != 2 {
 		t.Fatalf("expected two missing asset audit entries, got %#v", missingAssets)
@@ -112,11 +112,12 @@ func TestCloudBackupExportZipDeduplicatesSharedPrivateAssets(t *testing.T) {
 	createRouteTestSubscription(t, app, user.Id, map[string]interface{}{"name": "First", "logo": assetURL})
 	createRouteTestSubscription(t, app, user.Id, map[string]interface{}{"name": "Second", "logo": assetURL})
 
-	content, _, err := buildCloudBackupExportZip(app, user)
+	source, _, err := buildCloudBackupExportZip(app, user)
 	if err != nil {
 		t.Fatal(err)
 	}
-	data := cloudBackupExportZipJSONForTest(t, content, "data.json")
+	defer source.Cleanup()
+	data := cloudBackupExportZipJSONForTest(t, source, "data.json")
 	payload := data["data"].(map[string]interface{})
 	subscriptions := payload["subscriptions"].([]interface{})
 	if len(subscriptions) != 2 {
@@ -129,14 +130,14 @@ func TestCloudBackupExportZipDeduplicatesSharedPrivateAssets(t *testing.T) {
 			t.Fatalf("expected shared logo to point at %q, got %#v", expectedPath, subscription)
 		}
 	}
-	manifest := cloudBackupExportZipJSONForTest(t, content, "manifest.json")
+	manifest := cloudBackupExportZipJSONForTest(t, source, "manifest.json")
 	if manifest["assets"] != float64(1) {
 		t.Fatalf("expected one ZIP asset in manifest, got %#v", manifest)
 	}
 	if len(manifest["missingAssets"].([]interface{})) != 0 {
 		t.Fatalf("expected no missing assets, got %#v", manifest["missingAssets"])
 	}
-	if !cloudBackupExportZipHasEntryForTest(t, content, expectedPath) {
+	if !cloudBackupExportZipHasEntryForTest(t, source, expectedPath) {
 		t.Fatalf("expected ZIP to contain %s", expectedPath)
 	}
 }
@@ -161,11 +162,12 @@ func TestCloudBackupExportZipIncludesExchangeRateSnapshots(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	content, _, err := buildCloudBackupExportZip(app, user)
+	source, _, err := buildCloudBackupExportZip(app, user)
 	if err != nil {
 		t.Fatal(err)
 	}
-	data := cloudBackupExportZipJSONForTest(t, content, "data.json")
+	defer source.Cleanup()
+	data := cloudBackupExportZipJSONForTest(t, source, "data.json")
 	payload := data["data"].(map[string]interface{})
 	snapshots := payload["exchangeRateSnapshots"].([]interface{})
 	if len(snapshots) != 1 {
@@ -214,9 +216,14 @@ func removeCloudBackupExportAssetFileForTest(t *testing.T, app core.App, id stri
 	}
 }
 
-func cloudBackupExportZipJSONForTest(t *testing.T, content []byte, name string) map[string]interface{} {
+func cloudBackupExportZipJSONForTest(t *testing.T, source cloudBackupSnapshotSource, name string) map[string]interface{} {
 	t.Helper()
-	reader, err := zip.NewReader(bytes.NewReader(content), int64(len(content)))
+	file, err := source.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	reader, err := zip.NewReader(file, source.Size())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,9 +250,14 @@ func cloudBackupExportZipJSONForTest(t *testing.T, content []byte, name string) 
 	return nil
 }
 
-func cloudBackupExportZipHasEntryForTest(t *testing.T, content []byte, name string) bool {
+func cloudBackupExportZipHasEntryForTest(t *testing.T, source cloudBackupSnapshotSource, name string) bool {
 	t.Helper()
-	reader, err := zip.NewReader(bytes.NewReader(content), int64(len(content)))
+	file, err := source.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	reader, err := zip.NewReader(file, source.Size())
 	if err != nil {
 		t.Fatal(err)
 	}

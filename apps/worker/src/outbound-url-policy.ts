@@ -136,10 +136,13 @@ function parseIpv4MappedIpv6(value: string): Ipv4Octets | null {
   if (parts.length !== 2) return null;
   const words = parts.map((part) => Number.parseInt(part, 16));
   if (words.some((word) => !Number.isInteger(word) || word < 0 || word > 0xffff)) return null;
+  const firstWord = words[0];
+  const secondWord = words[1];
+  if (firstWord === undefined || secondWord === undefined) return null;
   return [
-    (words[0]! >>> 8) & 0xff,
-    words[0]! & 0xff,
-    (words[1]! >>> 8) & 0xff,
-    words[1]! & 0xff,
+    (firstWord >>> 8) & 0xff,
+    firstWord & 0xff,
+    (secondWord >>> 8) & 0xff,
+    secondWord & 0xff,
   ];
 }

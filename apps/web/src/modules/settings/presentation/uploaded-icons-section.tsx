@@ -355,7 +355,7 @@ function UploadedAssetRow({
             {kind === "logo" ? t("settings.uploadedIconsKindLogo") : t("settings.uploadedIconsKindIcon")}
           </span>
         </div>
-        <p className="mt-1 break-words text-xs leading-5 text-muted-foreground">
+        <p className="mt-1 wrap-break-word text-xs leading-5 text-muted-foreground">
           {assetMetaLine(asset, locale, formatDateTime, t)}
         </p>
         {deleteError ? <p className="mt-1 text-xs leading-5 text-destructive">{deleteError}</p> : null}

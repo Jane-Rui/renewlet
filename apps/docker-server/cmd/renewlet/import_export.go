@@ -14,15 +14,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 )
 
-const maxImportJSONBodyBytes int64 = 50 << 20
-const maxImportPreviewSubscriptions = 5000
+const maxImportJSONBodyBytes int64 = 8 << 20
+const maxImportPreviewSubscriptions = 1000
 const maxImportApplySubscriptions = 200
 const importExistingPageSize = 500
 const importWarningLowConfidenceKey = "IMPORT_WARNING_LOW_CONFIDENCE_KEY"
@@ -133,12 +135,31 @@ func (r *importApplyRequest) Validate(locale appLocale) error {
 }
 
 func handleImportPreview(app core.App, e *core.RequestEvent) error {
+	startedAt := time.Now()
+	itemCount := 0
+	defer func() {
+		slog.Info("import preview resources",
+			"body_bytes", e.Request.ContentLength,
+			"items", itemCount,
+			"duration", time.Since(startedAt),
+		)
+	}()
 	locale := requestLocale(e.Request)
-	// 导入 payload 不包含二进制资产，但 5000 条订阅和 extra 元数据会超过普通 API 的 1MiB 上限。
+	// 导入请求在完整解析前限制为 8 MiB，避免同时持有大 body、现有订阅和预览结果。
 	body, err := decodeStrictJSONWithLimit[importPreviewRequest](e.Request, locale, maxImportJSONBodyBytes)
 	if err != nil {
+		if isImportTooLargeError(err) {
+			return apiErrorJSON(e, http.StatusRequestEntityTooLarge, "IMPORT_TOO_LARGE", serverText(locale, "import.invalid"), nil)
+		}
 		return e.BadRequestError(validationErrorMessage(locale, "common.invalidRequestBody", err), err)
 	}
+	if err := body.Validate(locale); err != nil {
+		if isImportTooLargeError(err) {
+			return apiErrorJSON(e, http.StatusRequestEntityTooLarge, "IMPORT_TOO_LARGE", serverText(locale, "import.invalid"), nil)
+		}
+		return e.BadRequestError(validationErrorMessage(locale, "common.invalidPayload", err), err)
+	}
+	itemCount = len(body.Payload.Subscriptions)
 	response, err := previewImportPayload(app, e.Auth, body.Payload, body.ConflictMode, body.SkipIndexes)
 	if err != nil {
 		return e.BadRequestError(serverText(locale, "import.invalid"), err)
@@ -147,12 +168,31 @@ func handleImportPreview(app core.App, e *core.RequestEvent) error {
 }
 
 func handleImportApply(app core.App, e *core.RequestEvent) error {
+	startedAt := time.Now()
+	itemCount := 0
+	defer func() {
+		slog.Info("import apply resources",
+			"body_bytes", e.Request.ContentLength,
+			"items", itemCount,
+			"duration", time.Since(startedAt),
+		)
+	}()
 	locale := requestLocale(e.Request)
 	// apply 会重新预览再进事务，防止调用方篡改 preview 结果后直接写库。
 	body, err := decodeStrictJSONWithLimit[importApplyRequest](e.Request, locale, maxImportJSONBodyBytes)
 	if err != nil {
+		if isImportTooLargeError(err) {
+			return apiErrorJSON(e, http.StatusRequestEntityTooLarge, "IMPORT_TOO_LARGE", serverText(locale, "import.invalid"), nil)
+		}
 		return e.BadRequestError(validationErrorMessage(locale, "common.invalidRequestBody", err), err)
 	}
+	if err := body.Validate(locale); err != nil {
+		if isImportTooLargeError(err) {
+			return apiErrorJSON(e, http.StatusRequestEntityTooLarge, "IMPORT_TOO_LARGE", serverText(locale, "import.invalid"), nil)
+		}
+		return e.BadRequestError(validationErrorMessage(locale, "common.invalidPayload", err), err)
+	}
+	itemCount = len(body.Payload.Subscriptions)
 	preview, err := previewImportPayload(app, e.Auth, body.Payload, body.ConflictMode, body.SkipIndexes)
 	if err != nil {
 		return e.BadRequestError(serverText(locale, "import.invalid"), err)
@@ -164,6 +204,11 @@ func handleImportApply(app core.App, e *core.RequestEvent) error {
 		return e.BadRequestError(serverText(locale, "import.applyFailed"), err)
 	}
 	return apiSuccessJSON(e, http.StatusOK, importApplyResponse{importPreviewResponse: preview})
+}
+
+func isImportTooLargeError(err error) bool {
+	message := err.Error()
+	return strings.Contains(message, "body too large") || strings.Contains(message, "IMPORT_TOO_MANY_SUBSCRIPTIONS")
 }
 
 func validateImportPayload(payload importPayload, conflictMode string, skipIndexes []int, maxSubscriptions int, _ appLocale) error {
@@ -325,8 +370,15 @@ func applyImportPayload(app core.App, user *core.Record, payload importPayload, 
 				return err
 			}
 		}
-		if err := applyImportedSettings(txApp, user, payload.Settings); err != nil {
+		scheduleChanged, err := applyImportedSettings(txApp, user, payload.Settings)
+		if err != nil {
 			return err
+		}
+		if scheduleChanged {
+			// 导入 settings 与订阅事实同处一个事务；重建失败必须回滚整包，不能留下旧时区下的 due-index。
+			if _, err := refreshSubscriptionSchedulerState(txApp, user.Id, false); err != nil {
+				return err
+			}
 		}
 		if err := applyImportedCustomConfig(txApp, user, payload.CustomConfig); err != nil {
 			return err
@@ -422,31 +474,41 @@ func setImportSubscriptionRecord(record *core.Record, userID string, subscriptio
 	record.Set("extra", subscription.Extra)
 }
 
-func applyImportedSettings(app core.App, user *core.Record, raw json.RawMessage) error {
+func applyImportedSettings(app core.App, user *core.Record, raw json.RawMessage) (bool, error) {
 	if len(strings.TrimSpace(string(raw))) == 0 {
-		return nil
+		return false, nil
 	}
 	current := defaultAppSettings()
 	record, err := app.FindFirstRecordByFilter("settings", "user = {:user}", dbx.Params{"user": user.Id})
 	if err == nil && record != nil {
 		current = settingsFromRecord(record)
 	} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
+		return false, err
 	}
 	next, err := mergeSettingsForWrite(current, raw)
 	if err != nil {
-		return err
+		return false, err
 	}
+	scheduleChanged := importSettingsAffectSchedule(current, next)
 	if record == nil {
 		collection, err := app.FindCollectionByNameOrId("settings")
 		if err != nil {
-			return err
+			return false, err
 		}
 		record = core.NewRecord(collection)
 		record.Set("user", user.Id)
 	}
 	record.Set("settings", next)
-	return app.Save(record)
+	if err := app.Save(record); err != nil {
+		return false, err
+	}
+	return scheduleChanged, nil
+}
+
+func importSettingsAffectSchedule(before appSettings, after appSettings) bool {
+	return before.Timezone != after.Timezone ||
+		before.NotificationTimeLocal != after.NotificationTimeLocal ||
+		before.NotificationReminderDays != after.NotificationReminderDays
 }
 
 func applyImportedCustomConfig(app core.App, user *core.Record, config *customConfigPayload) error {

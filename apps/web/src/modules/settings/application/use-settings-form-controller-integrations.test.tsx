@@ -5,16 +5,23 @@ import { DEFAULT_CUSTOM_CONFIG, type CustomConfig } from "@/types/config";
 import { DEFAULT_SETTINGS, type AppSettings } from "@/types/subscription";
 import { BUILT_IN_ICON_PROVIDERS, type BuiltInIconProvider } from "@renewlet/shared/built-in-icons";
 import {
+  applySettingsSecretUpdates,
+  appSettingsSecretStatus,
+  type SettingsSecretUpdates,
+} from "@renewlet/shared/schemas/settings";
+import {
   APPEARANCE_PENDING_STORAGE_KEY,
   SETTINGS_APPEARANCE_PENDING_STORAGE_KEY,
   SETTINGS_THEME_MODE_STORAGE_KEY,
 } from "@/lib/theme-storage";
+import { SETTINGS_INTEGRATION_TEST_MESSAGES } from "./settings-form-controller-test-messages";
 import { useSettingsFormController } from "./use-settings-form-controller";
 
 const BASE_SETTINGS: AppSettings = {
   ...DEFAULT_SETTINGS,
   recipientEmail: "alice@example.com",
 };
+type SettingsMutationCommand = { patch: AppSettings; secretUpdates: SettingsSecretUpdates };
 const originalExecCommandDescriptor = Object.getOwnPropertyDescriptor(document, "execCommand");
 
 function providerStatusFixtures(counts: Record<BuiltInIconProvider, number>) {
@@ -41,9 +48,10 @@ function providerStatusFixtures(counts: Record<BuiltInIconProvider, number>) {
 
 const mocks = vi.hoisted(() => ({
   toast: vi.fn(),
-  updateSettingsMutateAsync: vi.fn(),
+  updateSettingsMutateAsync: vi.fn<(command: SettingsMutationCommand) => Promise<unknown>>(),
   refreshRates: vi.fn(),
   remoteSettings: undefined as unknown,
+  remoteSecretStatus: undefined as unknown,
   customConfig: undefined as unknown,
   saveConfig: vi.fn(),
   setTheme: vi.fn(),
@@ -94,6 +102,13 @@ const mocks = vi.hoisted(() => ({
   authSecurityController: { canManage: true, disabled: false, isLoading: false, isSaving: false, isClearingSecret: false, isTesting: false, secretConfigured: false, hasChanges: false, draft: { enabled: false, siteKey: "", secret: "" }, testDialogOpen: false, testDialogSiteKey: "", testResetSignal: 0, testError: undefined, setEnabled: vi.fn(), setSiteKey: vi.fn(), setSecret: vi.fn(), discard: vi.fn(), save: vi.fn(), clearSecret: vi.fn(), startTest: vi.fn(), handleTestDialogOpenChange: vi.fn(), handleTestTokenChange: vi.fn() },
 }));
 
+function settingsMutationResult(command: SettingsMutationCommand) {
+  const persisted = applySettingsSecretUpdates(command.patch, command.secretUpdates);
+  const secretStatus = appSettingsSecretStatus(persisted);
+  mocks.remoteSecretStatus = secretStatus;
+  return { settings: command.patch, secretStatus };
+}
+
 function checkedIconProviders(): BuiltInIconProvider[] {
   return mocks.checkBuiltInIconIndexProviderMutateAsync.mock.calls.map((call) => call[0] as BuiltInIconProvider);
 }
@@ -105,8 +120,11 @@ vi.mock("@/hooks/use-toast", () => ({
 }));
 
 vi.mock("@/hooks/use-settings", () => ({
-  useSettings: () => ({
-    data: mocks.remoteSettings,
+  useSettingsEnvelope: () => ({
+    data: {
+      settings: mocks.remoteSettings,
+      secretStatus: mocks.remoteSecretStatus,
+    },
   }),
   useUpdateSettings: () => ({
     mutateAsync: mocks.updateSettingsMutateAsync,
@@ -258,32 +276,7 @@ vi.mock("@/i18n/I18nProvider", () => ({
         "settings.publicStatusCopyFailedDescription": "当前一键复制不可用，请手动选择并复制 URL。",
         "settings.publicStatusRevokeFailedDescription": "无法撤销公开展示，请稍后重试。",
         "settings.publicStatusUpdateFailedDescription": "无法更新公开展示设置，请稍后重试。",
-        "settings.publicApiCreated": "API Token 已创建",
-        "settings.publicApiCreatedDescription": "明文 token 只显示一次，请复制到需要调用 Public API 的客户端。",
-        "settings.publicApiCreateFailed": "API Token 创建失败",
-        "settings.publicApiCreateFailedDescription": "无法创建 API Token，请稍后重试。",
-        "settings.publicApiTokenCopied": "Token 已复制",
-        "settings.publicApiTokenCopiedDescription": "可以把它用于只读集成或自动化工具。",
-        "settings.publicApiCopyFailed": "复制失败",
-        "settings.publicApiCopyFailedDescription": "当前一键复制不可用，请手动选择并复制 token。",
-        "settings.publicApiDeleted": "API Token 已删除",
-        "settings.publicApiDeletedDescription": "旧 token 已失效，后续 Public API 请求会被拒绝。",
-        "settings.publicApiDeleteFailed": "API Token 删除失败",
-        "settings.publicApiDeleteFailedDescription": "无法删除 API Token，请稍后重试。",
-        "settings.telegramBotCommandsConfigMissing": "请先填写并保存 Bot Token 和 Chat ID。",
-        "settings.telegramBotCommandsSaveFirst": "Telegram 凭据有未保存更改，请先保存设置。",
-        "settings.telegramBotCommandsHttpsRequired": "Telegram Webhook 需要 HTTPS 外部访问地址。",
-        "settings.telegramBotCommandsDemoDisabled": "演示模式下不能安装外部 Telegram 命令。",
-        "settings.telegramBotCommandsInstalling": "安装中...",
-        "settings.telegramBotCommandsDeleting": "删除中...",
-        "settings.telegramBotCommandsInstalled": "Telegram 查询命令已安装",
-        "settings.telegramBotCommandsInstalledDescription": "你可以在目标 Telegram 聊天的命令菜单中查询 Renewlet 订阅摘要。",
-        "settings.telegramBotCommandsInstallFailed": "Telegram 查询命令安装失败",
-        "settings.telegramBotCommandsInstallFailedDescription": "无法安装 Telegram Bot 查询命令，请检查 Bot Token、Chat ID 和 HTTPS 外部访问地址。",
-        "settings.telegramBotCommandsDeleted": "Telegram 查询命令已删除",
-        "settings.telegramBotCommandsDeletedDescription": "Telegram 菜单命令已删除，需要时可以重新安装。",
-        "settings.telegramBotCommandsDeleteFailed": "Telegram 查询命令删除失败",
-        "settings.telegramBotCommandsDeleteFailedDescription": "无法删除 Telegram Bot 查询命令，请稍后重试。",
+        ...SETTINGS_INTEGRATION_TEST_MESSAGES,
       };
       const message = messages[key] ?? key;
       return typeof message === "function" ? message(params ?? {}) : message;
@@ -398,11 +391,12 @@ describe("useSettingsFormController integrations", () => {
       refetch: vi.fn(),
     };
     mocks.remoteSettings = BASE_SETTINGS;
+    mocks.remoteSecretStatus = appSettingsSecretStatus(BASE_SETTINGS);
     mocks.customConfig = DEFAULT_CUSTOM_CONFIG;
     mocks.isCloudflareRuntime = false;
     mocks.accountIdentity = { email: "alice@example.com", role: "admin", banned: false };
     mocks.appStatus = { setupRequired: false, setupEnabled: true, demoMode: false, turnstile: { enabled: false, siteKey: "" }, isLoading: false };
-    mocks.updateSettingsMutateAsync.mockImplementation(async (settings: AppSettings) => settings);
+    mocks.updateSettingsMutateAsync.mockImplementation(async (command: SettingsMutationCommand) => settingsMutationResult(command));
     mocks.saveConfig.mockImplementation(async (config: CustomConfig) => config);
     mocks.refreshRates.mockResolvedValue(undefined);
     mocks.createCalendarFeedMutateAsync.mockResolvedValue({
@@ -648,9 +642,8 @@ describe("useSettingsFormController integrations", () => {
       await result.current.handleSaveChanges();
     });
 
-    expect(mocks.updateSettingsMutateAsync).toHaveBeenCalledWith(expect.objectContaining({
-      telegramMessageFormat: "html",
-    }));
+    const command = mocks.updateSettingsMutateAsync.mock.calls.at(0)?.at(0);
+    expect(command?.patch.telegramMessageFormat).toBe("html");
     expect(mocks.telegramBotCommands.refetch).toHaveBeenCalledTimes(1);
   });
 

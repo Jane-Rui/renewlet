@@ -16,8 +16,14 @@ import { createRawErrorResponseDetails, type RawErrorResponseDetails } from "@/l
 import { CHANNEL_LABELS, type AppSettings, type NotificationChannel } from "@/types/subscription";
 import { useI18n } from "@/i18n/I18nProvider";
 import { notificationService } from "@/services/notification-service";
+import type { SettingsSecretKey } from "@/lib/api/schemas/settings";
+import { settingsSecretUpdatesFromDrafts, type SettingsSecretDrafts } from "@/services/settings-secrets";
 
-export function useNotificationTest(settings: AppSettings) {
+export function useNotificationTest(
+  settings: AppSettings,
+  secretDrafts: SettingsSecretDrafts = {},
+  clearedSecrets: ReadonlySet<SettingsSecretKey> = new Set(),
+) {
   const { toast } = useToast();
   const { t, label } = useI18n();
   const [testingChannel, setTestingChannel] = useState<NotificationChannel | null>(null);
@@ -31,7 +37,7 @@ export function useNotificationTest(settings: AppSettings) {
       setTestingChannel(channel);
 
       try {
-        await notificationService.test(channel, settings);
+        await notificationService.test(channel, settings, settingsSecretUpdatesFromDrafts(secretDrafts, clearedSecrets));
         toast({
           title: t("notification.testSuccess"),
           description: `${t("notification.channel")}：${label(CHANNEL_LABELS[channel])}`,
@@ -49,7 +55,7 @@ export function useNotificationTest(settings: AppSettings) {
         setTestingChannel(null);
       }
     },
-    [label, settings, t, testingChannel, toast],
+    [clearedSecrets, label, secretDrafts, settings, t, testingChannel, toast],
   );
 
   return {

@@ -243,7 +243,7 @@ export function NotificationDingTalkConfigPanel({
                     <span className="text-sm font-medium text-foreground">{example.name}</span>
                     <span className="grid min-w-0 gap-0.5 font-mono text-[11px] leading-4 text-muted-foreground">
                       <span className="min-w-0 truncate">{example.title}</span>
-                      <span className="line-clamp-2 min-w-0 whitespace-pre-wrap break-words">{example.content}</span>
+                      <span className="line-clamp-2 min-w-0 whitespace-pre-wrap wrap-break-word">{example.content}</span>
                     </span>
                   </button>
                 ))}

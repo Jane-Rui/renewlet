@@ -69,7 +69,9 @@ export async function deleteCloudBackupFromTargets(targets: CloudBackupTarget[],
     }
   }
   if (matches.length === 1 && !failedList) {
-    await matches[0]!.client.delete(id);
+    const match = matches.at(0);
+    if (!match) throw new Error("CLOUD_BACKUP_SNAPSHOT_NOT_FOUND");
+    await match.client.delete(id);
     return;
   }
   if (matches.length > 0) {

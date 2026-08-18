@@ -16,9 +16,11 @@ import Providers from "@/providers";
 import { AppErrorBoundary } from "@/components/app-error-boundary";
 import { getInitialLocale } from "@/i18n/locales";
 import { activateLinguiLocale } from "@/i18n/messages";
+import { installAnimationFrameResizeObserver } from "@/lib/browser/animation-frame-resize-observer";
 import "@/index.css";
 
 async function bootstrap() {
+  installAnimationFrameResizeObserver();
   // 首屏渲染前加载当前 locale catalog，避免已保存英文偏好时先闪中文再切换。
   await activateLinguiLocale(getInitialLocale());
 

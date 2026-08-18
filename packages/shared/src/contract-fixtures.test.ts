@@ -4,6 +4,7 @@ import {
   notificationScheduleFixtures,
   outboundUrlPolicyFixtures,
   subscriptionNormalizationFixtures,
+  subscriptionPerformanceFixture,
 } from "./contract-fixtures";
 
 describe("contract fixtures", () => {
@@ -17,5 +18,9 @@ describe("contract fixtures", () => {
 
   it("loads outbound URL policy fixtures", () => {
     expect(outboundUrlPolicyFixtures.length).toBeGreaterThan(0);
+  });
+
+  it("loads subscription performance fixtures", () => {
+    expect(subscriptionPerformanceFixture.scenarios.map(({ size }) => size)).toEqual([10, 100, 1000]);
   });
 });

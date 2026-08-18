@@ -1,51 +1,78 @@
 package main
 
+// cloud_backup_export.go 先扫描可恢复 metadata，再把每个私有资产流式写入 0600 临时 ZIP。
+// bundle 只持有业务 JSON 和资产定位信息，资产内容与最终 ZIP 都不得复制进进程内大 buffer。
+
 import (
-	"archive/zip"
 	"bytes"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
+	"os"
 	"path"
 	"strings"
 	"time"
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/zhiyingzzhou/renewlet/apps/docker-server/internal/snapshotzip"
 )
 
-func buildCloudBackupExportZip(app core.App, user *core.Record) ([]byte, time.Time, error) {
+func buildCloudBackupExportZip(app core.App, user *core.Record) (cloudBackupSnapshotSource, time.Time, error) {
+	startedAt := time.Now()
 	exportedAt := time.Now().UTC()
 	bundle, err := buildCloudBackupExportBundle(app, user, exportedAt)
 	if err != nil {
-		return nil, exportedAt, err
+		return cloudBackupSnapshotSource{}, exportedAt, err
 	}
-	var buffer bytes.Buffer
-	zipWriter := zip.NewWriter(&buffer)
+	tempFile, err := os.CreateTemp("", "renewlet-cloud-backup-*.zip")
+	if err != nil {
+		return cloudBackupSnapshotSource{}, exportedAt, err
+	}
+	cleanup := func() {
+		_ = tempFile.Close()
+		_ = os.Remove(tempFile.Name())
+	}
+	if err := tempFile.Chmod(0o600); err != nil {
+		cleanup()
+		return cloudBackupSnapshotSource{}, exportedAt, err
+	}
+	// Open 延迟到 ZIP writer 逐项消费，避免扫描阶段同时打开文件或持有全部图片内容。
+	assets := make([]snapshotzip.Asset, 0, len(bundle.Assets))
 	for _, asset := range bundle.Assets {
-		writer, err := zipWriter.Create(asset.Path)
-		if err != nil {
-			_ = zipWriter.Close()
-			return nil, exportedAt, err
-		}
-		if _, err := writer.Write(asset.Content); err != nil {
-			_ = zipWriter.Close()
-			return nil, exportedAt, err
-		}
+		currentAsset := asset
+		assets = append(assets, snapshotzip.Asset{
+			Name: currentAsset.Path,
+			Size: currentAsset.SizeBytes,
+			Open: func() (io.ReadCloser, error) { return openCloudBackupAsset(app, currentAsset) },
+		})
 	}
-	if err := writeCloudBackupZipJSON(zipWriter, "data.json", bundle.Payload); err != nil {
-		_ = zipWriter.Close()
-		return nil, exportedAt, err
+	writeResult, err := snapshotzip.Write(tempFile, snapshotzip.Options{
+		Assets: assets,
+		JSONEntries: []snapshotzip.JSONEntry{
+			{Name: "data.json", Value: bundle.Payload},
+			{Name: "manifest.json", Value: bundle.Manifest},
+		},
+		MaxAssetBytes:   maxImageBytes,
+		MaxArchiveBytes: cloudBackupSnapshotMaxBytes,
+	})
+	if err != nil {
+		cleanup()
+		return cloudBackupSnapshotSource{}, exportedAt, err
 	}
-	if err := writeCloudBackupZipJSON(zipWriter, "manifest.json", bundle.Manifest); err != nil {
-		_ = zipWriter.Close()
-		return nil, exportedAt, err
+	if err := tempFile.Close(); err != nil {
+		cleanup()
+		return cloudBackupSnapshotSource{}, exportedAt, err
 	}
-	if err := zipWriter.Close(); err != nil {
-		return nil, exportedAt, err
-	}
-	return buffer.Bytes(), exportedAt, nil
+	slog.Info("cloud backup snapshot built",
+		"entries", writeResult.Entries,
+		"asset_bytes", writeResult.AssetBytes,
+		"zip_bytes", writeResult.ArchiveBytes,
+		"duration", time.Since(startedAt),
+	)
+	return cloudBackupSnapshotSource{path: tempFile.Name(), size: writeResult.ArchiveBytes}, exportedAt, nil
 }
 
 type cloudBackupExportBundle struct {
@@ -55,11 +82,11 @@ type cloudBackupExportBundle struct {
 }
 
 type cloudBackupExportAsset struct {
-	ID        string
-	Path      string
-	MimeType  string
-	SizeBytes int64
-	Content   []byte
+	ID          string
+	Path        string
+	MimeType    string
+	SizeBytes   int64
+	StoragePath string
 }
 
 type cloudBackupExportManifest struct {
@@ -284,11 +311,11 @@ func readCloudBackupAsset(app core.App, userID string, assetID string) (cloudBac
 		return cloudBackupExportAsset{}, cloudBackupAssetReadError{Reason: "file_missing", Err: err}
 	}
 	defer reader.Close()
-	content, err := io.ReadAll(io.LimitReader(reader, maxImageBytes+1))
-	if err != nil {
-		return cloudBackupExportAsset{}, cloudBackupAssetReadError{Reason: "read_failed", Err: err}
+	size := reader.Size()
+	if size < 0 {
+		size = int64(record.GetInt("sizeBytes"))
 	}
-	if len(content) > maxImageBytes {
+	if size < 0 || size > maxImageBytes {
 		return cloudBackupExportAsset{}, cloudBackupAssetReadError{Reason: "too_large", Err: errors.New("ASSET_TOO_LARGE")}
 	}
 	mimeType := strings.TrimSpace(record.GetString("mimeType"))
@@ -296,12 +323,42 @@ func readCloudBackupAsset(app core.App, userID string, assetID string) (cloudBac
 		mimeType = reader.ContentType()
 	}
 	return cloudBackupExportAsset{
-		ID:        assetID,
-		Path:      "assets/" + assetID + extensionFromCloudBackupMime(mimeType, filename),
-		MimeType:  mimeType,
-		SizeBytes: int64(len(content)),
-		Content:   content,
+		ID:          assetID,
+		Path:        "assets/" + assetID + extensionFromCloudBackupMime(mimeType, filename),
+		MimeType:    mimeType,
+		SizeBytes:   size,
+		StoragePath: record.BaseFilesPath() + "/" + filename,
 	}, nil
+}
+
+type cloudBackupAssetStream struct {
+	io.Reader
+	close func() error
+}
+
+func (stream *cloudBackupAssetStream) Close() error {
+	return stream.close()
+}
+
+func openCloudBackupAsset(app core.App, asset cloudBackupExportAsset) (io.ReadCloser, error) {
+	fsys, err := app.NewFilesystem()
+	if err != nil {
+		return nil, err
+	}
+	reader, err := fsys.GetReader(asset.StoragePath)
+	if err != nil {
+		_ = fsys.Close()
+		return nil, err
+	}
+	// PocketBase reader 依赖其 filesystem；组合 Close 保证每个 entry 写完就释放两层资源，而不是等整包结束。
+	return &cloudBackupAssetStream{Reader: reader, close: func() error {
+		readerErr := reader.Close()
+		fsErr := fsys.Close()
+		if readerErr != nil {
+			return readerErr
+		}
+		return fsErr
+	}}, nil
 }
 
 type cloudBackupAssetReadError struct {
@@ -326,16 +383,6 @@ func cloudBackupMissingAssetReason(err error) string {
 		return readErr.Reason
 	}
 	return "read_failed"
-}
-
-func writeCloudBackupZipJSON(zipWriter *zip.Writer, name string, value interface{}) error {
-	writer, err := zipWriter.Create(name)
-	if err != nil {
-		return err
-	}
-	encoder := json.NewEncoder(writer)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(value)
 }
 
 func privateAssetIDFromPath(value string) string {

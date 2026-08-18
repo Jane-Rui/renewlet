@@ -160,7 +160,7 @@ export function AIRecognitionStreamPanel({
             <MessageSquareText className="h-3.5 w-3.5" />
             {t("aiRecognition.streamTextPreview")}
           </div>
-          <p className="line-clamp-3 whitespace-pre-wrap break-words text-xs leading-5 text-foreground">
+          <p className="line-clamp-3 whitespace-pre-wrap wrap-break-word text-xs leading-5 text-foreground">
             {textPreview}
           </p>
         </section>
@@ -175,7 +175,7 @@ export function AIRecognitionStreamPanel({
             </span>
             <ChevronDown className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-180" />
           </summary>
-          <pre className="mt-2 max-h-28 overflow-y-auto whitespace-pre-wrap break-words font-sans text-xs leading-5 text-foreground">
+          <pre className="mt-2 max-h-28 overflow-y-auto whitespace-pre-wrap wrap-break-word font-sans text-xs leading-5 text-foreground">
             {reasoningText}
           </pre>
         </details>

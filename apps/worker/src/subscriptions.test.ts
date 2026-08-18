@@ -296,7 +296,7 @@ describe("Cloudflare subscription mapper", () => {
       tags_json: "{dirty-json",
     } satisfies SubscriptionRow;
     let updateValues: unknown[] | null = null;
-    let schedulerRefreshValues: unknown[] | null = null;
+    let schedulerMutationValues: unknown[] = [];
     const env = {
       DB: {
         prepare: (sql: string) => {
@@ -317,8 +317,8 @@ describe("Cloudflare subscription mapper", () => {
               if (sql.includes("UPDATE subscriptions SET")) {
                 updateValues = values;
               }
-              if (sql.includes("subscription_scheduler_state")) {
-                schedulerRefreshValues = values;
+              if (sql.includes("UPDATE subscription_scheduler_state SET")) {
+                schedulerMutationValues = values;
               }
               return { success: true, meta: { changes: 1 }, results: [] } as unknown as D1Result;
               },
@@ -347,7 +347,8 @@ describe("Cloudflare subscription mapper", () => {
     expect(response.status).toBe(200);
     expect(body.subscription.tags).toEqual([]);
     expect(updateValues?.[21]).toBe("[]");
-    expect(schedulerRefreshValues?.[0]).toBe(USER_ID);
+    expect(schedulerMutationValues.slice(0, 5)).toEqual([0, 0, 0, 0, 0]);
+    expect(schedulerMutationValues.at(-1)).toBe(USER_ID);
   });
 
   it("reads owner-scoped filtered subscription pages with D1 post filtering", async () => {
@@ -411,19 +412,6 @@ describe("Cloudflare subscription mapper", () => {
         prepare: (sql: string) => ({
           bind: (...values: unknown[]) => ({
             first: async <T>() => {
-              if (sql.includes("COUNT(*) AS count") && sql.includes("MAX(updated_at)") && sql.includes("FROM subscriptions")) {
-                const rows = [target, ownerMismatch, foreign].filter((row) => row.user_id === values[0]);
-                return {
-                  count: rows.length,
-                  source_updated_at: rows.reduce((max, row) => row.updated_at > max ? row.updated_at : max, ""),
-                } as T;
-              }
-              if (sql.includes("COUNT(*) AS count FROM subscription_list_index")) {
-                return { count: indexRows.filter((row) => row.user_id === values[0]).length } as T;
-              }
-              if (sql.includes("FROM subscription_user_stats")) {
-                return { total_count: 2, status_counts_json: JSON.stringify({ active: 2 }), source_updated_at: target.updated_at, created_at: "", updated_at: "" } as T;
-              }
               if (sql.includes("FROM settings")) {
                 return { settings_json: JSON.stringify({ ...subscriptionBody(), timezone: "UTC" }) } as T;
               }
@@ -486,187 +474,6 @@ describe("Cloudflare subscription mapper", () => {
     expect(scans[0]?.sql).toContain("idx.reminder_days >= 0");
     expect(scans[0]?.values).toEqual(expect.arrayContaining([USER_ID, "developer_tools", "monthly", "USD", "paypal", 1]));
     expect(scans[1]?.sql).toContain("FROM subscriptions");
-  });
-
-  it("rebuilds missing D1 list projection before filtered reads", async () => {
-    const target = toSubscriptionRow("sub_projection_drift", USER_ID, subscriptionBody({
-      name: "Projection Drift Plan",
-      tags: ["Projection"],
-      website: "https://projection.example.com",
-    }), "2026-06-08T00:00:00.000Z", "2026-06-08T00:00:00.000Z");
-    const toIndexRow = (row: SubscriptionRow): SubscriptionListIndexRow => ({
-      subscription_id: row.id,
-      user_id: row.user_id,
-      name: row.name,
-      website: row.website,
-      notes: row.notes,
-      search_text_lower: [row.name, row.website ?? "", row.notes ?? "", ...JSON.parse(row.tags_json)].join("\n").toLowerCase(),
-      category: row.category,
-      billing_cycle: row.billing_cycle,
-      currency: row.currency,
-      payment_method: row.payment_method,
-      status: row.status,
-      pinned: row.pinned,
-      public_hidden: row.public_hidden,
-      next_billing_date: row.next_billing_date,
-      trial_end_date: row.trial_end_date,
-      one_time_term_count: row.one_time_term_count,
-      auto_renew: row.auto_renew,
-      reminder_days: row.reminder_days,
-      repeat_reminder_enabled: row.repeat_reminder_enabled,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-    });
-    let projectionRows: SubscriptionListIndexRow[] = [];
-    let batchCalled = false;
-    const env = {
-      DB: {
-        prepare: (sql: string) => ({
-          bind: (...values: unknown[]) => ({
-            first: async <T>() => {
-              if (sql.includes("COUNT(*) AS count") && sql.includes("MAX(updated_at)") && sql.includes("FROM subscriptions")) {
-                return { count: 1, source_updated_at: target.updated_at } as T;
-              }
-              if (sql.includes("COUNT(*) AS count FROM subscription_list_index")) return { count: projectionRows.length } as T;
-              if (sql.includes("FROM subscription_user_stats")) {
-                return { total_count: 1, status_counts_json: JSON.stringify({ active: 1 }), source_updated_at: target.updated_at, created_at: "", updated_at: "" } as T;
-              }
-              if (sql.includes("FROM settings")) {
-                return { settings_json: JSON.stringify({ ...subscriptionBody(), timezone: "UTC" }) } as T;
-              }
-              return null;
-            },
-            all: async <T>() => {
-              if (sql.includes("FROM subscription_list_index")) {
-                return { success: true, meta: {}, results: projectionRows as T[] } as D1Result<T>;
-              }
-              if (sql.includes("FROM subscriptions")) {
-                const ids = new Set(values.slice(1));
-                const results = sql.includes("id IN")
-                  ? [target].filter((row) => row.user_id === values[0] && ids.has(row.id))
-                  : [target].filter((row) => row.user_id === values[0]);
-                return { success: true, meta: {}, results: results as T[] } as D1Result<T>;
-              }
-              return { success: true, meta: {}, results: [] as T[] } as D1Result<T>;
-            },
-            run: async () => ({ success: true, meta: { changes: 1 }, results: [] }) as unknown as D1Result,
-          }),
-        }),
-        batch: async (statements: D1PreparedStatement[]) => {
-          batchCalled = true;
-          projectionRows = [toIndexRow(target)];
-          return statements.map(() => ({ success: true, meta: { changes: 1 }, results: [] }) as unknown as D1Result);
-        },
-      } as unknown as D1Database,
-      ASSETS: {} as Fetcher,
-      ASSETS_BUCKET: {} as R2Bucket,
-    } satisfies Env;
-
-    const response = await readSubscriptions(new Request("https://renewlet.test/api/app/subscriptions?q=projection&limit=10", {
-      headers: { authorization: "Bearer test" },
-    }), env);
-    const body = await readSuccessData<{ subscriptions: Array<{ id: string }>; total: number }>(response);
-
-    expect(batchCalled).toBe(true);
-    expect(body.total).toBe(1);
-    expect(body.subscriptions.map((item) => item.id)).toEqual([target.id]);
-  });
-
-  it("rebuilds stale D1 list projection when source updated_at changes without a count change", async () => {
-    const staleTarget = toSubscriptionRow("sub_projection_stale", USER_ID, subscriptionBody({
-      name: "Old Projection Plan",
-      tags: ["Old"],
-      website: "https://old.example.com",
-    }), "2026-06-08T00:00:00.000Z", "2026-06-08T00:00:00.000Z");
-    const freshTarget = {
-      ...staleTarget,
-      name: "Fresh Projection Plan",
-      tags_json: JSON.stringify(["Fresh"]),
-      website: "https://fresh.example.com",
-      updated_at: "2026-06-09T00:00:00.000Z",
-    };
-    const toIndexRow = (row: SubscriptionRow): SubscriptionListIndexRow => ({
-      subscription_id: row.id,
-      user_id: row.user_id,
-      name: row.name,
-      website: row.website,
-      notes: row.notes,
-      search_text_lower: [row.name, row.website ?? "", row.notes ?? "", ...JSON.parse(row.tags_json)].join("\n").toLowerCase(),
-      category: row.category,
-      billing_cycle: row.billing_cycle,
-      currency: row.currency,
-      payment_method: row.payment_method,
-      status: row.status,
-      pinned: row.pinned,
-      public_hidden: row.public_hidden,
-      next_billing_date: row.next_billing_date,
-      trial_end_date: row.trial_end_date,
-      one_time_term_count: row.one_time_term_count,
-      auto_renew: row.auto_renew,
-      reminder_days: row.reminder_days,
-      repeat_reminder_enabled: row.repeat_reminder_enabled,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-    });
-    let projectionRows: SubscriptionListIndexRow[] = [toIndexRow(staleTarget)];
-    let batchCalled = false;
-    const env = {
-      DB: {
-        prepare: (sql: string) => ({
-          bind: (...values: unknown[]) => ({
-            first: async <T>() => {
-              if (sql.includes("COUNT(*) AS count") && sql.includes("MAX(updated_at)") && sql.includes("FROM subscriptions")) {
-                return { count: 1, source_updated_at: freshTarget.updated_at } as T;
-              }
-              if (sql.includes("COUNT(*) AS count FROM subscription_list_index")) return { count: projectionRows.length } as T;
-              if (sql.includes("FROM subscription_user_stats")) {
-                return {
-                  total_count: 1,
-                  status_counts_json: JSON.stringify({ active: 1 }),
-                  source_updated_at: staleTarget.updated_at,
-                  created_at: "",
-                  updated_at: "",
-                } as T;
-              }
-              if (sql.includes("FROM settings")) {
-                return { settings_json: JSON.stringify({ ...subscriptionBody(), timezone: "UTC" }) } as T;
-              }
-              return null;
-            },
-            all: async <T>() => {
-              if (sql.includes("FROM subscription_list_index")) {
-                return { success: true, meta: {}, results: projectionRows as T[] } as D1Result<T>;
-              }
-              if (sql.includes("FROM subscriptions")) {
-                const ids = new Set(values.slice(1));
-                const results = sql.includes("id IN")
-                  ? [freshTarget].filter((row) => row.user_id === values[0] && ids.has(row.id))
-                  : [freshTarget].filter((row) => row.user_id === values[0]);
-                return { success: true, meta: {}, results: results as T[] } as D1Result<T>;
-              }
-              return { success: true, meta: {}, results: [] as T[] } as D1Result<T>;
-            },
-            run: async () => ({ success: true, meta: { changes: 1 }, results: [] }) as unknown as D1Result,
-          }),
-        }),
-        batch: async (statements: D1PreparedStatement[]) => {
-          batchCalled = true;
-          projectionRows = [toIndexRow(freshTarget)];
-          return statements.map(() => ({ success: true, meta: { changes: 1 }, results: [] }) as unknown as D1Result);
-        },
-      } as unknown as D1Database,
-      ASSETS: {} as Fetcher,
-      ASSETS_BUCKET: {} as R2Bucket,
-    } satisfies Env;
-
-    const response = await readSubscriptions(new Request("https://renewlet.test/api/app/subscriptions?q=fresh&limit=10", {
-      headers: { authorization: "Bearer test" },
-    }), env);
-    const body = await readSuccessData<{ subscriptions: Array<{ id: string; name: string }>; total: number }>(response);
-
-    expect(batchCalled).toBe(true);
-    expect(body.total).toBe(1);
-    expect(body.subscriptions.map((item) => ({ id: item.id, name: item.name }))).toEqual([{ id: freshTarget.id, name: freshTarget.name }]);
   });
 
   it("clears one-time term fields for recurring subscriptions", () => {

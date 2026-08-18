@@ -70,14 +70,10 @@ func TestNotificationHistoryRouteNormalizesNoEnabledChannelsJobArrays(t *testing
 	}
 
 	body := requestNotificationHistory(t, app, token)
-	if len(body.History.Jobs) != 1 {
-		t.Fatalf("expected one history job, got %#v", body.History.Jobs)
+	if len(body.Jobs) != 1 {
+		t.Fatalf("expected one history job, got %#v", body.Jobs)
 	}
-	assertNormalizedCronResult(t, body.History.Jobs[0])
-	if body.Summary.LatestJob == nil {
-		t.Fatal("expected latest job in history summary")
-	}
-	assertNormalizedCronResult(t, *body.Summary.LatestJob)
+	assertNormalizedCronResult(t, body.Jobs[0])
 }
 
 func TestNotificationHistoryRouteDropsRawLegacyMalformedResult(t *testing.T) {
@@ -122,14 +118,10 @@ func TestNotificationHistoryRouteDropsRawLegacyMalformedResult(t *testing.T) {
 	}`))
 
 	body := requestNotificationHistory(t, app, token)
-	if len(body.History.Jobs) != 1 {
-		t.Fatalf("expected one history job, got %#v", body.History.Jobs)
+	if len(body.Jobs) != 1 {
+		t.Fatalf("expected one history job, got %#v", body.Jobs)
 	}
-	assertEmptyJobResult(t, body.History.Jobs[0])
-	if body.Summary.LatestJob == nil {
-		t.Fatal("expected latest job in history summary")
-	}
-	assertEmptyJobResult(t, *body.Summary.LatestJob)
+	assertEmptyJobResult(t, body.Jobs[0])
 }
 
 func TestNotificationHistoryRouteNormalizesNoDueItemsMessageArrays(t *testing.T) {
@@ -158,10 +150,10 @@ func TestNotificationHistoryRouteNormalizesNoDueItemsMessageArrays(t *testing.T)
 	}
 
 	body := requestNotificationHistory(t, app, token)
-	if len(body.History.Jobs) != 1 {
-		t.Fatalf("expected one history job, got %#v", body.History.Jobs)
+	if len(body.Jobs) != 1 {
+		t.Fatalf("expected one history job, got %#v", body.Jobs)
 	}
-	cronResult := assertNormalizedCronResult(t, body.History.Jobs[0])
+	cronResult := assertNormalizedCronResult(t, body.Jobs[0])
 	if cronResult.Reason == nil || *cronResult.Reason != "no_due_items" {
 		t.Fatalf("expected no_due_items result, got %#v", cronResult.Reason)
 	}
@@ -202,10 +194,10 @@ func TestNotificationHistoryRouteReturnsEffectiveReminderDays(t *testing.T) {
 	}
 
 	body := requestNotificationHistory(t, app, token)
-	if len(body.History.Jobs) != 1 {
-		t.Fatalf("expected one history job, got %#v", body.History.Jobs)
+	if len(body.Jobs) != 1 {
+		t.Fatalf("expected one history job, got %#v", body.Jobs)
 	}
-	cronResult := assertNormalizedCronResult(t, body.History.Jobs[0])
+	cronResult := assertNormalizedCronResult(t, body.Jobs[0])
 	if len(cronResult.Message.Items) != 1 {
 		t.Fatalf("expected one notification item, got %#v", cronResult.Message.Items)
 	}
@@ -214,16 +206,42 @@ func TestNotificationHistoryRouteReturnsEffectiveReminderDays(t *testing.T) {
 	}
 }
 
-func requestNotificationHistory(t *testing.T, app core.App, token string) notificationHistoryResponse {
+func TestNotificationHistorySecondPageDoesNotReadSubscriptions(t *testing.T) {
+	app := newSchemaTestApp(t)
+	if err := ensureSchema(app); err != nil {
+		t.Fatal(err)
+	}
+	user, token := createRouteTestUser(t, app, "history-page-isolation")
+	createRawNotificationHistoryJobRecordForDate(t, app, user.Id, "2026-05-17", types.JSONRaw(`{}`))
+	createRawNotificationHistoryJobRecordForDate(t, app, user.Id, "2026-05-18", types.JSONRaw(`{}`))
+	if _, err := app.DB().NewQuery("DROP TABLE subscriptions").Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	res := serveTestRequest(t, app, http.MethodGet, "/api/app/notifications/history?status=all&limit=1&offset=1", "", token)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected history page to remain independent from subscriptions, got %d: %s", res.Code, res.Body.String())
+	}
+	body := decodeAPISuccessDataForTest[notificationHistoryPageResponse](t, res.Body.Bytes())
+	if len(body.Jobs) != 1 || body.Limit != 1 || body.Offset != 1 {
+		t.Fatalf("unexpected second history page: %#v", body)
+	}
+}
+
+func requestNotificationHistory(t *testing.T, app core.App, token string) notificationHistoryPageResponse {
 	t.Helper()
 	res := serveTestRequest(t, app, http.MethodGet, "/api/app/notifications/history?status=all&limit=20&offset=0", "", token)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected notification history 200, got %d: %s", res.Code, res.Body.String())
 	}
-	return decodeAPISuccessDataForTest[notificationHistoryResponse](t, res.Body.Bytes())
+	return decodeAPISuccessDataForTest[notificationHistoryPageResponse](t, res.Body.Bytes())
 }
 
 func createRawNotificationHistoryJobRecord(t *testing.T, app core.App, userID string, result interface{}) *core.Record {
+	return createRawNotificationHistoryJobRecordForDate(t, app, userID, "2026-05-17", result)
+}
+
+func createRawNotificationHistoryJobRecordForDate(t *testing.T, app core.App, userID string, scheduledDate string, result interface{}) *core.Record {
 	t.Helper()
 	collection, err := app.FindCollectionByNameOrId("notification_jobs")
 	if err != nil {
@@ -231,10 +249,10 @@ func createRawNotificationHistoryJobRecord(t *testing.T, app core.App, userID st
 	}
 	record := core.NewRecord(collection)
 	record.Set("user", userID)
-	record.Set("scheduledLocalDate", "2026-05-17")
+	record.Set("scheduledLocalDate", scheduledDate)
 	record.Set("scheduledLocalTime", "08:00")
 	record.Set("timeZone", "UTC")
-	record.Set("scheduledInstantUtc", "2026-05-17T08:00:00Z")
+	record.Set("scheduledInstantUtc", scheduledDate+"T08:00:00Z")
 	record.Set("status", notificationStatusSkipped)
 	record.Set("attempts", 1)
 	record.Set("lastError", "")

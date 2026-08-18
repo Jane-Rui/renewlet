@@ -45,12 +45,12 @@ var (
 // 为什么放在 RecordValidate：同一规则可以覆盖自定义 API、PocketBase SDK 和管理后台写入。
 func registerRecordHooks(app core.App) {
 	app.OnRecordValidate().BindFunc(func(e *core.RecordEvent) error {
-		if err := demoModePolicy.EnforceRecordValidation(app, e.Record); err != nil {
+		if err := demoModePolicy.EnforceRecordValidation(e.App, e.Record); err != nil {
 			return err
 		}
 		switch e.Record.Collection().Name {
 		case "subscriptions":
-			if err := normalizeSubscriptionRecordWithApp(app, e.Record); err != nil {
+			if err := normalizeSubscriptionRecordWithApp(e.App, e.Record); err != nil {
 				return err
 			}
 		case "settings":
@@ -74,7 +74,7 @@ func registerRecordHooks(app core.App) {
 				return err
 			}
 		case "calendar_feeds":
-			if err := normalizeCalendarFeedRecord(app, e.Record); err != nil {
+			if err := normalizeCalendarFeedRecord(e.App, e.Record); err != nil {
 				return err
 			}
 		case "public_status_pages":
@@ -106,28 +106,54 @@ func registerRecordHooks(app core.App) {
 		}
 		return e.Next()
 	})
-	app.OnRecordAfterCreateSuccess("subscriptions").BindFunc(func(e *core.RecordEvent) error {
-		if err := e.Next(); err != nil {
-			return err
-		}
-		return refreshSubscriptionDerivedStateAfterWrite(app, e.Record)
+	app.OnRecordCreateExecute("subscriptions").BindFunc(func(e *core.RecordEvent) error {
+		return executeSubscriptionDerivedMutation(e, subscriptionDerivedCreate)
 	})
-	app.OnRecordAfterUpdateSuccess("subscriptions").BindFunc(func(e *core.RecordEvent) error {
-		if err := e.Next(); err != nil {
-			return err
-		}
-		return refreshSubscriptionDerivedStateAfterWrite(app, e.Record)
+	app.OnRecordUpdateExecute("subscriptions").BindFunc(func(e *core.RecordEvent) error {
+		return executeSubscriptionDerivedMutation(e, subscriptionDerivedUpdate)
 	})
-	app.OnRecordAfterDeleteSuccess("subscriptions").BindFunc(func(e *core.RecordEvent) error {
-		if err := e.Next(); err != nil {
-			return err
-		}
-		return refreshSubscriptionDerivedStateAfterWrite(app, e.Record)
+	app.OnRecordDeleteExecute("subscriptions").BindFunc(func(e *core.RecordEvent) error {
+		return executeSubscriptionDerivedMutation(e, subscriptionDerivedDelete)
 	})
 }
 
-func refreshSubscriptionDerivedStateAfterWrite(app core.App, record *core.Record) error {
-	return refreshSubscriptionDerivedState(app, record.GetString("user"), true)
+func executeSubscriptionDerivedMutation(e *core.RecordEvent, kind subscriptionDerivedMutationKind) error {
+	var before *core.Record
+	if kind != subscriptionDerivedCreate {
+		if original := e.Record.Original(); original != nil {
+			before = original.Clone()
+		}
+	}
+	run := func(txApp core.App) error {
+		if kind != subscriptionDerivedCreate && (before == nil || before.Id == "" || subscriptionRecordOwner(before) == "") {
+			// PocketBase 新建后复用同一 Record 时不会刷新 Original；仅该生命周期缺口需要在事实写前从当前事务回读。
+			lastSavedID, ok := e.Record.LastSavedPK().(string)
+			if !ok || lastSavedID == "" {
+				return errors.New("SUBSCRIPTION_DERIVED_IDENTITY_REQUIRED")
+			}
+			persisted, err := txApp.FindRecordById("subscriptions", lastSavedID)
+			if err != nil {
+				return err
+			}
+			before = persisted.Clone()
+		}
+		originalApp := e.App
+		e.App = txApp
+		defer func() { e.App = originalApp }()
+		if err := e.Next(); err != nil {
+			return err
+		}
+		var after *core.Record
+		if kind != subscriptionDerivedDelete {
+			after = e.Record.Clone()
+		}
+		// PocketBase execute hook 位于事实写 SQL 外层；派生 mutation 必须复用同一个 txApp 才能让任一失败回滚整次保存。
+		return applySubscriptionDerivedMutation(txApp, subscriptionDerivedMutation{Before: before, After: after, Kind: kind})
+	}
+	if e.App.IsTransactional() {
+		return run(e.App)
+	}
+	return e.App.RunInTransaction(run)
 }
 
 func normalizeCloudBackupTargetRecord(record *core.Record) error {

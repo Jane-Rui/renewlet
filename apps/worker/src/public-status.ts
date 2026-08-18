@@ -256,7 +256,9 @@ function todayDateOnly(timezone: string): string {
 function publicStatusLogoUrl(request: Request, token: string, logo: string): string {
   const match = privateAssetLogoPattern.exec(logo);
   if (!match) return logo;
-  return `${requestOrigin(request)}/api/public/status/${encodeURIComponent(token)}/assets/${encodeURIComponent(match[1]!)}`;
+  const assetId = match[1];
+  if (!assetId) return logo;
+  return `${requestOrigin(request)}/api/public/status/${encodeURIComponent(token)}/assets/${encodeURIComponent(assetId)}`;
 }
 
 async function publicStatusAssetIsReferenced(env: Env, userId: string, assetId: string): Promise<boolean> {

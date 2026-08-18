@@ -3,14 +3,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readSuccessData } from "./api-test-helpers";
 import { listAIModels } from "./ai-models";
 import type { Env } from "./types";
+import { createDefaultAppSettings } from "@renewlet/shared/settings-defaults";
 
 const authMocks = vi.hoisted(() => ({
   requireAuth: vi.fn(),
+  getSettings: vi.fn(),
 }));
 
 vi.mock("./auth", () => ({
   requireAuth: authMocks.requireAuth,
 }));
+
+vi.mock("./db", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./db")>();
+  return { ...actual, getSettings: authMocks.getSettings };
+});
 
 const authUser = {
   id: "usr_models",
@@ -47,6 +54,11 @@ describe("Cloudflare AI model list proxy", () => {
     vi.useRealTimers();
     authMocks.requireAuth.mockReset();
     authMocks.requireAuth.mockResolvedValue({ user: authUser, session: { id: "ses" } });
+    const defaults = createDefaultAppSettings();
+    authMocks.getSettings.mockReset().mockResolvedValue({
+      ...defaults,
+      aiRecognition: { ...defaults.aiRecognition, apiKey: "sk-test-secret" },
+    });
     vi.unstubAllGlobals();
   });
 
@@ -66,7 +78,7 @@ describe("Cloudflare AI model list proxy", () => {
     const response = await listAIModels(requestFor({
       providerType: "openai",
       baseUrl: "",
-      apiKey: "sk-test-secret",
+      apiKey: { action: "keep" },
     }), envFixture());
     const body = await readSuccessData<{ models: Array<{ id: string; ownedBy: string | null }>; truncated: boolean }>(response);
 
@@ -101,7 +113,7 @@ describe("Cloudflare AI model list proxy", () => {
     const response = await listAIModels(requestFor({
       providerType: "gemini",
       baseUrl: "",
-      apiKey: "AIza-test-secret",
+      apiKey: { action: "set", value: "AIza-test-secret" },
     }), envFixture());
     const body = await readSuccessData<{ models: Array<{ id: string; displayName: string | null; inputTokenLimit: number | null; capabilities: { thinking: boolean | null } }> }>(response);
 
@@ -122,7 +134,7 @@ describe("Cloudflare AI model list proxy", () => {
     const response = await listAIModels(requestFor({
       providerType: "anthropic",
       baseUrl: "",
-      apiKey: "sk-ant-test-secret",
+      apiKey: { action: "set", value: "sk-ant-test-secret" },
     }), envFixture());
     const body = await readSuccessData<{ models: Array<{ id: string; displayName: string | null }> }>(response);
     const headers = (fetchMock.mock.calls[0]?.[1] as { headers: Headers }).headers;
@@ -142,7 +154,7 @@ describe("Cloudflare AI model list proxy", () => {
     const response = await listAIModels(requestFor({
       providerType: "openai-compatible",
       baseUrl: "https://llm.example.com/v1/",
-      apiKey: "",
+      apiKey: { action: "clear" },
     }), envFixture());
     const body = await readSuccessData<{ models: Array<{ id: string }> }>(response);
 
@@ -160,7 +172,7 @@ describe("Cloudflare AI model list proxy", () => {
     await expect(listAIModels(requestFor({
       providerType: "openai",
       baseUrl: "",
-      apiKey: "sk-test-secret",
+      apiKey: { action: "set", value: "sk-test-secret" },
     }), envFixture())).rejects.toMatchObject({
       status: 401,
       code: "AI_MODEL_LIST_FAILED",
@@ -176,7 +188,7 @@ describe("Cloudflare AI model list proxy", () => {
     await expect(listAIModels(requestFor({
       providerType: "openai",
       baseUrl: "",
-      apiKey: "sk-test-secret",
+      apiKey: { action: "set", value: "sk-test-secret" },
     }), envFixture())).rejects.toMatchObject({
       status: 429,
       code: "AI_MODEL_LIST_FAILED",
@@ -192,7 +204,7 @@ describe("Cloudflare AI model list proxy", () => {
     await expect(listAIModels(requestFor({
       providerType: "openai",
       baseUrl: "",
-      apiKey: "sk-test-secret",
+      apiKey: { action: "set", value: "sk-test-secret" },
     }), envFixture())).rejects.toMatchObject({
       status: 503,
       code: "AI_MODEL_LIST_FAILED",
@@ -208,7 +220,7 @@ describe("Cloudflare AI model list proxy", () => {
     await expect(listAIModels(requestFor({
       providerType: "openai",
       baseUrl: "",
-      apiKey: "sk-test-secret",
+      apiKey: { action: "set", value: "sk-test-secret" },
     }), envFixture())).rejects.toMatchObject({
       status: 400,
       code: "AI_MODEL_LIST_INVALID_JSON",
@@ -224,7 +236,7 @@ describe("Cloudflare AI model list proxy", () => {
     await expect(listAIModels(requestFor({
       providerType: "openai",
       baseUrl: "",
-      apiKey: "sk-test-secret",
+      apiKey: { action: "set", value: "sk-test-secret" },
     }), envFixture())).rejects.toMatchObject({
       status: 413,
       code: "AI_MODEL_LIST_RESPONSE_TOO_LARGE",
@@ -242,7 +254,7 @@ describe("Cloudflare AI model list proxy", () => {
     const caughtPromise = listAIModels(requestFor({
       providerType: "gemini",
       baseUrl: "",
-      apiKey: "AIza-test-secret",
+      apiKey: { action: "set", value: "AIza-test-secret" },
     }), envFixture()).catch((error: unknown) => error);
 
     await vi.advanceTimersByTimeAsync(15_000);

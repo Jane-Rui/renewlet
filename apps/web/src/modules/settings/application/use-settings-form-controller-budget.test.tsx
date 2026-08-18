@@ -4,6 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_CUSTOM_CONFIG, type CustomConfig } from "@/types/config";
 import { DEFAULT_SETTINGS, type AppSettings } from "@/types/subscription";
 import {
+  applySettingsSecretUpdates,
+  appSettingsSecretStatus,
+  type SettingsSecretUpdates,
+} from "@renewlet/shared/schemas/settings";
+import {
   APPEARANCE_PENDING_STORAGE_KEY,
   SETTINGS_APPEARANCE_PENDING_STORAGE_KEY,
   SETTINGS_THEME_MODE_STORAGE_KEY,
@@ -15,11 +20,14 @@ const BASE_SETTINGS: AppSettings = {
   recipientEmail: "alice@example.com",
 };
 
+type SettingsMutationCommand = { patch: AppSettings; secretUpdates: SettingsSecretUpdates };
+
 const mocks = vi.hoisted(() => ({
   toast: vi.fn(),
-  updateSettingsMutateAsync: vi.fn(),
+  updateSettingsMutateAsync: vi.fn<(command: SettingsMutationCommand) => Promise<unknown>>(),
   refreshRates: vi.fn(),
   remoteSettings: undefined as unknown,
+  remoteSecretStatus: undefined as unknown,
   customConfig: undefined as unknown,
   saveConfig: vi.fn(),
   setTheme: vi.fn(),
@@ -49,12 +57,21 @@ const mocks = vi.hoisted(() => ({
   authSecurityController: { canManage: true, disabled: false, isLoading: false, isSaving: false, isClearingSecret: false, isTesting: false, secretConfigured: false, hasChanges: false, draft: { enabled: false, siteKey: "", secret: "" }, testDialogOpen: false, testDialogSiteKey: "", testResetSignal: 0, testError: undefined, setEnabled: vi.fn(), setSiteKey: vi.fn(), setSecret: vi.fn(), discard: vi.fn(), save: vi.fn(), clearSecret: vi.fn(), startTest: vi.fn(), handleTestDialogOpenChange: vi.fn(), handleTestTokenChange: vi.fn() },
 }));
 
+function settingsMutationResult(command: SettingsMutationCommand) {
+  const persisted = applySettingsSecretUpdates(command.patch, command.secretUpdates);
+  const secretStatus = appSettingsSecretStatus(persisted);
+  mocks.remoteSecretStatus = secretStatus;
+  return { settings: command.patch, secretStatus };
+}
+
 vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: mocks.toast }),
 }));
 
 vi.mock("@/hooks/use-settings", () => ({
-  useSettings: () => ({ data: mocks.remoteSettings }),
+  useSettingsEnvelope: () => ({
+    data: { settings: mocks.remoteSettings, secretStatus: mocks.remoteSecretStatus },
+  }),
   useUpdateSettings: () => ({ mutateAsync: mocks.updateSettingsMutateAsync }),
 }));
 
@@ -215,13 +232,14 @@ describe("useSettingsFormController monthly budget input", () => {
     localStorage.removeItem(SETTINGS_APPEARANCE_PENDING_STORAGE_KEY);
     localStorage.removeItem(SETTINGS_THEME_MODE_STORAGE_KEY);
     mocks.remoteSettings = BASE_SETTINGS;
+    mocks.remoteSecretStatus = appSettingsSecretStatus(BASE_SETTINGS);
     mocks.customConfig = DEFAULT_CUSTOM_CONFIG;
     mocks.publicApiTokens = { data: [], isLoading: false };
     mocks.telegramBotCommands = { data: undefined, isLoading: false, refetch: vi.fn().mockResolvedValue(undefined) };
     mocks.isCloudflareRuntime = false;
     mocks.accountIdentity = { email: "alice@example.com", role: "admin", banned: false };
     mocks.appStatus = { setupRequired: false, setupEnabled: true, demoMode: false, turnstile: { enabled: false, siteKey: "" }, isLoading: false };
-    mocks.updateSettingsMutateAsync.mockImplementation(async (settings: AppSettings) => settings);
+    mocks.updateSettingsMutateAsync.mockImplementation(async (command: SettingsMutationCommand) => settingsMutationResult(command));
     mocks.saveConfig.mockImplementation(async (config: CustomConfig) => config);
     mocks.refreshRates.mockResolvedValue(undefined);
   });

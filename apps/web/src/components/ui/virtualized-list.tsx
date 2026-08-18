@@ -161,7 +161,6 @@ export function VirtualizedList({
     observeElementRect: observeRectWithFallback,
     overscan,
     scrollMargin,
-    useAnimationFrameWithResizeObserver: true,
   });
 
   return (

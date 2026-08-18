@@ -83,7 +83,7 @@ export function MediaThumbnailButton({
       <TooltipContent
         side="top"
         align="center"
-        className="max-w-[calc(100vw-2rem)] whitespace-normal break-words text-xs leading-relaxed sm:max-w-md"
+        className="max-w-[calc(100vw-2rem)] whitespace-normal wrap-break-word text-xs leading-relaxed sm:max-w-md"
       >
         {tooltip}
       </TooltipContent>
