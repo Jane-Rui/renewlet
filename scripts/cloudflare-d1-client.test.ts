@@ -72,8 +72,9 @@ test("uses the official single-statement and batch request bodies", async () => 
 
   const singleBody = calls.at(0)?.body;
   const batchBody = calls.at(1)?.body;
-  assert.equal(typeof singleBody, "string");
-  assert.equal(typeof batchBody, "string");
+  if (typeof singleBody !== "string" || typeof batchBody !== "string") {
+    assert.fail("D1 REST requests must serialize JSON into string bodies");
+  }
   assert.deepEqual(JSON.parse(singleBody), { sql: "SELECT ? AS value", params: [1] });
   assert.deepEqual(JSON.parse(batchBody), {
     batch: [

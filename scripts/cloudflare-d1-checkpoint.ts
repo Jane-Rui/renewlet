@@ -64,7 +64,11 @@ export function parseBookmarkJson(stdout: string): string {
   } catch {
     throw new Error("Wrangler Time Travel returned invalid JSON");
   }
-  if (!isRecord(payload) || Object.keys(payload).length !== 1 || !("bookmark" in payload)) {
+  if (!isRecord(payload)) {
+    throw new Error("Wrangler Time Travel returned an invalid JSON object");
+  }
+  if (!("bookmark" in payload)) throw new Error("Wrangler Time Travel JSON is missing bookmark");
+  if (Object.keys(payload).length !== 1) {
     throw new Error("Wrangler Time Travel returned an invalid JSON object");
   }
   return validateBookmark(payload["bookmark"]);
