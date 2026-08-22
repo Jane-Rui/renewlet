@@ -7,6 +7,44 @@ on:
       - dev
       - main
   workflow_dispatch:
+    inputs:
+      healthcheck_url:
+        description: Optional URL to probe after a remote deployment. Overrides HEALTHCHECK_URL.
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      source_ref:
+        description: Commit SHA or ref to build and deploy. Defaults to the triggering revision.
+        required: false
+        default: ''
+        type: string
+      deployment_reason:
+        description: Human-readable reason included in the deployment notification.
+        required: false
+        default: Upstream synchronization
+        type: string
+      healthcheck_url:
+        description: Optional URL to probe after a remote deployment. Overrides HEALTHCHECK_URL.
+        required: false
+        type: string
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: false
+      CLOUDFLARE_ACCOUNT_ID:
+        required: false
+      WORKER_NAME:
+        required: false
+      D1_DATABASE_ID:
+        required: false
+      R2_BUCKET_NAME:
+        required: false
+      HEALTHCHECK_URL:
+        required: false
+      DINGTALK_WEBHOOK:
+        required: false
+      DINGTALK_SIGNING_SECRET:
+        required: false
 
 permissions:
   contents: read
@@ -24,7 +62,7 @@ env:
   D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
   R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
   CLOUDFLARE_OBSERVABILITY_PROFILE: development
-  RENEWLET_COMMIT: ${{ github.sha }}
+  RENEWLET_COMMIT: ${{ inputs.source_ref || github.sha }}
 
 jobs:
   deploy:
@@ -32,9 +70,15 @@ jobs:
     if: ${{ github.repository != 'zhiyingzzhou/renewlet' || github.ref == 'refs/heads/dev' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      remote_deploy_ready: ${{ steps.deployment-secrets.outputs.ready }}
+      healthcheck_status: ${{ steps.healthcheck.outputs.status }}
+      revision: ${{ steps.revision.outputs.short_sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v7.0.0
@@ -48,15 +92,21 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Resolve build metadata
+        id: revision
         shell: bash
         run: |
           set -euo pipefail
           PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          DEPLOY_SHA="$(git rev-parse HEAD)"
           SHORT_SHA="${GITHUB_SHA::7}"
+          if [[ "$DEPLOY_SHA" != "$GITHUB_SHA" ]]; then
+            SHORT_SHA="${DEPLOY_SHA::7}"
+          fi
           {
             echo "RENEWLET_VERSION=${PACKAGE_VERSION}-dev+${SHORT_SHA}"
             echo "RENEWLET_BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           } >> "$GITHUB_ENV"
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Check Cloudflare build
         run: pnpm check:cloudflare
@@ -110,8 +160,89 @@ jobs:
         if: steps.deployment-secrets.outputs.ready == 'true'
         run: pnpm exec wrangler deploy --config "$CI_WRANGLER_CONFIG"
 
+      - name: Health check deployed service
+        id: healthcheck
+        if: steps.deployment-secrets.outputs.ready == 'true'
+        env:
+          HEALTHCHECK_URL: ${{ inputs.healthcheck_url || secrets.HEALTHCHECK_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$HEALTHCHECK_URL" ]]; then
+            echo "status=skipped" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Health check skipped::Set HEALTHCHECK_URL or provide the workflow input to enable post-deploy probing."
+            exit 0
+          fi
+
+          if curl --fail --silent --show-error --location --retry 2 --retry-connrefused --max-time 30 "$HEALTHCHECK_URL" --output /dev/null; then
+            echo "status=passed" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "status=failed" >> "$GITHUB_OUTPUT"
+          exit 1
+
       - name: Report manual D1 recovery command
         if: ${{ failure() && steps.deployment-secrets.outputs.ready == 'true' && steps.d1-checkpoint.outputs.bookmark != '' }}
         env:
           D1_TIME_TRAVEL_BOOKMARK: ${{ steps.d1-checkpoint.outputs.bookmark }}
         run: pnpm exec tsx scripts/cloudflare-d1-checkpoint.ts recovery-hint --config "$CI_WRANGLER_CONFIG"
+
+  notify:
+    needs: deploy
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Notify DingTalk
+        env:
+          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+          DINGTALK_SIGNING_SECRET: ${{ secrets.DINGTALK_SIGNING_SECRET }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          REMOTE_DEPLOY_READY: ${{ needs.deploy.outputs.remote_deploy_ready }}
+          HEALTHCHECK_STATUS: ${{ needs.deploy.outputs.healthcheck_status }}
+          REVISION: ${{ needs.deploy.outputs.revision || github.sha }}
+          DEPLOYMENT_REASON: ${{ inputs.deployment_reason || 'Direct branch update' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$DINGTALK_WEBHOOK" || -z "$DINGTALK_SIGNING_SECRET" ]]; then
+            echo "::notice title=DingTalk notification skipped::Set DINGTALK_WEBHOOK and DINGTALK_SIGNING_SECRET to enable deployment notifications."
+            exit 0
+          fi
+
+          if [[ "$DEPLOY_RESULT" != "success" ]]; then
+            title="Renewlet 部署失败"
+            icon="❌"
+            detail="请查看 GitHub Actions 日志。"
+          elif [[ "$REMOTE_DEPLOY_READY" != "true" ]]; then
+            title="Renewlet 部署已跳过"
+            icon="⚠️"
+            detail="Cloudflare 所需 Secret 未配置完整；构建检查仍已执行。"
+          else
+            title="Renewlet 部署成功"
+            icon="🚀"
+            case "$HEALTHCHECK_STATUS" in
+              passed) detail="Cloudflare 已更新，健康检查通过。" ;;
+              skipped|"") detail="Cloudflare 已更新；未配置 HEALTHCHECK_URL，因此未执行健康检查。" ;;
+              *) detail="Cloudflare 已更新。" ;;
+            esac
+          fi
+
+          message="$(printf '### %s %s\n\n%s\n\n- 原因：%s\n- 版本：`%s`\n- [查看执行详情](%s)' \
+            "$icon" "$title" "$detail" "$DEPLOYMENT_REASON" "${REVISION:0:12}" "$RUN_URL")"
+          payload=$(jq -nc --arg title "$title" --arg text "$message" '{msgtype: "markdown", markdown: {title: $title, text: $text}}')
+          timestamp="$(date +%s000)"
+          signature=$(printf '%s\n%s' "$timestamp" "$DINGTALK_SIGNING_SECRET" | openssl dgst -sha256 -hmac "$DINGTALK_SIGNING_SECRET" -binary | base64 | tr -d '\n')
+          encoded_signature=$(jq -rn --arg value "$signature" '$value | @uri')
+          separator='?'
+          [[ "$DINGTALK_WEBHOOK" == *'?'* ]] && separator='&'
+
+          curl --fail --silent --show-error --request POST \
+            "${DINGTALK_WEBHOOK}${separator}timestamp=${timestamp}&sign=${encoded_signature}" \
+            --header 'Content-Type: application/json' \
+            --data "$payload" \
+            --output /dev/null
