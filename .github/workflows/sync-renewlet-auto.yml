@@ -16,28 +16,90 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.sync-upstream.outputs.changed }}
+      upstream_sha: ${{ steps.sync-upstream.outputs.upstream_sha }}
+      revision: ${{ steps.sync-upstream.outputs.revision }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: main
 
       - name: Sync upstream
+        id: sync-upstream
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git remote add upstream https://github.com/zhiyingzzhou/renewlet.git || true
+          git remote add upstream https://github.com/zhiyingzzhou/renewlet.git 2>/dev/null || git remote set-url upstream https://github.com/zhiyingzzhou/renewlet.git
           git fetch upstream main
+          upstream_sha="$(git rev-parse upstream/main)"
 
-          git checkout main
+          if git merge-base --is-ancestor "$upstream_sha" HEAD; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "upstream_sha=${upstream_sha}" >> "$GITHUB_OUTPUT"
+            echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+            echo "Upstream ${upstream_sha:0:12} is already applied."
+            exit 0
+          fi
+
           git merge upstream/main --no-edit || {
             echo "Upstream merge conflict detected, stop automatic sync."
             exit 1
           }
 
           git push origin main
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "upstream_sha=${upstream_sha}" >> "$GITHUB_OUTPUT"
+          echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    needs: sync
+    if: ${{ needs.sync.outputs.changed == 'true' }}
+    uses: ./.github/workflows/cloudflare-worker.yml
+    with:
+      source_ref: ${{ needs.sync.outputs.revision }}
+      deployment_reason: Scheduled upstream synchronization
+    secrets: inherit
+
+  notify-sync-failure:
+    needs: sync
+    if: ${{ always() && needs.sync.result == 'failure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Notify DingTalk about synchronization failure
+        env:
+          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+          DINGTALK_SIGNING_SECRET: ${{ secrets.DINGTALK_SIGNING_SECRET }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$DINGTALK_WEBHOOK" || -z "$DINGTALK_SIGNING_SECRET" ]]; then
+            echo "::notice title=DingTalk notification skipped::Set DINGTALK_WEBHOOK and DINGTALK_SIGNING_SECRET to enable synchronization failure notifications."
+            exit 0
+          fi
+
+          title="Renewlet 上游同步失败"
+          message="$(printf '### ❌ %s\n\n自动同步被中止，常见原因是合并冲突或上游不可访问。未执行 Cloudflare 部署。\n\n- [查看执行详情](%s)' \
+            "$title" "$RUN_URL")"
+          payload=$(jq -nc --arg title "$title" --arg text "$message" '{msgtype: "markdown", markdown: {title: $title, text: $text}}')
+          timestamp="$(date +%s000)"
+          signature=$(printf '%s\n%s' "$timestamp" "$DINGTALK_SIGNING_SECRET" | openssl dgst -sha256 -hmac "$DINGTALK_SIGNING_SECRET" -binary | base64 | tr -d '\n')
+          encoded_signature=$(jq -rn --arg value "$signature" '$value | @uri')
+          separator='?'
+          [[ "$DINGTALK_WEBHOOK" == *'?'* ]] && separator='&'
+
+          curl --fail --silent --show-error --request POST \
+            "${DINGTALK_WEBHOOK}${separator}timestamp=${timestamp}&sign=${encoded_signature}" \
+            --header 'Content-Type: application/json' \
+            --data "$payload" \
+            --output /dev/null
