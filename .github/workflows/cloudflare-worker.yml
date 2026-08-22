@@ -98,7 +98,10 @@ jobs:
           set -euo pipefail
           PACKAGE_VERSION="$(node -p "require('./package.json').version")"
           DEPLOY_SHA="$(git rev-parse HEAD)"
-          SHORT_SHA="${DEPLOY_SHA::7}"
+          SHORT_SHA="${GITHUB_SHA::7}"
+          if [[ "$DEPLOY_SHA" != "$GITHUB_SHA" ]]; then
+            SHORT_SHA="${DEPLOY_SHA::7}"
+          fi
           {
             echo "RENEWLET_VERSION=${PACKAGE_VERSION}-dev+${SHORT_SHA}"
             echo "RENEWLET_BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
