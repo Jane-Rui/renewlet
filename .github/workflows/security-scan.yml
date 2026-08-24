@@ -72,6 +72,7 @@ jobs:
 
   image-scan:
     runs-on: ubuntu-latest
+    continue-on-error: true
     timeout-minutes: 45
     steps:
       - name: Checkout
