@@ -1,42 +1,45 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
+import { effectiveReminderDays } from "../packages/shared/src/runtime";
 import { normalizeSettingsJson, toApiSubscription } from "../apps/worker/src/db";
 import {
-  addDays,
+  normalizeSubscriptionTags,
+  SUBSCRIPTION_LIST_INDEX_UPSERT_SQL,
+  SUBSCRIPTION_TAG_UPSERT_SQL,
+  subscriptionListProjectionValues,
+} from "../apps/worker/src/subscription-derived-state";
+import {
   dateOnlyInZone,
-  getLocalScheduleDecision,
-  getNextLocalScheduleOccurrence,
   getNextRepeatScheduleOccurrence,
   getRepeatScheduleDecision,
-  scheduleOccurrence,
+  localTimeInZone,
+  repeatReminderOccurrenceMatches,
+  repeatReminderSnapshot,
   toRfc3339Seconds,
 } from "../apps/worker/src/notification-schedule";
 import {
-  bindLocalD1Parameters,
-  D1RemoteClient,
-  parseD1QueryResults,
   type D1Client,
-  type D1QueryResult,
-  type D1RowParser,
   type D1Statement,
-  type D1Value,
 } from "./cloudflare-d1-client";
+import { createD1OperationsClient } from "./cloudflare-d1-operations";
+import { assertSubscriptionCollectionProjectionRows } from "./cloudflare-subscription-collection-backfill";
 import {
-  classifyDerivedSchema,
+  assertStoredSubscriptionSchedulerRowsValid,
+  assertSubscriptionSchedulerRows,
+  nextAutoRenewCheckAt,
+  nextDailyNotificationDueAt,
+} from "./cloudflare-subscription-scheduler-backfill";
+import {
   executeDerivedBackfillState,
-  type DerivedBackfillState,
-  type DerivedSchemaShape,
 } from "./cloudflare-derived-backfill-state";
+import { probeDerivedBackfillState } from "./cloudflare-derived-schema";
 
-// 0036 只完成 SQL 可表达的固定计数回填；本脚本复用 Worker 日期/时区规则补齐逐订阅 repeat schedule。
-// marker 只能在全量分页回填、逐行 schedule 复算和 aggregate 不变量全部通过后写入，失败可安全重跑。
+// 0039 先恢复 SQL 可表达的集合基线；本脚本复用 Worker 的 Unicode 投影与日期/时区规则收敛完整派生状态。
+// marker 只能在全量分页回填、逐字段投影校验、schedule 复算和 aggregate 不变量全部通过后写入。
 
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const backfillName = "subscription-derived-state-v2";
+const backfillName = "subscription-derived-state-v3";
 const pageSize = 200;
 const writeBatchSize = 50;
 const notificationWindowMinutes = 2;
@@ -44,14 +47,6 @@ const notificationWindowMinutes = 2;
 interface Options {
   configPath?: string;
   target: "local" | "remote";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isUnknownArray(value: unknown): value is unknown[] {
-  return Array.isArray(value);
 }
 
 function requireLast<T>(rows: readonly T[], context: string): T {
@@ -116,10 +111,7 @@ const schedulerBackfillRowSchema = z.object({
 type SchedulerBackfillRow = z.infer<typeof schedulerBackfillRowSchema>;
 
 const countRowSchema = z.object({ count: z.union([z.number(), z.string()]) }).passthrough();
-const backfillMarkerRowSchema = z.object({ name: z.string() }).passthrough();
 const migrationRowSchema = z.object({ name: z.string() }).passthrough();
-const tableColumnRowSchema = z.object({ cid: z.number(), name: z.string() }).passthrough();
-const indexColumnRowSchema = z.object({ seqno: z.number(), name: z.string() }).passthrough();
 
 function parseArgs(argv: string[]): Options {
   let target: Options["target"] | undefined;
@@ -145,163 +137,14 @@ function parseArgs(argv: string[]): Options {
   return configPath === undefined ? { target } : { target, configPath };
 }
 
-function stripJsoncComments(input: string): string {
-  let output = "";
-  let inString = false;
-  let escaped = false;
-  for (let index = 0; index < input.length; index += 1) {
-    const character = input.charAt(index);
-    const next = input.charAt(index + 1);
-    if (inString) {
-      output += character;
-      if (escaped) escaped = false;
-      else if (character === "\\") escaped = true;
-      else if (character === '"') inString = false;
-      continue;
-    }
-    if (character === '"') {
-      inString = true;
-      output += character;
-      continue;
-    }
-    if (character === "/" && next === "/") {
-      while (index < input.length && input.charAt(index) !== "\n") index += 1;
-      output += "\n";
-      continue;
-    }
-    if (character === "/" && next === "*") {
-      index += 2;
-      while (index < input.length && !(input.charAt(index) === "*" && input.charAt(index + 1) === "/")) index += 1;
-      index += 1;
-      continue;
-    }
-    output += character;
-  }
-  return output;
-}
-
-function resolveDatabaseId(options: Options): string {
-  const environmentId = process.env["D1_DATABASE_ID"]?.trim();
-  if (environmentId) return environmentId;
-  const configPath = resolve(repoRoot, options.configPath ?? "wrangler.jsonc");
-  const config: unknown = JSON.parse(stripJsoncComments(readFileSync(configPath, "utf8")));
-  const bindings = isRecord(config) && isUnknownArray(config["d1_databases"])
-    ? config["d1_databases"]
-    : [];
-  let databaseId = "";
-  for (const binding of bindings) {
-    if (!isRecord(binding) || binding["binding"] !== "DB" || typeof binding["database_id"] !== "string") continue;
-    databaseId = binding["database_id"].trim();
-    break;
-  }
-  if (!databaseId || databaseId === "00000000-0000-0000-0000-000000000000") {
-    throw new Error("D1_DATABASE_ID or a generated Wrangler config with the DB binding is required");
-  }
-  return databaseId;
-}
-
-function parseWranglerResults(stdout: string, expectedCount: number): D1QueryResult[] {
-  let payload: unknown;
-  try {
-    payload = JSON.parse(stdout);
-  } catch {
-    throw new Error("Local D1 query returned invalid Wrangler JSON");
-  }
-  return parseD1QueryResults(payload, expectedCount, "Local D1 query");
-}
-
-// local 适配器只为迁移演练复用同一状态机；生产远端仍走结构化 D1 REST params，不能复用 literal 编码路径。
-class D1LocalClient implements D1Client {
-  constructor(private readonly configPath?: string) {}
-
-  async query<T>(sql: string, params: readonly D1Value[], parseRow: D1RowParser<T>): Promise<T[]> {
-    const results = await this.batch([{ sql, params }]);
-    const result = results.at(0);
-    if (result === undefined) throw new Error("Local D1 query returned no result");
-    return result.results.map(parseRow);
-  }
-
-  async batch(queries: readonly D1Statement[]): Promise<D1QueryResult[]> {
-    if (queries.length === 0) return [];
-    // Wrangler local 没有参数绑定入口；只在进程参数边界做类型化 SQLite literal 编码，绝不经 shell 或输出账本 SQL。
-    const command = queries
-      .map((query) => bindLocalD1Parameters(query.sql, query.params ?? []).replace(/;\s*$/, ""))
-      .join(";\n");
-    const args = ["exec", "wrangler", "d1", "execute", "DB", "--local", "--command", command, "--json"];
-    if (this.configPath) args.push("--config", this.configPath);
-    const stdout = await new Promise<string>((resolvePromise, reject) => {
-      const child = spawn("pnpm", args, {
-        cwd: repoRoot,
-        env: { ...process.env, CI: "1" },
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-      let output = "";
-      // Wrangler stdout 只承载 JSON；固定 UTF-8 后不让 Buffer 或未收窄类型穿过解析边界。
-      child.stdout.setEncoding("utf8");
-      child.stdout.on("data", (chunk: string) => { output += chunk; });
-      child.stderr.resume();
-      child.on("error", () => reject(new Error("Unable to start Wrangler for local D1 backfill")));
-      child.on("close", (status: number | null) => {
-        if (status === 0) resolvePromise(output);
-        else reject(new Error("Local D1 query failed"));
-      });
-    });
-    return parseWranglerResults(stdout, queries.length);
-  }
-}
-
-async function tableColumns(client: D1Client, table: string): Promise<string[]> {
-  const rows = await client.query(
-    `PRAGMA table_info(${table})`,
-    [],
-    tableColumnRowSchema.parse,
-  );
-  return rows.sort((left, right) => left.cid - right.cid).map((row) => row.name);
-}
-
-async function indexColumns(client: D1Client, index: string): Promise<string[]> {
-  const rows = await client.query(
-    `PRAGMA index_info(${index})`,
-    [],
-    indexColumnRowSchema.parse,
-  );
-  return rows.sort((left, right) => left.seqno - right.seqno).map((row) => row.name);
-}
-
-async function probeDerivedBackfillState(client: D1Client): Promise<DerivedBackfillState> {
-  const migrationRows = await client.query(
-    "SELECT name FROM d1_migrations WHERE name = ? LIMIT 1",
-    ["0036_subscription_derived_state_v2.sql"],
-    migrationRowSchema.parse,
-  );
-  const statsColumns = await tableColumns(client, "subscription_user_stats");
-  const repeatScheduleColumns = await tableColumns(client, "subscription_repeat_schedule");
-  const repeatScheduleIndexColumns = await indexColumns(client, "idx_subscription_repeat_schedule_due");
-  const backfillColumns = await tableColumns(client, "subscription_derived_backfills");
-  const canReadMarker = backfillColumns.includes("name") && backfillColumns.includes("completed_at");
-  const markerRows = canReadMarker
-    ? await client.query(
-        "SELECT name FROM subscription_derived_backfills WHERE name = ? LIMIT 1",
-        [backfillName],
-        backfillMarkerRowSchema.parse,
-      )
-    : [];
-  const shape: DerivedSchemaShape = {
-    migrationApplied: migrationRows.length === 1,
-    statsColumns,
-    repeatScheduleColumns,
-    repeatScheduleIndexColumns,
-    backfillColumns,
-    markerPresent: markerRows.length === 1,
-  };
-  // migration 记录、完整列签名与 marker 必须一致；半升级只允许走可重入 backfill，混合 schema 绝不自动修复。
-  return classifyDerivedSchema(shape);
-}
-
 function nextRepeatDue(row: SubscriptionBackfillRow, now: Date): string | null {
   if (row.repeat_reminder_enabled !== 1) return null;
   const settings = normalizeSettingsJson(row.settings_json ?? "{}");
-  const subscription = toApiSubscription(row);
+  // 调度不依赖标签；旧事实里的空白/重复标签只影响可重建投影，不能阻断 repeat schedule 恢复。
+  const subscription = toApiSubscription({
+    ...row,
+    tags_json: JSON.stringify(normalizeSubscriptionTags(row).map((tag) => tag.value)),
+  });
   const current = getRepeatScheduleDecision(now, settings, [subscription], notificationWindowMinutes);
   if (current.due) return current.scheduledInstantUtc;
   return getNextRepeatScheduleOccurrence(now, settings, [subscription])?.scheduledInstantUtc ?? null;
@@ -351,6 +194,74 @@ async function assertBackfilledSchedules(client: D1Client, now: Date): Promise<n
   return expectedCount;
 }
 
+function storedRepeatScheduleMatches(row: SubscriptionScheduleVerificationRow, stored: string): boolean {
+  const instant = new Date(stored);
+  if (!Number.isFinite(instant.getTime())) return false;
+  const settings = normalizeSettingsJson(row.settings_json ?? "{}");
+  const subscription = toApiSubscription({
+    ...row,
+    tags_json: JSON.stringify(normalizeSubscriptionTags(row).map((tag) => tag.value)),
+  });
+  if (!subscription.repeatReminderEnabled) return false;
+  const reminderDays = effectiveReminderDays(subscription.reminderDays, settings.notificationReminderDays);
+  if (reminderDays === undefined) return false;
+  const occurrence = {
+    scheduledLocalDate: dateOnlyInZone(instant, settings.timezone),
+    scheduledLocalTime: localTimeInZone(instant, settings.timezone),
+    timeZone: settings.timezone,
+    scheduledInstantUtc: stored,
+  };
+  const repeat = repeatReminderSnapshot(subscription);
+  const targets = subscription.status === "trial" && subscription.trialEndDate
+    ? [subscription.nextBillingDate, subscription.trialEndDate]
+    : [subscription.nextBillingDate];
+  return targets.some((target) => repeatReminderOccurrenceMatches(
+    occurrence,
+    settings,
+    reminderDays,
+    target,
+    repeat,
+  ));
+}
+
+async function assertStoredSchedulesValid(client: D1Client, now: Date): Promise<void> {
+  // v3 完成后调度器可能已推进 schedule，也可能为失败重试保留逾期 occurrence；不能再拿新的 now 强求精确相等。
+  // 此处只验证存量时间仍是当前订阅与设置允许的 occurrence，并阻止仍有后续提醒的订阅缺失派生行。
+  let cursorUserId = "";
+  let cursorSubscriptionId = "";
+  for (;;) {
+    const rows = await client.query(`
+      SELECT subscriptions.*, settings.settings_json,
+             repeat_schedule.next_due_at_utc AS stored_next_due_at_utc
+      FROM subscriptions
+      LEFT JOIN settings ON settings.user_id = subscriptions.user_id
+      LEFT JOIN subscription_repeat_schedule AS repeat_schedule
+        ON repeat_schedule.user_id = subscriptions.user_id
+       AND repeat_schedule.subscription_id = subscriptions.id
+      WHERE subscriptions.user_id > ?
+         OR (subscriptions.user_id = ? AND subscriptions.id > ?)
+      ORDER BY subscriptions.user_id, subscriptions.id
+      LIMIT ?
+    `, [cursorUserId, cursorUserId, cursorSubscriptionId, pageSize], (value): SubscriptionScheduleVerificationRow => (
+      subscriptionScheduleVerificationRowSchema.parse(value)
+    ));
+    if (rows.length === 0) return;
+    for (const row of rows) {
+      const stored = row.stored_next_due_at_utc;
+      if (stored !== null && !storedRepeatScheduleMatches(row, stored)) {
+        throw new Error("subscription_repeat_schedule value invariant failed");
+      }
+      if (stored === null && nextRepeatDue(row, now) !== null) {
+        throw new Error("subscription_repeat_schedule missing-row invariant failed");
+      }
+    }
+    const last = requireLast(rows, "Completed repeat schedule verification");
+    cursorUserId = last.user_id;
+    cursorSubscriptionId = last.id;
+    if (rows.length < pageSize) return;
+  }
+}
+
 async function assertDerivedInvariants(client: D1Client, expectedScheduleCount?: number): Promise<void> {
   // 所有计数都回到 subscriptions 事实表复算；marker 只有在这些跨表不变量和外键同时通过后才允许写入。
   const [orphaned] = await client.query(`
@@ -361,6 +272,23 @@ async function assertDerivedInvariants(client: D1Client, expectedScheduleCount?:
   `, [], countRowSchema.parse);
   if (Number(orphaned?.count ?? 0) !== 0) {
     throw new Error("subscription_repeat_schedule owner invariant failed");
+  }
+
+  const [collectionOrphans] = await client.query(`
+    SELECT COUNT(*) AS count FROM (
+      SELECT list_index.subscription_id
+      FROM subscription_list_index AS list_index
+      LEFT JOIN subscriptions ON subscriptions.id = list_index.subscription_id
+      WHERE subscriptions.id IS NULL OR subscriptions.user_id != list_index.user_id
+      UNION ALL
+      SELECT tags.subscription_id
+      FROM subscription_tags AS tags
+      LEFT JOIN subscriptions ON subscriptions.id = tags.subscription_id
+      WHERE subscriptions.id IS NULL OR subscriptions.user_id != tags.user_id
+    )
+  `, [], countRowSchema.parse);
+  if (Number(collectionOrphans?.count ?? 0) !== 0) {
+    throw new Error("subscription collection owner invariant failed");
   }
 
   const [statsMismatch] = await client.query(`
@@ -378,6 +306,17 @@ async function assertDerivedInvariants(client: D1Client, expectedScheduleCount?:
   `, [], countRowSchema.parse);
   if (Number(statsMismatch?.count ?? 0) !== 0) throw new Error("subscription_user_stats invariant failed");
 
+  const [aggregateOrphans] = await client.query(`
+    SELECT COUNT(*) AS count FROM (
+      SELECT stats.user_id FROM subscription_user_stats AS stats
+      WHERE NOT EXISTS (SELECT 1 FROM users WHERE users.id = stats.user_id)
+      UNION ALL
+      SELECT scheduler.user_id FROM subscription_scheduler_state AS scheduler
+      WHERE NOT EXISTS (SELECT 1 FROM users WHERE users.id = scheduler.user_id)
+    )
+  `, [], countRowSchema.parse);
+  if (Number(aggregateOrphans?.count ?? 0) !== 0) throw new Error("subscription aggregate owner invariant failed");
+
   const [schedulerMismatch] = await client.query(`
     SELECT COUNT(*) AS count
     FROM users
@@ -391,6 +330,15 @@ async function assertDerivedInvariants(client: D1Client, expectedScheduleCount?:
       SELECT next_due_at_utc FROM subscription_repeat_schedule
       WHERE user_id = scheduler.user_id ORDER BY next_due_at_utc, subscription_id LIMIT 1
     ), '')
+    OR (scheduler.auto_renew_count = 0 AND scheduler.next_auto_renew_check_at_utc IS NOT NULL)
+    OR (scheduler.auto_renew_count > 0 AND scheduler.next_auto_renew_check_at_utc IS NULL)
+    OR scheduler.next_daily_notification_due_at_utc IS NULL
+    OR (scheduler.next_auto_renew_check_at_utc IS NOT NULL AND unixepoch(scheduler.next_auto_renew_check_at_utc) IS NULL)
+    OR unixepoch(scheduler.next_daily_notification_due_at_utc) IS NULL
+    OR (
+      scheduler.next_repeat_notification_due_at_utc IS NOT NULL
+      AND unixepoch(scheduler.next_repeat_notification_due_at_utc) IS NULL
+    )
   `, [], countRowSchema.parse);
   if (Number(schedulerMismatch?.count ?? 0) !== 0) throw new Error("subscription_scheduler_state invariant failed");
 
@@ -409,21 +357,6 @@ async function assertDerivedInvariants(client: D1Client, expectedScheduleCount?:
 async function assertForeignKeys(client: D1Client): Promise<void> {
   const violations = await client.query("PRAGMA foreign_key_check", [], (value): unknown => value);
   if (violations.length > 0) throw new Error("Cloudflare D1 foreign key check found violations");
-}
-
-function nextAutoRenewCheckAt(now: Date, timezone: string, autoRenewCount: number, lastAutoRenewLocalDate: string): string | null {
-  if (autoRenewCount <= 0) return null;
-  const today = dateOnlyInZone(now, timezone);
-  // 当天已执行过自动续订时推迟到下一本地日，避免 backfill 部署立即触发同日第二次续订。
-  if (lastAutoRenewLocalDate !== today) return toRfc3339Seconds(now);
-  return scheduleOccurrence(addDays(today, 1), "00:00", timezone).scheduledInstantUtc;
-}
-
-function nextDailyNotificationDueAt(now: Date, timezone: string, localTime: string): string {
-  // 当前仍在容差窗口时保留本次 occurrence，否则直接指向下一次，避免迁移把刚到期提醒跳过一天。
-  const current = getLocalScheduleDecision(now, timezone, localTime, notificationWindowMinutes, false);
-  if (current.due) return current.scheduledInstantUtc;
-  return getNextLocalScheduleOccurrence(now, timezone, localTime).scheduledInstantUtc;
 }
 
 async function upsertSchedulerRows(client: D1Client, now: Date): Promise<void> {
@@ -474,7 +407,7 @@ async function upsertSchedulerRows(client: D1Client, now: Date): Promise<void> {
           repeatReminderCount,
           lastAutoRenewLocalDate,
           nextAutoRenewCheckAt(now, settings.timezone, autoRenewCount, lastAutoRenewLocalDate),
-          nextDailyNotificationDueAt(now, settings.timezone, settings.notificationTimeLocal),
+          nextDailyNotificationDueAt(now, settings.timezone, settings.notificationTimeLocal, notificationWindowMinutes),
           row.next_repeat_notification_due_at_utc,
           timestamp,
           timestamp,
@@ -487,6 +420,78 @@ async function upsertSchedulerRows(client: D1Client, now: Date): Promise<void> {
   }
 }
 
+async function upsertStatsRows(client: D1Client, now: Date): Promise<void> {
+  let cursorUserId = "";
+  const timestamp = toRfc3339Seconds(now);
+  for (;;) {
+    const users = await client.query(
+      "SELECT id AS name FROM users WHERE id > ? ORDER BY id LIMIT ?",
+      [cursorUserId, pageSize],
+      migrationRowSchema.parse,
+    );
+    if (users.length === 0) return;
+    await writeStatements(client, users.map((user): D1Statement => ({
+      sql: `INSERT INTO subscription_user_stats (
+              user_id, total_count, trial_count, active_count, expired_count, paused_count, cancelled_count,
+              created_at, updated_at
+            )
+            SELECT
+              users.id,
+              (SELECT COUNT(*) FROM subscriptions WHERE user_id = users.id),
+              (SELECT COUNT(*) FROM subscriptions WHERE user_id = users.id AND status = 'trial'),
+              (SELECT COUNT(*) FROM subscriptions WHERE user_id = users.id AND status = 'active'),
+              (SELECT COUNT(*) FROM subscriptions WHERE user_id = users.id AND status = 'expired'),
+              (SELECT COUNT(*) FROM subscriptions WHERE user_id = users.id AND status = 'paused'),
+              (SELECT COUNT(*) FROM subscriptions WHERE user_id = users.id AND status = 'cancelled'),
+              ?, ?
+            FROM users WHERE users.id = ?
+            ON CONFLICT(user_id) DO UPDATE SET
+              total_count = excluded.total_count,
+              trial_count = excluded.trial_count,
+              active_count = excluded.active_count,
+              expired_count = excluded.expired_count,
+              paused_count = excluded.paused_count,
+              cancelled_count = excluded.cancelled_count,
+              updated_at = excluded.updated_at`,
+      params: [timestamp, timestamp, user.name],
+    })));
+    cursorUserId = requireLast(users, "Subscription stats backfill").name;
+    if (users.length < pageSize) return;
+  }
+}
+
+async function removeOrphanedDerivedRows(client: D1Client): Promise<void> {
+  // owner 错配和孤儿行都是可从 facts 重建的派生数据，只允许在这些表内清理；subscriptions、users 和 Feed 不属于修复目标。
+  await writeStatements(client, [
+    {
+      sql: `DELETE FROM subscription_list_index
+            WHERE NOT EXISTS (
+              SELECT 1 FROM subscriptions
+              WHERE subscriptions.id = subscription_list_index.subscription_id
+                AND subscriptions.user_id = subscription_list_index.user_id
+            )`,
+    },
+    {
+      sql: `DELETE FROM subscription_tags
+            WHERE NOT EXISTS (
+              SELECT 1 FROM subscriptions
+              WHERE subscriptions.id = subscription_tags.subscription_id
+                AND subscriptions.user_id = subscription_tags.user_id
+            )`,
+    },
+    {
+      sql: `DELETE FROM subscription_repeat_schedule
+            WHERE NOT EXISTS (
+              SELECT 1 FROM subscriptions
+              WHERE subscriptions.id = subscription_repeat_schedule.subscription_id
+                AND subscriptions.user_id = subscription_repeat_schedule.user_id
+            )`,
+    },
+    { sql: "DELETE FROM subscription_user_stats WHERE NOT EXISTS (SELECT 1 FROM users WHERE users.id = subscription_user_stats.user_id)" },
+    { sql: "DELETE FROM subscription_scheduler_state WHERE NOT EXISTS (SELECT 1 FROM users WHERE users.id = subscription_scheduler_state.user_id)" },
+  ]);
+}
+
 interface DerivedRebuildResult {
   now: Date;
   processed: number;
@@ -494,7 +499,7 @@ interface DerivedRebuildResult {
 }
 
 async function rebuildDerivedState(client: D1Client, now: Date): Promise<DerivedRebuildResult> {
-  // 复合游标保证跨用户分页稳定；每条 schedule 都以 owner+subscription 为幂等键，可从任意中断点整轮重放。
+  // 复合游标保证跨用户分页稳定；每类派生写都以事实主键 UPSERT/DELETE，可从任意中断点整轮重放。
   let cursorUserId = "";
   let cursorSubscriptionId = "";
   let processed = 0;
@@ -516,6 +521,19 @@ async function rebuildDerivedState(client: D1Client, now: Date): Promise<Derived
 
     const statements: D1Statement[] = [];
     for (const row of rows) {
+      const tags = normalizeSubscriptionTags(row);
+      statements.push({
+        sql: SUBSCRIPTION_LIST_INDEX_UPSERT_SQL,
+        params: subscriptionListProjectionValues(row, tags),
+      });
+      statements.push({
+        sql: "DELETE FROM subscription_tags WHERE user_id = ? AND subscription_id = ?",
+        params: [row.user_id, row.id],
+      });
+      statements.push(...tags.map((tag): D1Statement => ({
+        sql: SUBSCRIPTION_TAG_UPSERT_SQL,
+        params: [row.user_id, row.id, tag.key, tag.value, row.created_at, row.updated_at],
+      })));
       const dueAt = nextRepeatDue(row, now);
       if (dueAt) {
         expectedScheduleCount += 1;
@@ -540,11 +558,20 @@ async function rebuildDerivedState(client: D1Client, now: Date): Promise<Derived
     if (rows.length < pageSize) break;
   }
 
+  await removeOrphanedDerivedRows(client);
+  await upsertStatsRows(client, now);
   await upsertSchedulerRows(client, now);
   return { now, processed, expectedScheduleCount };
 }
 
-async function runBackfill(client: D1Client): Promise<void> {
+/**
+ * 将 canonical v3 schema 收敛到 subscriptions 事实状态，并在全部不变量通过后最后写 marker。
+ * mixed schema 在任何写入前阻断；已有 v3 marker 时只复验、不静默改写。所有重建写入均可在 D1 已提交但响应丢失后整轮重放。
+ */
+export async function runBackfill(
+  client: D1Client,
+  now: () => Date = () => new Date(),
+): Promise<void> {
   const state = await probeDerivedBackfillState(client);
   console.log(`Cloudflare subscription derived-state schema state: ${state}`);
   let rebuilt: DerivedRebuildResult | undefined;
@@ -552,12 +579,17 @@ async function runBackfill(client: D1Client): Promise<void> {
   await executeDerivedBackfillState(state, {
     rebuild: async (): Promise<void> => {
       // 整轮固定同一 now，保证写入与复算校验跨分页时不会因分钟窗口滚动产生假不一致。
-      rebuilt = await rebuildDerivedState(client, new Date());
+      rebuilt = await rebuildDerivedState(client, now());
     },
     verify: async (): Promise<void> => {
-      if (state === "v2-complete") {
+      const verifiedProjections = await assertSubscriptionCollectionProjectionRows(client, pageSize);
+      if (state === "v3-complete") {
+        const verificationNow = now();
+        await assertStoredSchedulesValid(client, verificationNow);
+        await assertStoredSubscriptionSchedulerRowsValid(client, verificationNow, pageSize, notificationWindowMinutes);
         await assertDerivedInvariants(client);
         await assertForeignKeys(client);
+        console.log(`Cloudflare subscription collection projections verified: subscriptions=${verifiedProjections}`);
         return;
       }
       const current = rebuilt;
@@ -568,6 +600,7 @@ async function runBackfill(client: D1Client): Promise<void> {
           `subscription_repeat_schedule verification mismatch: expected ${current.expectedScheduleCount}, verified ${verifiedScheduleCount}`,
         );
       }
+      await assertSubscriptionSchedulerRows(client, current.now, pageSize, notificationWindowMinutes);
       await assertDerivedInvariants(client, verifiedScheduleCount);
       await assertForeignKeys(client);
     },
@@ -583,7 +616,7 @@ async function runBackfill(client: D1Client): Promise<void> {
     },
   });
 
-  if (state === "v2-complete") {
+  if (state === "v3-complete") {
     console.log("Cloudflare subscription derived-state backfill already complete; invariants passed.");
     return;
   }
@@ -596,18 +629,12 @@ async function runBackfill(client: D1Client): Promise<void> {
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
-  if (options.target === "local") {
-    await runBackfill(new D1LocalClient(options.configPath));
-    return;
-  }
-  const apiToken = process.env["CLOUDFLARE_API_TOKEN"]?.trim();
-  const accountId = process.env["CLOUDFLARE_ACCOUNT_ID"]?.trim();
-  if (!apiToken || !accountId) throw new Error("CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID are required");
-  const client = new D1RemoteClient(accountId, resolveDatabaseId(options), apiToken);
-  await runBackfill(client);
+  await runBackfill(createD1OperationsClient(options));
 }
 
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
-});
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+  main().catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
+}

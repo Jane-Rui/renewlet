@@ -5,8 +5,12 @@ import userEvent from "@testing-library/user-event";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { assertDateOnly } from "@/lib/time/date-only";
-import type { Subscription, SubscriptionDraft } from "@/types/subscription";
-import { SubscriptionDialog } from "./subscription-dialog";
+import {
+  subscriptionCycleFixture,
+  type SubscriptionFixtureOverrides,
+} from "@/test/subscription-fixtures";
+import type { Subscription, SubscriptionFormSubmission } from "@/types/subscription";
+import { preloadSubscriptionDialog, SubscriptionDialog } from "./subscription-dialog";
 
 const mocks = vi.hoisted(() => ({
   config: {
@@ -21,7 +25,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/contexts/CustomConfigContext", () => ({
-  useCustomConfig: () => ({ config: mocks.config }),
+  useCustomConfigState: () => ({ config: mocks.config }),
 }));
 
 vi.mock("@/hooks/use-settings", () => ({
@@ -34,28 +38,27 @@ vi.mock("@/components/logo-picker", () => ({
   LogoPicker: () => null,
 }));
 
-beforeAll(() => {
+beforeAll(async () => {
   Element.prototype.hasPointerCapture ??= vi.fn(() => false);
   Element.prototype.setPointerCapture ??= vi.fn();
   Element.prototype.releasePointerCapture ??= vi.fn();
+  await preloadSubscriptionDialog();
 });
 
-function makeSubscription(overrides: Partial<Subscription> = {}): Subscription {
+function makeSubscription(overrides: SubscriptionFixtureOverrides<Subscription> = {}): Subscription {
   return {
     id: "sub-1",
     name: "Original SaaS",
     logo: undefined,
     price: "29",
     currency: "USD",
-    billingCycle: "monthly",
-    customDays: undefined,
-    customCycleUnit: undefined,
     category: "productivity",
     status: "active",
     publicHidden: false,
     paymentMethod: "alipay",
     startDate: assertDateOnly("2026-05-14"),
     nextBillingDate: assertDateOnly("2026-06-14"),
+    autoRenew: false,
     autoCalculateNextBillingDate: false,
     trialEndDate: undefined,
     website: undefined,
@@ -65,15 +68,17 @@ function makeSubscription(overrides: Partial<Subscription> = {}): Subscription {
     repeatReminderEnabled: true,
     repeatReminderInterval: "1h",
     repeatReminderWindow: "72h",
+    extra: {},
     pinned: false,
     ...overrides,
-  } as Subscription;
+    ...subscriptionCycleFixture(overrides),
+  };
 }
 
 function CreateDialogHarness({
-  onSubmit = vi.fn<(subscription: SubscriptionDraft) => void>(),
+  onSubmit = vi.fn<(submission: SubscriptionFormSubmission) => void>(),
 }: {
-  onSubmit?: (subscription: SubscriptionDraft) => void;
+  onSubmit?: (submission: SubscriptionFormSubmission) => void;
 } = {}) {
   const [open, setOpen] = useState(false);
 
@@ -81,6 +86,7 @@ function CreateDialogHarness({
     <TooltipProvider delayDuration={0}>
       <button type="button" onClick={() => setOpen(true)}>打开新增弹窗</button>
       <SubscriptionDialog
+          loadingPreview={null}
         mode="create"
         open={open}
         onOpenChange={setOpen}
@@ -91,9 +97,9 @@ function CreateDialogHarness({
 }
 
 function CreateCloneDialogHarness({
-  onSubmit = vi.fn<(subscription: SubscriptionDraft) => void>(),
+  onSubmit = vi.fn<(submission: SubscriptionFormSubmission) => void>(),
 }: {
-  onSubmit?: (subscription: SubscriptionDraft) => void;
+  onSubmit?: (submission: SubscriptionFormSubmission) => void;
 } = {}) {
   const [dialogKind, setDialogKind] = useState<"create" | "clone" | null>(null);
   const cloneSource = makeSubscription({
@@ -110,6 +116,7 @@ function CreateCloneDialogHarness({
       <button type="button" onClick={() => setDialogKind("create")}>打开普通新增弹窗</button>
       <button type="button" onClick={() => setDialogKind("clone")}>打开复制弹窗</button>
       <SubscriptionDialog
+          loadingPreview={null}
         mode="create"
         open={dialogKind !== null}
         onOpenChange={(open) => {
@@ -130,6 +137,7 @@ function EditDialogHarness() {
     <TooltipProvider delayDuration={0}>
       <button type="button" onClick={() => setOpen(true)}>打开编辑弹窗</button>
       <SubscriptionDialog
+          loadingPreview={null}
         mode="edit"
         open={open}
         onOpenChange={setOpen}
@@ -141,6 +149,46 @@ function EditDialogHarness() {
 }
 
 describe("SubscriptionDialog lifecycle", () => {
+  it("hands data loading to the resolved form scaffold without replacing the dialog shell", () => {
+    const preview = makeSubscription();
+    const { rerender } = render(
+      <TooltipProvider delayDuration={0}>
+        <SubscriptionDialog
+          loadingPreview={preview}
+          mode="edit"
+          open
+          onOpenChange={vi.fn()}
+          onSubmit={vi.fn()}
+          subscription={null}
+          loading
+        />
+      </TooltipProvider>,
+    );
+    const dialog = screen.getByRole("dialog", { name: "编辑订阅" });
+    const form = dialog.querySelector("form");
+    expect(screen.getByTestId("subscription-form-data-loading")).toBeInTheDocument();
+    expect(screen.queryByTestId("dialog-module-pending")).not.toBeInTheDocument();
+
+    rerender(
+      <TooltipProvider delayDuration={0}>
+        <SubscriptionDialog
+          loadingPreview={preview}
+          mode="edit"
+          open
+          onOpenChange={vi.fn()}
+          onSubmit={vi.fn()}
+          subscription={preview}
+          loading={false}
+        />
+      </TooltipProvider>,
+    );
+
+    expect(screen.getByRole("dialog", { name: "编辑订阅" })).toBe(dialog);
+    expect(dialog.querySelector("form")).toBe(form);
+    expect(screen.queryByTestId("subscription-form-data-loading")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("服务名称")).toHaveValue("Original SaaS");
+  });
+
   it("clears an unsubmitted create draft after cancelling and reopening", async () => {
     const user = userEvent.setup();
 
@@ -193,7 +241,7 @@ describe("SubscriptionDialog lifecycle", () => {
 
   it("keeps user input after create validation fails", async () => {
     const user = userEvent.setup();
-    const onSubmit = vi.fn<(subscription: SubscriptionDraft) => void>();
+    const onSubmit = vi.fn<(submission: SubscriptionFormSubmission) => void>();
 
     render(<CreateDialogHarness onSubmit={onSubmit} />);
 

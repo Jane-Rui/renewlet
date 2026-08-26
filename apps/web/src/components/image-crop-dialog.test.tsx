@@ -2,7 +2,18 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { ImageCropDialog } from "./image-crop-dialog";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { ImageCropDialogContent, type ImageCropDialogProps } from "./image-crop-dialog";
+
+function ImageCropDialog(props: ImageCropDialogProps) {
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent dismissMode="explicit" className="border-border bg-card sm:max-w-md">
+        <ImageCropDialogContent {...props} />
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 describe("ImageCropDialog", () => {
   it("requires explicit controls to close the crop editor", async () => {

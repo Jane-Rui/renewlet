@@ -7,7 +7,7 @@ export const settingsLayout = {
   content: "grid min-w-0 gap-6 lg:gap-8",
   desktopHeader: "hidden lg:block",
   desktopNav:
-    "sticky top-[var(--settings-desktop-sticky-top)] max-h-[calc(var(--app-viewport-height)-var(--settings-desktop-sticky-top)-1rem)] overflow-y-auto rounded-xl border border-border bg-card/70 p-3 shadow-card backdrop-blur",
+    "sticky top-(--settings-desktop-sticky-top) max-h-[calc(var(--app-viewport-height)-var(--settings-desktop-sticky-top)-1rem)] overflow-y-auto rounded-xl border border-border bg-card/70 p-3 shadow-card backdrop-blur",
   mobileHeader:
     "sticky top-[calc(var(--settings-mobile-header-offset)+var(--settings-mobile-sticky-gap))] z-30 min-w-0 rounded-xl border border-border/70 bg-background/95 p-4 shadow-card backdrop-blur-xl lg:hidden",
   mobileHeaderRow: "flex min-w-0 items-start justify-between gap-3",
@@ -19,7 +19,7 @@ export const settingsLayout = {
   sectionCard: "min-w-0 w-full rounded-xl border border-border bg-card p-4 sm:p-6",
 } as const;
 
-export const SETTINGS_SECTION_SCROLL_CLASS = "scroll-mt-[var(--settings-section-scroll-offset)]";
+export const SETTINGS_SECTION_SCROLL_CLASS = "scroll-mt-(--settings-section-scroll-offset)";
 export const SETTINGS_SECTION_FRAME_CLASS = cn(settingsLayout.sectionCard, SETTINGS_SECTION_SCROLL_CLASS);
 
 export function getSettingsSectionClassName(className?: string | undefined) {

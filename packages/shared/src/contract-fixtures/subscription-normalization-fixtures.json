@@ -1,10 +1,10 @@
 [
   {
-    "name": "custom defaults missing unit to day",
+    "name": "custom preserves explicit day unit",
     "input": {
       "billingCycle": "custom",
       "customDays": 45,
-      "customCycleUnit": null,
+      "customCycleUnit": "day",
       "oneTimeTermCount": null,
       "oneTimeTermUnit": null,
       "autoRenew": true,

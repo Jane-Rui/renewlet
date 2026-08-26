@@ -130,6 +130,9 @@ describe("Discord and PushPlus notification settings", () => {
     expect(screen.getByLabelText("Webhook URL")).toHaveValue("https://discord.com/api/webhooks/123/token");
     expect(screen.getByLabelText("机器人用户名（可选）")).toHaveValue("Renewlet");
     expect(screen.getByLabelText("机器人头像 URL（可选）")).toHaveValue("https://cdn.example.com/avatar.png");
+    const discordIdentityRow = screen.getByLabelText("机器人用户名（可选）").closest('[data-slot="form-field-row"]');
+    expect(discordIdentityRow).toHaveAttribute("data-align-at", "sm");
+    expect(discordIdentityRow).toHaveAttribute("data-tracks", "2");
 
     await user.click(screen.getByRole("button", { name: "测试 Discord 通知" }));
     expect(onTest).toHaveBeenCalledWith("discord");
@@ -181,6 +184,9 @@ describe("Discord and PushPlus notification settings", () => {
     expect(screen.getByLabelText("正文模板")).toHaveValue("Renewlet body template");
     expect(screen.getByLabelText("自定义关键词（可选）")).toHaveValue("Renewlet");
     expect(screen.getByLabelText("加签密钥（可选）")).toHaveValue("SECsecret");
+    const dingtalkTemplateRow = screen.getByLabelText("标题模板").closest('[data-slot="form-field-row"]');
+    expect(dingtalkTemplateRow).toHaveAttribute("data-align-at", "sm");
+    expect(dingtalkTemplateRow).toHaveAttribute("data-tracks", "2");
 
     await user.click(screen.getByRole("button", { name: "测试 钉钉机器人 通知" }));
     expect(onTest).toHaveBeenCalledWith("dingtalk");

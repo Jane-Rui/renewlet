@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_CUSTOM_CONFIG, type ConfigItem, type CustomConfig } from "@/types/config";
-import { useCustomConfigState } from "./use-custom-config-state";
+import { useCustomConfigController } from "./use-custom-config-state";
 
 const mocks = vi.hoisted(() => ({
   getCustomConfig: vi.fn(),
@@ -46,7 +46,7 @@ function createWrapper(queryClient: QueryClient) {
   };
 }
 
-describe("useCustomConfigState", () => {
+describe("useCustomConfigController", () => {
   beforeEach(() => {
     localStorage.clear();
     mocks.getCustomConfig.mockReset().mockResolvedValue(null);
@@ -56,7 +56,7 @@ describe("useCustomConfigState", () => {
   it("keeps provider state and custom-config query cache aligned after explicit save", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const nextConfig = customCurrencyConfig(["PHP", "AED", "CNY", "USD"]);
-    const { result } = renderHook(() => useCustomConfigState(), { wrapper: createWrapper(queryClient) });
+    const { result } = renderHook(() => useCustomConfigController(), { wrapper: createWrapper(queryClient) });
 
     let savedConfig: CustomConfig | null = null;
     await act(async () => {

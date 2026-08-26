@@ -4,17 +4,31 @@ import {
 } from "@renewlet/shared/schemas/subscriptions";
 import { DISABLED_REMINDER_DAYS, INHERIT_REMINDER_DAYS } from "@renewlet/shared/runtime";
 import {
-  SUBSCRIPTION_COLUMNS,
-  listSubscriptionsPage,
+  SUBSCRIPTION_COLLECTION_COLUMN_NAMES,
+  listSubscriptionCollectionPage,
   parseSubscriptionCursor,
 } from "./db";
 import { getSubscriptionTotal } from "./subscription-derived-state";
-import type { Env, SubscriptionListIndexRow, SubscriptionRow } from "./types";
+import type { Env, SubscriptionCollectionRow } from "./types";
 
-const subscriptionListScanPageSize = 500;
+const SUBSCRIPTION_COLLECTION_COLUMNS_FROM_FACT = SUBSCRIPTION_COLLECTION_COLUMN_NAMES
+  .map((column) => `sub.${column}`)
+  .join(", ");
+
+export type SubscriptionCollectionFilters = Omit<SubscriptionsListQuery, "cursor" | "limit">;
+
+export interface SubscriptionSqlQueryPlan {
+  sql: string;
+  params: unknown[];
+}
+
+export interface SubscriptionCollectionQueryPlan {
+  count: SubscriptionSqlQueryPlan;
+  facts: SubscriptionSqlQueryPlan;
+}
 
 /**
- * 订阅筛选保留 exact total：筛选时只扫轻量投影表产出总数和当前页 id，再按 id 回表取完整 DTO。
+ * 订阅筛选保留 exact total：筛选条件只作用于轻量投影，事实表 JOIN 也只读取集合 DTO 所需列。
  *
  * cursor 只能影响本页起点，不能进入 total 口径；否则筛选页顶部统计会随滚动递减。
  */
@@ -23,85 +37,100 @@ export async function listSubscriptionsForQuery(
   userId: string,
   query: SubscriptionsListQuery,
   today: string,
-): Promise<{ rows: SubscriptionRow[]; total: number }> {
+): Promise<{ rows: SubscriptionCollectionRow[]; total: number }> {
   if (!subscriptionListQueryHasFilters(query)) {
-    return {
-      rows: await listSubscriptionsPage(env, userId, { limit: query.limit + 1, cursor: query.cursor }),
-      total: await getSubscriptionTotal(env, userId),
-    };
+    // 两个读取互不依赖；并发执行避免无筛选首页形成固定 D1 waterfall。
+    const [rows, total] = await Promise.all([
+      listSubscriptionCollectionPage(env, userId, { limit: query.limit + 1, cursor: query.cursor }),
+      getSubscriptionTotal(env, userId),
+    ]);
+    return { rows, total };
   }
   return await collectFilteredSubscriptions(env, userId, query, today);
 }
 
-async function collectFilteredSubscriptions(env: Env, userId: string, query: SubscriptionsListQuery, today: string): Promise<{ rows: SubscriptionRow[]; total: number }> {
-  const cursor = parseSubscriptionCursor(query.cursor);
-  const base = subscriptionListBaseQuery(userId, query);
-  let total = 0;
-  const pageIds: string[] = [];
-  let scanCursor: { createdAt: string; id: string } | undefined;
-  // 扫描游标只用于替代 OFFSET 降低 D1 重读；业务 cursor 另行判断，确保 total 覆盖完整筛选结果。
-  for (;;) {
-    const candidates = await runSubscriptionFilterScan(env, base, subscriptionListScanPageSize, scanCursor);
-    for (const row of candidates) {
-      if (!subscriptionIndexRowMatchesPostFilters(row, query, today)) continue;
-      total += 1;
-      if (pageIds.length <= query.limit && subscriptionIndexRowIsAfterCursor(row, cursor)) {
-        pageIds.push(row.subscription_id);
-      }
-    }
-    if (candidates.length < subscriptionListScanPageSize) break;
-    const last = candidates.at(-1);
-    if (!last) break;
-    scanCursor = { createdAt: last.created_at, id: last.subscription_id };
-  }
-  return { rows: await getSubscriptionsByIds(env, userId, pageIds), total };
+/** 完整集合先在投影层确认上限，再读取轻量事实列；超限请求不会触碰 subscriptions facts。 */
+export async function listBoundedSubscriptionsForQuery(
+  env: Env,
+  userId: string,
+  query: SubscriptionCollectionFilters,
+  today: string,
+  maxItems: number,
+): Promise<{ rows: SubscriptionCollectionRow[]; total: number; exceeded: boolean }> {
+  const plan = subscriptionCollectionQueryPlan(userId, query, today, maxItems + 1);
+  const total = await countSubscriptionProjection(env, plan.count);
+  if (total > maxItems) return { rows: [], total, exceeded: true };
+
+  // count 与读取之间若发生并发写入，额外一行仍会把请求收敛为 422，不能返回伪完整集合。
+  const rows = await readSubscriptionCollectionFacts(env, plan.facts);
+  if (rows.length > maxItems) return { rows: [], total: rows.length, exceeded: true };
+  // 成功响应以事实行数为 total，避免 count 后并发删除留下与返回数组不一致的元数据。
+  return { rows, total: rows.length, exceeded: false };
 }
 
-async function runSubscriptionFilterScan(
-  env: Env,
-  base: { where: string; params: unknown[] },
+async function collectFilteredSubscriptions(env: Env, userId: string, query: SubscriptionsListQuery, today: string): Promise<{ rows: SubscriptionCollectionRow[]; total: number }> {
+  const cursor = parseSubscriptionCursor(query.cursor);
+  const plan = subscriptionCollectionQueryPlan(userId, query, today, query.limit + 1, cursor);
+  // count 不带业务 cursor，保证 total 描述完整过滤集；事实表 JOIN 避免先收集数千 ID 再构造超大 IN。
+  const [total, rows] = await Promise.all([
+    countSubscriptionProjection(env, plan.count),
+    readSubscriptionCollectionFacts(env, plan.facts),
+  ]);
+  return { rows, total };
+}
+
+type SubscriptionProjectionQuery = { where: string; params: unknown[] };
+
+export function subscriptionCollectionQueryPlan(
+  userId: string,
+  query: SubscriptionCollectionFilters,
+  today: string,
   limit: number,
-  cursor: { createdAt: string; id: string } | undefined,
-): Promise<SubscriptionListIndexRow[]> {
+  cursor?: { createdAt: string; id: string } | null,
+): SubscriptionCollectionQueryPlan {
+  const base = subscriptionListBaseQuery(userId, query, today);
   const cursorCondition = cursor ? "AND (idx.created_at < ? OR (idx.created_at = ? AND idx.subscription_id < ?))" : "";
   const cursorParams = cursor ? [cursor.createdAt, cursor.createdAt, cursor.id] : [];
-  const result = await env.DB.prepare(`
-    SELECT
-      subscription_id,
-      user_id,
-      name,
-      website,
-      notes,
-      search_text_lower,
-      category,
-      billing_cycle,
-      currency,
-      payment_method,
-      status,
-      pinned,
-      public_hidden,
-      next_billing_date,
-      trial_end_date,
-      one_time_term_count,
-      auto_renew,
-      reminder_days,
-      repeat_reminder_enabled,
-      created_at,
-      updated_at
-    FROM subscription_list_index AS idx
-    WHERE ${base.where}
-      ${cursorCondition}
-    ORDER BY idx.created_at DESC, idx.subscription_id DESC
-    LIMIT ?
-  `).bind(...base.params, ...cursorParams, limit).all<SubscriptionListIndexRow>();
-  return result.results;
+  return {
+    count: {
+      sql: `SELECT COUNT(*) AS total FROM subscription_list_index AS idx WHERE ${base.where}`,
+      params: base.params,
+    },
+    facts: {
+      sql: `
+        SELECT ${SUBSCRIPTION_COLLECTION_COLUMNS_FROM_FACT}
+        FROM subscription_list_index AS idx
+        INNER JOIN subscriptions AS sub ON sub.user_id = idx.user_id AND sub.id = idx.subscription_id
+        WHERE ${base.where} ${cursorCondition}
+        ORDER BY idx.created_at DESC, idx.subscription_id DESC
+        LIMIT ?
+      `,
+      params: [...base.params, ...cursorParams, limit],
+    },
+  };
+}
+
+async function countSubscriptionProjection(env: Env, plan: SubscriptionSqlQueryPlan): Promise<number> {
+  const row = await env.DB.prepare(plan.sql)
+    .bind(...plan.params)
+    .first<{ total: number }>();
+  return row?.total ?? 0;
+}
+
+async function readSubscriptionCollectionFacts(
+  env: Env,
+  plan: SubscriptionSqlQueryPlan,
+): Promise<SubscriptionCollectionRow[]> {
+  const page = await env.DB.prepare(plan.sql).bind(...plan.params).all<SubscriptionCollectionRow>();
+  return page.results;
 }
 
 function subscriptionListBaseQuery(
   userId: string,
-  query: SubscriptionsListQuery,
+  query: SubscriptionCollectionFilters,
+  today: string,
 ): { where: string; params: unknown[] } {
-  // SQL 下推只处理稳定标量和拆表 tag；模糊搜索/有效过期状态仍在 owner scoped 轻量投影里做同语义后处理。
+  // 所有筛选都在 owner-scoped 投影中完成；事实表 JOIN 只负责返回规范化 DTO 所需字段。
   const conditions = ["idx.user_id = ?"];
   const params: unknown[] = [userId];
   appendSqlInCondition(conditions, params, "idx.category", query.category);
@@ -130,6 +159,19 @@ function subscriptionListBaseQuery(
   if (query.repeatReminder !== undefined) {
     conditions.push("idx.repeat_reminder_enabled = ?");
     params.push(query.repeatReminder ? 1 : 0);
+  }
+  if (query.q) {
+    conditions.push("instr(idx.search_text_lower, ?) > 0");
+    params.push(query.q.trim().toLowerCase());
+  }
+  if (query.status) {
+    conditions.push(`(CASE
+      WHEN idx.status = 'expired' THEN 'expired'
+      WHEN idx.billing_cycle = 'one-time' AND COALESCE(idx.one_time_term_count, 0) <= 0 THEN idx.status
+      WHEN idx.status IN ('active', 'trial') AND idx.next_billing_date < ? THEN 'expired'
+      ELSE idx.status
+    END) = ?`);
+    params.push(today, query.status);
   }
   return { where: conditions.join(" AND "), params };
 }
@@ -201,44 +243,7 @@ function appendReminderModeCondition(
   }
 }
 
-function subscriptionIndexRowMatchesPostFilters(row: SubscriptionListIndexRow, query: SubscriptionsListQuery, today: string): boolean {
-  if (query.status && effectiveSubscriptionIndexStatus(row, today) !== query.status) return false;
-  if (query.q && !subscriptionSearchMatches(row, query.q)) return false;
-  return true;
-}
-
-function effectiveSubscriptionIndexStatus(row: SubscriptionListIndexRow, today: string): string {
-  if (row.status === "expired") return "expired";
-  if (row.billing_cycle === "one-time" && (row.one_time_term_count ?? 0) <= 0) return row.status;
-  if ((row.status === "active" || row.status === "trial") && row.next_billing_date < today) return "expired";
-  return row.status;
-}
-
-function subscriptionSearchMatches(row: SubscriptionListIndexRow, search: string): boolean {
-  const query = search.trim().toLowerCase();
-  if (!query) return true;
-  return row.search_text_lower.includes(query);
-}
-
-function subscriptionIndexRowIsAfterCursor(row: SubscriptionListIndexRow, cursor: { createdAt: string; id: string } | null): boolean {
-  if (!cursor) return true;
-  return row.created_at < cursor.createdAt || (row.created_at === cursor.createdAt && row.subscription_id < cursor.id);
-}
-
-async function getSubscriptionsByIds(env: Env, userId: string, ids: readonly string[]): Promise<SubscriptionRow[]> {
-  if (ids.length === 0) return [];
-  const result = await env.DB.prepare(`
-    SELECT ${SUBSCRIPTION_COLUMNS} FROM subscriptions
-    WHERE user_id = ? AND id IN (${ids.map(() => "?").join(", ")})
-  `).bind(userId, ...ids).all<SubscriptionRow>();
-  const byId = new Map(result.results.map((row) => [row.id, row]));
-  return ids.flatMap((id) => {
-    const row = byId.get(id);
-    return row ? [row] : [];
-  });
-}
-
-function subscriptionListQueryHasFilters(query: SubscriptionsListQuery): boolean {
+function subscriptionListQueryHasFilters(query: SubscriptionCollectionFilters): boolean {
   return Boolean(
     query.q ||
     query.category?.length ||

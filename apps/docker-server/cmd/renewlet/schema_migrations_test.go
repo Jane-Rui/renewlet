@@ -169,6 +169,46 @@ func TestSchemaDataMigrationsBackfillSchedulerWithoutListProjection(t *testing.T
 	}
 }
 
+func TestSchemaDataMigrationsNormalizeSubscriptionCycleFieldsOnce(t *testing.T) {
+	app := newSchemaTestApp(t)
+	if err := ensureCollectionsSchema(app); err != nil {
+		t.Fatal(err)
+	}
+	user := createSchemaTestUser(t, app, "schema-cycle-fields@example.com")
+	custom := createSchemaTestSubscriptionNoValidate(t, app, user.Id, map[string]interface{}{
+		"name":            "Legacy Custom",
+		"billingCycle":    "custom",
+		"customDays":      45,
+		"customCycleUnit": "",
+	})
+	fixed := createSchemaTestSubscriptionNoValidate(t, app, user.Id, map[string]interface{}{
+		"name":             "Fixed With Stale Fields",
+		"billingCycle":     "monthly",
+		"customDays":       30,
+		"customCycleUnit":  "week",
+		"oneTimeTermCount": 6,
+		"oneTimeTermUnit":  "month",
+	})
+
+	if err := runSchemaDataMigrations(app); err != nil {
+		t.Fatal(err)
+	}
+	reloadedCustom, err := app.FindRecordById("subscriptions", custom.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloadedCustom.GetInt("customDays") != 45 || reloadedCustom.GetString("customCycleUnit") != "day" {
+		t.Fatalf("custom cycle = (%d, %q), want (45, day)", reloadedCustom.GetInt("customDays"), reloadedCustom.GetString("customCycleUnit"))
+	}
+	reloadedFixed, err := app.FindRecordById("subscriptions", fixed.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloadedFixed.GetInt("customDays") != 0 || reloadedFixed.GetString("customCycleUnit") != "" || reloadedFixed.GetInt("oneTimeTermCount") != 0 || reloadedFixed.GetString("oneTimeTermUnit") != "" {
+		t.Fatalf("fixed cycle retained mutually exclusive fields: custom=(%d, %q) one-time=(%d, %q)", reloadedFixed.GetInt("customDays"), reloadedFixed.GetString("customCycleUnit"), reloadedFixed.GetInt("oneTimeTermCount"), reloadedFixed.GetString("oneTimeTermUnit"))
+	}
+}
+
 func TestSchemaDataMigrationsBackfillCostSharingCollectionReminderMirrors(t *testing.T) {
 	app := newSchemaTestApp(t)
 	if err := ensureCollectionsSchema(app); err != nil {

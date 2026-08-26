@@ -5,6 +5,7 @@ import type { ComponentProps } from "react";
 import { CloudBackupSnapshotList } from "./cloud-backup-snapshot-list";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import type { CloudBackupSnapshot } from "@/lib/api/schemas/cloud-backup";
+import type { SettingsReadState } from "../application/settings-read-state";
 
 // 快照列表测试固定“设置页摘要 + 用户主动查看全部”的布局边界，避免大量远端快照重新撑高设置页。
 vi.mock("@/hooks/use-media-query", () => ({
@@ -24,11 +25,18 @@ vi.mock("@/i18n/I18nProvider", () => ({
         "settings.cloudBackupRestore": "恢复",
         "settings.cloudBackupRestoring": "恢复中...",
         "settings.cloudBackupDeleting": "删除中...",
+        "settings.cloudBackupRestoreNamed": "恢复「{name}」",
+        "settings.cloudBackupRestoringNamed": "正在恢复「{name}」",
+        "settings.cloudBackupDeleteNamed": "删除「{name}」",
+        "settings.cloudBackupDeletingNamed": "正在删除「{name}」",
         "settings.cloudBackupSnapshots": "云端快照",
         "settings.cloudBackupSnapshotsEmpty": "暂无云端快照。",
         "settings.cloudBackupSnapshotsHelp": "快照下载前会校验 manifest 与 SHA-256；恢复仍需在导入预览中确认。",
         "settings.cloudBackupSnapshotsViewAll": "查看全部 ({count})",
         "settings.cloudBackupUpstreamOpen": "查看错误详情",
+        "settings.managerLoadFailed": "加载失败",
+        "settings.managerRefreshFailed": "未更新",
+        "settings.managerRetry": "重试",
       };
       const message = messages[key] ?? key;
       if (!params) return message;
@@ -53,18 +61,30 @@ function snapshotFixture(overrides: Partial<CloudBackupSnapshot> = {}): CloudBac
   };
 }
 
+function readState<T>(
+  data: T | undefined,
+  overrides: Partial<SettingsReadState<T>> = {},
+): SettingsReadState<T> {
+  return {
+    data,
+    hasData: data !== undefined,
+    error: null,
+    isInitialLoading: false,
+    isRefreshing: false,
+    retry: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    ...overrides,
+  };
+}
+
 function renderSnapshotList(overrides: Partial<ComponentProps<typeof CloudBackupSnapshotList>> = {}) {
   return render(
     <CloudBackupSnapshotList
-      snapshots={[]}
-      isLoading={false}
+      state={readState([])}
       busy={false}
       restoringSnapshotKey={null}
       deletingSnapshotKey={null}
       canRefreshSnapshots
-      isRefreshingSnapshots={false}
       snapshotsErrorMessage={null}
-      onRefresh={vi.fn()}
       onOpenErrorDetails={vi.fn()}
       onRestore={vi.fn()}
       onDelete={vi.fn()}
@@ -86,7 +106,7 @@ describe("CloudBackupSnapshotList", () => {
       snapshotFixture({ id: "snapshot-3", filename: "renewlet-3.zip" }),
     ];
 
-    renderSnapshotList({ snapshots });
+    renderSnapshotList({ state: readState(snapshots) });
 
     expect(screen.getByText("renewlet-1.zip")).toBeInTheDocument();
     expect(screen.getByText("renewlet-2.zip")).toBeInTheDocument();
@@ -107,12 +127,11 @@ describe("CloudBackupSnapshotList", () => {
     const refresh = vi.fn();
 
     renderSnapshotList({
-      snapshots: [
+      state: readState([
         snapshotFixture({ id: "snapshot-1", filename: "renewlet-1.zip" }),
         snapshotFixture({ id: "snapshot-2", filename: "renewlet-2.zip" }),
         snapshotFixture({ id: "snapshot-3", filename: "renewlet-3.zip" }),
-      ],
-      onRefresh: refresh,
+      ], { retry: refresh }),
     });
 
     await user.click(screen.getByRole("button", { name: "查看全部 (3)" }));
@@ -128,12 +147,11 @@ describe("CloudBackupSnapshotList", () => {
     const user = userEvent.setup();
 
     renderSnapshotList({
-      snapshots: [
+      state: readState([
         snapshotFixture({ id: "snapshot-1", filename: "renewlet-1.zip" }),
         snapshotFixture({ id: "snapshot-2", filename: "renewlet-2.zip" }),
         snapshotFixture({ id: "snapshot-3", filename: "renewlet-3.zip" }),
-      ],
-      isRefreshingSnapshots: true,
+      ], { isRefreshing: true }),
     });
 
     const summaryRefresh = screen.getByRole("button", { name: "刷新" });
@@ -151,10 +169,10 @@ describe("CloudBackupSnapshotList", () => {
 
   it("does not show the full-list trigger when the summary already contains all snapshots", () => {
     renderSnapshotList({
-      snapshots: [
+      state: readState([
         snapshotFixture({ id: "snapshot-1", filename: "renewlet-1.zip" }),
         snapshotFixture({ id: "snapshot-2", filename: "renewlet-2.zip" }),
-      ],
+      ]),
     });
 
     expect(screen.getByText("renewlet-1.zip")).toBeInTheDocument();
@@ -171,7 +189,7 @@ describe("CloudBackupSnapshotList", () => {
     ];
 
     renderSnapshotList({
-      snapshots,
+      state: readState(snapshots),
       busy: true,
       restoringSnapshotKey: "s3:same-id",
       deletingSnapshotKey: null,
@@ -179,18 +197,18 @@ describe("CloudBackupSnapshotList", () => {
 
     const webdavRow = screen.getByText("renewlet-webdav.zip").closest("div.grid");
     expect(webdavRow).not.toBeNull();
-    expect(within(webdavRow as HTMLElement).queryByRole("button", { name: "恢复中..." })).not.toBeInTheDocument();
+    expect(within(webdavRow as HTMLElement).queryByRole("button", { name: "正在恢复「renewlet-webdav.zip」" })).not.toBeInTheDocument();
 
     const s3Row = screen.getByText("renewlet-s3.zip").closest("div.grid");
     expect(s3Row).not.toBeNull();
-    expect(within(s3Row as HTMLElement).getByRole("button", { name: "恢复中..." })).toHaveAttribute("aria-busy", "true");
+    expect(within(s3Row as HTMLElement).getByRole("button", { name: "正在恢复「renewlet-s3.zip」" })).toHaveAttribute("aria-busy", "true");
 
     await user.click(screen.getByRole("button", { name: "查看全部 (3)" }));
 
     const dialog = screen.getByRole("dialog", { name: "云端快照" });
     const fullListS3Row = within(dialog).getByText("renewlet-s3.zip").closest("div.grid");
     expect(fullListS3Row).not.toBeNull();
-    expect(within(fullListS3Row as HTMLElement).getByRole("button", { name: "恢复中..." })).toHaveAttribute("aria-busy", "true");
+    expect(within(fullListS3Row as HTMLElement).getByRole("button", { name: "正在恢复「renewlet-s3.zip」" })).toHaveAttribute("aria-busy", "true");
   });
 
   it("matches deleting state by provider and id in summary and full list", async () => {
@@ -202,26 +220,26 @@ describe("CloudBackupSnapshotList", () => {
     ];
 
     renderSnapshotList({
-      snapshots,
+      state: readState(snapshots),
       busy: true,
       deletingSnapshotKey: "s3:same-id",
     });
 
     const webdavRow = screen.getByText("renewlet-webdav.zip").closest("div.grid");
     expect(webdavRow).not.toBeNull();
-    expect(within(webdavRow as HTMLElement).queryByRole("button", { name: "删除中..." })).not.toBeInTheDocument();
-    expect(within(webdavRow as HTMLElement).getByRole("button", { name: "删除" })).toBeDisabled();
+    expect(within(webdavRow as HTMLElement).queryByRole("button", { name: "正在删除「renewlet-webdav.zip」" })).not.toBeInTheDocument();
+    expect(within(webdavRow as HTMLElement).getByRole("button", { name: "删除「renewlet-webdav.zip」" })).toBeDisabled();
 
     const s3Row = screen.getByText("renewlet-s3.zip").closest("div.grid");
     expect(s3Row).not.toBeNull();
-    expect(within(s3Row as HTMLElement).getByRole("button", { name: "删除中..." })).toHaveAttribute("aria-busy", "true");
+    expect(within(s3Row as HTMLElement).getByRole("button", { name: "正在删除「renewlet-s3.zip」" })).toHaveAttribute("aria-busy", "true");
 
     await user.click(screen.getByRole("button", { name: "查看全部 (3)" }));
 
     const dialog = screen.getByRole("dialog", { name: "云端快照" });
     const fullListS3Row = within(dialog).getByText("renewlet-s3.zip").closest("div.grid");
     expect(fullListS3Row).not.toBeNull();
-    expect(within(fullListS3Row as HTMLElement).getByRole("button", { name: "删除中..." })).toHaveAttribute("aria-busy", "true");
+    expect(within(fullListS3Row as HTMLElement).getByRole("button", { name: "正在删除「renewlet-s3.zip」" })).toHaveAttribute("aria-busy", "true");
   });
 
   it("passes the complete snapshot object from the full list actions", async () => {
@@ -231,11 +249,11 @@ describe("CloudBackupSnapshotList", () => {
     const remove = vi.fn();
 
     renderSnapshotList({
-      snapshots: [
+      state: readState([
         snapshotFixture({ id: "snapshot-1", filename: "renewlet-1.zip" }),
         snapshotFixture({ id: "snapshot-2", filename: "renewlet-2.zip" }),
         targetSnapshot,
-      ],
+      ]),
       onRestore: restore,
       onDelete: remove,
     });
@@ -245,8 +263,8 @@ describe("CloudBackupSnapshotList", () => {
     const targetRow = within(dialog).getByText("renewlet-3.zip").closest("div.grid");
     expect(targetRow).not.toBeNull();
 
-    await user.click(within(targetRow as HTMLElement).getByRole("button", { name: "恢复" }));
-    await user.click(within(targetRow as HTMLElement).getByRole("button", { name: "删除" }));
+    await user.click(within(targetRow as HTMLElement).getByRole("button", { name: "恢复「renewlet-3.zip」" }));
+    await user.click(within(targetRow as HTMLElement).getByRole("button", { name: "删除「renewlet-3.zip」" }));
 
     expect(restore).toHaveBeenCalledWith(targetSnapshot);
     expect(remove).toHaveBeenCalledWith(targetSnapshot);
@@ -254,22 +272,21 @@ describe("CloudBackupSnapshotList", () => {
 
   it("keeps loading, empty, and error states inline without opening the full-list overlay", () => {
     const openErrorDetails = vi.fn();
-    const { rerender } = renderSnapshotList({ isLoading: true });
+    const { rerender } = renderSnapshotList({
+      state: readState<CloudBackupSnapshot[]>(undefined, { isInitialLoading: true }),
+    });
 
-    expect(screen.getByText("加载中")).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "加载中" })).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
     rerender(
       <CloudBackupSnapshotList
-        snapshots={[]}
-        isLoading={false}
+        state={readState([])}
         busy={false}
         restoringSnapshotKey={null}
         deletingSnapshotKey={null}
         canRefreshSnapshots
-        isRefreshingSnapshots={false}
         snapshotsErrorMessage={null}
-        onRefresh={vi.fn()}
         onOpenErrorDetails={openErrorDetails}
         onRestore={vi.fn()}
         onDelete={vi.fn()}
@@ -280,35 +297,34 @@ describe("CloudBackupSnapshotList", () => {
 
     rerender(
       <CloudBackupSnapshotList
-        snapshots={[snapshotFixture()]}
-        isLoading={false}
+        state={readState<CloudBackupSnapshot[]>(undefined, { error: new Error("list unavailable") })}
         busy={false}
         restoringSnapshotKey={null}
         deletingSnapshotKey={null}
         canRefreshSnapshots
-        isRefreshingSnapshots={false}
         snapshotsErrorMessage="云端快照列表加载失败"
-        onRefresh={vi.fn()}
         onOpenErrorDetails={openErrorDetails}
         onRestore={vi.fn()}
         onDelete={vi.fn()}
       />,
     );
 
-    expect(screen.getByText("云端快照列表加载失败")).toBeInTheDocument();
+    expect(screen.getByText("加载失败")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "查看错误详情" })).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /查看全部/ })).not.toBeInTheDocument();
   });
 
-  it("keeps the full-list overlay open and shows the provider error when refresh fails", async () => {
+  it("keeps the full-list overlay and cached rows visible when refresh fails", async () => {
     const user = userEvent.setup();
     const openErrorDetails = vi.fn();
+    const snapshots = [
+      snapshotFixture({ id: "snapshot-1", filename: "renewlet-1.zip" }),
+      snapshotFixture({ id: "snapshot-2", filename: "renewlet-2.zip" }),
+      snapshotFixture({ id: "snapshot-3", filename: "renewlet-3.zip" }),
+    ];
     const { rerender } = renderSnapshotList({
-      snapshots: [
-        snapshotFixture({ id: "snapshot-1", filename: "renewlet-1.zip" }),
-        snapshotFixture({ id: "snapshot-2", filename: "renewlet-2.zip" }),
-        snapshotFixture({ id: "snapshot-3", filename: "renewlet-3.zip" }),
-      ],
+      state: readState(snapshots),
       onOpenErrorDetails: openErrorDetails,
     });
 
@@ -317,19 +333,12 @@ describe("CloudBackupSnapshotList", () => {
 
     rerender(
       <CloudBackupSnapshotList
-        snapshots={[
-          snapshotFixture({ id: "snapshot-1", filename: "renewlet-1.zip" }),
-          snapshotFixture({ id: "snapshot-2", filename: "renewlet-2.zip" }),
-          snapshotFixture({ id: "snapshot-3", filename: "renewlet-3.zip" }),
-        ]}
-        isLoading={false}
+        state={readState(snapshots, { error: new Error("refresh failed") })}
         busy={false}
         restoringSnapshotKey={null}
         deletingSnapshotKey={null}
         canRefreshSnapshots
-        isRefreshingSnapshots={false}
         snapshotsErrorMessage="云端快照列表加载失败"
-        onRefresh={vi.fn()}
         onOpenErrorDetails={openErrorDetails}
         onRestore={vi.fn()}
         onDelete={vi.fn()}
@@ -337,7 +346,9 @@ describe("CloudBackupSnapshotList", () => {
     );
 
     const dialog = screen.getByRole("dialog", { name: "云端快照" });
-    expect(within(dialog).getByText("云端快照列表加载失败")).toBeInTheDocument();
+    expect(screen.getByText("未更新")).toBeInTheDocument();
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("云端快照列表加载失败");
+    expect(within(dialog).getByText("renewlet-3.zip")).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "查看错误详情" }));
     expect(openErrorDetails).toHaveBeenCalledTimes(1);
   });
@@ -347,11 +358,11 @@ describe("CloudBackupSnapshotList", () => {
     useMediaQueryMock.mockReturnValue(true);
 
     renderSnapshotList({
-      snapshots: [
+      state: readState([
         snapshotFixture({ id: "snapshot-1", filename: "renewlet-1.zip" }),
         snapshotFixture({ id: "snapshot-2", filename: "renewlet-2.zip" }),
         snapshotFixture({ id: "snapshot-3", filename: "renewlet-3.zip" }),
-      ],
+      ]),
     });
 
     await user.click(screen.getByRole("button", { name: "查看全部 (3)" }));

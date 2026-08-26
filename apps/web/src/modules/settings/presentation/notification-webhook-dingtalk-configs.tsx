@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { BookOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { FormField, FormFieldRow } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -52,24 +53,25 @@ export function NotificationWebhookConfigPanel({
             {t("settings.webhookGetPostHelp")}
           </p>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="grid gap-2">
-            <Label htmlFor="webhookMethod">{t("settings.webhookMethod")}</Label>
-            <Select
-              value={settings.webhookMethod}
-              disabled={disabled}
-              onValueChange={(value) => updateSetting('webhookMethod', value as 'GET' | 'POST')}
-            >
-              <SelectTrigger className="border-border bg-secondary">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="POST">POST</SelectItem>
-                <SelectItem value="GET">GET</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
+        <FormFieldRow alignAt="sm" rowClassName="sm:grid-cols-2">
+          <FormField id="webhookMethod" label={t("settings.webhookMethod")}>
+            {({ id }) => (
+              <Select
+                value={settings.webhookMethod}
+                disabled={disabled}
+                onValueChange={(value) => updateSetting('webhookMethod', value as 'GET' | 'POST')}
+              >
+                <SelectTrigger id={id} className="border-border bg-secondary">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="POST">POST</SelectItem>
+                  <SelectItem value="GET">GET</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+          </FormField>
+        </FormFieldRow>
         <div className="grid gap-2">
           <Label htmlFor="webhookHeaders">{t("settings.webhookHeaders")}</Label>
           <Textarea
@@ -78,7 +80,7 @@ export function NotificationWebhookConfigPanel({
             value={settings.webhookHeaders}
             disabled={disabled}
             onChange={(e) => updateSetting('webhookHeaders', e.target.value)}
-            className="min-h-[80px] border-border bg-secondary font-mono text-sm"
+            className="min-h-20 border-border bg-secondary font-mono text-sm"
           />
           <p className="text-xs text-muted-foreground">{t("settings.webhookHeadersHelp")}</p>
         </div>
@@ -90,7 +92,7 @@ export function NotificationWebhookConfigPanel({
             value={settings.webhookPayload}
             disabled={disabled}
             onChange={(e) => updateSetting('webhookPayload', e.target.value)}
-            className="min-h-[80px] border-border bg-secondary font-mono text-sm"
+            className="min-h-20 border-border bg-secondary font-mono text-sm"
           />
           <p className="text-xs text-muted-foreground">
             {t("settings.webhookPayloadHelp")}
@@ -160,37 +162,39 @@ export function NotificationDingTalkConfigPanel({
           />
           <p className="text-xs text-muted-foreground">{t("settings.dingtalkWebhookHelp")}</p>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="grid gap-2">
-            <Label htmlFor="dingtalkMessageType">{t("settings.messageType")}</Label>
-            <Select
-              value={settings.dingtalkMessageType}
-              disabled={disabled}
-              onValueChange={(value) => updateSetting('dingtalkMessageType', value as 'markdown' | 'text')}
-            >
-              <SelectTrigger className="border-border bg-secondary">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="markdown">Markdown</SelectItem>
-                <SelectItem value="text">{t("settings.textMessage")}</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="dingtalkTitleTemplate">{t("settings.dingtalkTitleTemplate")}</Label>
-            <Input
-              id="dingtalkTitleTemplate"
-              autoCapitalize="none"
-              spellCheck={false}
-              placeholder={t("settings.dingtalkTitleTemplatePlaceholder")}
-              value={settings.dingtalkTitleTemplate}
-              disabled={disabled}
-              onChange={(e) => updateSetting('dingtalkTitleTemplate', e.target.value)}
-              className="border-border bg-secondary"
-            />
-          </div>
-        </div>
+        <FormFieldRow alignAt="sm" rowClassName="sm:grid-cols-2">
+          <FormField id="dingtalkMessageType" label={t("settings.messageType")}>
+            {({ id }) => (
+              <Select
+                value={settings.dingtalkMessageType}
+                disabled={disabled}
+                onValueChange={(value) => updateSetting('dingtalkMessageType', value as 'markdown' | 'text')}
+              >
+                <SelectTrigger id={id} className="border-border bg-secondary">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="markdown">Markdown</SelectItem>
+                  <SelectItem value="text">{t("settings.textMessage")}</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+          </FormField>
+          <FormField id="dingtalkTitleTemplate" label={t("settings.dingtalkTitleTemplate")}>
+            {({ id }) => (
+              <Input
+                id={id}
+                autoCapitalize="none"
+                spellCheck={false}
+                placeholder={t("settings.dingtalkTitleTemplatePlaceholder")}
+                value={settings.dingtalkTitleTemplate}
+                disabled={disabled}
+                onChange={(e) => updateSetting('dingtalkTitleTemplate', e.target.value)}
+                className="border-border bg-secondary"
+              />
+            )}
+          </FormField>
+        </FormFieldRow>
         <div className="grid gap-2">
           <Label htmlFor="dingtalkContentTemplate">{t("settings.dingtalkContentTemplate")}</Label>
           <Textarea
@@ -199,7 +203,7 @@ export function NotificationDingTalkConfigPanel({
             value={settings.dingtalkContentTemplate}
             disabled={disabled}
             onChange={(e) => updateSetting('dingtalkContentTemplate', e.target.value)}
-            className="min-h-[120px] border-border bg-secondary font-mono text-sm"
+            className="min-h-30 border-border bg-secondary font-mono text-sm"
           />
           <p className="text-xs text-muted-foreground">{t("settings.dingtalkTemplateHelp")}</p>
           <Popover open={templateExamplesOpen} onOpenChange={setTemplateExamplesOpen}>

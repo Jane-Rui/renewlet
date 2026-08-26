@@ -26,10 +26,30 @@ func runSchemaDataMigrations(app core.App) error {
 		{Name: "cost_sharing_current_user_payer_shape_v1", Run: migrateCostSharingCurrentUserPayerShape},
 		{Name: "cost_sharing_collection_reminder_mirror_v2", Run: backfillCostSharingCollectionReminderMirrors},
 		{Name: "cost_sharing_collection_reminder_inherited_cycle_v3", Run: migrateCostSharingCollectionReminderInheritedCycle},
+		{Name: "subscription_cycle_fields_v1", Run: migrateSubscriptionCycleFields},
 		{Name: "invalid_subscription_logos_v1", Run: cleanupInvalidSubscriptionLogos},
+		{Name: "orphan_subscription_calendar_feeds_v1", Run: deleteOrphanSubscriptionCalendarFeeds},
 	}
 	for _, migration := range migrations {
 		if err := runSchemaDataMigration(app, migration.Name, migration.Run); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateSubscriptionCycleFields(app core.App) error {
+	// 历史 custom 数量的单位固定是 day；迁移完成后读写热路径只接受显式单位，不再保留运行时兼容分支。
+	statements := []string{
+		`UPDATE subscriptions SET customCycleUnit = 'day'
+			WHERE billingCycle = 'custom' AND customDays > 0 AND TRIM(COALESCE(customCycleUnit, '')) = ''`,
+		`UPDATE subscriptions SET customDays = 0, customCycleUnit = ''
+			WHERE billingCycle != 'custom' AND (customDays != 0 OR TRIM(COALESCE(customCycleUnit, '')) != '')`,
+		`UPDATE subscriptions SET oneTimeTermCount = 0, oneTimeTermUnit = ''
+			WHERE billingCycle != 'one-time' AND (oneTimeTermCount != 0 OR TRIM(COALESCE(oneTimeTermUnit, '')) != '')`,
+	}
+	for _, statement := range statements {
+		if _, err := app.DB().NewQuery(statement).Execute(); err != nil {
 			return err
 		}
 	}

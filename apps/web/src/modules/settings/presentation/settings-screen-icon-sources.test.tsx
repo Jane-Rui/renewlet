@@ -38,8 +38,7 @@ describe("SettingsScreen icon source settings", () => {
 
     renderSettingsScreen();
 
-    expect(screen.getByText("已启用 3 个来源 · 变体 3/3")).toBeInTheDocument();
-    expect(screen.getByText("TheSVG / selfh.st / Dashboard")).toBeInTheDocument();
+    expect(screen.getByText("内置 3/3 · 在线已启用")).toBeInTheDocument();
     expect(screen.queryByRole("switch", { name: "切换 selfh.st icons 来源" })).not.toBeInTheDocument();
 
     const configureButton = screen.getByRole("button", { name: "配置" });
@@ -112,8 +111,7 @@ describe("SettingsScreen icon source settings", () => {
     cleanup();
     renderSettingsScreen();
 
-    expect(screen.getByText("已启用 1 个来源 · 变体 1/3")).toBeInTheDocument();
-    expect(screen.getByText("TheSVG")).toBeInTheDocument();
+    expect(screen.getByText("内置 1/3 · 在线已启用")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "配置" }));
     expect(await screen.findByRole("switch", { name: "切换 TheSVG 来源" })).toBeDisabled();
   });

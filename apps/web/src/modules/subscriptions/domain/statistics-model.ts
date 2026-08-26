@@ -12,12 +12,12 @@
  *   -> StatBox / PieChart view model
  * ```
  */
-import { toMonthlyAmount } from "@/lib/subscription-billing";
+import { toDailyAmountFromMonthly, toMonthlyAmount } from "@/lib/subscription-billing";
 import { compareDateOnly, fromPlainDate, isSameMonthDateOnly, todayDateOnlyInTimeZone, toPlainDate, type DateOnly } from "@/lib/time/date-only";
 import { DEFAULT_LOCALE, localizedLabel, type Locale } from "@/i18n/locales";
 import { translate } from "@/i18n/messages";
 import type { CustomConfig } from "@/types/config";
-import type { Subscription } from "@/types/subscription";
+import type { SubscriptionCollectionItem } from "@/types/subscription";
 import { addBillingCycles } from "@renewlet/shared/subscription-renewal";
 import { calculateCostSharingSummary } from "@renewlet/shared/cost-sharing";
 import { moneyToNumber } from "@renewlet/shared/money";
@@ -66,7 +66,7 @@ interface StatisticsTrendBucket extends StatisticsTrendDatum {
 }
 
 interface BuildStatisticsModelInput {
-  subscriptions: readonly Subscription[];
+  subscriptions: readonly SubscriptionCollectionItem[];
   config: CustomConfig;
   monthlyBudget: string;
   defaultCurrency: string;
@@ -115,7 +115,7 @@ function sortTrendItems(items: StatisticsTrendItem[]): StatisticsTrendItem[] {
 
 function addTrendItem(
   items: StatisticsTrendItem[],
-  subscription: Subscription,
+  subscription: SubscriptionCollectionItem,
   amount: number,
   occurrenceDate: DateOnly | null,
 ) {
@@ -147,7 +147,7 @@ function addTrendItem(
 function addCashflowTrend(
   bucketsByMonth: Map<string, StatisticsTrendBucket>,
   buckets: readonly StatisticsTrendBucket[],
-  subscription: Subscription,
+  subscription: SubscriptionCollectionItem,
   amountInDefault: number,
 ) {
   if (subscription.billingCycle === "one-time" || buckets.length === 0) return;
@@ -174,8 +174,8 @@ function addCashflowTrend(
       subscription.billingCycle,
       1,
       subscription.customDays,
-      subscription.customCycleUnit ?? "day",
-    ) as DateOnly;
+      subscription.customCycleUnit,
+    );
     if (compareDateOnly(nextDueDate, dueDate) <= 0) break;
     dueDate = nextDueDate;
   }
@@ -183,7 +183,7 @@ function addCashflowTrend(
 
 function addAmortizedTrend(
   buckets: readonly StatisticsTrendBucket[],
-  subscription: Subscription,
+  subscription: SubscriptionCollectionItem,
   monthlyAmount: number,
 ) {
   if (monthlyAmount <= 0) return;
@@ -211,12 +211,12 @@ function addAmortizedTrend(
 }
 
 function buildTrendData(
-  activeSubscriptions: readonly Subscription[],
+  activeSubscriptions: readonly SubscriptionCollectionItem[],
   today: DateOnly,
   locale: Locale,
   convertToDefault: (amount: number | string, currency: string) => number,
-  amountForStats: (subscription: Subscription) => number | string,
-  calculateMonthlyAmount: (subscription: Subscription) => number,
+  amountForStats: (subscription: SubscriptionCollectionItem) => number | string,
+  calculateMonthlyAmount: (subscription: SubscriptionCollectionItem) => number,
 ): StatisticsTrendDatum[] {
   const buckets = buildTrendBuckets(today, locale);
   const bucketsByMonth = new Map(buckets.map((bucket) => [bucket.monthKey, bucket]));
@@ -258,8 +258,8 @@ export function buildStatisticsModel({
   const inactiveSubscriptions = subscriptions.filter((subscription) => isEffectivelyInactiveSubscription(subscription, today));
   const monthlyBudgetAmount = moneyToNumber(monthlyBudget);
 
-  // costBasis 是统计页的金额口径开关；一旦选 personal，月均、当月现金流、分类和趋势都必须使用个人份额。
-  const amountForStats = (subscription: Subscription): number | string =>
+  // costBasis 是统计页的金额口径开关；一旦选 personal，月均、日均、当月现金流、分类和趋势都必须使用个人份额。
+  const amountForStats = (subscription: SubscriptionCollectionItem): number | string =>
     costBasis === "personal"
       ? calculateCostSharingSummary(subscription.costSharing, subscription.price, {
           baseCurrency: subscription.currency,
@@ -267,7 +267,7 @@ export function buildStatisticsModel({
         }).yourShare
       : subscription.price;
   const convertToDefault = (amount: number | string, currency: string) => convert(amount, currency, defaultCurrency);
-  const calculateMonthlyAmount = (subscription: Subscription): number => {
+  const calculateMonthlyAmount = (subscription: SubscriptionCollectionItem): number => {
     // 先换算币种再折算周期，保证所有图表都以用户当前统计货币为唯一口径。
     const amountInDefault = convertToDefault(amountForStats(subscription), subscription.currency);
     return toMonthlyAmount(
@@ -281,14 +281,15 @@ export function buildStatisticsModel({
   };
 
   const totalMonthly = activeSubscriptions.reduce((sum, subscription) => sum + calculateMonthlyAmount(subscription), 0);
+  const totalDaily = toDailyAmountFromMonthly(totalMonthly);
   const totalAnnual = totalMonthly * 12;
   const avgMonthlyPerSub = activeSubscriptions.length > 0 ? totalMonthly / activeSubscriptions.length : 0;
-  const mostExpensive = activeSubscriptions.reduce((max, subscription) => {
+  const mostExpensive = activeSubscriptions.reduce<SubscriptionCollectionItem | null>((max, subscription) => {
     // 使用月折算金额比较，而不是原始价格，避免年付订阅被低估。
     const currentMonthly = calculateMonthlyAmount(subscription);
     const maxMonthly = max ? calculateMonthlyAmount(max) : 0;
     return currentMonthly > maxMonthly ? subscription : max;
-  }, null as Subscription | null);
+  }, null);
   const thisMonthDue = activeSubscriptions
     .filter((subscription) => subscription.billingCycle !== "one-time" && isSameMonthDateOnly(subscription.nextBillingDate, today))
     .reduce((sum, subscription) => sum + convertToDefault(amountForStats(subscription), subscription.currency), 0);
@@ -340,6 +341,7 @@ export function buildStatisticsModel({
     activeCount: activeSubscriptions.length,
     inactiveCount: inactiveSubscriptions.length,
     totalMonthly,
+    totalDaily,
     totalAnnual,
     avgMonthlyPerSub,
     mostExpensive,

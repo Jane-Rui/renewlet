@@ -157,5 +157,6 @@ export function useAIRecognitionImages({ setError, onInputChanged }: UseAIRecogn
     removeImage,
     resetImages,
     cancelProcessing,
+    abortProcessing: discardProcessing,
   };
 }

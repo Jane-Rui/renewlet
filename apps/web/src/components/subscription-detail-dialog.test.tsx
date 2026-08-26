@@ -3,7 +3,8 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { assertDateOnly } from "@/lib/time/date-only";
-import type { Subscription } from "@/types/subscription";
+import { subscriptionCycleFixture } from "@/test/subscription-fixtures";
+import type { Subscription, SubscriptionCollectionItem } from "@/types/subscription";
 import { SubscriptionDetailDialog } from "./subscription-detail-dialog";
 
 const mocks = vi.hoisted(() => ({
@@ -26,7 +27,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/contexts/CustomConfigContext", () => ({
-  useCustomConfig: () => ({
+  useCustomConfigState: () => ({
     config: {
       categories: mocks.categories,
       statuses: [],
@@ -43,17 +44,24 @@ vi.mock("@/hooks/use-settings", () => ({
 }));
 
 vi.mock("@/hooks/use-calendar-feed", () => ({
-  useCreateSubscriptionCalendarFeed: () => ({
-    isPending: false,
-    mutateAsync: vi.fn(),
-  }),
-  useDeleteSubscriptionCalendarFeed: () => ({
-    isPending: false,
-    mutateAsync: vi.fn(),
-  }),
-  useSubscriptionCalendarFeedStatus: () => ({
+  useCalendarFeedStatus: () => ({
     data: { enabled: false, feedUrl: undefined },
-    isLoading: false,
+    isError: false,
+    isFetching: false,
+    isPending: false,
+    refetch: vi.fn(),
+  }),
+  useCreateCalendarFeed: () => ({
+    isPending: false,
+    mutateAsync: vi.fn(),
+  }),
+  useDeleteCalendarFeed: () => ({
+    isPending: false,
+    mutateAsync: vi.fn(),
+  }),
+  useRotateCalendarFeed: () => ({
+    isPending: false,
+    mutateAsync: vi.fn(),
   }),
 }));
 
@@ -81,6 +89,7 @@ const baseSubscription: Subscription = {
   repeatReminderEnabled: false,
   repeatReminderInterval: "1h",
   repeatReminderWindow: "72h",
+  extra: {},
   pinned: false,
   publicHidden: false,
 };
@@ -100,6 +109,8 @@ function renderDetailDialog({
   onEditSubscription,
   onRenewSubscription,
   priceReferenceCurrency = "CNY",
+  loading = false,
+  loadingPreview = subscription,
 }: {
   subscription?: Subscription | null;
   open?: boolean;
@@ -107,6 +118,8 @@ function renderDetailDialog({
   onEditSubscription?: (subscription: Subscription) => void;
   onRenewSubscription?: (id: string) => void;
   priceReferenceCurrency?: string | null;
+  loading?: boolean;
+  loadingPreview?: SubscriptionCollectionItem | null;
 } = {}) {
   return {
     onOpenChange,
@@ -116,10 +129,12 @@ function renderDetailDialog({
           open={open}
           onOpenChange={onOpenChange}
           subscription={subscription}
+          loadingPreview={loadingPreview}
           today={assertDateOnly("2026-05-18")}
           currencyConvert={testCurrencyConvert}
           currencyRatesReady={true}
           priceReferenceCurrency={priceReferenceCurrency}
+          loading={loading}
           {...(onEditSubscription ? { onEditSubscription } : {})}
           {...(onRenewSubscription ? { onRenewSubscription } : {})}
         />
@@ -150,12 +165,51 @@ describe("SubscriptionDetailDialog", () => {
     Reflect.deleteProperty(window, "matchMedia");
   });
 
+  it("uses the detail scaffold while the complete detail model is pending", () => {
+    const onOpenChange = vi.fn();
+    const preview = baseSubscription;
+    const { rerender } = renderDetailDialog({
+      subscription: null,
+      loadingPreview: preview,
+      loading: true,
+      onOpenChange,
+      onEditSubscription: vi.fn(),
+    });
+    const dialog = screen.getByRole("dialog", { name: "Fastmail" });
+    const identityRegion = dialog.querySelector('[data-dialog-region="subscription-identity"]');
+    expect(screen.getByTestId("subscription-detail-data-loading")).toBeInTheDocument();
+
+    rerender(
+      <TooltipProvider delayDuration={0}>
+        <SubscriptionDetailDialog
+          open
+          onOpenChange={onOpenChange}
+          subscription={baseSubscription}
+          loadingPreview={preview}
+          today={assertDateOnly("2026-05-18")}
+          currencyConvert={testCurrencyConvert}
+          currencyRatesReady
+          priceReferenceCurrency="CNY"
+          onEditSubscription={vi.fn()}
+          loading={false}
+        />
+      </TooltipProvider>,
+    );
+
+    expect(screen.getByRole("dialog", { name: "Fastmail" })).toBe(dialog);
+    expect(dialog.querySelector('[data-dialog-region="subscription-identity"]')).toBe(identityRegion);
+    expect(screen.queryByTestId("subscription-detail-data-loading")).not.toBeInTheDocument();
+    expect(screen.getByText("团队年度订阅", { exact: false })).toBeInTheDocument();
+  });
+
   it("renders website, notes, payment method, tags, and inherited reminder in the read-only detail view", () => {
     renderDetailDialog();
 
     const dialog = screen.getByRole("dialog", { name: "Fastmail" });
     expect(dialog).toHaveAccessibleDescription("查看 Fastmail 的价格、周期、日期、标签、网站和备注。");
     expect(within(dialog).getByText("$159 USD")).toBeInTheDocument();
+    expect(within(dialog).getByText("日均支出")).toBeInTheDocument();
+    expect(within(dialog).getByText("$5.3")).toHaveClass("tabular-nums");
     expect(within(dialog).getByText("≈ ¥1,113 CNY")).toHaveClass(
       "text-xs",
       "tabular-nums",
@@ -229,6 +283,26 @@ describe("SubscriptionDetailDialog", () => {
     expect(within(dialog).getAllByText(/^≈/)).toHaveLength(1);
     expect(within(dialog).getByText("成员合计")).toBeInTheDocument();
     expect(within(dialog).getByText("你的份额")).toBeInTheDocument();
+    expect(within(dialog).getByText("$5.3")).toBeInTheDocument();
+  });
+
+  it("hides buyout daily cost and amortizes one-time fixed terms", () => {
+    const buyout = renderDetailDialog({
+      subscription: { ...baseSubscription, ...subscriptionCycleFixture({ billingCycle: "one-time" }) },
+    });
+    expect(within(screen.getByRole("dialog", { name: "Fastmail" })).queryByText("日均支出")).not.toBeInTheDocument();
+    buyout.unmount();
+
+    renderDetailDialog({
+      subscription: {
+        ...baseSubscription,
+        price: "180",
+        ...subscriptionCycleFixture({ billingCycle: "one-time", oneTimeTermCount: 6, oneTimeTermUnit: "month" }),
+      },
+    });
+    const fixedTermDialog = screen.getByRole("dialog", { name: "Fastmail" });
+    expect(within(fixedTermDialog).getByText("日均支出")).toBeInTheDocument();
+    expect(within(fixedTermDialog).getByText("$1")).toBeInTheDocument();
   });
 
   it("closes the detail dialog before opening the edit flow", () => {
@@ -266,10 +340,12 @@ describe("SubscriptionDetailDialog", () => {
     renderDetailDialog({
       subscription: {
         ...baseSubscription,
-        billingCycle: "custom",
-        customDays: 2,
-        customCycleUnit: "week",
-      } as Subscription,
+        ...subscriptionCycleFixture({
+          billingCycle: "custom",
+          customDays: 2,
+          customCycleUnit: "week",
+        }),
+      },
     });
 
     const dialog = screen.getByRole("dialog", { name: "Fastmail" });

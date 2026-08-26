@@ -86,37 +86,6 @@ func channelHTTPErrorMessage(locale appLocale, channel string, statusCode int, d
 	return serverFormat(locale, "notification.httpSendFailed", map[string]interface{}{"channel": channel, "status": statusCode, "detail": trimLongText(detail)})
 }
 
-func readResponseText(resp *http.Response) string {
-	if resp == nil || resp.Body == nil {
-		return ""
-	}
-	defer resp.Body.Close()
-	// 外部服务错误页可能很大；只取前 8KiB 足够诊断，同时避免历史 lastError 被异常响应撑爆。
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 8192))
-	if err != nil {
-		return ""
-	}
-	text := strings.TrimSpace(string(body))
-	if text == "" {
-		return ""
-	}
-	var parsed struct {
-		Description string `json:"description"`
-		Detail      string `json:"detail"`
-		Message     string `json:"message"`
-		Error       string `json:"error"`
-		Title       string `json:"title"`
-	}
-	if err := json.Unmarshal(body, &parsed); err == nil {
-		for _, value := range []string{parsed.Description, parsed.Detail, parsed.Message, parsed.Error, parsed.Title} {
-			if strings.TrimSpace(value) != "" {
-				return trimLongText(value)
-			}
-		}
-	}
-	return trimLongText(text)
-}
-
 func responseOK(resp *http.Response) bool {
 	if resp == nil || resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return false

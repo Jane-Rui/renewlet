@@ -100,10 +100,6 @@ func buildBuiltInResolverIndex(icons []builtInIcon) builtInResolverIndex {
 	return buildBuiltInResolverIndexFromSearchIndex(createBuiltInIconSearchIndex(icons), nil)
 }
 
-func buildBuiltInResolverIndexWithProviderBases(icons []builtInIcon, providerBases map[string]string) builtInResolverIndex {
-	return buildBuiltInResolverIndexFromSearchIndex(createBuiltInIconSearchIndex(icons), providerBases)
-}
-
 func buildBuiltInResolverIndexFromSearchIndex(searchIndex builtInIconSearchIndex, providerBases map[string]string) builtInResolverIndex {
 	rankByProvider := mediaResolverBuiltInProviderRank()
 	resolver := builtInResolverIndex{

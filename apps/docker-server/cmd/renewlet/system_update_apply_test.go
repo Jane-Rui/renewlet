@@ -186,9 +186,66 @@ func TestSystemUpdateTotalTimeoutBecomesFailedOperation(t *testing.T) {
 	if _, err := service.StartUpdate(localeZhCN); err != nil {
 		t.Fatal(err)
 	}
-	operation := waitForSystemUpdateTerminal(t, service)
+	waitForSystemUpdateTerminal(t, service)
+	operation := service.CurrentOperation(localeZhCN)
 	if operation.Status != systemUpdateStatusFailed || operation.Error == nil || operation.Error.Code != "SYSTEM_UPDATE_TIMEOUT" {
 		t.Fatalf("unexpected timeout operation: %#v", operation)
+	}
+	if operation.Error.Message != serverText(localeZhCN, "system.updateTimedOut") {
+		t.Fatalf("timeout message = %q", operation.Error.Message)
+	}
+}
+
+func TestSystemUpdateInterruptedUsesStableLocalizedFailure(t *testing.T) {
+	if code := systemUpdateFailureCode(context.Canceled); code != "SYSTEM_UPDATE_INTERRUPTED" {
+		t.Fatalf("interrupted code = %q", code)
+	}
+	if message := systemUpdateFailureMessage(localeZhCN, context.Canceled); message != serverText(localeZhCN, "system.updateInterrupted") {
+		t.Fatalf("interrupted message = %q", message)
+	}
+	idleTimeout := newUpstreamTransportError("download made no progress", true)
+	if code := systemUpdateFailureCode(idleTimeout); code != "SYSTEM_UPDATE_TIMEOUT" {
+		t.Fatalf("idle timeout code = %q", code)
+	}
+}
+
+func TestSystemUpdateChecksumMismatchBlocksInstallAndAllowsNewOperation(t *testing.T) {
+	service, client, binaryPath := newExecutableSystemUpdateService(t, "1.0.0", "1.1.0")
+	archiveName := fakeArchiveName(client)
+	client.checksumTxt = []byte(strings.Repeat("0", 64) + "  " + archiveName + "\n")
+
+	first, err := service.StartUpdate(localeZhCN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := waitForSystemUpdateTerminal(t, service)
+	if failed.Status != systemUpdateStatusFailed || failed.Error == nil || failed.Error.Code != "SYSTEM_UPDATE_FAILED" {
+		t.Fatalf("checksum mismatch operation = %#v", failed)
+	}
+	if got := atomic.LoadInt32(&client.downloadCount); got != 1 {
+		t.Fatalf("checksum mismatch download count = %d, want 1", got)
+	}
+	content, err := os.ReadFile(binaryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "old" {
+		t.Fatalf("checksum mismatch replaced the binary: %q", content)
+	}
+
+	second, err := service.StartUpdate(localeZhCN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.ID == first.ID {
+		t.Fatal("failed operation prevented creation of a new update task")
+	}
+	secondFailed := waitForSystemUpdateTerminal(t, service)
+	if secondFailed.ID != second.ID || secondFailed.Status != systemUpdateStatusFailed {
+		t.Fatalf("retry operation = %#v", secondFailed)
+	}
+	if got := atomic.LoadInt32(&client.downloadCount); got != 2 {
+		t.Fatalf("retry download count = %d, want 2", got)
 	}
 }
 

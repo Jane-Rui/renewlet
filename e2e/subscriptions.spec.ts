@@ -1,4 +1,5 @@
 // 桌面订阅 E2E 覆盖创建、筛选、编辑、Logo sheet 和持久化回读，是订阅主流程的跨组件回归基线。
+import subscriptionCollectionContractFixtures from "../packages/shared/src/contract-fixtures/subscription-collection-contract-fixtures.json";
 import { expect, test } from "./support/test";
 import {
   createSubscription,
@@ -16,6 +17,24 @@ import {
   expectVerticallyCenteredInViewport,
 } from "./support/layout";
 import { installLogoCandidateRoute } from "./support/media-candidates";
+import { expectSideDrawerExitLifecycle } from "./support/side-drawer";
+
+test("desktop advanced filters complete the right-side exit lifecycle", async ({ page }) => {
+  await page.goto("/subscriptions");
+  await expect(page.getByRole("heading", { name: "订阅列表" })).toBeVisible();
+
+  const trigger = page.getByTestId("desktop-advanced-filter").getByRole("button", { name: "更多筛选" });
+  await trigger.click();
+  const panel = page.getByTestId("desktop-advanced-filter-panel");
+  await expect(panel).toBeVisible();
+
+  await expectSideDrawerExitLifecycle(
+    page,
+    panel,
+    () => panel.getByRole("button", { name: "关闭" }).click(),
+  );
+  await expect(trigger).toBeFocused();
+});
 
 test("desktop tall subscription dialog keeps footer tight to the panel bottom", async ({ page }) => {
   await page.setViewportSize({ width: 1024, height: 900 });
@@ -115,6 +134,39 @@ test("desktop subscription create, tag filter, edit, and reload persistence", as
   await page.goto("/subscriptions");
   await expect(subscriptionCard(page, plainName)).toBeVisible();
   await expect(subscriptionCard(page, editedName)).toBeVisible();
+});
+
+test("desktop 1000-row search uses one index request and keeps the virtual list scrollable", async ({ page }) => {
+  const indexRequests: string[] = [];
+  const collectionTemplate = subscriptionCollectionContractFixtures.collectionItems[0];
+  if (!collectionTemplate) throw new Error("Missing recurring subscription collection contract fixture");
+  const subscriptions = Array.from({ length: 1000 }, (_, index) => ({
+    ...collectionTemplate,
+    id: `scale-${index}`,
+    name: `Scale Needle ${index}`,
+  }));
+  await page.route("**/api/app/subscriptions/index**", async (route) => {
+    indexRequests.push(route.request().url());
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ ok: true, data: { subscriptions, total: subscriptions.length } }),
+    });
+  });
+
+  await page.goto("/subscriptions");
+  await expect(page.getByRole("heading", { name: "订阅列表" })).toBeVisible();
+  await page.getByPlaceholder("搜索订阅、标签或备注...").fill("Scale Needle");
+
+  await expect(page.getByText("Scale Needle 0", { exact: true })).toBeVisible();
+  expect(indexRequests).toHaveLength(1);
+  expect(new URL(indexRequests[0] ?? "http://invalid").searchParams.get("q")).toBe("Scale Needle");
+
+  const virtualList = page.getByTestId("virtualized-subscription-list");
+  await expect(virtualList).toBeVisible();
+  await page.locator("#root").evaluate((root) => root.scrollTo({ top: root.scrollHeight }));
+  await expect(page.getByText("Scale Needle 999", { exact: true })).toBeVisible();
+  expect(indexRequests).toHaveLength(1);
 });
 
 test("desktop import Logo editor gives search candidates a real scroll viewport", async ({ page }) => {

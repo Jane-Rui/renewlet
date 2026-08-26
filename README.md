@@ -71,7 +71,7 @@ The deploy script creates `docker-compose.yml`, `.env`, and `data/`, then writes
 For production, pin a stable image tag:
 
 ```bash
-sed -i.bak 's#RENEWLET_IMAGE=.*#RENEWLET_IMAGE="zhiyingzzhou/renewlet:0.3.1"#' .env
+sed -i.bak 's#RENEWLET_IMAGE=.*#RENEWLET_IMAGE="zhiyingzzhou/renewlet:0.3.22"#' .env
 docker compose pull
 docker compose up -d
 ```
@@ -79,7 +79,7 @@ docker compose up -d
 If Docker Hub is unavailable, use GHCR:
 
 ```env
-RENEWLET_IMAGE="ghcr.io/zhiyingzzhou/renewlet:0.3.1"
+RENEWLET_IMAGE="ghcr.io/zhiyingzzhou/renewlet:0.3.22"
 ```
 
 ## Cloudflare Workers
@@ -109,7 +109,7 @@ tar -czf renewlet-backup-$(date +%F).tgz .env docker-compose.yml data
 Upgrade with Docker Compose:
 
 ```bash
-sed -i.bak 's#RENEWLET_IMAGE=.*#RENEWLET_IMAGE="zhiyingzzhou/renewlet:0.3.1"#' .env
+sed -i.bak 's#RENEWLET_IMAGE=.*#RENEWLET_IMAGE="zhiyingzzhou/renewlet:0.3.22"#' .env
 docker compose pull
 docker compose up -d
 docker compose logs -f
@@ -135,7 +135,7 @@ Common `.env` values:
 | `PB_ENCRYPTION_KEY` | Encryption key for sensitive PocketBase settings. Do not rotate it casually after deployment. |
 | `CRON_SECRET` | Bearer secret for external Cron calls to `/api/cron/notifications`. |
 | `RENEWLET_DEMO_MODE` | Docker Demo Mode switch, `false` by default. |
-| `RENEWLET_CUSTOM_HEAD_SCRIPT` | Optional deployer-provided external `<script>` injection. Empty by default; only use trusted self-hosted HTTPS scripts because they run inside the Renewlet page. |
+| `RENEWLET_CUSTOM_HEAD_HTML` | Optional deployer-trusted raw `<head>` HTML fragment, limited to 64 KiB of UTF-8. Empty by default. |
 | `NOTIFICATION_SCHEDULER_ENABLED` | Built-in notification scheduler switch, `true` by default. |
 | `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` | Optional Docker/Go upstream HTTP proxy; lowercase variable names are also supported. |
 
@@ -159,19 +159,27 @@ docker compose up -d --force-recreate
 
 Go also supports the lowercase variable names `http_proxy`, `https_proxy`, and `no_proxy`.
 
-### Custom Head Script
+### Custom Head HTML
 
-Renewlet does not inject external scripts by default. When `RENEWLET_CUSTOM_HEAD_SCRIPT` is set, Renewlet injects exactly one deployer-provided external `<script>` tag into the SPA `<head>`:
+Renewlet does not inject custom HTML by default. `RENEWLET_CUSTOM_HEAD_HTML` accepts a deployer-trusted, raw HTML fragment for the SPA `<head>`, including multiple `script`, `style`, `link`, `meta`, `noscript`, `template`, `title`, and `base` elements, comments, and whitespace. Inline scripts, external scripts, and scripts that dynamically create resources are supported. The UTF-8 value is limited to 64 KiB.
+
+Docker Compose `.env` files support single-quoted values spanning multiple lines. For example, the official Microsoft Clarity loader can be configured with a placeholder project ID as follows:
 
 ```env
-RENEWLET_CUSTOM_HEAD_SCRIPT='<script defer src="https://cdn.example.com/widget.js" data-host-url="https://api.example.com/widget"></script>'
+RENEWLET_CUSTOM_HEAD_HTML='<script type="text/javascript">
+    (function(c,l,a,r,i,t,y){
+        c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
+        t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
+        y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
+    })(window, document, "clarity", "script", "your-project-id");
+</script>'
 ```
 
-Renewlet accepts only a single external script tag with `src` and no inline content. The script origin is automatically added to `script-src` and `connect-src`; when `data-host-url` is present, its origin is also added to `connect-src`.
+The value must be raw HTML. Do not paste a Markdown link such as `[https://www.clarity.ms/tag/](https://www.clarity.ms/tag/)`, escaped tags such as `\<script>`, or editor-generated entities such as `&#x20;`; those strings are not the vendor's HTML snippet.
 
-Treat this as a high-trust deployment boundary. The injected script runs in the same browser page as Renewlet. It cannot read the HttpOnly session cookie, but same-origin script can still read the CSRF cookie and send credentialed requests as the current browser session. Prefer a self-hosted HTTPS script that you fully control, and leave `RENEWLET_CUSTOM_HEAD_SCRIPT` empty if you do not need it.
+Treat this as a trusted-code deployment boundary. The fragment has the same-origin capabilities of code shipped with Renewlet: it can read page data and non-HttpOnly storage, observe user interactions, and send credentialed requests as the current browser session. When the variable is empty, Renewlet keeps its strict resource CSP. When enabled, Renewlet intentionally switches to a structural CSP that retains `object-src`, `base-uri`, `frame-ancestors`, and `form-action` restrictions without fetch directives, so inline code and dynamically loaded scripts, XHR, images, and frames are not blocked by incomplete domain guesses.
 
-Docker/Go deployments inject this at runtime, so changing the environment variable only requires restarting Renewlet. Cloudflare Static Assets reads the variable at build time, so changes require rebuilding and redeploying.
+The instance operator is responsible for reviewing the fragment, disclosing analytics or session-recording data collection, publishing the applicable privacy policy, and providing any required consent signal. Renewlet contains no Clarity-specific integration or consent management platform. Docker/Go validates and freezes the value when the process starts, so changes require restarting Renewlet. Cloudflare Static Assets reads the value at build time, so changes require rebuilding and redeploying.
 
 ## Screenshots
 

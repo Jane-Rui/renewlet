@@ -1,44 +1,40 @@
-/**
- * 订阅导出 application hook。
- *
- * 架构位置：
- * - domain 生成导出内容。
- * - shared/browser 封装下载副作用。
- *
- * 注意： 这里接收的是“已经筛选后的订阅列表”，因此导出结果跟当前页面视图一致。
- */
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { CostSharingCurrencyConverter } from "@renewlet/shared/cost-sharing";
+import { toast } from "@/components/ui/sonner";
 import type { Locale } from "@/i18n/locales";
 import { localizedLabel } from "@/i18n/locales";
+import { translate } from "@/i18n/messages";
 import { todayDateOnlyInTimeZone } from "@/lib/time/date-only";
 import { downloadFile } from "@/shared/browser/download-file";
+import { exchangeRateSnapshotService } from "@/services/exchange-rate-snapshot-service";
+import { subscriptionService } from "@/services/subscription-service";
 import type { CustomConfig } from "@/types/config";
 import type { AppSettings, Subscription } from "@/types/subscription";
-import { exportRenewletBackup } from "@/modules/import-export/domain/renewlet-export";
-import { exchangeRateSnapshotService } from "@/services/exchange-rate-snapshot-service";
-import { buildSubscriptionsCsv } from "../domain/subscription-export";
-import type { CostSharingCurrencyConverter } from "@renewlet/shared/cost-sharing";
 
-async function loadExchangeRateSnapshotsForExport() {
+async function loadExchangeRateSnapshotsForExport(signal: AbortSignal) {
   try {
-    return await exchangeRateSnapshotService.list();
+    return await exchangeRateSnapshotService.list({}, signal);
   } catch (error) {
+    if (signal.aborted) throw error;
     // 汇率快照是报表口径增强，不能因为读取失败阻断订阅/设置这份基础可恢复导出。
     console.warn("Failed to include exchange-rate snapshots in Renewlet export:", error);
     return [];
   }
 }
 
-/** 订阅导出控制器。 */
+type SelectSubscriptionsForExport = (subscriptions: readonly Subscription[]) => Subscription[];
+
+/** 完整订阅只在用户显式导出时读取，列表轻量缓存不会被伪装成备份数据。 */
 export function useSubscriptionExport(
-  subscriptions: readonly Subscription[],
-  backupSubscriptions: readonly Subscription[],
   config: CustomConfig,
   settings: AppSettings,
   locale: Locale,
+  selectSubscriptionsForExport: SelectSubscriptionsForExport,
   timeZone = "UTC",
   costSharingCurrencyConvert?: CostSharingCurrencyConverter | undefined,
 ) {
+  const [exporting, setExporting] = useState(false);
+  const exportAbortRef = useRef<AbortController | null>(null);
   const categoryLabelByValue = useMemo(
     () => new Map(config.categories.map((category) => [category.value, localizedLabel(category.labels, locale)])),
     [config.categories, locale],
@@ -48,32 +44,78 @@ export function useSubscriptionExport(
     [config.statuses, locale],
   );
 
-  const exportToJSON = () => {
-    void (async () => {
-      const exchangeRateSnapshots = await loadExchangeRateSnapshotsForExport();
-      await exportRenewletBackup({ subscriptions: backupSubscriptions, settings, customConfig: config, includeSecrets: false, exchangeRateSnapshots });
-    })();
-  };
+  useEffect(() => () => exportAbortRef.current?.abort(), []);
 
-  const exportToJSONWithSecrets = () => {
-    void (async () => {
-      const exchangeRateSnapshots = await loadExchangeRateSnapshotsForExport();
-      await exportRenewletBackup({ subscriptions: backupSubscriptions, settings, customConfig: config, includeSecrets: true, exchangeRateSnapshots });
-    })();
-  };
+  const runExport = useCallback(async (operation: (signal: AbortSignal) => Promise<void>) => {
+    if (exportAbortRef.current) return;
+    const controller = new AbortController();
+    exportAbortRef.current = controller;
+    setExporting(true);
+    try {
+      await operation(controller.signal);
+    } catch {
+      if (!controller.signal.aborted) {
+        toast.error(translate(locale, "subscriptions.exportFailed"));
+      }
+    } finally {
+      if (exportAbortRef.current === controller) {
+        exportAbortRef.current = null;
+        setExporting(false);
+      }
+    }
+  }, [locale]);
 
-  const exportToCSV = () => {
-    const today = todayDateOnlyInTimeZone(new Date(), timeZone);
-    const csvContent = buildSubscriptionsCsv(subscriptions, {
-      categoryLabelByValue,
-      statusLabelByValue,
-      locale,
-      today,
-      costSharingCalculation: { convert: costSharingCurrencyConvert },
+  const exportBackup = useCallback((includeSecrets: boolean) => {
+    void runExport(async (signal) => {
+      // 序列化模块和两个读取互不依赖；显式导出时并行启动，避免代码拆分产生新的请求瀑布。
+      const [exportModule, subscriptions, exchangeRateSnapshots] = await Promise.all([
+        import("@/modules/import-export/domain/renewlet-export"),
+        subscriptionService.exportAll(signal),
+        loadExchangeRateSnapshotsForExport(signal),
+      ]);
+      await exportModule.exportRenewletBackup({
+        subscriptions,
+        settings,
+        customConfig: config,
+        includeSecrets,
+        exchangeRateSnapshots,
+      }, { signal });
     });
-    const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8" });
-    downloadFile(blob, "subscriptions.csv");
-  };
+  }, [config, runExport, settings]);
 
-  return { exportToJSON, exportToJSONWithSecrets, exportToCSV };
+  const exportToJSON = useCallback(() => {
+    void exportBackup(false);
+  }, [exportBackup]);
+
+  const exportToJSONWithSecrets = useCallback(() => {
+    void exportBackup(true);
+  }, [exportBackup]);
+
+  const exportToCSV = useCallback(() => {
+    void runExport(async (signal) => {
+      const [exportModule, subscriptions] = await Promise.all([
+        import("../domain/subscription-export"),
+        subscriptionService.exportAll(signal),
+      ]);
+      const csvSubscriptions = selectSubscriptionsForExport(subscriptions);
+      const csvContent = exportModule.buildSubscriptionsCsv(csvSubscriptions, {
+        categoryLabelByValue,
+        statusLabelByValue,
+        locale,
+        today: todayDateOnlyInTimeZone(new Date(), timeZone),
+        costSharingCalculation: { convert: costSharingCurrencyConvert },
+      });
+      downloadFile(new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8" }), "subscriptions.csv");
+    });
+  }, [
+    categoryLabelByValue,
+    costSharingCurrencyConvert,
+    locale,
+    runExport,
+    selectSubscriptionsForExport,
+    statusLabelByValue,
+    timeZone,
+  ]);
+
+  return { exportToJSON, exportToJSONWithSecrets, exportToCSV, exporting };
 }

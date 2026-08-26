@@ -230,10 +230,6 @@ func (client *webDAVCloudBackupClient) remotePath(filename string) string {
 	return joinWebDAVRemotePath(client.settings.Path, filename)
 }
 
-func (client *webDAVCloudBackupClient) secretValues() []string {
-	return []string{client.password}
-}
-
 func (transport *webDAVCaptureTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	transport.capture.setAttemptedRequest(request)
 	if ctx := transport.capture.currentContext(); ctx != nil {

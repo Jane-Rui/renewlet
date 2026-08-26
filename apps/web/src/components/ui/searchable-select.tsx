@@ -128,14 +128,14 @@ export function SearchableSelect({
         mobileTitle={ariaLabel ?? resolvedPlaceholder}
         mobileCloseLabel={translate(locale, "common.close")}
         className={cn(
-          "w-[var(--radix-popover-trigger-width)] min-w-[14rem] overflow-hidden border-border bg-popover p-0 text-popover-foreground",
+          "w-(--radix-popover-trigger-width) min-w-56 overflow-hidden border-border bg-popover p-0 text-popover-foreground",
           contentClassName,
         )}
       >
         <Command
           loop
           shouldFilter={false}
-          className="h5-mobile-searchable-select-command flex max-h-[22rem] w-full flex-col bg-popover text-popover-foreground"
+          className="h5-mobile-searchable-select-command flex max-h-88 w-full flex-col bg-popover text-popover-foreground"
         >
           <div className="flex items-center border-b border-border px-3">
             <Search className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />

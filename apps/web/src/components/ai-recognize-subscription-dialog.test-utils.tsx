@@ -1,11 +1,59 @@
 import { render } from "@testing-library/react";
-import { vi } from "vitest";
+import { useCallback, useState } from "react";
+import { expect, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { useMediaQuery } from "@/hooks/use-media-query";
+import { useNestedDialogCloseGuard } from "@/hooks/use-nested-dialog-close-guard";
+import { cn } from "@/lib/utils";
 import type { AiRecognizedSubscriptionDraft, AiRecognizeResponse } from "@/lib/api/schemas/ai-recognition";
 import type { ImportPreviewResponse } from "@/lib/api/schemas/import-export";
 import { DEFAULT_CUSTOM_CONFIG } from "@/types/config";
 import { DEFAULT_SETTINGS, type AppSettings } from "@/types/subscription";
-import { AIRecognizeSubscriptionDialog } from "./ai-recognize-subscription-dialog";
+import {
+  AIRecognizeSubscriptionDialogContent,
+  type AIRecognizeSubscriptionDialogProps,
+} from "./ai-recognize-subscription-dialog";
+
+function AIRecognizeSubscriptionDialog(props: AIRecognizeSubscriptionDialogProps) {
+  const isMobile = useMediaQuery("(max-width: 639px)");
+  const [workflowExpanded, setWorkflowExpanded] = useState(false);
+  const { handleNestedDialogOpenChange, handleParentOpenChange } = useNestedDialogCloseGuard(
+    props.open,
+    props.onOpenChange,
+  );
+  const handleRequestClose = useCallback(() => handleParentOpenChange(false), [handleParentOpenChange]);
+
+  return (
+    <Dialog open={props.open} onOpenChange={handleParentOpenChange}>
+      <DialogContent
+        dismissMode="explicit"
+        layout="frame"
+        closeLabel="关闭"
+        className={cn(
+          "overflow-hidden border-border bg-card p-0",
+          isMobile
+            ? "h5-ai-recognition-workbench-frame"
+            : cn(
+              "h5-import-dialog-panel sm:max-w-6xl",
+              workflowExpanded ? "h5-dialog-frame" : "h5-ai-recognition-input-dialog-frame",
+            ),
+        )}
+      >
+        <AIRecognizeSubscriptionDialogContent
+          open={props.open}
+          settings={props.settings}
+          apiKeyConfigured={props.apiKeyConfigured}
+          config={props.config}
+          availableTags={props.availableTags}
+          onNestedDialogOpenChange={handleNestedDialogOpenChange}
+          onRequestClose={handleRequestClose}
+          onWorkflowExpandedChange={setWorkflowExpanded}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 // 测试设置固定为“已配置 provider”，让用例聚焦 AI 弹层状态机而不是设置就绪态。
 export function configuredSettings(): AppSettings {
@@ -134,6 +182,26 @@ export function renderDialog(settings: AppSettings = configuredSettings(), onOpe
       </TooltipProvider>,
     ),
   };
+}
+
+export function expectRecognizeStreamCalledWith(
+  calls: readonly (readonly unknown[])[],
+  input: { text: string; images: File[]; thinkingControl: unknown },
+) {
+  const call = calls.at(-1);
+  expect(call?.[0]).toEqual(input);
+
+  const handlers = call?.[1];
+  if (!handlers || typeof handlers !== "object" || !("onEvent" in handlers)) {
+    throw new Error("Expected recognition stream handlers");
+  }
+  expect(handlers.onEvent).toBeTypeOf("function");
+
+  const options = call?.[2];
+  if (!options || typeof options !== "object" || !("signal" in options)) {
+    throw new Error("Expected recognition stream options");
+  }
+  expect(options.signal).toBeInstanceOf(AbortSignal);
 }
 
 export function mockMobile(matches = true) {

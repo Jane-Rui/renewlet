@@ -262,6 +262,7 @@ func TestEnsureSchemaCreatesContractFieldsAndIndexes(t *testing.T) {
 	assertIndex(t, app, "calendar_feeds", "idx_calendar_feeds_user_all_unique")
 	assertIndex(t, app, "calendar_feeds", "idx_calendar_feeds_token_unique")
 	assertIndex(t, app, "calendar_feeds", "idx_calendar_feeds_user_subscription_unique")
+	assertIndex(t, app, "calendar_feeds", "idx_calendar_feeds_user_scope_updated_id")
 	assertIndex(t, app, "public_status_pages", "idx_public_status_pages_user_unique")
 	assertIndex(t, app, "public_status_pages", "idx_public_status_pages_token_unique")
 	assertIndex(t, app, "api_tokens", "idx_api_tokens_user_created")

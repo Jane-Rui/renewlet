@@ -293,10 +293,7 @@ func normalizeSubscriptionRecordWithSettings(record *core.Record, mirrorSettings
 		if customDays <= 0 {
 			return errors.New("CUSTOM_DAYS_REQUIRED")
 		}
-		if customCycleUnit == "" {
-			// 旧 custom 数据没有单位字段；持久层读写边界统一按 day 解释，避免历史自定义天数被误作月/年。
-			record.Set("customCycleUnit", "day")
-		} else if !isValidCustomCycleUnit(customCycleUnit) {
+		if !isValidCustomCycleUnit(customCycleUnit) {
 			return errors.New("CUSTOM_CYCLE_UNIT_INVALID")
 		}
 	} else if customDays < 0 {

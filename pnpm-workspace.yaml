@@ -22,5 +22,3 @@ minimumReleaseAgeExclude:
   - ai@7.0.55
   - lucide-react@1.29.0
   - tsx@4.23.9
-  - miniflare@5.20260804.1-alpha
-  - wrangler@4.121.0

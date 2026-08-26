@@ -99,4 +99,5 @@ export const messages = [
   msg({ id: "error.code.AI_RECOGNITION_FAILED", message: "AI 识别失败，请检查输入和模型配置" }),
   msg({ id: "error.code.AI_RECOGNITION_SCHEMA_MISMATCH", message: "AI 返回内容无法整理成订阅草稿，请换用更强的模型或补充更明确的信息" }),
   msg({ id: "error.code.AI_RECOGNITION_TEST_FAILED", message: "AI 连接测试失败，请检查模型配置" }),
+  msg({ id: "error.code.SUBSCRIPTION_COLLECTION_LIMIT_EXCEEDED", message: "结果超过可处理上限，请缩小搜索或筛选范围" }),
 ] as const;

@@ -97,6 +97,7 @@ export const SortableConfigItem = memo(function SortableConfigItem({
   onIconUploadStatusChange,
 }: SortableConfigItemProps) {
   const { t, label } = useI18n();
+  const itemLabel = label(item.labels);
   const {
     attributes,
     listeners,
@@ -125,6 +126,7 @@ export const SortableConfigItem = memo(function SortableConfigItem({
       <button
         {...attributes}
         {...listeners}
+        aria-label={t("customConfig.dragNamed", { label: itemLabel })}
         className="shrink-0 cursor-grab touch-none active:cursor-grabbing"
       >
         <GripVertical className="h-4 w-4 text-muted-foreground/50" />
@@ -185,6 +187,7 @@ export const SortableConfigItem = memo(function SortableConfigItem({
                 className="h-7 w-7"
                 onClick={onSaveEdit}
                 disabled={showIcon === true && iconUploadStatus !== "idle"}
+                aria-label={t("customConfig.saveNamed", { label: itemLabel })}
               >
                 {iconUploadStatus === "uploading" ? (
                   <Loader2 className="h-4 w-4 animate-spin text-primary" />
@@ -192,7 +195,13 @@ export const SortableConfigItem = memo(function SortableConfigItem({
                   <Check className="h-4 w-4 text-primary" />
                 )}
               </Button>
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onCancelEdit}>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={onCancelEdit}
+                aria-label={t("customConfig.cancelEditNamed", { label: itemLabel })}
+              >
                 <X className="h-4 w-4 text-muted-foreground" />
               </Button>
             </div>
@@ -219,7 +228,7 @@ export const SortableConfigItem = memo(function SortableConfigItem({
             {item.value}
           </span>
           <TruncatedTooltipText
-            text={label(item.labels)}
+            text={itemLabel}
             className="min-w-0 flex-1 text-sm"
           />
 
@@ -233,6 +242,7 @@ export const SortableConfigItem = memo(function SortableConfigItem({
             <Switch
               checked={item.enabled !== false}
               onCheckedChange={onToggle}
+              aria-label={t("customConfig.toggleNamed", { label: itemLabel })}
             />
           ) : !readOnly && (
             <div className="flex shrink-0 gap-1">
@@ -246,6 +256,7 @@ export const SortableConfigItem = memo(function SortableConfigItem({
                 }}
                 onFocus={showIcon ? preloadIconPicker : undefined}
                 onPointerEnter={showIcon ? preloadIconPicker : undefined}
+                aria-label={t("customConfig.editNamed", { label: itemLabel })}
               >
                 <Edit2 className="h-3.5 w-3.5 text-muted-foreground" />
               </Button>
@@ -254,6 +265,7 @@ export const SortableConfigItem = memo(function SortableConfigItem({
                 size="icon"
                 className="h-7 w-7 hover:text-destructive"
                 onClick={onDelete}
+                aria-label={t("customConfig.deleteNamed", { label: itemLabel })}
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>

@@ -215,11 +215,8 @@ func TestNormalizeSubscriptionRecordDefaultsAndValidatesContract(t *testing.T) {
 	}
 	record.Set("customDays", 45)
 	record.Set("customCycleUnit", "")
-	if err := normalizeSubscriptionRecord(record); err != nil {
-		t.Fatalf("expected legacy custom billing cycle to default to day: %v", err)
-	}
-	if record.GetString("customCycleUnit") != "day" {
-		t.Fatalf("expected legacy custom billing cycle to default unit to day, got %q", record.GetString("customCycleUnit"))
+	if err := normalizeSubscriptionRecord(record); err == nil {
+		t.Fatal("expected custom billing cycle without a unit to fail")
 	}
 	record.Set("customCycleUnit", "decade")
 	if err := normalizeSubscriptionRecord(record); err == nil {

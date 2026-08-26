@@ -138,7 +138,7 @@ func (service *systemUpdateService) performUpdate(
 
 	archivePath := filepath.Join(tempDir, archiveAsset.Name)
 	// DownloadFile 在同一次网络流中落盘并计算摘要，校验阶段只比较结果，不再对大归档做第二次完整读取。
-	actualChecksum, err := service.client.DownloadFile(ctx, archiveAsset.BrowserDownloadURL, archivePath, systemUpdateMaxArchiveBytes)
+	actualChecksum, err := service.client.DownloadFile(ctx, archiveAsset.BrowserDownloadURL, archivePath, archiveAsset.Size, systemUpdateMaxArchiveBytes)
 	if err != nil {
 		return "", err
 	}

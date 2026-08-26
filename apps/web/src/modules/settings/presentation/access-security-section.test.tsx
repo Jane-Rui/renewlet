@@ -9,6 +9,12 @@ const translations: Record<string, string> = {
   "common.close": "关闭",
   "common.disabled": "未启用",
   "common.enabled": "已启用",
+  "common.loading": "加载中",
+  "settings.managerLoadFailed": "加载失败",
+  "settings.managerRefreshFailed": "未更新",
+  "settings.managerRetry": "重试",
+  "settings.notUpdated": "未更新",
+  "settings.statusUnknown": "状态未知",
   "settings.accessSecurity": "访问安全",
   "settings.turnstileClearSecret": "清除密钥",
   "settings.turnstileClearing": "清除中...",
@@ -71,11 +77,28 @@ vi.mock("@/lib/theme-provider", () => ({
   }),
 }));
 
+function readState(
+  data: SettingsAuthSecurityController["readState"]["data"],
+  overrides: Partial<SettingsAuthSecurityController["readState"]> = {},
+): SettingsAuthSecurityController["readState"] {
+  return {
+    data,
+    hasData: data !== undefined,
+    error: null,
+    isInitialLoading: false,
+    isRefreshing: false,
+    retry: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    ...overrides,
+  };
+}
+
 function createController(overrides: Partial<SettingsAuthSecurityController> = {}): SettingsAuthSecurityController {
   return {
     canManage: true,
     disabled: false,
-    isLoading: false,
+    readState: readState({
+      turnstile: { enabled: false, siteKey: "", secretConfigured: false },
+    }),
     isSaving: false,
     isClearingSecret: false,
     isTesting: false,
@@ -116,6 +139,26 @@ describe("AccessSecuritySection", () => {
     expect(container.firstChild).toBeNull();
   });
 
+  it("does not report Turnstile as disabled when the first read fails", async () => {
+    const user = userEvent.setup();
+    const retry = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    renderAccessSecuritySection(createController({
+      readState: readState(undefined, {
+        error: new Error("Turnstile unavailable"),
+        retry,
+      }),
+    }));
+
+    expect(screen.getByText("状态未知")).toBeInTheDocument();
+    expect(screen.getByText("加载失败")).toBeInTheDocument();
+    expect(screen.queryByText("未启用")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Site key")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Secret key")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "重试" }));
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
+
   it("renders Turnstile human verification as a top-level access security section", () => {
     renderAccessSecuritySection(createController({
       draft: { enabled: true, siteKey: "site-key", secret: "" },
@@ -123,13 +166,17 @@ describe("AccessSecuritySection", () => {
     }));
 
     expect(screen.getByRole("heading", { name: "访问安全" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Cloudflare Turnstile" })).toBeInTheDocument();
+    expect(screen.getAllByRole("heading")).toHaveLength(1);
     expect(screen.getByText("已启用")).toBeInTheDocument();
     expect(screen.getByText("密钥已配置")).toBeInTheDocument();
     expect(screen.getByText("启用后，Renewlet 会在邮箱密码登录前校验 Turnstile，用于降低爆破和撞库风险；通行密钥、身份验证器二阶段和首次设置不受影响。")).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "要求邮箱密码登录通过人机验证" })).toBeChecked();
     expect(screen.getByLabelText("Site key")).toHaveValue("site-key");
     expect(screen.getByLabelText("Secret key")).toHaveAttribute("placeholder", "已保存，留空则保持不变");
+    const credentialsRow = screen.getByLabelText("Site key").closest('[data-slot="form-field-row"]');
+    expect(credentialsRow).toHaveAttribute("data-align-at", "sm");
+    expect(credentialsRow).toHaveAttribute("data-tracks", "3");
+    expect(credentialsRow?.querySelectorAll('[data-slot="form-field"]')).toHaveLength(2);
     expect(screen.getByRole("button", { name: "保存 Turnstile 配置" })).toBeDisabled();
     expect(screen.queryByTestId("turnstile-test-widget")).not.toBeInTheDocument();
   });

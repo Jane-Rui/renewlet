@@ -75,7 +75,8 @@ export default defineConfig({
       timeout: 120_000,
     },
     {
-      command: `pnpm --dir apps/web exec vite --host 127.0.0.1 --port ${e2eClientPort} --strictPort`,
+      // 每轮强制重建 optimizer，确保 Worker 首次加载不依赖开发机残留的暖缓存。
+      command: `pnpm --dir apps/web exec vite --force --host 127.0.0.1 --port ${e2eClientPort} --strictPort`,
       env: {
         ...proxyEnv,
         VITE_DEV_PROXY_TARGET: e2eServerURL,
@@ -97,7 +98,13 @@ export default defineConfig({
     {
       name: "desktop",
       dependencies: ["setup"],
-      testMatch: ["**/subscriptions.spec.ts", "**/settings.spec.ts", "**/statistics.spec.ts", "**/release-smoke.spec.ts"],
+      testMatch: [
+        "**/calendar-feed-management.spec.ts",
+        "**/subscriptions.spec.ts",
+        "**/settings.spec.ts",
+        "**/statistics.spec.ts",
+        "**/release-smoke.spec.ts",
+      ],
       use: {
         ...devices["Desktop Chrome"],
         storageState: adminStorageState,

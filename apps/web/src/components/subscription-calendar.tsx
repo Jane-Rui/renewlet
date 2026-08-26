@@ -9,7 +9,7 @@
  */
 
 import { useState, useMemo } from 'react';
-import type { Subscription } from '@/types/subscription';
+import type { Subscription, SubscriptionCollectionItem } from '@/types/subscription';
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
 import { useExchangeRates } from '@/hooks/use-exchange-rates';
@@ -17,10 +17,6 @@ import { useSettings } from '@/hooks/use-settings';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import {
   format,
-  startOfMonth,
-  endOfMonth,
-  startOfWeek,
-  endOfWeek,
   eachDayOfInterval,
   isSameMonth,
   isToday,
@@ -30,7 +26,7 @@ import {
   setYear
 } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { dateToDateOnly, isSameMonthDateOnly, todayDateOnlyInTimeZone } from '@/lib/time/date-only';
+import { dateOnlyToLocalDate, dateToDateOnly, isSameMonthDateOnly, todayDateOnlyInTimeZone } from '@/lib/time/date-only';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -40,12 +36,16 @@ import { DaySubscriptionsDialog } from './subscription-calendar-dialogs';
 import type { CalendarDaySubscriptions } from './subscription-calendar-dialogs';
 import { isEffectivelyActiveSubscription } from '@/modules/subscriptions/domain/subscription-status';
 import { resolveSubscriptionPriceReferenceCurrency } from '@/modules/subscriptions/domain/subscription-price-reference';
+import { getSubscriptionCalendarRange } from '@/modules/subscriptions/domain/subscription-calendar-range';
+import { useSubscriptionDetailDialog } from '@/hooks/use-subscription-detail-dialog';
 
 interface SubscriptionCalendarProps {
   /** 订阅列表（前端 domain 类型）。 */
-  subscriptions: Subscription[];
-  /** 编辑动作交回上层 CRUD 控制器，日历只负责关闭详情并传出当前订阅快照。 */
-  onEditSubscription?: (subscription: Subscription) => void;
+  subscriptions: SubscriptionCollectionItem[];
+  currentMonth: Date;
+  onCurrentMonthChange: (month: Date) => void;
+  /** 编辑动作交回上层 CRUD 控制器，完整对象由共享 detail cache 提供。 */
+  onEditSubscription?: (id: string) => void;
 }
 
 const WEEKDAY_REFERENCE_DATES = [
@@ -60,7 +60,12 @@ const WEEKDAY_REFERENCE_DATES = [
 
 
 /** 续费/到期日历组件。 */
-export const SubscriptionCalendar = ({ subscriptions, onEditSubscription }: SubscriptionCalendarProps) => {
+export const SubscriptionCalendar = ({
+  subscriptions,
+  currentMonth,
+  onCurrentMonthChange,
+  onEditSubscription,
+}: SubscriptionCalendarProps) => {
   const { t, locale, formatDateTime, formatCurrency } = useI18n();
   const isMobileCalendar = useMediaQuery("(max-width: 639px)");
   // 默认货币来自 Settings（持久化到 SQLite），用于日历底部“预计支出”的换算口径。
@@ -71,9 +76,15 @@ export const SubscriptionCalendar = ({ subscriptions, onEditSubscription }: Subs
   const { convert, loading: ratesLoading, sourceDate: ratesSourceDate } = useExchangeRates(settings?.exchangeRateProvider);
   const currencyRatesReady = Boolean(ratesSourceDate) && !ratesLoading;
 
-  const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
-  const [detailOpen, setDetailOpen] = useState(false);
+  const {
+    detailDialogOpen,
+    selectedDetailSubscription,
+    selectedDetailCollectionItem,
+    detailPending,
+    handlePrefetchDetails,
+    handleViewDetails,
+    handleDetailDialogOpenChange,
+  } = useSubscriptionDetailDialog(subscriptions);
   const [dayListOpen, setDayListOpen] = useState(false);
   const [selectedDaySubs, setSelectedDaySubs] = useState<CalendarDaySubscriptions | null>(null);
   const [yearPickerOpen, setYearPickerOpen] = useState(false);
@@ -91,7 +102,7 @@ export const SubscriptionCalendar = ({ subscriptions, onEditSubscription }: Subs
   // 将订阅按 “YYYY-MM-DD” 分组（同一天可能有多条订阅）。订阅日期已经是 DateOnly，
   // 这里不能再用 Date 解析，否则不同浏览器/服务器时区会让日历跨日。
   const subscriptionsByDate = useMemo(() => {
-    const map = new Map<string, Subscription[]>();
+    const map = new Map<string, SubscriptionCollectionItem[]>();
     
     subscriptions
       // 日历展示真实扣费日和固定服务期到期日；one-time 买断没有下一次事件，不能把购买日塞进日历。
@@ -130,14 +141,11 @@ export const SubscriptionCalendar = ({ subscriptions, onEditSubscription }: Subs
 
   // 生成当前月视图需要展示的日期网格（包含前后补齐的周）
   const calendarDays = useMemo(() => {
-    const monthStart = startOfMonth(currentMonth);
-    const monthEnd = endOfMonth(currentMonth);
-    
-    // 续费日历以周一为一周起点，和中文/欧洲常见账单视图保持一致。
-    const calendarStart = startOfWeek(monthStart, { weekStartsOn: 1 });
-    const calendarEnd = endOfWeek(monthEnd, { weekStartsOn: 1 });
-    
-    return eachDayOfInterval({ start: calendarStart, end: calendarEnd });
+    const range = getSubscriptionCalendarRange(currentMonth);
+    return eachDayOfInterval({
+      start: dateOnlyToLocalDate(range.from),
+      end: dateOnlyToLocalDate(range.to),
+    });
   }, [currentMonth]);
 
   const monthlyAgendaGroups = useMemo(() => {
@@ -154,24 +162,26 @@ export const SubscriptionCalendar = ({ subscriptions, onEditSubscription }: Subs
       .filter((group) => group.subscriptions.length > 0);
   }, [calendarDays, currentMonth, subscriptionsByDate]);
 
-  const goToPreviousMonth = () => setCurrentMonth(subMonths(currentMonth, 1));
-  const goToNextMonth = () => setCurrentMonth(addMonths(currentMonth, 1));
-  const goToToday = () => setCurrentMonth(new Date());
+  const goToPreviousMonth = () => onCurrentMonthChange(subMonths(currentMonth, 1));
+  const goToNextMonth = () => onCurrentMonthChange(addMonths(currentMonth, 1));
+  const goToToday = () => onCurrentMonthChange(new Date());
 
-  const handleSubscriptionClick = (sub: Subscription) => {
-    setSelectedSubscription(sub);
-    setDetailOpen(true);
+  const handleSubscriptionClick = (sub: SubscriptionCollectionItem) => {
+    handleViewDetails(sub.id);
   };
 
-  const handleShowDayList = (date: Date, subs: Subscription[]) => {
+  const handleShowDayList = (date: Date, subs: SubscriptionCollectionItem[]) => {
     setSelectedDaySubs({ date, subscriptions: subs });
     setDayListOpen(true);
   };
 
-  const handleSelectFromList = (sub: Subscription) => {
+  const handleSelectFromList = (sub: SubscriptionCollectionItem) => {
     setDayListOpen(false);
-    setSelectedSubscription(sub);
-    setDetailOpen(true);
+    handleViewDetails(sub.id);
+  };
+
+  const handleEditFromDetail = (subscription: Subscription) => {
+    onEditSubscription?.(subscription.id);
   };
 
   return (
@@ -213,7 +223,7 @@ export const SubscriptionCalendar = ({ subscriptions, onEditSubscription }: Subs
                     {formatDateTime(currentMonth, { year: "numeric" })}
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-[280px] p-3" align="center">
+                <PopoverContent className="w-70 p-3" align="center">
                   <div className="flex items-center justify-between mb-3">
                     <Button
                       variant="ghost"
@@ -229,7 +239,7 @@ export const SubscriptionCalendar = ({ subscriptions, onEditSubscription }: Subs
                       className="h-7 text-xs text-primary hover:text-primary"
                       onClick={() => {
                         const today = new Date();
-                        setCurrentMonth(today);
+                        onCurrentMonthChange(today);
                         setYearRangeStart(Math.floor(today.getFullYear() / 12) * 12);
                         setYearPickerOpen(false);
                       }}
@@ -254,7 +264,7 @@ export const SubscriptionCalendar = ({ subscriptions, onEditSubscription }: Subs
                         <button
                           key={year}
                           onClick={() => {
-                            setCurrentMonth(setYear(currentMonth, year));
+                            onCurrentMonthChange(setYear(currentMonth, year));
                             setYearPickerOpen(false);
                           }}
                           className={cn(
@@ -284,14 +294,14 @@ export const SubscriptionCalendar = ({ subscriptions, onEditSubscription }: Subs
                     {formatDateTime(currentMonth, { month: "long" })}
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-[240px] p-3" align="center">
+                <PopoverContent className="w-60 p-3" align="center">
                   <div className="flex items-center justify-center mb-3">
                     <Button
                       variant="ghost"
                       size="sm"
                       className="h-7 text-xs text-primary hover:text-primary"
                       onClick={() => {
-                        setCurrentMonth(new Date());
+                        onCurrentMonthChange(new Date());
                         setMonthPickerOpen(false);
                       }}
                     >
@@ -307,7 +317,7 @@ export const SubscriptionCalendar = ({ subscriptions, onEditSubscription }: Subs
                         <button
                           key={month}
                           onClick={() => {
-                            setCurrentMonth(setMonth(currentMonth, index));
+                            onCurrentMonthChange(setMonth(currentMonth, index));
                             setMonthPickerOpen(false);
                           }}
                           className={cn(
@@ -453,6 +463,8 @@ export const SubscriptionCalendar = ({ subscriptions, onEditSubscription }: Subs
                               key={sub.id}
                               type="button"
                               onClick={() => handleSubscriptionClick(sub)}
+                              onPointerEnter={() => handlePrefetchDetails(sub.id)}
+                              onFocus={() => handlePrefetchDetails(sub.id)}
                               className="flex min-h-14 min-w-0 max-w-full items-center justify-between gap-3 rounded-lg border border-border bg-secondary/30 px-3 py-3 text-left transition-colors hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                               data-testid="calendar-mobile-agenda-item"
                             >
@@ -493,7 +505,7 @@ export const SubscriptionCalendar = ({ subscriptions, onEditSubscription }: Subs
                 <div
                   key={dateKey}
                   className={cn(
-                    "min-h-[80px] bg-card p-1.5 transition-colors",
+                    "min-h-20 bg-card p-1.5 transition-colors",
                     !isCurrentMonth && "bg-muted/30"
                   )}
                 >
@@ -519,6 +531,8 @@ export const SubscriptionCalendar = ({ subscriptions, onEditSubscription }: Subs
                           <TooltipTrigger asChild>
                             <button
                               onClick={() => handleSubscriptionClick(sub)}
+                              onPointerEnter={() => handlePrefetchDetails(sub.id)}
+                              onFocus={() => handlePrefetchDetails(sub.id)}
                               className={cn(
                                 "w-full truncate rounded border px-1.5 py-0.5 text-left text-xs transition-colors",
                                 "border-border bg-background text-foreground hover:bg-secondary/60",
@@ -574,14 +588,16 @@ export const SubscriptionCalendar = ({ subscriptions, onEditSubscription }: Subs
 
 
       <SubscriptionDetailDialog
-        open={detailOpen}
-        onOpenChange={setDetailOpen}
-        subscription={selectedSubscription}
+        open={detailDialogOpen}
+        onOpenChange={handleDetailDialogOpenChange}
+        subscription={selectedDetailSubscription}
+        loadingPreview={selectedDetailCollectionItem}
         today={today}
         currencyConvert={convert}
         currencyRatesReady={currencyRatesReady}
         priceReferenceCurrency={priceReferenceCurrency}
-        {...(onEditSubscription ? { onEditSubscription } : {})}
+        loading={detailPending}
+        {...(onEditSubscription ? { onEditSubscription: handleEditFromDetail } : {})}
       />
 
       <DaySubscriptionsDialog
@@ -589,6 +605,7 @@ export const SubscriptionCalendar = ({ subscriptions, onEditSubscription }: Subs
         onOpenChange={setDayListOpen}
         selectedDaySubs={selectedDaySubs}
         onSelectSubscription={handleSelectFromList}
+        onPrefetchSubscription={handlePrefetchDetails}
         today={today}
         isMobile={isMobileCalendar}
       />

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Image as ImageIcon, Images, Loader2, RefreshCw, SlidersHorizontal, Trash2 } from "lucide-react";
 import { FaviconResultImage } from "@/components/favicon-result-image";
 import {
@@ -12,14 +12,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { UploadedAsset, UploadKind } from "@/lib/api/schemas/media";
 import { cn } from "@/lib/utils";
@@ -27,6 +20,9 @@ import { useI18n } from "@/i18n/I18nProvider";
 import { LoadingButtonContent } from "./settings-shared-controls";
 import { getSettingsSectionClassName } from "./settings-layout";
 import type { UploadedAssetsManagerController } from "../application/use-uploaded-assets-manager";
+import { ManagerDataBoundary } from "./manager-data-boundary";
+import { SettingsManagerDialogFrame } from "./settings-manager-dialog-frame";
+import { SettingsSectionHeader } from "./settings-section-header";
 
 interface UploadedIconsSectionProps {
   id?: string;
@@ -41,8 +37,19 @@ export function UploadedIconsSection({ id, className, controller }: UploadedIcon
   const [managerOpen, setManagerOpen] = useState(false);
   const [activeKind, setActiveKind] = useState<UploadKind>("logo");
   const [deleteTarget, setDeleteTarget] = useState<UploadedAsset | null>(null);
+  const logoTabRef = useRef<HTMLButtonElement>(null);
+  const iconTabRef = useRef<HTMLButtonElement>(null);
   const isDeletingTarget = deleteTarget ? controller.deletingAssetId === deleteTarget.id : false;
-  const totalCount = controller.logo.assets.length + controller.icon.assets.length;
+  const logoAssets = controller.logo.readState.data ?? [];
+  const iconAssets = controller.icon.readState.data ?? [];
+  const summary = controller.logo.readState.isInitialLoading || controller.icon.readState.isInitialLoading
+    ? t("common.loading")
+    : (!controller.logo.readState.hasData && controller.logo.readState.error)
+      || (!controller.icon.readState.hasData && controller.icon.readState.error)
+      ? t("settings.uploadedIconsStatusUnknown")
+      : controller.logo.readState.error || controller.icon.readState.error
+        ? t("settings.uploadedIconsSummaryStale", { logoCount: logoAssets.length, iconCount: iconAssets.length })
+        : t("settings.uploadedIconsSummaryCompact", { logoCount: logoAssets.length, iconCount: iconAssets.length });
   const openManager = (kind: UploadKind) => {
     // 入口默认落到用户选择的资产类型，避免 Logo 和支付方式 icon 共用管理器时误删另一类资产。
     setActiveKind(kind);
@@ -51,67 +58,42 @@ export function UploadedIconsSection({ id, className, controller }: UploadedIcon
 
   return (
     <section id={id} className={getSettingsSectionClassName(className)}>
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex min-w-0 gap-3">
-          <Images className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-          <div className="min-w-0">
-            <h2 className="text-lg font-semibold text-foreground">{t("settings.uploadedIcons")}</h2>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("settings.uploadedIconsHelp")}</p>
-            <p className="mt-2 text-xs font-medium text-foreground">
-              {t("settings.uploadedIconsSummary", {
-                total: totalCount,
-                logoCount: controller.logo.assets.length,
-                iconCount: controller.icon.assets.length,
-              })}
-            </p>
-          </div>
-        </div>
-        <div className="flex shrink-0 flex-col gap-2 min-[420px]:flex-row">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="gap-2 border-border"
-            onClick={() => {
-              void controller.logo.refresh();
-              void controller.icon.refresh();
-            }}
-            disabled={controller.logo.isLoading || controller.icon.isLoading}
-          >
-            {controller.logo.isLoading || controller.icon.isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            {t("settings.uploadedIconsRefresh")}
-          </Button>
+      <SettingsSectionHeader
+        icon={<Images className="mt-0.5 h-5 w-5 shrink-0 text-primary" />}
+        title={t("settings.uploadedIcons")}
+        help={t("settings.uploadedIconsHelp")}
+        summary={summary}
+        action={(
           <Button type="button" variant="outline" size="sm" className="gap-2 border-border" onClick={() => openManager("logo")}>
             <SlidersHorizontal className="h-4 w-4" />
             {t("settings.uploadedIconsManage")}
           </Button>
-        </div>
-      </div>
+        )}
+      />
 
       <Dialog open={managerOpen} onOpenChange={setManagerOpen}>
-        <DialogContent dismissMode="explicit" className="flex h-[min(calc(var(--app-viewport-height)-2rem),44rem)] min-h-0 max-w-3xl flex-col gap-0 overflow-hidden border-border bg-card p-0">
-          <DialogHeader className="border-b border-border px-4 py-5 pr-12 text-left sm:px-6 sm:pr-14">
-            <DialogTitle className="flex items-center gap-2">
-              <Images className="h-5 w-5 text-primary" />
-              {t("settings.uploadedIconsManageTitle")}
-            </DialogTitle>
-            <DialogDescription className="text-left">
-              {t("settings.uploadedIconsManageDescription")}
-            </DialogDescription>
-          </DialogHeader>
-
+        <SettingsManagerDialogFrame
+          icon={<Images className="h-5 w-5 text-primary" />}
+          title={t("settings.uploadedIconsManageTitle")}
+          description={t("settings.uploadedIconsManageDescription")}
+          bodyClassName="flex overflow-hidden px-0 py-0 sm:px-0"
+          footer={(
+            <Button type="button" onClick={() => setManagerOpen(false)} className="w-full sm:w-auto">
+              {t("settings.uploadedIconsManageDone")}
+            </Button>
+          )}
+        >
           <Tabs value={activeKind} onValueChange={(value) => setActiveKind(value as UploadKind)} className="flex min-h-0 flex-1 flex-col">
             <div className="border-b border-border px-4 py-3 sm:px-6">
               <TabsList className="grid w-full grid-cols-2 sm:w-auto">
-                <TabsTrigger value="logo">{t("settings.uploadedIconsLogoTitle")}</TabsTrigger>
-                <TabsTrigger value="icon">{t("settings.uploadedIconsIconTitle")}</TabsTrigger>
+                <TabsTrigger ref={logoTabRef} value="logo">{t("settings.uploadedIconsLogoTitle")}</TabsTrigger>
+                <TabsTrigger ref={iconTabRef} value="icon">{t("settings.uploadedIconsIconTitle")}</TabsTrigger>
               </TabsList>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
               <TabsContent value="logo" className="mt-0">
                 <UploadedAssetKindManagerPanel
                   kind="logo"
-                  title={t("settings.uploadedIconsLogoTitle")}
                   description={t("settings.uploadedIconsLogoDescription")}
                   emptyLabel={t("settings.uploadedIconsLogoEmpty")}
                   controller={controller.logo}
@@ -125,7 +107,6 @@ export function UploadedIconsSection({ id, className, controller }: UploadedIcon
               <TabsContent value="icon" className="mt-0">
                 <UploadedAssetKindManagerPanel
                   kind="icon"
-                  title={t("settings.uploadedIconsIconTitle")}
                   description={t("settings.uploadedIconsIconDescription")}
                   emptyLabel={t("settings.uploadedIconsIconEmpty")}
                   controller={controller.icon}
@@ -138,23 +119,20 @@ export function UploadedIconsSection({ id, className, controller }: UploadedIcon
               </TabsContent>
             </div>
           </Tabs>
-
-          <DialogFooter className="border-t border-border px-4 py-4 sm:px-6">
-            <p className="text-left text-xs leading-5 text-muted-foreground sm:mr-auto">
-              {t("settings.uploadedIconsManageHint")}
-            </p>
-            <Button type="button" onClick={() => setManagerOpen(false)} className="w-full sm:w-auto">
-              {t("settings.uploadedIconsManageDone")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
+        </SettingsManagerDialogFrame>
       </Dialog>
 
       <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => {
         // 删除请求进行中不允许关闭后清空 target，否则 pending 状态会丢失对应资产。
         if (!open && !isDeletingTarget) setDeleteTarget(null);
       }}>
-        <AlertDialogContent>
+        <AlertDialogContent
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            // 删除成功会卸载资产行，焦点回到当前范围 Tab，避免落到已移除的删除按钮。
+            (activeKind === "logo" ? logoTabRef.current : iconTabRef.current)?.focus();
+          }}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>{t("settings.uploadedIconsDeleteTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
@@ -181,7 +159,7 @@ export function UploadedIconsSection({ id, className, controller }: UploadedIcon
                   if (deleted) setDeleteTarget(null);
                 });
               }}
-              className="min-w-[5.25rem] bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="min-w-21 bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               <LoadingButtonContent loading={isDeletingTarget} loadingLabel={t("settings.uploadedIconsDeleting")}>
                 {t("common.delete")}
@@ -196,7 +174,6 @@ export function UploadedIconsSection({ id, className, controller }: UploadedIcon
 
 interface UploadedAssetKindPanelProps {
   kind: UploadKind;
-  title: string;
   description: string;
   emptyLabel: string;
   controller: UploadedAssetKindController;
@@ -212,7 +189,6 @@ interface UploadedAssetKindManagerPanelProps extends UploadedAssetKindPanelProps
 
 function UploadedAssetKindManagerPanel({
   kind,
-  title,
   description,
   emptyLabel,
   controller,
@@ -223,32 +199,34 @@ function UploadedAssetKindManagerPanel({
   onDelete,
 }: UploadedAssetKindManagerPanelProps) {
   const { t } = useI18n();
+  const assets = controller.readState.data ?? [];
 
   return (
     <div className="grid gap-3">
       <div className="flex flex-col gap-3 min-[520px]:flex-row min-[520px]:items-start min-[520px]:justify-between">
-        <div className="min-w-0">
-          <h3 className="text-sm font-medium text-foreground">{title}</h3>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
-        </div>
+        <p className="min-w-0 text-xs leading-5 text-muted-foreground">{description}</p>
         <Button
           type="button"
           variant="outline"
           size="sm"
           className="h-8 w-full justify-center gap-2 border-border px-2 text-xs min-[520px]:w-auto"
-          onClick={() => void controller.refresh()}
-          disabled={controller.isLoading}
+          onClick={() => void controller.readState.retry()}
+          disabled={controller.readState.isInitialLoading || controller.readState.isRefreshing}
         >
-          {controller.isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+          {controller.readState.isInitialLoading || controller.readState.isRefreshing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
           {t("settings.uploadedIconsRefreshKind")}
         </Button>
       </div>
 
-      <UploadedAssetKindStatus controller={controller} emptyLabel={emptyLabel} />
-
-      {controller.assets.length > 0 ? (
+      <ManagerDataBoundary state={controller.readState}>
+      {assets.length === 0 ? (
+        <div className="rounded-md border border-dashed border-border bg-background px-3 py-6 text-center">
+          <ImageIcon className="mx-auto mb-2 h-8 w-8 text-muted-foreground/50" />
+          <p className="text-sm text-muted-foreground">{emptyLabel}</p>
+        </div>
+      ) : (
         <div className="grid gap-2">
-          {controller.assets.map((asset) => (
+          {assets.map((asset) => (
             <UploadedAssetRow
               key={asset.id}
               asset={asset}
@@ -261,7 +239,8 @@ function UploadedAssetKindManagerPanel({
             />
           ))}
         </div>
-      ) : null}
+      )}
+      </ManagerDataBoundary>
 
       {controller.hasMore ? (
         <Button
@@ -278,43 +257,6 @@ function UploadedAssetKindManagerPanel({
       ) : null}
     </div>
   );
-}
-
-function UploadedAssetKindStatus({ controller, emptyLabel }: { controller: UploadedAssetKindController; emptyLabel: string }) {
-  const { t } = useI18n();
-
-  if (controller.isLoading && controller.assets.length === 0) {
-    return (
-      <div className="flex items-center justify-center rounded-md border border-dashed border-border bg-background px-3 py-6 text-sm text-muted-foreground">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin text-primary" />
-        {t("settings.uploadedIconsLoading")}
-      </div>
-    );
-  }
-
-  if (controller.error && controller.assets.length === 0) {
-    return (
-      <div className="grid gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-3">
-        <p className="text-sm text-destructive">{t("settings.uploadedIconsLoadFailed")}</p>
-        <Button type="button" variant="outline" size="sm" className="w-full gap-2 border-border min-[420px]:w-fit" onClick={() => void controller.refresh()}>
-          <RefreshCw className="h-4 w-4" />
-          {t("settings.uploadedIconsRetry")}
-        </Button>
-      </div>
-    );
-  }
-
-  if (!controller.isLoading && !controller.error && controller.hasLoaded && controller.assets.length === 0) {
-    // 只在本 kind 已完成一次请求后展示空态，避免懒加载 tab 初次打开前闪现“暂无资产”。
-    return (
-      <div className="rounded-md border border-dashed border-border bg-background px-3 py-6 text-center">
-        <ImageIcon className="mx-auto mb-2 h-8 w-8 text-muted-foreground/50" />
-        <p className="text-sm text-muted-foreground">{emptyLabel}</p>
-      </div>
-    );
-  }
-
-  return null;
 }
 
 interface UploadedAssetRowProps {

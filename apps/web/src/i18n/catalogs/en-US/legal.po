@@ -61,7 +61,7 @@ msgstr "AI recognition: when you actively use AI recognition to add subscription
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/legal.ts:7
 msgid "legal.privacy.intro"
-msgstr "Renewlet does not inject external scripts by default. An instance operator can provide one external script through environment configuration; when you use a deployed instance, that script and its data handling are the operator's responsibility, which may be yours."
+msgstr "Renewlet does not inject custom head HTML by default. An instance operator can enable a trusted fragment with same-origin code capabilities; when you use a deployed instance, the fragment and all of its data handling are the operator's responsibility, which may be yours."
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/legal.ts:26
@@ -91,7 +91,7 @@ msgstr "You are responsible for the accuracy of subscription, price, exchange-ra
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/legal.ts:6
 msgid "legal.privacy.subtitle"
-msgstr "Last updated: 2026-01-12"
+msgstr "Last updated: 2026-08-24"
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/legal.ts:25
@@ -176,7 +176,7 @@ msgstr "Some features request third-party services, such as exchange-rate APIs, 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/legal.ts:20
 msgid "legal.privacy.thirdParty.customScript"
-msgstr "Operator-provided script: an instance operator can provide one external script through environment configuration; that script may send visit data to its provider."
+msgstr "Operator-provided head HTML: analytics, session-recording, or other third-party scripts may collect and send page and interaction data. The instance operator is responsible for disclosure, the privacy policy, and any legally required consent signal; Renewlet includes no Clarity-specific logic or consent management platform."
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/legal.ts:5

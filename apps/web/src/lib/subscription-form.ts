@@ -1,16 +1,7 @@
-/**
- * 订阅表单转换工具。
- *
- * 架构位置：
- * - 表单组件只维护输入态。
- * - 这里把输入态转换成 domain draft，供新增/编辑弹窗复用。
- *
- * 注意： 上传中的 logo/icon 状态不在这里判断，调用方需要在提交按钮层面禁用保存。
- */
 import {
   MAX_SUBSCRIPTION_TAG_LENGTH,
   MAX_SUBSCRIPTION_TAGS,
-  type SubscriptionDraft,
+  type SubscriptionFormSubmission,
 } from "@/types/subscription";
 import {
   costSharingCollectionAnchorsAreSatisfied,
@@ -37,8 +28,8 @@ import { canonicalizeMoneyString } from "@renewlet/shared/money";
 const MAX_PRICE = 1_000_000_000;
 const MAX_DAYS = MAX_REMINDER_DAYS;
 const TAG_SEPARATOR_PATTERN = /[、，,;；\n]+/g;
-type SubscriptionDraftBase = Omit<
-  SubscriptionDraft,
+type SubscriptionFormSubmissionBase = Omit<
+  SubscriptionFormSubmission,
   "billingCycle" | "customDays" | "customCycleUnit" | "oneTimeTermCount" | "oneTimeTermUnit"
 >;
 
@@ -384,20 +375,13 @@ export function subscriptionFormValidationIssuesToErrors(
 }
 
 /** 返回订阅草稿的首个阻塞性校验错误；用于提交前给用户明确反馈。 */
-export function getSubscriptionDraftValidationError(formData: SubscriptionFormState): string | null {
+export function getSubscriptionFormValidationError(formData: SubscriptionFormState): string | null {
   const issue = getSubscriptionFormValidationIssues(formData)[0];
   return issue ? translate(getApiLocale(), issue.messageKey, issue.params) : null;
 }
 
-/**
- * 将 UI 表单状态转换为可保存的订阅对象（不含 id）。
- *
- * 说明：
- * - 周期订阅可提交未知 startDate；nextBillingDate 仍是通知和日历的事实源
- * - 该函数不关心“是否允许提交”（例如上传中、必填校验），只负责数据形态转换
- */
-export function toSubscriptionDraft(formData: SubscriptionFormState): SubscriptionDraft | null {
-  if (getSubscriptionDraftValidationError(formData)) return null;
+export function toSubscriptionFormSubmission(formData: SubscriptionFormState): SubscriptionFormSubmission | null {
+  if (getSubscriptionFormValidationError(formData)) return null;
 
   const price = parseMoneyInput(formData.price);
   const reminderDays = formData.billingCycle === "one-time" && formData.oneTimeMode === "buyout"
@@ -433,14 +417,12 @@ export function toSubscriptionDraft(formData: SubscriptionFormState): Subscripti
     currency: formData.currency,
     category: formData.category,
     status: formData.status,
-    pinned: false,
     publicHidden: formData.publicHidden,
     paymentMethod: formData.paymentMethod || undefined,
     startDate,
     nextBillingDate,
     autoRenew: formData.billingCycle === "one-time" ? false : formData.autoRenew,
     autoCalculateNextBillingDate: formData.billingCycle === "one-time" ? false : formData.autoCalculate,
-    trialEndDate: undefined,
     reminderDays,
     repeatReminderEnabled,
     repeatReminderInterval: formData.repeatReminderInterval,
@@ -449,25 +431,31 @@ export function toSubscriptionDraft(formData: SubscriptionFormState): Subscripti
     website: formData.website || undefined,
     notes: formData.notes || undefined,
     tags: normalizeTagsArray(formData.tags),
-  } satisfies SubscriptionDraftBase;
+  } satisfies SubscriptionFormSubmissionBase;
   if (formData.billingCycle === "custom") {
+    if (typeof customDays !== "number") return null;
     return {
       ...base,
       billingCycle: "custom",
-      customDays: customDays ?? 1,
+      customDays,
       customCycleUnit: formData.customCycleUnit,
-      oneTimeTermCount: undefined,
-      oneTimeTermUnit: undefined,
     };
   }
   if (formData.billingCycle === "one-time") {
+    if (formData.oneTimeMode === "term") {
+      if (typeof oneTimeTermCount !== "number") return null;
+      return {
+        ...base,
+        billingCycle: "one-time",
+        oneTimeTermCount,
+        oneTimeTermUnit: formData.oneTimeTermUnit,
+        autoRenew: false,
+        autoCalculateNextBillingDate: false,
+      };
+    }
     return {
       ...base,
       billingCycle: "one-time",
-      customDays: undefined,
-      customCycleUnit: undefined,
-      oneTimeTermCount: formData.oneTimeMode === "term" ? oneTimeTermCount ?? 1 : undefined,
-      oneTimeTermUnit: formData.oneTimeMode === "term" ? formData.oneTimeTermUnit : undefined,
       autoRenew: false,
       autoCalculateNextBillingDate: false,
     };
@@ -475,9 +463,5 @@ export function toSubscriptionDraft(formData: SubscriptionFormState): Subscripti
   return {
     ...base,
     billingCycle: formData.billingCycle,
-    customDays: undefined,
-    customCycleUnit: undefined,
-    oneTimeTermCount: undefined,
-    oneTimeTermUnit: undefined,
   };
 }

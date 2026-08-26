@@ -12,11 +12,11 @@ import { AIRecognitionSettingsSection } from "./ai-recognition-settings-section"
 const mocks = vi.hoisted(() => ({
   listModels: vi.fn(),
   testConnection: vi.fn(),
-  toast: vi.fn(),
+  toast: { success: vi.fn(), error: vi.fn() },
 }));
 
-vi.mock("@/hooks/use-toast", () => ({
-  useToast: () => ({ toast: mocks.toast }),
+vi.mock("@/components/ui/sonner", () => ({
+  toast: mocks.toast,
 }));
 
 vi.mock("@/services/ai-recognition-service", () => ({
@@ -133,42 +133,44 @@ describe("AIRecognitionSettingsSection provider model layout", () => {
   beforeEach(() => {
     mocks.listModels.mockReset();
     mocks.testConnection.mockReset();
-    mocks.toast.mockReset();
+    mocks.toast.success.mockReset();
+    mocks.toast.error.mockReset();
     Element.prototype.hasPointerCapture ??= vi.fn(() => false);
     Element.prototype.releasePointerCapture ??= vi.fn();
   });
 
-  it("uses compact label and control rows for provider type and model fields", () => {
+  it("uses shared label and control tracks for provider, model and credentials", () => {
     renderAIRecognitionSection();
 
     const fieldGrid = screen.getByTestId("ai-provider-model-grid");
-    const providerField = screen.getByTestId("ai-provider-type-field");
-    const modelField = screen.getByTestId("ai-model-field");
-    const providerLabelRow = screen.getByTestId("ai-provider-label-row");
+    const providerField = screen.getByRole("combobox", { name: "平台类型" }).closest('[data-slot="form-field"]');
+    const modelField = screen.getByRole("textbox", { name: "模型" }).closest('[data-slot="form-field"]');
+    const providerLabelRow = providerField?.querySelector('[data-slot="form-field-label"]');
     const modelLabelRow = screen.getByTestId("ai-model-label-row");
-    const providerControlRow = screen.getByTestId("ai-provider-control-row");
-    const modelControlRow = screen.getByTestId("ai-model-control-row");
+    const providerControlRow = providerField?.querySelector('[data-slot="form-field-control"]');
+    const modelControlRow = modelField?.querySelector('[data-slot="form-field-control"]');
     const modeSwitch = screen.getByTestId("ai-model-mode-switch");
 
-    expect(fieldGrid).toHaveClass("md:grid-cols-2");
-    expect(fieldGrid).toHaveClass("md:gap-y-2");
-    expect(providerField).toHaveClass("md:contents");
-    expect(modelField).toHaveClass("md:contents");
-    expect(providerLabelRow).toHaveClass("min-h-7");
-    expect(providerLabelRow).toHaveClass("items-end");
-    expect(providerLabelRow).toHaveClass("md:order-1");
+    expect(fieldGrid).toHaveAttribute("data-align-at", "md");
+    expect(fieldGrid).toHaveAttribute("data-tracks", "2");
+    expect(fieldGrid.firstElementChild).toHaveClass("md:grid-cols-2", "md:gap-x-5");
+    expect(providerField).toHaveClass("md:row-span-2", "md:grid-rows-subgrid");
+    expect(modelField).toHaveClass("md:row-span-2", "md:grid-rows-subgrid");
+    expect(providerLabelRow).toHaveClass("md:self-end");
     expect(modelLabelRow).toHaveClass("min-h-7");
-    expect(modelLabelRow).toHaveClass("items-end");
-    expect(modelLabelRow).toHaveClass("md:order-2");
     expect(providerControlRow).toHaveClass("self-start");
-    expect(providerControlRow).toHaveClass("md:order-3");
     expect(modelControlRow).toHaveClass("self-start");
-    expect(modelControlRow).toHaveClass("md:order-4");
     expect(modeSwitch).not.toHaveClass("absolute");
-    expect(within(providerLabelRow).getByText("平台类型")).toBeInTheDocument();
+    expect(within(providerLabelRow as HTMLElement).getByText("平台类型")).toBeInTheDocument();
     expect(within(modelLabelRow).getByText("模型")).toBeInTheDocument();
     expect(screen.queryByText("接口协议")).not.toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "模型" })).toHaveValue("claude-sonnet-4-6");
+
+    const credentialsRow = screen.getByLabelText("Base URL").closest('[data-slot="form-field-row"]');
+    expect(credentialsRow).toHaveAttribute("data-align-at", "md");
+    expect(credentialsRow).toHaveAttribute("data-tracks", "3");
+    expect(screen.getByLabelText("Base URL")).toHaveAttribute("aria-describedby", "ai-base-url-description");
+    expect(screen.getByLabelText("API Key")).toHaveAttribute("aria-describedby", "ai-api-key-description");
   });
 
   it("requests models when switching to select mode with credentials available", async () => {
@@ -230,7 +232,6 @@ describe("AIRecognitionSettingsSection provider model layout", () => {
     mocks.listModels.mockRejectedValueOnce(aiModelListApiError());
     renderAIRecognitionSection();
 
-    const providerControlRow = screen.getByTestId("ai-provider-control-row");
     await user.click(screen.getByRole("button", { name: "选择模型" }));
 
     const detailsDialog = await screen.findByRole("dialog", { name: "AI 错误详情" });
@@ -241,8 +242,6 @@ describe("AIRecognitionSettingsSection provider model layout", () => {
     expect(detailsDialog).toHaveTextContent("Invalid API key");
     expect(detailsDialog).not.toHaveTextContent("AI_MODEL_LIST_FAILED");
     expect(detailsDialog).not.toHaveTextContent("rawResponseText");
-    expect(providerControlRow).toHaveClass("self-start");
-    expect(providerControlRow).toHaveClass("md:order-3");
   });
 
   it("keeps last provider response entry after switching back to manual input", async () => {
@@ -281,6 +280,7 @@ describe("AIRecognitionSettingsSection provider model layout", () => {
     expect(screen.getByText(/forbidden/)).toBeInTheDocument();
     expect(screen.queryByText(/AI_RECOGNITION_TEST_FAILED/)).not.toBeInTheDocument();
     expect(screen.queryByText(/rawResponseText/)).not.toBeInTheDocument();
-    expect(mocks.toast).not.toHaveBeenCalled();
+    expect(mocks.toast.success).not.toHaveBeenCalled();
+    expect(mocks.toast.error).not.toHaveBeenCalled();
   });
 });

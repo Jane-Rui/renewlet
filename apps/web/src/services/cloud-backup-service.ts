@@ -15,8 +15,12 @@ import {
 
 /** 云备份服务层：所有响应都经过 shared schema，UI 不直接判断 Docker/Cloudflare 运行面。 */
 export const cloudBackupService = {
-  async getConfig(): Promise<CloudBackupConfig> {
-    const data = await apiFetch("/api/app/cloud-backup/config", cloudBackupConfigResponseSchema);
+  async getConfig(signal?: AbortSignal): Promise<CloudBackupConfig> {
+    const data = await apiFetch(
+      "/api/app/cloud-backup/config",
+      cloudBackupConfigResponseSchema,
+      signal ? { signal } : undefined,
+    );
     return data.config;
   },
 
@@ -37,11 +41,12 @@ export const cloudBackupService = {
     });
   },
 
-  async listSnapshots(provider: CloudBackupProvider): Promise<CloudBackupSnapshot[]> {
+  async listSnapshots(provider: CloudBackupProvider, signal?: AbortSignal): Promise<CloudBackupSnapshot[]> {
     // 列表接口是 provider-scoped；前端不能再用“拉全部再过滤”遮住另一个目标的上游错误。
     const query = new URLSearchParams({ provider });
     const data = await apiFetch(`/api/app/cloud-backups?${query.toString()}`, cloudBackupSnapshotsResponseSchema, {
       timeoutMs: 60_000,
+      ...(signal ? { signal } : {}),
     });
     return data.snapshots;
   },

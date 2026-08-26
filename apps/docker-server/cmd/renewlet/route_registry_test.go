@@ -22,9 +22,14 @@ func TestExportProductRouteManifest(t *testing.T) {
 	if len(manifest) == 0 {
 		t.Fatal("product route manifest is empty")
 	}
+	fixture := loadSubscriptionCollectionContractFixture(t)
 	assertManifestRoute(t, manifest, "/api/app/notifications/overview", http.MethodGet)
 	assertManifestRoute(t, manifest, "/api/app/notifications/history", http.MethodGet)
-	assertManifestRoute(t, manifest, "/api/app/subscriptions/{id}", http.MethodPatch)
+	for _, route := range fixture.ManifestRoutes {
+		for _, method := range route.Methods {
+			assertManifestRoute(t, manifest, route.Path, method)
+		}
+	}
 
 	outputPath := os.Getenv("RENEWLET_ROUTE_MANIFEST_OUTPUT")
 	if outputPath == "" {

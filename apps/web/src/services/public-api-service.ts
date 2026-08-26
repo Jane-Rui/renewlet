@@ -15,8 +15,8 @@ import {
  * plainToken 只存在于 create 响应；列表服务只返回 prefix/hash 派生元信息，不能在前端尝试恢复明文。
  */
 export const publicApiService = {
-  async listTokens(): Promise<ApiToken[]> {
-    const data = await apiFetch("/api/app/api-tokens", apiTokensListResponseSchema);
+  async listTokens(signal?: AbortSignal): Promise<ApiToken[]> {
+    const data = await apiFetch("/api/app/api-tokens", apiTokensListResponseSchema, signal ? { signal } : undefined);
     return data.tokens;
   },
 

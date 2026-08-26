@@ -2,52 +2,71 @@ import { apiFetch, apiFetchBlob } from "@/lib/api-client";
 import {
   calendarFeedCreateResponseSchema,
   calendarFeedDeleteResponseSchema,
+  calendarFeedRotateResponseSchema,
   calendarFeedStatusResponseSchema,
-  subscriptionCalendarFeedCreateResponseSchema,
+  subscriptionCalendarFeedListResponseSchema,
   type CalendarFeedCreateResponse,
   type CalendarFeedStatusResponse,
-  type SubscriptionCalendarFeedCreateResponse,
+  type SubscriptionCalendarFeedListQuery,
+  type SubscriptionCalendarFeedListResponse,
 } from "@/lib/api/schemas/calendar-feed";
 
-/**
- * 日历订阅管理服务。
- *
- * 登录态接口只创建/撤销 feed 并返回可复制 URL；公开 ICS 拉取由 `/calendar/renewals.ics?token=...`
- * 承担，前端不会持久化 token 字段本身。
- */
+export type CalendarFeedTarget =
+  | { scope: "all" }
+  | { scope: "subscription"; subscriptionId: string };
+
+export function calendarFeedTargetKey(target: CalendarFeedTarget): string {
+  return target.scope === "all" ? "all" : `subscription:${target.subscriptionId}`;
+}
+
+function calendarFeedTargetPath(target: CalendarFeedTarget): string {
+  return target.scope === "all"
+    ? "/api/app/calendar-feed"
+    : `/api/app/subscriptions/${encodeURIComponent(target.subscriptionId)}/calendar-feed`;
+}
+
+/** 登录态管理只传 scope/订阅 ID；bearer token 永远由服务端生成并仅以完整 URL 返回。 */
 export const calendarFeedService = {
-  async get(): Promise<CalendarFeedStatusResponse["calendarFeed"]> {
-    const data = await apiFetch("/api/app/calendar-feed", calendarFeedStatusResponseSchema);
+  async get(target: CalendarFeedTarget, signal?: AbortSignal): Promise<CalendarFeedStatusResponse["calendarFeed"]> {
+    const data = await apiFetch(
+      calendarFeedTargetPath(target),
+      calendarFeedStatusResponseSchema,
+      signal ? { signal } : undefined,
+    );
     return data.calendarFeed;
   },
 
-  async create(): Promise<CalendarFeedCreateResponse["calendarFeed"]> {
-    const data = await apiFetch("/api/app/calendar-feed", calendarFeedCreateResponseSchema, {
+  async listSubscriptions(
+    query: SubscriptionCalendarFeedListQuery,
+    signal?: AbortSignal,
+  ): Promise<SubscriptionCalendarFeedListResponse["calendarFeeds"]> {
+    const params = new URLSearchParams({ limit: String(query.limit), offset: String(query.offset) });
+    const data = await apiFetch(
+      `/api/app/subscriptions/calendar-feeds?${params}`,
+      subscriptionCalendarFeedListResponseSchema,
+      signal ? { signal } : undefined,
+    );
+    return data.calendarFeeds;
+  },
+
+  async create(target: CalendarFeedTarget): Promise<CalendarFeedCreateResponse["calendarFeed"]> {
+    const data = await apiFetch(calendarFeedTargetPath(target), calendarFeedCreateResponseSchema, {
       method: "POST",
       body: JSON.stringify({}),
     });
     return data.calendarFeed;
   },
 
-  async delete(): Promise<void> {
-    await apiFetch("/api/app/calendar-feed", calendarFeedDeleteResponseSchema, { method: "DELETE" });
-  },
-
-  async getSubscription(subscriptionId: string): Promise<CalendarFeedStatusResponse["calendarFeed"]> {
-    const data = await apiFetch(`/api/app/subscriptions/${encodeURIComponent(subscriptionId)}/calendar-feed`, calendarFeedStatusResponseSchema);
-    return data.calendarFeed;
-  },
-
-  async createSubscription(subscriptionId: string): Promise<SubscriptionCalendarFeedCreateResponse["calendarFeed"]> {
-    const data = await apiFetch(`/api/app/subscriptions/${encodeURIComponent(subscriptionId)}/calendar-feed`, subscriptionCalendarFeedCreateResponseSchema, {
+  async rotate(target: CalendarFeedTarget): Promise<CalendarFeedCreateResponse["calendarFeed"]> {
+    const data = await apiFetch(`${calendarFeedTargetPath(target)}/rotate`, calendarFeedRotateResponseSchema, {
       method: "POST",
       body: JSON.stringify({}),
     });
     return data.calendarFeed;
   },
 
-  async deleteSubscription(subscriptionId: string): Promise<void> {
-    await apiFetch(`/api/app/subscriptions/${encodeURIComponent(subscriptionId)}/calendar-feed`, calendarFeedDeleteResponseSchema, { method: "DELETE" });
+  async delete(target: CalendarFeedTarget): Promise<void> {
+    await apiFetch(calendarFeedTargetPath(target), calendarFeedDeleteResponseSchema, { method: "DELETE" });
   },
 
   async downloadSubscriptionIcs(subscriptionId: string): Promise<Blob> {

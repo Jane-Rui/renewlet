@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -189,20 +187,32 @@ func TestSubscriptionsProductAPIUsesOwnerScopedCRUD(t *testing.T) {
 		t.Fatalf("expected subscription create 201, got %d: %s", create.Code, create.Body.String())
 	}
 	created := decodeAPISuccessDataForTest[subscriptionResponse](t, create.Body.Bytes())
-	id, _ := created.Subscription["id"].(string)
+	id := created.Subscription.ID
 	if id == "" {
 		t.Fatalf("expected created subscription id, got %#v", created.Subscription)
+	}
+	stored, err := app.FindRecordById("subscriptions", id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored.Set("pinned", true)
+	stored.Set("trialEndDate", "2026-01-20")
+	stored.Set("extra", map[string]interface{}{
+		"import": map[string]interface{}{"source": "wallos", "sourceId": "wallos-1"},
+	})
+	if err := app.Save(stored); err != nil {
+		t.Fatal(err)
 	}
 
 	list := serveTestRequest(t, app, http.MethodGet, "/api/app/subscriptions?limit=10", "", token)
 	if list.Code != http.StatusOK {
 		t.Fatalf("expected subscription list 200, got %d: %s", list.Code, list.Body.String())
 	}
-	listBody := decodeAPISuccessDataForTest[subscriptionsListResponse](t, list.Body.Bytes())
-	if len(listBody.Subscriptions) != 1 || listBody.Subscriptions[0]["name"] != "Route API" || listBody.Total != 1 {
+	listBody := decodeAPISuccessDataForTest[subscriptionCollectionListResponse](t, list.Body.Bytes())
+	if len(listBody.Subscriptions) != 1 || listBody.Subscriptions[0].Name != "Route API" || listBody.Total != 1 {
 		t.Fatalf("unexpected subscription list: %#v", listBody)
 	}
-	if _, ok := listBody.Subscriptions[0]["user"]; ok {
+	if strings.Contains(list.Body.String(), `"user"`) {
 		t.Fatalf("subscription API must not expose owner field: %#v", listBody.Subscriptions[0])
 	}
 
@@ -216,8 +226,27 @@ func TestSubscriptionsProductAPIUsesOwnerScopedCRUD(t *testing.T) {
 		t.Fatalf("expected subscription patch 200, got %d: %s", patch.Code, patch.Body.String())
 	}
 	patched := decodeAPISuccessDataForTest[subscriptionResponse](t, patch.Body.Bytes())
-	if patched.Subscription["name"] != "Renamed API" || patched.Subscription["price"] != "20" {
+	if patched.Subscription.Name != "Renamed API" || patched.Subscription.Price != "20" {
 		t.Fatalf("unexpected patched subscription: %#v", patched.Subscription)
+	}
+	if !patched.Subscription.Pinned || patched.Subscription.TrialEndDate == nil || *patched.Subscription.TrialEndDate != "2026-01-20" {
+		t.Fatalf("subscription patch replaced non-form state: %#v", patched.Subscription)
+	}
+	importMetadata, ok := patched.Subscription.Extra["import"].(map[string]interface{})
+	if !ok || importMetadata["source"] != "wallos" || importMetadata["sourceId"] != "wallos-1" {
+		t.Fatalf("subscription patch replaced import metadata: %#v", patched.Subscription.Extra)
+	}
+	reloaded, err := app.FindRecordById("subscriptions", id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reloaded.GetBool("pinned") || reloaded.GetString("trialEndDate") != "2026-01-20" {
+		t.Fatalf("subscription patch did not preserve persisted non-form state: pinned=%v trialEndDate=%q", reloaded.GetBool("pinned"), reloaded.GetString("trialEndDate"))
+	}
+	reloadedExtra := subscriptionRecordJSONMap(reloaded, "extra")
+	reloadedImport, ok := reloadedExtra["import"].(map[string]interface{})
+	if !ok || reloadedImport["source"] != "wallos" || reloadedImport["sourceId"] != "wallos-1" {
+		t.Fatalf("subscription patch did not preserve persisted import metadata: %#v", reloadedExtra)
 	}
 
 	del := serveTestRequest(t, app, http.MethodDelete, "/api/app/subscriptions/"+id, "", token)
@@ -247,11 +276,11 @@ func TestSubscriptionsProductAPIAcceptsRecurringSubscriptionWithoutStartDate(t *
 		t.Fatalf("expected subscription create 201, got %d: %s", create.Code, create.Body.String())
 	}
 	created := decodeAPISuccessDataForTest[subscriptionResponse](t, create.Body.Bytes())
-	if value, ok := created.Subscription["startDate"]; !ok || value != nil {
-		t.Fatalf("expected startDate JSON null, got %#v in %#v", value, created.Subscription)
+	if created.Subscription.StartDate != nil {
+		t.Fatalf("expected startDate JSON null, got %#v in %#v", created.Subscription.StartDate, created.Subscription)
 	}
-	if created.Subscription["autoCalculateNextBillingDate"] != false {
-		t.Fatalf("expected manual date anchor, got %#v", created.Subscription["autoCalculateNextBillingDate"])
+	if created.Subscription.AutoCalculateNextBillingDate {
+		t.Fatalf("expected manual date anchor, got %#v", created.Subscription.AutoCalculateNextBillingDate)
 	}
 }
 
@@ -277,11 +306,11 @@ func TestSubscriptionsProductAPICursorAdvancesWithoutRepeatingRows(t *testing.T)
 		if res.Code != http.StatusOK {
 			t.Fatalf("expected subscription page %d to return 200, got %d: %s", page+1, res.Code, res.Body.String())
 		}
-		body := decodeAPISuccessDataForTest[subscriptionsListResponse](t, res.Body.Bytes())
+		body := decodeAPISuccessDataForTest[subscriptionCollectionListResponse](t, res.Body.Bytes())
 		if len(body.Subscriptions) != 1 {
 			t.Fatalf("expected one subscription on page %d, got %#v", page+1, body.Subscriptions)
 		}
-		id, _ := body.Subscriptions[0]["id"].(string)
+		id := body.Subscriptions[0].ID
 		if id == "" {
 			t.Fatalf("expected page %d subscription id, got %#v", page+1, body.Subscriptions[0])
 		}
@@ -368,11 +397,11 @@ func TestSubscriptionsProductAPIFiltersAcrossOwnerScopedDataset(t *testing.T) {
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected filtered subscription list 200, got %d: %s", res.Code, res.Body.String())
 	}
-	body := decodeAPISuccessDataForTest[subscriptionsListResponse](t, res.Body.Bytes())
+	body := decodeAPISuccessDataForTest[subscriptionCollectionListResponse](t, res.Body.Bytes())
 	if body.Total != 1 || len(body.Subscriptions) != 1 {
 		t.Fatalf("expected exactly one filtered subscription, got %#v", body)
 	}
-	if got, _ := body.Subscriptions[0]["id"].(string); got != target.Id {
+	if got := body.Subscriptions[0].ID; got != target.Id {
 		t.Fatalf("expected owner target subscription %q, got %#v", target.Id, body.Subscriptions[0])
 	}
 }
@@ -410,11 +439,11 @@ func TestSubscriptionsProductAPIFiltersEffectiveStatusAndCursorTotal(t *testing.
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected expired filtered list 200, got %d: %s", res.Code, res.Body.String())
 	}
-	first := decodeAPISuccessDataForTest[subscriptionsListResponse](t, res.Body.Bytes())
+	first := decodeAPISuccessDataForTest[subscriptionCollectionListResponse](t, res.Body.Bytes())
 	if first.Total != 2 || len(first.Subscriptions) != 1 || first.NextCursor == nil {
 		t.Fatalf("expected first filtered page to expose total=2 and next cursor, got %#v", first)
 	}
-	if got, _ := first.Subscriptions[0]["id"].(string); got != legacyOverdue.Id && got != storedExpired.Id {
+	if got := first.Subscriptions[0].ID; got != legacyOverdue.Id && got != storedExpired.Id {
 		t.Fatalf("expected first filtered page to contain an expired match, got %#v", first.Subscriptions[0])
 	}
 
@@ -422,12 +451,12 @@ func TestSubscriptionsProductAPIFiltersEffectiveStatusAndCursorTotal(t *testing.
 	if next.Code != http.StatusOK {
 		t.Fatalf("expected second expired filtered page 200, got %d: %s", next.Code, next.Body.String())
 	}
-	second := decodeAPISuccessDataForTest[subscriptionsListResponse](t, next.Body.Bytes())
+	second := decodeAPISuccessDataForTest[subscriptionCollectionListResponse](t, next.Body.Bytes())
 	if second.Total != 2 || len(second.Subscriptions) != 1 || second.NextCursor != nil {
 		t.Fatalf("expected second filtered page to keep total=2 and finish cursor, got %#v", second)
 	}
-	secondID, _ := second.Subscriptions[0]["id"].(string)
-	firstID, _ := first.Subscriptions[0]["id"].(string)
+	secondID := second.Subscriptions[0].ID
+	firstID := first.Subscriptions[0].ID
 	if secondID == "" || secondID == firstID {
 		t.Fatalf("expected filtered cursor to advance to another expired row, first=%q second=%q", firstID, secondID)
 	}
@@ -713,47 +742,6 @@ func TestAssetProductAPIDeleteIgnoresForeignCustomConfigReferences(t *testing.T)
 	}
 }
 
-func TestAssetProductAPIDeleteRemovesMetadataWhenFileIsMissing(t *testing.T) {
-	app := newSchemaTestApp(t)
-	if err := ensureSchema(app); err != nil {
-		t.Fatal(err)
-	}
-	registerRecordHooks(app)
-	_, token := createRouteTestUser(t, app, "assets-missing-file")
-
-	upload := serveMultipartTestRequest(
-		t,
-		app,
-		"/api/app/assets",
-		token,
-		map[string]string{"kind": "logo"},
-		"file",
-		"missing.svg",
-		`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"></svg>`,
-	)
-	if upload.Code != http.StatusCreated {
-		t.Fatalf("expected asset upload 201, got %d: %s", upload.Code, upload.Body.String())
-	}
-	uploaded := decodeAPISuccessDataForTest[uploadAssetResponse](t, upload.Body.Bytes())
-	id := strings.TrimPrefix(uploaded.URL, "/api/app/assets/")
-	record, err := app.FindRecordById("assets", id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	filePath := filepath.Join(app.DataDir(), "storage", record.Collection().Id, record.Id, record.GetString("file"))
-	if err := os.Remove(filePath); err != nil {
-		t.Fatal(err)
-	}
-
-	del := serveTestRequest(t, app, http.MethodDelete, "/api/app/assets/"+id, "", token)
-	if del.Code != http.StatusOK {
-		t.Fatalf("expected missing-file asset delete 200, got %d: %s", del.Code, del.Body.String())
-	}
-	if _, err := app.FindRecordById("assets", id); err == nil {
-		t.Fatalf("expected missing-file asset metadata to be deleted")
-	}
-}
-
 func subscriptionCreateBody(name string) string {
 	body := map[string]interface{}{
 		"name":                         name,
@@ -774,7 +762,6 @@ func subscriptionCreateBody(name string) string {
 		"nextBillingDate":              "2026-02-01",
 		"autoRenew":                    false,
 		"autoCalculateNextBillingDate": true,
-		"trialEndDate":                 nil,
 		"website":                      nil,
 		"notes":                        nil,
 		"tags":                         []string{"api"},
@@ -782,7 +769,6 @@ func subscriptionCreateBody(name string) string {
 		"repeatReminderEnabled":        false,
 		"repeatReminderInterval":       defaultRepeatReminderInterval,
 		"repeatReminderWindow":         defaultRepeatReminderWindow,
-		"extra":                        map[string]interface{}{},
 	}
 	data, _ := json.Marshal(body)
 	return string(data)

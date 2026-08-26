@@ -7,20 +7,20 @@
  */
 import { compareDateOnly, type DateOnly } from "@/lib/time/date-only";
 import { isOneTimeBuyout } from "@/lib/subscription-billing";
-import type { BillingCycle, Subscription, SubscriptionStatus } from "@/types/subscription";
+import type { BillingCycle, SubscriptionCollectionItem, SubscriptionStatus } from "@/types/subscription";
 
 /** 按用户本地今天计算订阅的有效状态。 */
 export function getEffectiveSubscriptionStatus(
-  subscription: Pick<Subscription, "status" | "nextBillingDate"> & {
+  subscription: Pick<SubscriptionCollectionItem, "status" | "nextBillingDate"> & {
     billingCycle?: BillingCycle;
     oneTimeTermCount?: number | undefined;
-    oneTimeTermUnit?: Subscription["oneTimeTermUnit"];
+    oneTimeTermUnit?: SubscriptionCollectionItem["oneTimeTermUnit"];
   },
   today: DateOnly | string,
 ): SubscriptionStatus {
   if (subscription.status === "expired") return "expired";
   // one-time 买断记录没有权益到期边界；固定服务期则继续使用 nextBillingDate 进入 expired 兼容状态。
-  if (subscription.billingCycle === "one-time" && isOneTimeBuyout(subscription as Pick<Subscription, "billingCycle" | "oneTimeTermCount" | "oneTimeTermUnit">)) {
+  if (subscription.billingCycle === "one-time" && !subscription.oneTimeTermCount) {
     return subscription.status;
   }
 

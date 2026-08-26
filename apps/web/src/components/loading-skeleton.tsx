@@ -26,7 +26,7 @@ function HeaderSkeleton({ showAddAction = false }: { showAddAction?: boolean }) 
             <SkeletonBox className="h-10 w-10 shrink-0 rounded-xl" />
             <div className={headerLayout.brandTextGroup}>
               <SkeletonBox className="h-6 w-28" />
-              <SkeletonBox className="h-6 w-[5.75rem] rounded-lg min-[380px]:w-32 sm:h-7" />
+              <SkeletonBox className="h-6 w-23 rounded-lg min-[380px]:w-32 sm:h-7" />
             </div>
           </div>
           <nav className={headerLayout.desktopNav} data-testid="app-header-desktop-nav-skeleton">
@@ -124,7 +124,7 @@ function StatCardSkeleton({
 
 function SubscriptionCardSkeleton({ list = false }: { list?: boolean }) {
   return (
-    <div className={cn("rounded-xl border border-border bg-card p-4", list && "min-h-[126px]")}>
+    <div className={cn("rounded-xl border border-border bg-card p-4", list && "min-h-31.5")}>
       <div className="flex items-start gap-4">
         <SkeletonBox className="h-12 w-12 shrink-0 rounded-lg" />
         <div className="grid flex-1 gap-2">
@@ -170,7 +170,7 @@ function DashboardContentSkeleton() {
         <div className="grid gap-6">
           <div className="rounded-xl border border-border bg-card p-6 shadow-card">
             <SkeletonBox className="mb-3 h-6 w-32" />
-            <SkeletonBox className="h-[220px] w-full rounded-lg" />
+            <SkeletonBox className="h-55 w-full rounded-lg" />
           </div>
           <div className="rounded-xl border border-border bg-card p-6 shadow-card">
             <SkeletonBox className="mb-4 h-6 w-28" />
@@ -238,8 +238,8 @@ function StatisticsContentSkeleton() {
           <SkeletonBox className="h-6 w-40 rounded-full" />
         </div>
         <div className="grid grid-cols-1 gap-4 min-[380px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-4">
-          {range(11).map((index) => (
-            <div key={index} className="flex min-h-[116px] flex-col items-center justify-center rounded-xl border border-border bg-card p-5 text-center">
+          {range(12).map((index) => (
+            <div key={index} className="flex min-h-29 flex-col items-center justify-center rounded-xl border border-border bg-card p-5 text-center">
               <SkeletonBox className="mb-2 h-8 w-20" />
               <SkeletonBox className="h-4 w-24" />
             </div>
@@ -256,7 +256,7 @@ function StatisticsContentSkeleton() {
             </div>
             <SkeletonBox className="h-9 w-full rounded-md sm:w-48" />
           </div>
-          <SkeletonBox className="h-[280px] w-full rounded-lg" />
+          <SkeletonBox className="h-70 w-full rounded-lg" />
         </div>
       </section>
 
@@ -267,13 +267,13 @@ function StatisticsContentSkeleton() {
             <div key={index} className="min-w-0 rounded-xl border border-border bg-card p-6">
               <SkeletonBox className="mx-auto mb-2 h-5 w-24" />
               <SkeletonBox className="mx-auto mb-3 h-3 w-32" />
-              <SkeletonBox className="h-[220px] w-full rounded-lg" />
+              <SkeletonBox className="h-55 w-full rounded-lg" />
             </div>
           ))}
           <div className="min-w-0 rounded-xl border border-border bg-card p-6 md:col-span-2">
             <SkeletonBox className="mx-auto mb-2 h-5 w-32" />
             <SkeletonBox className="mx-auto mb-3 h-3 w-40" />
-            <SkeletonBox className="h-[220px] w-full rounded-lg" />
+            <SkeletonBox className="h-55 w-full rounded-lg" />
             <div className="mt-4 flex flex-col justify-center gap-4 min-[380px]:flex-row min-[380px]:gap-8">
               <SkeletonBox className="mx-auto h-14 w-28" />
               <SkeletonBox className="mx-auto h-14 w-28" />

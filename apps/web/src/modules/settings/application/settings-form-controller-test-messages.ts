@@ -2,15 +2,12 @@ type TestMessage = string | ((params: Record<string, unknown>) => string);
 
 export const SETTINGS_INTEGRATION_TEST_MESSAGES: Record<string, TestMessage> = {
   "settings.publicApiCreated": "API Token 已创建",
-  "settings.publicApiCreatedDescription": "明文 token 只显示一次，请复制到需要调用 Public API 的客户端。",
   "settings.publicApiCreateFailed": "API Token 创建失败",
   "settings.publicApiCreateFailedDescription": "无法创建 API Token，请稍后重试。",
   "settings.publicApiTokenCopied": "Token 已复制",
-  "settings.publicApiTokenCopiedDescription": "可以把它用于只读集成或自动化工具。",
   "settings.publicApiCopyFailed": "复制失败",
   "settings.publicApiCopyFailedDescription": "当前一键复制不可用，请手动选择并复制 token。",
   "settings.publicApiDeleted": "API Token 已删除",
-  "settings.publicApiDeletedDescription": "旧 token 已失效，后续 Public API 请求会被拒绝。",
   "settings.publicApiDeleteFailed": "API Token 删除失败",
   "settings.publicApiDeleteFailedDescription": "无法删除 API Token，请稍后重试。",
   "settings.telegramBotCommandsConfigMissing": "请先填写并保存 Bot Token 和 Chat ID。",
@@ -20,11 +17,9 @@ export const SETTINGS_INTEGRATION_TEST_MESSAGES: Record<string, TestMessage> = {
   "settings.telegramBotCommandsInstalling": "安装中...",
   "settings.telegramBotCommandsDeleting": "删除中...",
   "settings.telegramBotCommandsInstalled": "Telegram 查询命令已安装",
-  "settings.telegramBotCommandsInstalledDescription": "你可以在目标 Telegram 聊天的命令菜单中查询 Renewlet 订阅摘要。",
   "settings.telegramBotCommandsInstallFailed": "Telegram 查询命令安装失败",
   "settings.telegramBotCommandsInstallFailedDescription": "无法安装 Telegram Bot 查询命令，请检查 Bot Token、Chat ID 和 HTTPS 外部访问地址。",
   "settings.telegramBotCommandsDeleted": "Telegram 查询命令已删除",
-  "settings.telegramBotCommandsDeletedDescription": "Telegram 菜单命令已删除，需要时可以重新安装。",
   "settings.telegramBotCommandsDeleteFailed": "Telegram 查询命令删除失败",
   "settings.telegramBotCommandsDeleteFailedDescription": "无法删除 Telegram Bot 查询命令，请稍后重试。",
 };

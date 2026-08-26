@@ -128,7 +128,7 @@ describe("resolveAutoLogosForPreparedImport", () => {
       },
     ]));
 
-    const resolved = await resolveAutoLogosForPreparedImport(prepared());
+    const resolved = await resolveAutoLogosForPreparedImport(prepared(), new AbortController().signal);
 
     expect(resolved.payload.subscriptions[0]?.logo).toBe("https://cdn.example.com/netflix.svg");
     expect(resolved.payload.subscriptions[1]?.logo).toBeNull();
@@ -150,7 +150,7 @@ describe("resolveAutoLogosForPreparedImport", () => {
       },
     ]));
 
-    const resolved = await resolveAutoLogosForPreparedImport(prepared());
+    const resolved = await resolveAutoLogosForPreparedImport(prepared(), new AbortController().signal);
 
     expect(resolved.payload.subscriptions[0]?.logo).toBeNull();
     expect(resolved.logoAutoMatches).toBeUndefined();
@@ -172,14 +172,27 @@ describe("resolveAutoLogosForPreparedImport", () => {
       blob: new Blob(["svg"], { type: "image/svg+xml" }),
     }];
 
-    const resolved = await resolveAutoLogosForPreparedImport(source);
+    const signal = new AbortController().signal;
+    const resolved = await resolveAutoLogosForPreparedImport(source, signal);
 
     expect(resolveMock).toHaveBeenCalledWith({
       kind: "logo",
       mode: "auto",
       items: [{ id: "0", name: "Netflix", website: "https://netflix.com/" }, { id: "1", name: "Unknown Tool", website: "https://example.com/" }],
       limit: 1,
-    });
+    }, signal);
     expect(resolved.payload.subscriptions[0]?.logo).toBe("https://cdn.example.com/netflix.svg");
+  });
+
+  it("propagates session cancellation instead of continuing with an unmodified preview", async () => {
+    const controller = new AbortController();
+    resolveMock.mockImplementationOnce(async () => {
+      controller.abort();
+      throw controller.signal.reason;
+    });
+
+    await expect(resolveAutoLogosForPreparedImport(prepared(), controller.signal)).rejects.toBe(
+      controller.signal.reason,
+    );
   });
 });

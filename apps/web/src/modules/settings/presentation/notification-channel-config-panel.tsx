@@ -5,24 +5,15 @@
  *
  * 注意： Webhook/DingTalk/WeCom/Bark/Discord URL 最终会触发后端外连，展示层不能把“看起来像 URL”当作安全保证。
  */
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Bot, ExternalLink, Check, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { FormField, FormFieldRow } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { NumericInput } from '@/components/ui/numeric-input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { MessageKey } from '@/i18n/messages';
 import {
@@ -34,9 +25,9 @@ import { ChoiceRadioGroup, CheckboxSettingRow, LoadingButtonContent, type Update
 import { NotificationDingTalkConfigPanel, NotificationWebhookConfigPanel } from './notification-webhook-dingtalk-configs';
 import type { SettingsTelegramBotCommandsController } from '../application/use-telegram-bot-commands-controller';
 import type { SettingsSecretKey, SettingsSecretStatus } from '@/lib/api/schemas/settings';
-
+import { ManagerDataBoundary } from './manager-data-boundary';
+import { TelegramBotCommandsDeleteDialog } from './telegram-bot-commands-delete-dialog';
 type Translate = (key: MessageKey, params?: Record<string, string | number>) => string;
-
 const NOTIFICATION_TEST_LABEL_KEYS: Record<NotificationChannel, MessageKey> = {
   telegram: "settings.testChannel.telegram",
   notifyx: "settings.testChannel.notifyx",
@@ -170,15 +161,26 @@ export function NotificationChannelConfigPanel({
 }) {
   const { t, label, formatDateTime } = useI18n();
   const [deleteCommandsOpen, setDeleteCommandsOpen] = useState(false);
+  const telegramCommandsFocusFallbackRef = useRef<HTMLButtonElement>(null);
   const help = getNotificationChannelHelp(channel, t);
   const channelLabel = label(CHANNEL_LABELS[channel]);
   const testChannelLabel = t(NOTIFICATION_TEST_LABEL_KEYS[channel], { channel: channelLabel });
-  const commandStatus = telegramBotCommands?.data?.status ?? "not_configured";
-  const commandStatusLabel = t(TELEGRAM_BOT_COMMAND_STATUS_LABEL_KEYS[commandStatus]);
+  const commandData = telegramBotCommands?.readState.data;
+  const commandStatus = commandData?.status;
+  // 刷新失败由读取边界唯一标记“未更新”；Badge 继续显示缓存命令状态，避免 stale 提示覆盖领域事实。
+  const commandStatusLabel = !telegramBotCommands
+    ? t("settings.statusUnknown")
+    : telegramBotCommands.readState.isInitialLoading
+      ? t("common.loading")
+      : !telegramBotCommands.readState.hasData && telegramBotCommands.readState.error
+        ? t("settings.statusUnknown")
+        : commandStatus
+          ? t(TELEGRAM_BOT_COMMAND_STATUS_LABEL_KEYS[commandStatus])
+          : t("settings.statusUnknown");
   const commandBindingPresent = commandStatus === "installed" || commandStatus === "installing";
   const commandInstalling = Boolean(telegramBotCommands?.isInstalling) || commandStatus === "installing";
-  const commandInstallDisabled = Boolean(telegramBotCommands?.installDisabledReason) || !telegramBotCommands || telegramBotCommands.isLoading || telegramBotCommands.isDeleting || commandInstalling;
-  const commandDeleteDisabled = Boolean(telegramBotCommands?.deleteDisabledReason) || !telegramBotCommands || telegramBotCommands.isLoading || commandInstalling || !commandBindingPresent;
+  const commandInstallDisabled = Boolean(telegramBotCommands?.installDisabledReason) || !telegramBotCommands || !telegramBotCommands.readState.hasData || telegramBotCommands.isDeleting || commandInstalling;
+  const commandDeleteDisabled = Boolean(telegramBotCommands?.deleteDisabledReason) || !telegramBotCommands || !telegramBotCommands.readState.hasData || commandInstalling || !commandBindingPresent;
   const commandInstallDisabledReason = telegramBotCommands?.installDisabledReason;
   const commandInstallDisabledReasonVisible = commandInstallDisabledReason && !commandInstalling;
   const commandTime = (value: string | null | undefined) => value
@@ -291,20 +293,23 @@ export function NotificationChannelConfigPanel({
                   <div className="flex items-center gap-2">
                     <Bot className="h-4 w-4 text-primary" />
                     <h4 className="text-sm font-medium text-foreground">{t("settings.telegramBotCommands")}</h4>
-                    <Badge variant={telegramBotCommands.data?.installed ? "default" : "secondary"}>{commandStatusLabel}</Badge>
+                    <Badge variant={commandData?.installed ? "default" : "secondary"}>{commandStatusLabel}</Badge>
                   </div>
                   <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("settings.telegramBotCommandsHelp")}</p>
-                  <div className="mt-2 grid gap-1 text-xs leading-5 text-muted-foreground">
-                    <span>{t("settings.telegramBotCommandsChat", { chatId: telegramBotCommands.data?.chatId ?? t("settings.telegramBotCommandsMissing") })}</span>
-                    <span>{t("settings.telegramBotCommandsInstalledAt", { time: commandTime(telegramBotCommands.data?.installedAt) })}</span>
-                    <span>{t("settings.telegramBotCommandsLastUsedAt", { time: commandTime(telegramBotCommands.data?.lastUsedAt) })}</span>
-                  </div>
+                  <ManagerDataBoundary state={telegramBotCommands.readState}>
+                    <div className="mt-2 grid gap-1 text-xs leading-5 text-muted-foreground">
+                      <span>{t("settings.telegramBotCommandsChat", { chatId: commandData?.chatId ?? t("settings.telegramBotCommandsMissing") })}</span>
+                      <span>{t("settings.telegramBotCommandsInstalledAt", { time: commandTime(commandData?.installedAt) })}</span>
+                      <span>{t("settings.telegramBotCommandsLastUsedAt", { time: commandTime(commandData?.lastUsedAt) })}</span>
+                    </div>
+                  </ManagerDataBoundary>
                   {commandInstallDisabledReasonVisible ? (
                     <p className="mt-2 text-xs font-medium text-muted-foreground">{commandInstallDisabledReason}</p>
                   ) : null}
                 </div>
                 <div className="flex shrink-0 flex-col gap-2 sm:items-end">
                   <Button
+                    ref={telegramCommandsFocusFallbackRef}
                     type="button"
                     size="sm"
                     onClick={() => {
@@ -315,7 +320,7 @@ export function NotificationChannelConfigPanel({
                     className="justify-center"
                   >
                     <LoadingButtonContent loading={commandInstalling} loadingLabel={t("settings.telegramBotCommandsInstalling")}>
-                      {telegramBotCommands.data?.installed ? t("settings.telegramBotCommandsReinstall") : t("settings.telegramBotCommandsInstall")}
+                      {commandData?.installed ? t("settings.telegramBotCommandsReinstall") : t("settings.telegramBotCommandsInstall")}
                     </LoadingButtonContent>
                   </Button>
                   <Button
@@ -334,24 +339,13 @@ export function NotificationChannelConfigPanel({
                   </Button>
                 </div>
               </div>
-              <AlertDialog open={deleteCommandsOpen} onOpenChange={setDeleteCommandsOpen}>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>{t("settings.telegramBotCommandsDeleteTitle")}</AlertDialogTitle>
-                    <AlertDialogDescription>{t("settings.telegramBotCommandsDeleteDescription")}</AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={() => {
-                        void telegramBotCommands.deleteCommands();
-                      }}
-                    >
-                      {t("settings.telegramBotCommandsDelete")}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+              <TelegramBotCommandsDeleteDialog
+                open={deleteCommandsOpen}
+                pending={telegramBotCommands.isDeleting}
+                focusFallbackRef={telegramCommandsFocusFallbackRef}
+                onOpenChange={setDeleteCommandsOpen}
+                onDelete={telegramBotCommands.deleteCommands}
+              />
             </div>
           ) : null}
         </>
@@ -438,24 +432,25 @@ export function NotificationChannelConfigPanel({
               />
               <p className="text-xs text-muted-foreground">{t("settings.wechatHelp")}</p>
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="grid gap-2">
-                <Label htmlFor="wechatMsgType">{t("settings.messageType")}</Label>
-                <Select
-                  value={settings.wechatMessageType}
-                  disabled={disabled}
-                  onValueChange={(value) => updateSetting('wechatMessageType', value as 'text' | 'markdown')}
-                >
-                  <SelectTrigger className="border-border bg-secondary">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="text">{t("settings.textMessage")}</SelectItem>
-                    <SelectItem value="markdown">Markdown</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
+            <FormFieldRow alignAt="sm" rowClassName="sm:grid-cols-2">
+              <FormField id="wechatMsgType" label={t("settings.messageType")}>
+                {({ id }) => (
+                  <Select
+                    value={settings.wechatMessageType}
+                    disabled={disabled}
+                    onValueChange={(value) => updateSetting('wechatMessageType', value as 'text' | 'markdown')}
+                  >
+                    <SelectTrigger id={id} className="border-border bg-secondary">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="text">{t("settings.textMessage")}</SelectItem>
+                      <SelectItem value="markdown">Markdown</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              </FormField>
+            </FormFieldRow>
             <CheckboxSettingRow
               id="wechatModeTag"
               checked={settings.wechatAddModeTag}
@@ -503,36 +498,38 @@ export function NotificationChannelConfigPanel({
       {channel === 'email' ? (
         <>
           <div className="grid gap-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="grid gap-2">
-                <Label htmlFor="smtpHost">{t("settings.smtpHost")}</Label>
-                <Input
-                  id="smtpHost"
-                  placeholder="smtp.example.com"
-                  value={settings.smtpHost}
-                  disabled={disabled}
-                  onChange={(e) => updateSetting('smtpHost', e.target.value)}
-                  className="border-border bg-secondary"
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="smtpPort">{t("settings.smtpPort")}</Label>
-                <NumericInput
-                  id="smtpPort"
-                  name="smtpPort"
-                  inputMode="numeric"
-                  enterKeyHint="next"
-                  placeholder="587"
-                  value={settings.smtpPort}
-                  allowNegative={false}
-                  decimalScale={0}
-                  isAllowed={isAllowedSmtpPortValue}
-                  disabled={disabled}
-                  onRawValueChange={(value) => updateSetting('smtpPort', value)}
-                  className="border-border bg-secondary"
-                />
-              </div>
-            </div>
+            <FormFieldRow alignAt="sm" rowClassName="sm:grid-cols-2">
+              <FormField id="smtpHost" label={t("settings.smtpHost")}>
+                {({ id }) => (
+                  <Input
+                    id={id}
+                    placeholder="smtp.example.com"
+                    value={settings.smtpHost}
+                    disabled={disabled}
+                    onChange={(e) => updateSetting('smtpHost', e.target.value)}
+                    className="border-border bg-secondary"
+                  />
+                )}
+              </FormField>
+              <FormField id="smtpPort" label={t("settings.smtpPort")}>
+                {({ id }) => (
+                  <NumericInput
+                    id={id}
+                    name="smtpPort"
+                    inputMode="numeric"
+                    enterKeyHint="next"
+                    placeholder="587"
+                    value={settings.smtpPort}
+                    allowNegative={false}
+                    decimalScale={0}
+                    isAllowed={isAllowedSmtpPortValue}
+                    disabled={disabled}
+                    onRawValueChange={(value) => updateSetting('smtpPort', value)}
+                    className="border-border bg-secondary"
+                  />
+                )}
+              </FormField>
+            </FormFieldRow>
             <CheckboxSettingRow
               id="smtpSecure"
               checked={settings.smtpSecure}
@@ -541,59 +538,63 @@ export function NotificationChannelConfigPanel({
               description={t("settings.smtpSecureHelp")}
               disabled={disabled}
             />
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="grid gap-2">
-                <Label htmlFor="smtpUser">{t("settings.smtpUser")}</Label>
-                <Input
-                  id="smtpUser"
-                  name="smtpUser"
-                  value={settings.smtpUser}
-                  disabled={disabled}
-                  onChange={(e) => updateSetting('smtpUser', e.target.value)}
-                  className="border-border bg-secondary"
-                  autoComplete="username"
-                  enterKeyHint="next"
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="smtpPassword">{t("settings.smtpPassword")}</Label>
-                <Input
-                  id="smtpPassword"
-                  name="smtpPassword"
-                  type="password"
-                  value={settings.smtpPassword}
-                  disabled={disabled}
-                  onChange={(e) => updateSetting('smtpPassword', e.target.value)}
-                  className="border-border bg-secondary"
-                  autoComplete="new-password"
-                  enterKeyHint="next"
-                />
-              </div>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="grid gap-2">
-                <Label htmlFor="smtpFrom">{t("settings.smtpFrom")}</Label>
-                <Input
-                  id="smtpFrom"
-                  placeholder="Renewlet <noreply@example.com>"
-                  value={settings.smtpFrom}
-                  disabled={disabled}
-                  onChange={(e) => updateSetting('smtpFrom', e.target.value)}
-                  className="border-border bg-secondary"
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="smtpReplyTo">{t("settings.smtpReplyTo")}</Label>
-                <Input
-                  id="smtpReplyTo"
-                  placeholder="support@example.com"
-                  value={settings.smtpReplyTo}
-                  disabled={disabled}
-                  onChange={(e) => updateSetting('smtpReplyTo', e.target.value)}
-                  className="border-border bg-secondary"
-                />
-              </div>
-            </div>
+            <FormFieldRow alignAt="sm" rowClassName="sm:grid-cols-2">
+              <FormField id="smtpUser" label={t("settings.smtpUser")}>
+                {({ id }) => (
+                  <Input
+                    id={id}
+                    name="smtpUser"
+                    value={settings.smtpUser}
+                    disabled={disabled}
+                    onChange={(e) => updateSetting('smtpUser', e.target.value)}
+                    className="border-border bg-secondary"
+                    autoComplete="username"
+                    enterKeyHint="next"
+                  />
+                )}
+              </FormField>
+              <FormField id="smtpPassword" label={t("settings.smtpPassword")}>
+                {({ id }) => (
+                  <Input
+                    id={id}
+                    name="smtpPassword"
+                    type="password"
+                    value={settings.smtpPassword}
+                    disabled={disabled}
+                    onChange={(e) => updateSetting('smtpPassword', e.target.value)}
+                    className="border-border bg-secondary"
+                    autoComplete="new-password"
+                    enterKeyHint="next"
+                  />
+                )}
+              </FormField>
+            </FormFieldRow>
+            <FormFieldRow alignAt="sm" rowClassName="sm:grid-cols-2">
+              <FormField id="smtpFrom" label={t("settings.smtpFrom")}>
+                {({ id }) => (
+                  <Input
+                    id={id}
+                    placeholder="Renewlet <noreply@example.com>"
+                    value={settings.smtpFrom}
+                    disabled={disabled}
+                    onChange={(e) => updateSetting('smtpFrom', e.target.value)}
+                    className="border-border bg-secondary"
+                  />
+                )}
+              </FormField>
+              <FormField id="smtpReplyTo" label={t("settings.smtpReplyTo")}>
+                {({ id }) => (
+                  <Input
+                    id={id}
+                    placeholder="support@example.com"
+                    value={settings.smtpReplyTo}
+                    disabled={disabled}
+                    onChange={(e) => updateSetting('smtpReplyTo', e.target.value)}
+                    className="border-border bg-secondary"
+                  />
+                )}
+              </FormField>
+            </FormFieldRow>
             <p className="text-xs text-muted-foreground">
               {t("settings.smtpHelp")}
             </p>
@@ -729,33 +730,35 @@ export function NotificationChannelConfigPanel({
               />
               <p className="text-xs text-muted-foreground">{t("settings.discordWebhookHelp")}</p>
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="grid gap-2">
-                <Label htmlFor="discordBotUsername">{t("settings.discordBotUsername")}</Label>
-                <Input
-                  id="discordBotUsername"
-                  value={settings.discordBotUsername}
-                  disabled={disabled}
-                  onChange={(e) => updateSetting('discordBotUsername', e.target.value)}
-                  className="border-border bg-secondary"
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="discordBotAvatarUrl">{t("settings.discordBotAvatarUrl")}</Label>
-                <Input
-                  id="discordBotAvatarUrl"
-                  type="url"
-                  inputMode="url"
-                  autoCapitalize="none"
-                  spellCheck={false}
-                  placeholder="https://cdn.example.com/avatar.png"
-                  value={settings.discordBotAvatarUrl}
-                  disabled={disabled}
-                  onChange={(e) => updateSetting('discordBotAvatarUrl', e.target.value)}
-                  className="border-border bg-secondary"
-                />
-              </div>
-            </div>
+            <FormFieldRow alignAt="sm" rowClassName="sm:grid-cols-2">
+              <FormField id="discordBotUsername" label={t("settings.discordBotUsername")}>
+                {({ id }) => (
+                  <Input
+                    id={id}
+                    value={settings.discordBotUsername}
+                    disabled={disabled}
+                    onChange={(e) => updateSetting('discordBotUsername', e.target.value)}
+                    className="border-border bg-secondary"
+                  />
+                )}
+              </FormField>
+              <FormField id="discordBotAvatarUrl" label={t("settings.discordBotAvatarUrl")}>
+                {({ id }) => (
+                  <Input
+                    id={id}
+                    type="url"
+                    inputMode="url"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    placeholder="https://cdn.example.com/avatar.png"
+                    value={settings.discordBotAvatarUrl}
+                    disabled={disabled}
+                    onChange={(e) => updateSetting('discordBotAvatarUrl', e.target.value)}
+                    className="border-border bg-secondary"
+                  />
+                )}
+              </FormField>
+            </FormFieldRow>
           </div>
           <div className="mt-4 flex justify-end">
             <NotificationTestButton channel="discord" label={testChannelLabel} testingChannel={testingChannel} onTest={onTest} disabled={disabled} />

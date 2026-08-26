@@ -1,9 +1,16 @@
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { Drawer } from "vaul";
 import { Menu, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  SideDrawerClose,
+  SideDrawerContent,
+  SideDrawerDescription,
+  SideDrawerRoot,
+  SideDrawerTitle,
+  SideDrawerTrigger,
+} from '@/components/ui/side-drawer';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/i18n/I18nProvider';
 import { settingsLayout } from './settings-layout';
@@ -44,14 +51,23 @@ export function createSettingsSections({
     : SETTINGS_SECTIONS.filter((section) => section.id !== "settings-access-security");
 }
 
+/**
+ * 延迟区块的目录导航必须跨过两个独立生命周期：waitingForContent 已锁定 hash/active，
+ * 但 fallback 几何不可用于定位；scrolling 才允许消费真实区块位置和 scrollend。
+ */
 type ProgrammaticNavigation = {
   targetId: SettingsSectionId;
   idleTimer: number | null;
+  phase: "waitingForContent" | "scrolling";
+};
+type SettingsSectionNavigationOptions = {
+  deferredSectionIds?: readonly SettingsSectionId[] | undefined;
 };
 type SettingsSectionNavigationProps = {
   sections: SettingsSectionList;
   activeSectionId: SettingsSectionId;
   onSectionClick: (id: SettingsSectionId) => void;
+  onSectionIntent?: ((id: SettingsSectionId) => void) | undefined;
 };
 
 function getSectionFromHash(hash: string, sections: SettingsSectionList): SettingsSectionId | null {
@@ -170,11 +186,20 @@ function isAnchorStillWithinSection(root: HTMLElement, id: SettingsSectionId, se
   return nextSection.getBoundingClientRect().top > getAnchorLinePx(root, sections);
 }
 
-export function useSettingsSectionNavigation(sections: SettingsSectionList = SETTINGS_SECTIONS) {
+export function useSettingsSectionNavigation(
+  sections: SettingsSectionList = SETTINGS_SECTIONS,
+  options: SettingsSectionNavigationOptions = {},
+) {
   const firstSectionId = sections[0]?.id ?? SETTINGS_SECTIONS[0].id;
   const [activeSectionId, setActiveSectionId] = useState<SettingsSectionId>(firstSectionId);
   const programmaticNavigationRef = useRef<ProgrammaticNavigation | null>(null);
+  const deferredSectionsReadyRef = useRef(options.deferredSectionIds?.length ? false : true);
+  const deferredScrollFrameRef = useRef<number | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
+
+  const isDeferredSection = useCallback((id: SettingsSectionId) => (
+    options.deferredSectionIds?.some((candidate) => candidate === id) ?? false
+  ), [options.deferredSectionIds]);
 
   const applyAnchorActiveSection = useCallback(() => {
     const root = getAppScrollRoot();
@@ -194,16 +219,39 @@ export function useSettingsSectionNavigation(sections: SettingsSectionList = SET
     if (navigation && navigation.idleTimer !== null) {
       window.clearTimeout(navigation.idleTimer);
     }
+    if (deferredScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(deferredScrollFrameRef.current);
+      deferredScrollFrameRef.current = null;
+    }
     programmaticNavigationRef.current = null;
     if (options.applyAnchorSection) applyAnchorActiveSection();
   }, [applyAnchorActiveSection]);
 
   const beginProgrammaticNavigation = useCallback((id: SettingsSectionId) => {
     endProgrammaticNavigation();
-    programmaticNavigationRef.current = { targetId: id, idleTimer: null };
+    const waitingForContent = isDeferredSection(id) && !deferredSectionsReadyRef.current;
+    programmaticNavigationRef.current = {
+      targetId: id,
+      idleTimer: null,
+      phase: waitingForContent ? "waitingForContent" : "scrolling",
+    };
     setActiveSectionId(id);
-    scrollToSettingsSection(id);
-  }, [endProgrammaticNavigation]);
+    if (!waitingForContent) scrollToSettingsSection(id);
+  }, [endProgrammaticNavigation, isDeferredSection]);
+
+  const markDeferredSectionsReady = useCallback(() => {
+    // layout effect 的 ready 早于浏览器派发布局替换事件；下一渲染帧再切到 scrolling，避免旧 scrollend 提前结束新导航。
+    deferredSectionsReadyRef.current = true;
+    const navigation = programmaticNavigationRef.current;
+    if (!navigation || navigation.phase !== "waitingForContent") return;
+    if (deferredScrollFrameRef.current !== null) return;
+    deferredScrollFrameRef.current = window.requestAnimationFrame(() => {
+      deferredScrollFrameRef.current = null;
+      if (programmaticNavigationRef.current !== navigation || navigation.phase !== "waitingForContent") return;
+      navigation.phase = "scrolling";
+      scrollToSettingsSection(navigation.targetId);
+    });
+  }, []);
 
   useEffect(() => {
     const syncActiveSectionFromHash = () => {
@@ -233,7 +281,7 @@ export function useSettingsSectionNavigation(sections: SettingsSectionList = SET
     };
     const handleScrollEnd = () => {
       const navigation = programmaticNavigationRef.current;
-      if (!navigation) return;
+      if (!navigation || navigation.phase === "waitingForContent") return;
       endProgrammaticNavigation({
         applyAnchorSection: !isAnchorStillWithinSection(root, navigation.targetId, sections),
       });
@@ -244,6 +292,8 @@ export function useSettingsSectionNavigation(sections: SettingsSectionList = SET
         scheduleAnchorActiveSection();
         return;
       }
+      // fallback 会被真实高级区块整体替换；等待 commit 时忽略布局滚动，但 wheel/touch/pointer/key 仍可取消用户意图。
+      if (navigation.phase === "waitingForContent") return;
       if (navigation.idleTimer !== null) window.clearTimeout(navigation.idleTimer);
       navigation.idleTimer = window.setTimeout(
         () => {
@@ -298,18 +348,20 @@ export function useSettingsSectionNavigation(sections: SettingsSectionList = SET
     beginProgrammaticNavigation(id);
   }, [beginProgrammaticNavigation]);
 
-  return { activeSectionId, handleSectionClick };
+  return { activeSectionId, handleSectionClick, markDeferredSectionsReady };
 }
 
 function SettingsSectionNavLink({
   section,
   active,
   onSectionClick,
+  onSectionIntent,
   variant,
 }: {
   section: SettingsSectionDefinition;
   active: boolean;
   onSectionClick: (id: SettingsSectionId) => void;
+  onSectionIntent?: ((id: SettingsSectionId) => void) | undefined;
   variant: "desktop" | "mobileDrawer";
 }) {
   const { t } = useI18n();
@@ -323,6 +375,8 @@ function SettingsSectionNavLink({
       href={`#${section.id}`}
       aria-current={active ? "location" : undefined}
       onClick={handleClick}
+      onPointerEnter={() => onSectionIntent?.(section.id)}
+      onFocus={() => onSectionIntent?.(section.id)}
       className={cn(
         "group relative transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
         variant === "desktop"
@@ -349,6 +403,7 @@ export function DesktopSettingsSectionNav({
   sections,
   activeSectionId,
   onSectionClick,
+  onSectionIntent,
 }: SettingsSectionNavigationProps) {
   const { t } = useI18n();
 
@@ -369,6 +424,7 @@ export function DesktopSettingsSectionNav({
               section={section}
               active={activeSectionId === section.id}
               onSectionClick={onSectionClick}
+              onSectionIntent={onSectionIntent}
               variant="desktop"
             />
           ))}
@@ -382,6 +438,7 @@ export function MobileSettingsSectionDrawer({
   sections,
   activeSectionId,
   onSectionClick,
+  onSectionIntent,
   open,
   onOpenChange,
 }: SettingsSectionNavigationProps & {
@@ -395,53 +452,51 @@ export function MobileSettingsSectionDrawer({
   };
 
   return (
-    <Drawer.Root open={open} onOpenChange={onOpenChange} shouldScaleBackground={false} direction="left">
-      {open ? (
-        <Drawer.Portal>
-          <Drawer.Overlay className="fixed inset-0 z-[70] bg-black/60 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
-          <Drawer.Content
-            className="fixed left-0 top-[var(--app-visual-viewport-offset-top)] z-[80] flex h-[var(--app-viewport-height)] max-h-[var(--app-viewport-height)] w-[min(18rem,calc(100vw-3.5rem))] flex-col overflow-hidden rounded-r-xl border-r border-border bg-card/95 text-card-foreground shadow-lg backdrop-blur-xl outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-left-4"
-            data-testid="settings-section-nav-drawer"
-          >
-            <div className="flex items-start justify-between gap-4 border-b border-border px-4 pb-3 pt-[calc(1rem+env(safe-area-inset-top))]">
-              <div className="min-w-0">
-                <Drawer.Title className="text-base font-semibold text-foreground">
-                  {t("settings.sectionNavTitle")}
-                </Drawer.Title>
-                <Drawer.Description className="sr-only">
-                  {t("settings.sectionNavLabel")}
-                </Drawer.Description>
-              </div>
-              <Drawer.Close asChild>
-                <Button variant="ghost" size="icon" className="-mr-2 -mt-2 h-10 w-10 text-muted-foreground">
-                  <X className="h-4 w-4" />
-                  <span className="sr-only">{t("common.close")}</span>
-                </Button>
-              </Drawer.Close>
-            </div>
+    <SideDrawerRoot open={open} onOpenChange={onOpenChange}>
+      <MobileSettingsPageHeader />
+      <SideDrawerContent
+        side="left"
+        className="w-[min(18rem,calc(100vw-3.5rem))] rounded-r-xl bg-card/95 backdrop-blur-xl"
+        data-testid="settings-section-nav-drawer"
+      >
+        <div className="flex items-start justify-between gap-4 border-b border-border px-4 pb-3 pt-[calc(1rem+env(safe-area-inset-top))]">
+          <div className="min-w-0">
+            <SideDrawerTitle className="text-base font-semibold text-foreground">
+              {t("settings.sectionNavTitle")}
+            </SideDrawerTitle>
+            <SideDrawerDescription className="sr-only">
+              {t("settings.sectionNavLabel")}
+            </SideDrawerDescription>
+          </div>
+          <SideDrawerClose asChild>
+            <Button variant="ghost" size="icon" className="-mr-2 -mt-2 h-10 w-10 text-muted-foreground">
+              <X className="h-4 w-4" />
+              <span className="sr-only">{t("common.close")}</span>
+            </Button>
+          </SideDrawerClose>
+        </div>
 
-            <nav aria-label={t("settings.sectionNavLabel")} className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-              <ul className="grid gap-1">
-                {sections.map((section) => (
-                  <li key={section.id}>
-                    <SettingsSectionNavLink
-                      section={section}
-                      active={activeSectionId === section.id}
-                      onSectionClick={handleSectionClick}
-                      variant="mobileDrawer"
-                    />
-                  </li>
-                ))}
-              </ul>
-            </nav>
-          </Drawer.Content>
-        </Drawer.Portal>
-      ) : null}
-    </Drawer.Root>
+        <nav aria-label={t("settings.sectionNavLabel")} className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+          <ul className="grid gap-1">
+            {sections.map((section) => (
+              <li key={section.id}>
+                <SettingsSectionNavLink
+                  section={section}
+                  active={activeSectionId === section.id}
+                  onSectionClick={handleSectionClick}
+                  onSectionIntent={onSectionIntent}
+                  variant="mobileDrawer"
+                />
+              </li>
+            ))}
+          </ul>
+        </nav>
+      </SideDrawerContent>
+    </SideDrawerRoot>
   );
 }
 
-export function MobileSettingsPageHeader({ onOpen }: { onOpen: () => void }) {
+function MobileSettingsPageHeader() {
   const { t } = useI18n();
 
   return (
@@ -456,16 +511,17 @@ export function MobileSettingsPageHeader({ onOpen }: { onOpen: () => void }) {
             {t("settings.subtitle")}
           </p>
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className={settingsLayout.mobileHeaderTrigger}
-          aria-label={t("settings.sectionNavOpen")}
-          onClick={onOpen}
-        >
-          <Menu className="h-4 w-4" />
-        </Button>
+        <SideDrawerTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={settingsLayout.mobileHeaderTrigger}
+            aria-label={t("settings.sectionNavOpen")}
+          >
+            <Menu className="h-4 w-4" />
+          </Button>
+        </SideDrawerTrigger>
       </div>
     </div>
   );

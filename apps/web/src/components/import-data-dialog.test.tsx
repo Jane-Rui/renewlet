@@ -8,7 +8,23 @@ import { DEFAULT_CUSTOM_CONFIG } from "@/types/config";
 import { DEFAULT_SETTINGS } from "@/types/subscription";
 import { ApiError } from "@/lib/api-client";
 import { uploadedAssetsQueryKeys } from "@/hooks/use-uploaded-assets";
-import { ImportDataDialog } from "./import-data-dialog";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { ImportDataDialogContent, type ImportDataDialogProps } from "./import-data-dialog";
+
+function ImportDataDialog(props: ImportDataDialogProps) {
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent
+        dismissMode="explicit"
+        layout="frame"
+        closeLabel="关闭"
+        className="h5-dialog-frame h5-import-dialog-panel overflow-hidden border-border bg-card p-0 sm:max-w-5xl"
+      >
+        <ImportDataDialogContent {...props} />
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 type ImportExportService = typeof import("@/services/import-export-service").importExportService;
 type MediaCandidateResolve = typeof import("@/services/media-candidate-service").mediaCandidateService.resolve;
@@ -119,19 +135,25 @@ function renderImportDialog(props: {
   });
 
   const onOpenChange = vi.fn();
-  const rendered = render(
+  const renderTree = (open: boolean) => (
     <QueryClientProvider client={queryClient}>
       <ImportDataDialog
-        open
+        open={open}
         onOpenChange={onOpenChange}
         settings={DEFAULT_SETTINGS}
         config={DEFAULT_CUSTOM_CONFIG}
         {...("initialFile" in props ? { initialFile: props.initialFile } : {})}
         {...(props.onInitialFileConsumed ? { onInitialFileConsumed: props.onInitialFileConsumed } : {})}
       />
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
-  return { ...rendered, queryClient, onOpenChange };
+  const rendered = render(renderTree(true));
+  return {
+    ...rendered,
+    queryClient,
+    onOpenChange,
+    rerenderOpen: (open: boolean) => rendered.rerender(renderTree(open)),
+  };
 }
 
 function getDialogOverlay() {
@@ -241,20 +263,51 @@ describe("ImportDataDialog", () => {
     await user.click(screen.getByRole("button", { name: "生成预览" }));
 
     await waitFor(() => {
-      expect(mocks.resolveMediaCandidates).toHaveBeenCalledWith({
+      expect(mocks.resolveMediaCandidates).toHaveBeenCalledTimes(1);
+      const resolveCall = mocks.resolveMediaCandidates.mock.calls[0];
+      expect(resolveCall?.[0]).toEqual({
         kind: "logo",
         mode: "auto",
         items: [{ id: "0", name: "GitHub Copilot Pro" }],
         limit: 1,
       });
+      expect(resolveCall?.[1]).toBeInstanceOf(AbortSignal);
     });
     await waitFor(() => {
       expect(mocks.preview).toHaveBeenCalledTimes(1);
     });
 
     const previewPayload = mocks.preview.mock.calls[0]?.[0];
+    expect(mocks.preview.mock.calls[0]?.[2]).toBe(mocks.resolveMediaCandidates.mock.calls[0]?.[1]);
     expect(previewPayload?.subscriptions[0]?.logo).toBe(githubCopilotCandidate.url);
     expect(await screen.findByTestId("import-logo-auto-match-0")).toHaveTextContent("自动匹配");
+  });
+
+  it("aborts the active preview pipeline when the dialog session closes", async () => {
+    const user = userEvent.setup();
+    mocks.resolveMediaCandidates.mockImplementationOnce(
+      () => new Promise<Awaited<ReturnType<MediaCandidateResolve>>>(() => undefined),
+    );
+    const { rerenderOpen } = renderImportDialog();
+
+    await user.click(screen.getByRole("tab", { name: "粘贴 JSON" }));
+    fireEvent.change(screen.getByPlaceholderText("粘贴 Renewlet 或 Wallos JSON..."), {
+      target: {
+        value: JSON.stringify([{
+          Name: "GitHub Copilot Pro",
+          "Payment Cycle": "Monthly",
+          "Next Payment": "2026-06-01",
+          Price: "$10",
+        }]),
+      },
+    });
+    await user.click(screen.getByRole("button", { name: "生成预览" }));
+    await waitFor(() => expect(mocks.resolveMediaCandidates).toHaveBeenCalledTimes(1));
+
+    const signal = mocks.resolveMediaCandidates.mock.calls[0]?.[1];
+    expect(signal).toBeInstanceOf(AbortSignal);
+    rerenderOpen(false);
+    expect(signal?.aborted).toBe(true);
   });
 
   it("keeps favicon fallback candidates out of import auto assignment", async () => {

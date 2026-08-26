@@ -21,11 +21,14 @@ const args = process.argv.slice(2);
 state.calls.push(args);
 const target = "--" + state.target;
 const migrationPrefix = ["exec", "wrangler", "d1", "migrations", "apply", "DB", target];
+const feedProtectionPrefix = ["exec", "tsx", "scripts/protect-cloudflare-calendar-feeds.ts", target, "--phase"];
 const backfillPrefix = ["exec", "tsx", "scripts/backfill-cloudflare-subscription-derived-state.ts", target];
 const foreignKeyPrefix = ["exec", "wrangler", "d1", "execute", "DB", target, "--command", "PRAGMA foreign_key_check", "--json"];
 const matches = (prefix) => prefix.every((value, index) => args[index] === value);
 let response;
-if (matches(migrationPrefix)) {
+if (matches(feedProtectionPrefix)) {
+  response = args[5] === "prepare" ? state.feedPrepareResponse : state.feedRestoreResponse;
+} else if (matches(migrationPrefix)) {
   response = state.migrationResponses.shift();
 } else if (matches(backfillPrefix)) {
   response = state.backfillResponse;
@@ -52,6 +55,8 @@ function runApply(migrationResponses, {
   args = [],
   target = "remote",
   maxAttempts = 5,
+  feedPrepareResponse = { status: 0, stdout: "Feed backup complete.\n" },
+  feedRestoreResponse = { status: 0, stdout: "Feed restore complete.\n" },
   backfillResponse = { status: 0, stdout: "Backfill complete.\n" },
   foreignKeyResponse = { status: 0, stdout: '[{"success":true,"results":[]}]\n' },
 } = {}) {
@@ -62,6 +67,8 @@ function runApply(migrationResponses, {
     writeFakePnpm(binDir);
     writeFileSync(statePath, JSON.stringify({
       migrationResponses,
+      feedPrepareResponse,
+      feedRestoreResponse,
       backfillResponse,
       foreignKeyResponse,
       target,
@@ -95,7 +102,9 @@ test("passes canonical --config to wrangler and succeeds on the first attempt", 
 
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(state.calls, [
+    ["exec", "tsx", "scripts/protect-cloudflare-calendar-feeds.ts", "--remote", "--phase", "prepare", "--config", "wrangler.generated.jsonc"],
     ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--remote", "--config", "wrangler.generated.jsonc"],
+    ["exec", "tsx", "scripts/protect-cloudflare-calendar-feeds.ts", "--remote", "--phase", "restore", "--config", "wrangler.generated.jsonc"],
     ["exec", "tsx", "scripts/backfill-cloudflare-subscription-derived-state.ts", "--remote", "--config", "wrangler.generated.jsonc"],
     ["exec", "wrangler", "d1", "execute", "DB", "--remote", "--command", "PRAGMA foreign_key_check", "--json", "--config", "wrangler.generated.jsonc"],
   ]);
@@ -109,7 +118,9 @@ test("runs migration, derived-state backfill, and foreign-key check for local D1
 
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(state.calls, [
+    ["exec", "tsx", "scripts/protect-cloudflare-calendar-feeds.ts", "--local", "--phase", "prepare", "--config", "wrangler.generated.jsonc"],
     ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--local", "--config", "wrangler.generated.jsonc"],
+    ["exec", "tsx", "scripts/protect-cloudflare-calendar-feeds.ts", "--local", "--phase", "restore", "--config", "wrangler.generated.jsonc"],
     ["exec", "tsx", "scripts/backfill-cloudflare-subscription-derived-state.ts", "--local", "--config", "wrangler.generated.jsonc"],
     ["exec", "wrangler", "d1", "execute", "DB", "--local", "--command", "PRAGMA foreign_key_check", "--json", "--config", "wrangler.generated.jsonc"],
   ]);
@@ -151,7 +162,7 @@ test("does not retry local migration failures", () => {
 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /Local D1 migrations failed/);
-  assert.equal(state.calls.length, 1);
+  assert.equal(state.calls.length, 2);
 });
 
 test("retries Cloudflare D1 timeout code 7429 and then succeeds", () => {
@@ -161,7 +172,7 @@ test("retries Cloudflare D1 timeout code 7429 and then succeeds", () => {
   ]);
 
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(state.calls.length, 4);
+  assert.equal(state.calls.length, 6);
   assert.match(result.stderr, /retrying in 0ms \(attempt 2\/5\)/);
 });
 
@@ -174,7 +185,7 @@ test("retries documented transient D1 reset errors", () => {
   ]);
 
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(state.calls.length, 6);
+  assert.equal(state.calls.length, 8);
 });
 
 test("does not retry authentication, permission, or SQL errors", () => {
@@ -186,7 +197,7 @@ test("does not retry authentication, permission, or SQL errors", () => {
     const { result, state } = runApply([{ status: 1, stderr }]);
 
     assert.notEqual(result.status, 0, name);
-    assert.equal(state.calls.length, 1, name);
+    assert.equal(state.calls.length, 2, name);
     assert.match(result.stderr, /non-retryable error/, name);
   }
 });
@@ -199,9 +210,31 @@ test("fails after retryable errors exceed the configured attempt limit", () => {
   ], { maxAttempts: 3 });
 
   assert.notEqual(result.status, 0);
-  assert.equal(state.calls.length, 3);
+  assert.equal(state.calls.length, 4);
   assert.match(result.stderr, /failed after 3 attempts/);
   assert.match(result.stderr, /storage caused object to be reset/);
+});
+
+test("blocks migrations when calendar Feed backup fails", () => {
+  const { result, state } = runApply(
+    [{ status: 0, stdout: "Applied migrations.\n" }],
+    { feedPrepareResponse: { status: 1, stderr: "backup invariant failed\n" } },
+  );
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /calendar Feed backup failed/);
+  assert.equal(state.calls.length, 1);
+});
+
+test("blocks backfill and deployment when calendar Feed restore fails", () => {
+  const { result, state } = runApply(
+    [{ status: 0, stdout: "Applied migrations.\n" }],
+    { feedRestoreResponse: { status: 1, stderr: "restore invariant failed\n" } },
+  );
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /calendar Feed restore failed/);
+  assert.equal(state.calls.length, 3);
 });
 
 test("blocks deployment when derived-state backfill fails", () => {
@@ -212,7 +245,7 @@ test("blocks deployment when derived-state backfill fails", () => {
 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /derived-state backfill failed/);
-  assert.equal(state.calls.length, 2);
+  assert.equal(state.calls.length, 4);
 });
 
 test("blocks deployment when foreign-key JSON is invalid or unsuccessful", () => {
@@ -228,7 +261,7 @@ test("blocks deployment when foreign-key JSON is invalid or unsuccessful", () =>
 
     assert.notEqual(result.status, 0, name);
     assert.match(result.stderr, message, name);
-    assert.equal(state.calls.length, 3, name);
+    assert.equal(state.calls.length, 5, name);
   }
 });
 
@@ -245,5 +278,5 @@ test("blocks deployment when foreign_key_check returns any violation", () => {
 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /foreign key check found violations/);
-  assert.equal(state.calls.length, 3);
+  assert.equal(state.calls.length, 5);
 });

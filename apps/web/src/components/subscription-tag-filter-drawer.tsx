@@ -18,28 +18,28 @@ interface TagFilterChipProps {
 }
 
 interface SubscriptionTagFilterDrawerProps {
-  tags: string[];
-  selectedTags: string[];
+  tags: readonly string[];
+  selectedTags: readonly string[];
   onApply: (tags: string[]) => void;
   className?: string;
 }
 
 interface SubscriptionTagFilterPopoverProps {
-  tags: string[];
-  selectedTags: string[];
+  tags: readonly string[];
+  selectedTags: readonly string[];
   onToggleTag: (tag: string) => void;
   onClearTags: () => void;
   className?: string;
 }
 
 interface SelectedTagScrollerProps {
-  selectedTags: string[];
+  selectedTags: readonly string[];
   onRemoveTag: (tag: string) => void;
   className?: string;
   testId?: string;
 }
 
-function toggleTag(tags: string[], tag: string) {
+function toggleTag(tags: readonly string[], tag: string) {
   return tags.includes(tag) ? tags.filter((item) => item !== tag) : [...tags, tag];
 }
 
@@ -58,7 +58,7 @@ export function TagFilterChip({ tag, selected, onToggle, className }: TagFilterC
       )}
       onClick={onToggle}
     >
-      <span className="max-w-[10rem] truncate">{tag}</span>
+      <span className="max-w-40 truncate">{tag}</span>
     </button>
   );
 }
@@ -68,7 +68,7 @@ function SelectedTagPill({ tag, onRemove }: { tag: string; onRemove: () => void 
 
   return (
     <span className="inline-flex h-9 shrink-0 items-center rounded-full border border-primary bg-primary/10 pl-3 pr-1 text-xs font-semibold text-primary">
-      <span className="max-w-[8rem] truncate">{tag}</span>
+      <span className="max-w-32 truncate">{tag}</span>
       <button
         type="button"
         aria-label={t("subscription.tags.remove", { tag })}
@@ -98,7 +98,7 @@ export function SelectedTagScroller({
     <div
       data-testid={testId}
       className={cn(
-        "min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+        "min-w-0 overflow-x-auto scrollbar-none [&::-webkit-scrollbar]:hidden",
         className,
       )}
       aria-label={t("subscriptions.tags.selectedCount", { count: selectedTags.length })}
@@ -213,13 +213,13 @@ export function SubscriptionTagFilterDrawer({
 }: SubscriptionTagFilterDrawerProps) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
-  const [draftTags, setDraftTags] = useState(selectedTags);
+  const [draftTags, setDraftTags] = useState<string[]>(() => [...selectedTags]);
   const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     if (!open) return;
     // 移动端抽屉使用草稿选择，用户点“应用”前不影响列表，方便在小屏上批量勾选/取消。
-    setDraftTags(selectedTags);
+    setDraftTags([...selectedTags]);
     setSearchQuery("");
   }, [open, selectedTags]);
 

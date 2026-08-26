@@ -1,27 +1,37 @@
-import { apiFetch } from "@/lib/api-client";
-import { assertDateOnly } from "@/lib/time/date-only";
 import { getApiLocale } from "@/i18n/api-locale";
 import { translate } from "@/i18n/messages";
+import { apiFetch } from "@/lib/api-client";
+import { assertDateOnly, type DateOnly } from "@/lib/time/date-only";
 import { getCurrentUserId } from "@/lib/pocketbase";
-import {
-  apiSubscriptionSchema,
-  subscriptionsListResponseSchema,
-  type SubscriptionsListQuery,
-  subscriptionResponseSchema,
-  subscriptionDeleteResponseSchema,
-  type ApiSubscription,
-  type SubscriptionRenewBody,
-} from "@renewlet/shared/schemas/subscriptions";
-import {
-  type Subscription,
-  type SubscriptionDraft,
+import type {
+  Subscription,
+  SubscriptionCollectionItem,
+  SubscriptionDraft,
+  SubscriptionFormSubmission,
 } from "@/types/subscription";
+import {
+  apiSubscriptionCollectionItemSchema,
+  apiSubscriptionSchema,
+  subscriptionDeleteResponseSchema,
+  subscriptionFacetsResponseSchema,
+  subscriptionResponseSchema,
+  subscriptionsAnalyticsResponseSchema,
+  subscriptionsCalendarResponseSchema,
+  subscriptionsExportResponseSchema,
+  subscriptionsIndexResponseSchema,
+  subscriptionsListResponseSchema,
+  type ApiSubscription,
+  type ApiSubscriptionCollectionItem,
+  type SubscriptionFacetsResponse,
+  type SubscriptionRenewBody,
+  type SubscriptionsListQuery,
+} from "@renewlet/shared/schemas/subscriptions";
 
 const SUBSCRIPTION_PAGE_SIZE = 50;
-const SUBSCRIPTION_AGGREGATE_LIMIT = 5000;
 export type SubscriptionListFilters = Omit<SubscriptionsListQuery, "limit" | "cursor">;
-type SubscriptionBaseForService = Pick<
-  Subscription,
+
+type SubscriptionCollectionBaseForService = Pick<
+  SubscriptionCollectionItem,
   | "id"
   | "name"
   | "logo"
@@ -37,24 +47,34 @@ type SubscriptionBaseForService = Pick<
   | "pinned"
   | "publicHidden"
   | "trialEndDate"
+  | "reminderDays"
+  | "costSharing"
+>;
+
+type SubscriptionDetailFieldsForService = Pick<
+  Subscription,
   | "website"
   | "notes"
   | "tags"
-  | "reminderDays"
   | "repeatReminderEnabled"
   | "repeatReminderInterval"
   | "repeatReminderWindow"
-  | "costSharing"
   | "extra"
 >;
 
 export interface SubscriptionPage {
-  subscriptions: Subscription[];
+  subscriptions: SubscriptionCollectionItem[];
   nextCursor: string | null;
-  total?: number | undefined;
+  total: number;
 }
 
-export type SubscriptionFieldPatch = Partial<Pick<Subscription, "pinned" | "publicHidden">>;
+export interface SubscriptionIndex {
+  subscriptions: SubscriptionCollectionItem[];
+  total: number;
+}
+
+export type SubscriptionFacets = SubscriptionFacetsResponse;
+export type SubscriptionFieldPatch = Partial<Pick<SubscriptionCollectionItem, "pinned" | "publicHidden">>;
 
 function normalizeSubscriptionPageLimit(value: number): number {
   if (!Number.isFinite(value)) return SUBSCRIPTION_PAGE_SIZE;
@@ -79,17 +99,10 @@ function appendSubscriptionListFilters(params: URLSearchParams, filters?: Subscr
   if (filters.repeatReminder !== undefined) params.set("repeatReminder", String(filters.repeatReminder));
 }
 
-/**
- * 将产品 API DTO 收敛成前端 domain 对象。
- *
- * Docker 与 Cloudflare 都必须返回 shared `ApiSubscription`；前端不再承接 PocketBase record 兼容层。
- */
-export function fromApiSubscription(row: ApiSubscription): Subscription {
-  const parsedRow: ApiSubscription = apiSubscriptionSchema.parse(row);
-  const startDate = parsedRow.startDate === null ? null : assertDateOnly(parsedRow.startDate);
-  const nextBillingDate = assertDateOnly(parsedRow.nextBillingDate);
-  const trialEndDate = parsedRow.trialEndDate ? assertDateOnly(parsedRow.trialEndDate) : undefined;
-  const base = {
+function fromApiSubscriptionCollectionBase(
+  parsedRow: ApiSubscriptionCollectionItem,
+): SubscriptionCollectionBaseForService {
+  return {
     id: parsedRow.id,
     name: parsedRow.name,
     logo: parsedRow.logo,
@@ -98,169 +111,236 @@ export function fromApiSubscription(row: ApiSubscription): Subscription {
     category: parsedRow.category,
     status: parsedRow.status,
     paymentMethod: parsedRow.paymentMethod,
-    startDate,
-    nextBillingDate,
+    startDate: parsedRow.startDate === null ? null : assertDateOnly(parsedRow.startDate),
+    nextBillingDate: assertDateOnly(parsedRow.nextBillingDate),
     autoRenew: parsedRow.billingCycle === "one-time" ? false : parsedRow.autoRenew,
-    autoCalculateNextBillingDate: parsedRow.autoCalculateNextBillingDate,
+    autoCalculateNextBillingDate: parsedRow.billingCycle === "one-time"
+      ? false
+      : parsedRow.autoCalculateNextBillingDate,
     pinned: parsedRow.pinned,
     publicHidden: parsedRow.publicHidden,
-    trialEndDate,
+    trialEndDate: parsedRow.trialEndDate ? assertDateOnly(parsedRow.trialEndDate) : undefined,
+    reminderDays: parsedRow.reminderDays,
+    costSharing: parsedRow.costSharing,
+  };
+}
+
+function fromApiSubscriptionDetailFields(parsedRow: ApiSubscription): SubscriptionDetailFieldsForService {
+  return {
     website: parsedRow.website,
     notes: parsedRow.notes,
-    tags: parsedRow.tags ?? [],
-    reminderDays: parsedRow.reminderDays,
+    tags: parsedRow.tags,
     repeatReminderEnabled: parsedRow.repeatReminderEnabled,
     repeatReminderInterval: parsedRow.repeatReminderInterval,
     repeatReminderWindow: parsedRow.repeatReminderWindow,
-    costSharing: parsedRow.costSharing,
     extra: parsedRow.extra,
-  } satisfies SubscriptionBaseForService;
+  };
+}
+
+function withCollectionBillingCycle(
+  parsedRow: ApiSubscriptionCollectionItem,
+  base: SubscriptionCollectionBaseForService,
+): SubscriptionCollectionItem {
   if (parsedRow.billingCycle === "custom") {
-    // 旧 custom 记录没有单位字段；读边界统一按 day 解释，避免统计和自动推算把历史含义改成月/年。
     return {
       ...base,
       billingCycle: "custom",
-      customDays: parsedRow.customDays ?? 1,
-      customCycleUnit: parsedRow.customCycleUnit ?? "day",
-      oneTimeTermCount: undefined,
-      oneTimeTermUnit: undefined,
+      customDays: parsedRow.customDays,
+      customCycleUnit: parsedRow.customCycleUnit,
     };
   }
   if (parsedRow.billingCycle === "one-time") {
+    if (parsedRow.oneTimeTermCount !== undefined) {
+      return {
+        ...base,
+        billingCycle: "one-time",
+        oneTimeTermCount: parsedRow.oneTimeTermCount,
+        oneTimeTermUnit: parsedRow.oneTimeTermUnit,
+      };
+    }
     return {
       ...base,
       billingCycle: "one-time",
-      customDays: undefined,
-      customCycleUnit: undefined,
-      oneTimeTermCount: parsedRow.oneTimeTermCount,
-      oneTimeTermUnit: parsedRow.oneTimeTermUnit,
     };
   }
   return {
     ...base,
     billingCycle: parsedRow.billingCycle,
-    customDays: undefined,
-    customCycleUnit: undefined,
-    oneTimeTermCount: undefined,
-    oneTimeTermUnit: undefined,
   };
 }
 
+function fromParsedApiSubscriptionCollectionItem(
+  parsedRow: ApiSubscriptionCollectionItem,
+): SubscriptionCollectionItem {
+  return withCollectionBillingCycle(parsedRow, fromApiSubscriptionCollectionBase(parsedRow));
+}
+
+export function fromApiSubscriptionCollectionItem(row: unknown): SubscriptionCollectionItem {
+  return fromParsedApiSubscriptionCollectionItem(apiSubscriptionCollectionItemSchema.parse(row));
+}
+
+function fromParsedApiSubscription(parsedRow: ApiSubscription): Subscription {
+  const collection = withCollectionBillingCycle(parsedRow, fromApiSubscriptionCollectionBase(parsedRow));
+  const detail = fromApiSubscriptionDetailFields(parsedRow);
+  if (collection.billingCycle === "custom") return { ...collection, ...detail };
+  if (collection.billingCycle === "one-time") return { ...collection, ...detail };
+  return { ...collection, ...detail };
+}
+
+export function fromApiSubscription(row: unknown): Subscription {
+  return fromParsedApiSubscription(apiSubscriptionSchema.parse(row));
+}
+
 /**
- * 生成订阅写入 payload。
- *
  * `null` 表示清空可选字段，`undefined` 表示字段缺席；这里主动使用 null，
  * 防止 PocketBase patch 和 Worker JSON merge 对可选字段产生不同语义。
  */
-export function toSubscriptionWritePayload(sub: SubscriptionDraft | Subscription) {
+function toSubscriptionFormPayload(submission: SubscriptionFormSubmission) {
   return {
-    name: sub.name,
-    logo: sub.logo ?? null,
-    price: sub.price,
-    currency: sub.currency,
-    billingCycle: sub.billingCycle,
-    // null 表示服务端应清空可选字段；undefined 会在 PocketBase/Worker 两端产生不同 patch 语义。
-    customDays: sub.customDays ?? null,
-    customCycleUnit: sub.customCycleUnit ?? null,
-    oneTimeTermCount: sub.oneTimeTermCount ?? null,
-    oneTimeTermUnit: sub.oneTimeTermUnit ?? null,
-    category: sub.category,
-    status: sub.status,
-    paymentMethod: sub.paymentMethod ?? null,
-    startDate: sub.startDate,
-    nextBillingDate: sub.nextBillingDate,
-    autoRenew: sub.billingCycle === "one-time" ? false : sub.autoRenew,
-    autoCalculateNextBillingDate: sub.autoCalculateNextBillingDate,
-    pinned: sub.pinned,
-    publicHidden: sub.publicHidden,
-    trialEndDate: sub.trialEndDate ?? null,
-    website: sub.website ?? null,
-    notes: sub.notes ?? null,
-    tags: sub.tags ?? [],
-    reminderDays: sub.reminderDays,
-    repeatReminderEnabled: sub.repeatReminderEnabled,
-    repeatReminderInterval: sub.repeatReminderInterval,
-    repeatReminderWindow: sub.repeatReminderWindow,
-    costSharing: sub.costSharing ?? null,
-    // extra 是导入/seed 的幂等通道；编辑普通字段时必须随记录保留，避免重复导入失效。
-    extra: sub.extra ?? {},
+    name: submission.name,
+    logo: submission.logo ?? null,
+    price: submission.price,
+    currency: submission.currency,
+    billingCycle: submission.billingCycle,
+    customDays: submission.customDays ?? null,
+    customCycleUnit: submission.customCycleUnit ?? null,
+    oneTimeTermCount: submission.oneTimeTermCount ?? null,
+    oneTimeTermUnit: submission.oneTimeTermUnit ?? null,
+    category: submission.category,
+    status: submission.status,
+    paymentMethod: submission.paymentMethod ?? null,
+    startDate: submission.startDate,
+    nextBillingDate: submission.nextBillingDate,
+    autoRenew: submission.billingCycle === "one-time" ? false : submission.autoRenew,
+    autoCalculateNextBillingDate: submission.autoCalculateNextBillingDate,
+    publicHidden: submission.publicHidden,
+    website: submission.website ?? null,
+    notes: submission.notes ?? null,
+    tags: submission.tags,
+    reminderDays: submission.reminderDays,
+    repeatReminderEnabled: submission.repeatReminderEnabled,
+    repeatReminderInterval: submission.repeatReminderInterval,
+    repeatReminderWindow: submission.repeatReminderWindow,
+    costSharing: submission.costSharing ?? null,
   };
+}
+
+export function toSubscriptionCreatePayload(draft: SubscriptionDraft) {
+  const payload = {
+    ...toSubscriptionFormPayload(draft),
+    pinned: draft.pinned,
+  };
+  return draft.extra === undefined ? payload : { ...payload, extra: draft.extra };
+}
+
+export function toSubscriptionUpdatePayload(changes: SubscriptionFormSubmission) {
+  // 表单更新刻意省略 pinned、extra 与 trialEndDate；它们不归普通表单所有，PATCH 必须保留服务端当前值。
+  return toSubscriptionFormPayload(changes);
 }
 
 function toSubscriptionFieldPatchPayload(patch: SubscriptionFieldPatch) {
   const payload: Record<string, boolean> = {};
   if (patch.pinned !== undefined) payload["pinned"] = patch.pinned;
   if (patch.publicHidden !== undefined) payload["publicHidden"] = patch.publicHidden;
-  if (Object.keys(payload).length === 0) {
-    throw new Error("SUBSCRIPTION_PATCH_EMPTY");
-  }
+  if (Object.keys(payload).length === 0) throw new Error("SUBSCRIPTION_PATCH_EMPTY");
   return payload;
+}
+
+function signalInit(signal?: AbortSignal): RequestInit | undefined {
+  return signal ? { signal } : undefined;
 }
 
 export const subscriptionService = {
   pageSize: SUBSCRIPTION_PAGE_SIZE,
 
-  async listPage(cursor?: string | null, limit = SUBSCRIPTION_PAGE_SIZE, filters?: SubscriptionListFilters): Promise<SubscriptionPage> {
-    const userId = getCurrentUserId();
-    if (!userId) return { subscriptions: [], nextCursor: null, total: 0 };
-    const pageSize = normalizeSubscriptionPageLimit(limit);
-    const params = new URLSearchParams({ limit: String(pageSize) });
+  async listPage(
+    cursor?: string | null,
+    limit = SUBSCRIPTION_PAGE_SIZE,
+    filters?: SubscriptionListFilters,
+    signal?: AbortSignal,
+  ): Promise<SubscriptionPage> {
+    if (!getCurrentUserId()) return { subscriptions: [], nextCursor: null, total: 0 };
+    const params = new URLSearchParams({ limit: String(normalizeSubscriptionPageLimit(limit)) });
     if (cursor) params.set("cursor", cursor);
     appendSubscriptionListFilters(params, filters);
-    const data = await apiFetch(`/api/app/subscriptions?${params.toString()}`, subscriptionsListResponseSchema);
+    const data = await apiFetch(
+      `/api/app/subscriptions?${params.toString()}`,
+      subscriptionsListResponseSchema,
+      signalInit(signal),
+    );
     return {
-      subscriptions: data.subscriptions.map(fromApiSubscription),
+      subscriptions: data.subscriptions.map(fromParsedApiSubscriptionCollectionItem),
       nextCursor: data.nextCursor,
       total: data.total,
     };
   },
 
-  async list(filters?: SubscriptionListFilters): Promise<Subscription[]> {
-    const out: Subscription[] = [];
-    let cursor: string | null | undefined = null;
-    const seenCursors = new Set<string>();
-    for (;;) {
-      const page = await this.listPage(cursor, SUBSCRIPTION_PAGE_SIZE, filters);
-      out.push(...page.subscriptions);
-      if (!page.nextCursor) return out.slice(0, SUBSCRIPTION_AGGREGATE_LIMIT);
-      if (seenCursors.has(page.nextCursor)) {
-        // 后端 cursor 应单调推进；重复 cursor 说明分页没有前进，必须熔断以免首页/统计页请求风暴。
-        throw new Error("SUBSCRIPTION_CURSOR_REPEATED");
-      }
-      // 聚合列表主要给统计/导出使用；上限避免异常数据量让单页 UI 拉取变成无界循环。
-      if (out.length >= SUBSCRIPTION_AGGREGATE_LIMIT) return out.slice(0, SUBSCRIPTION_AGGREGATE_LIMIT);
-      seenCursors.add(page.nextCursor);
-      cursor = page.nextCursor;
+  async index(filters?: SubscriptionListFilters, signal?: AbortSignal): Promise<SubscriptionIndex> {
+    if (!getCurrentUserId()) return { subscriptions: [], total: 0 };
+    const params = new URLSearchParams();
+    appendSubscriptionListFilters(params, filters);
+    const suffix = params.size > 0 ? `?${params.toString()}` : "";
+    const data = await apiFetch(`/api/app/subscriptions/index${suffix}`, subscriptionsIndexResponseSchema, signalInit(signal));
+    return {
+      subscriptions: data.subscriptions.map(fromParsedApiSubscriptionCollectionItem),
+      total: data.total,
+    };
+  },
+
+  async analytics(signal?: AbortSignal): Promise<SubscriptionCollectionItem[]> {
+    if (!getCurrentUserId()) return [];
+    const data = await apiFetch("/api/app/subscriptions/analytics", subscriptionsAnalyticsResponseSchema, signalInit(signal));
+    return data.subscriptions.map(fromParsedApiSubscriptionCollectionItem);
+  },
+
+  async calendar(from: DateOnly, to: DateOnly, signal?: AbortSignal): Promise<SubscriptionCollectionItem[]> {
+    if (!getCurrentUserId()) return [];
+    const params = new URLSearchParams({ from, to });
+    const data = await apiFetch(`/api/app/subscriptions/calendar?${params.toString()}`, subscriptionsCalendarResponseSchema, signalInit(signal));
+    return data.subscriptions.map(fromParsedApiSubscriptionCollectionItem);
+  },
+
+  async facets(signal?: AbortSignal): Promise<SubscriptionFacets> {
+    if (!getCurrentUserId()) {
+      return { total: 0, categoryCounts: {}, tags: [], visibleCount: 0, hiddenCount: 0 };
     }
+    return await apiFetch("/api/app/subscriptions/facets", subscriptionFacetsResponseSchema, signalInit(signal));
+  },
+
+  async detail(id: string, signal?: AbortSignal): Promise<Subscription> {
+    const data = await apiFetch(`/api/app/subscriptions/${id}`, subscriptionResponseSchema, signalInit(signal));
+    return fromParsedApiSubscription(data.subscription);
+  },
+
+  async exportAll(signal?: AbortSignal): Promise<Subscription[]> {
+    if (!getCurrentUserId()) return [];
+    const data = await apiFetch("/api/app/subscriptions/export", subscriptionsExportResponseSchema, signalInit(signal));
+    return data.subscriptions.map(fromParsedApiSubscription);
   },
 
   async create(sub: SubscriptionDraft): Promise<Subscription> {
-    const userId = getCurrentUserId();
-    if (!userId) throw new Error(translate(getApiLocale(), "auth.loginRequired"));
-    const payload = toSubscriptionWritePayload(sub);
+    if (!getCurrentUserId()) throw new Error(translate(getApiLocale(), "auth.loginRequired"));
     const data = await apiFetch("/api/app/subscriptions", subscriptionResponseSchema, {
       method: "POST",
-      body: JSON.stringify(payload),
+      body: JSON.stringify(toSubscriptionCreatePayload(sub)),
     });
-    return fromApiSubscription(data.subscription);
+    return fromParsedApiSubscription(data.subscription);
   },
 
-  async update(sub: Subscription): Promise<Subscription> {
-    const payload = toSubscriptionWritePayload(sub);
-    const data = await apiFetch(`/api/app/subscriptions/${sub.id}`, subscriptionResponseSchema, {
+  async update(id: string, changes: SubscriptionFormSubmission): Promise<Subscription> {
+    const data = await apiFetch(`/api/app/subscriptions/${id}`, subscriptionResponseSchema, {
       method: "PATCH",
-      body: JSON.stringify(payload),
+      body: JSON.stringify(toSubscriptionUpdatePayload(changes)),
     });
-    return fromApiSubscription(data.subscription);
+    return fromParsedApiSubscription(data.subscription);
   },
 
   async patch(id: string, patch: SubscriptionFieldPatch): Promise<Subscription> {
-    const payload = toSubscriptionFieldPatchPayload(patch);
     const data = await apiFetch(`/api/app/subscriptions/${id}`, subscriptionResponseSchema, {
       method: "PATCH",
-      body: JSON.stringify(payload),
+      body: JSON.stringify(toSubscriptionFieldPatchPayload(patch)),
     });
-    return fromApiSubscription(data.subscription);
+    return fromParsedApiSubscription(data.subscription);
   },
 
   async renew(id: string, payload: SubscriptionRenewBody): Promise<Subscription> {
@@ -268,7 +348,7 @@ export const subscriptionService = {
       method: "POST",
       body: JSON.stringify(payload),
     });
-    return fromApiSubscription(data.subscription);
+    return fromParsedApiSubscription(data.subscription);
   },
 
   async delete(id: string): Promise<void> {

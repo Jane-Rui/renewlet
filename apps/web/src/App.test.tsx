@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Outlet } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import App from "./App";
 
@@ -9,6 +9,10 @@ vi.mock("@/components/app-scroll-restoration", () => ({
 
 vi.mock("@/components/protected-route", () => ({
   ProtectedRoute: ({ children }: { children: React.ReactNode }) => children,
+}));
+
+vi.mock("@/components/private-app-shell", () => ({
+  default: () => <Outlet />,
 }));
 
 vi.mock("@/pages/settings", () => new Promise(() => undefined));

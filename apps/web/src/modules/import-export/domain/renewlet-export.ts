@@ -8,6 +8,8 @@ import {
 } from "@/lib/api/schemas/import-export";
 import type { ExchangeRateSnapshotV1 } from "@/lib/api/schemas/exchange-rates";
 import { MAX_IMAGE_BYTES } from "@/lib/upload-constraints";
+import { runWorkerJob } from "@/lib/workers/run-worker-job";
+import type { WorkerJobProgress } from "@/lib/workers/job-protocol";
 import { downloadFile } from "@/shared/browser/download-file";
 import type { CustomConfig } from "@/types/config";
 import type { AppSettings, Subscription } from "@/types/subscription";
@@ -16,6 +18,11 @@ import {
   sanitizeSettingsForExport,
   subscriptionToExportRow,
 } from "./import-export-model";
+import type {
+  RenewletExportWorkerEntry,
+  RenewletExportWorkerPayload,
+  RenewletExportWorkerResult,
+} from "./renewlet-export-worker-contract";
 
 /**
  * exportRenewletBackup 生成 Renewlet v1 ZIP 备份。
@@ -29,16 +36,18 @@ export async function exportRenewletBackup(options: {
   customConfig: CustomConfig;
   includeSecrets: boolean;
   exchangeRateSnapshots?: readonly ExchangeRateSnapshotV1[];
-}) {
-  const { default: JSZip } = await import("jszip");
-  const zip = new JSZip();
+}, execution: {
+  signal?: AbortSignal;
+  onProgress?: (progress: WorkerJobProgress) => void;
+} = {}) {
+  const entries: RenewletExportWorkerEntry[] = [];
   const assets: RenewletExportAsset[] = [];
   const missingAssets: RenewletExportMissingAsset[] = [];
   // 同一私有资产可能被多个订阅/logo 或支付方式 icon 引用；读取和 ZIP 写入都按 assetId 去重。
   const assetReads = new Map<string, Promise<PrivateAssetReadResult>>();
   const assetMetadataById = new Map<string, RenewletExportAsset>();
   async function resolveAsset(reference: PrivateAssetReference): Promise<string | null> {
-    const result = await readPrivateAssetForExport(reference.path, assetReads);
+    const result = await readPrivateAssetForExport(reference.path, assetReads, execution.signal);
     if (!result.ok) {
       missingAssets.push(missingAssetFromReference(reference, result.reason));
       return null;
@@ -46,8 +55,8 @@ export async function exportRenewletBackup(options: {
     const existing = assetMetadataById.get(reference.assetId);
     if (existing) return existing.path;
     const path = `assets/${reference.assetId}${extensionFromMime(result.blob.type)}`;
-    // JSZip 在浏览器和 jsdom/Node 对 Blob 探测不完全一致；先转 ArrayBuffer 可避免备份里写入 "[object Blob]"。
-    zip.file(path, await result.blob.arrayBuffer());
+    // ZIP Worker 只接收 string 或 transferable ArrayBuffer；资产在越过线程边界前统一成可转移所有权的二进制。
+    entries.push({ name: path, data: await result.blob.arrayBuffer() });
     const metadata = { id: reference.assetId, path, mimeType: result.blob.type, sizeBytes: result.blob.size };
     assets.push(metadata);
     assetMetadataById.set(reference.assetId, metadata);
@@ -114,9 +123,19 @@ export async function exportRenewletBackup(options: {
     // missingAssets 是导出审计，不参与导入写库；失败资产已从 data.json 的 logo/icon 字段移除。
     missingAssets,
   });
-  zip.file("manifest.json", JSON.stringify(manifest, null, 2));
-  zip.file("data.json", JSON.stringify(data, null, 2));
-  const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
+  entries.push(
+    { name: "manifest.json", data: JSON.stringify(manifest, null, 2) },
+    { name: "data.json", data: JSON.stringify(data, null, 2) },
+  );
+  const transfer = entries.flatMap((entry) => entry.data instanceof ArrayBuffer ? [entry.data] : []);
+  const result = await runWorkerJob<RenewletExportWorkerPayload, RenewletExportWorkerResult>({
+    createWorker: () => new Worker(new URL("./renewlet-export-worker.ts", import.meta.url), { type: "module" }),
+    payload: { entries },
+    transfer,
+    ...(execution.signal ? { signal: execution.signal } : {}),
+    ...(execution.onProgress ? { onProgress: execution.onProgress } : {}),
+  });
+  const blob = new Blob([result.buffer], { type: "application/zip" });
   downloadFile(blob, `renewlet-export-v1-${exportedAt.slice(0, 10)}.zip`);
 }
 
@@ -131,27 +150,33 @@ type PrivateAssetReadResult =
   | { ok: true; blob: Blob }
   | { ok: false; reason: RenewletExportMissingAssetReason };
 
-async function readPrivateAssetForExport(url: string, cache: Map<string, Promise<PrivateAssetReadResult>>): Promise<PrivateAssetReadResult> {
+async function readPrivateAssetForExport(
+  url: string,
+  cache: Map<string, Promise<PrivateAssetReadResult>>,
+  signal?: AbortSignal,
+): Promise<PrivateAssetReadResult> {
   const assetId = privateAssetIdFromLogo(url);
   if (!assetId) return { ok: false, reason: "not_found" };
   const cached = cache.get(assetId);
   if (cached) return cached;
-  const promise = fetchPrivateAsset(url);
+  const promise = fetchPrivateAsset(url, signal);
   cache.set(assetId, promise);
   return promise;
 }
 
-async function fetchPrivateAsset(url: string): Promise<PrivateAssetReadResult> {
+async function fetchPrivateAsset(url: string, signal?: AbortSignal): Promise<PrivateAssetReadResult> {
   try {
     // 私有资产读取只信同源 HttpOnly cookie session；导出链路不能重新引入浏览器可见 bearer。
     const response = await fetch(url, {
       credentials: "include",
+      ...(signal ? { signal } : {}),
     });
     if (!response.ok) return { ok: false, reason: response.status === 404 ? "not_found" : "read_failed" };
     const blob = await response.blob();
     if (blob.size > MAX_IMAGE_BYTES) return { ok: false, reason: "too_large" };
     return { ok: true, blob };
-  } catch {
+  } catch (error) {
+    if (signal?.aborted) throw error;
     return { ok: false, reason: "read_failed" };
   }
 }

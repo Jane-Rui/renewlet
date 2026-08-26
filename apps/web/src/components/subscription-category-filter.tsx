@@ -73,7 +73,7 @@ function CategoryCheckboxChip({ option, selected, onToggle, className }: Categor
         onChange={onToggle}
         className="sr-only"
       />
-      <span className="max-w-[10rem] truncate">{option.label}</span>
+      <span className="max-w-40 truncate">{option.label}</span>
       {selected ? <Check className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> : null}
     </label>
   );

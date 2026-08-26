@@ -112,7 +112,7 @@ export function AIRecognitionInputTabs({
         mobileCompact
           ? images.length > 0
             ? "flex h-12 w-full items-center justify-start gap-3 px-3 text-left"
-            : "flex min-h-[12rem] w-full flex-1 flex-col items-center justify-center gap-2 p-4"
+            : "flex min-h-48 w-full flex-1 flex-col items-center justify-center gap-2 p-4"
           : "flex aspect-square w-24 flex-col items-center justify-center gap-2 p-2",
         canAddMoreImages && "hover:border-primary/50 hover:bg-secondary/30",
         dragActive && "border-primary bg-secondary/50",
@@ -189,8 +189,7 @@ export function AIRecognitionInputTabs({
         mobileCompact ? "gap-2 px-2.5 py-2" : "gap-3 px-3 py-3",
       )}>
         <div className={cn("min-w-0", mobileCompact && "sr-only")}>
-          <h3 className="text-sm font-semibold text-foreground">{mode === "text" ? t("aiRecognition.inputText") : t("aiRecognition.imageDropTitle")}</h3>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">{mode === "text" ? t("aiRecognition.inputHint") : t("aiRecognition.imageDropDescription", { count: AI_RECOGNITION_MAX_IMAGES })}</p>
+          <p className="text-xs leading-5 text-muted-foreground">{mode === "text" ? t("aiRecognition.inputHint") : t("aiRecognition.imageDropDescription", { count: AI_RECOGNITION_MAX_IMAGES })}</p>
         </div>
         <TabsList className={cn("grid h-8 w-full grid-cols-2 rounded-md border border-border bg-background p-0.5", mobileCompact ? "sm:w-full" : "sm:w-52")}>
           <TabsTrigger value="text" disabled={disabled} className="h-7 gap-1.5 rounded-[5px] px-2.5 text-xs shadow-none data-[state=active]:bg-secondary data-[state=active]:shadow-none">

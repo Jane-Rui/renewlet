@@ -16,7 +16,7 @@ const mocks = vi.hoisted(() => ({
   useSystemUpdate: vi.fn(),
   useSystemUpdateStatus: vi.fn(),
   useSystemRestart: vi.fn(),
-  toast: vi.fn(),
+  toast: { success: vi.fn(), error: vi.fn() },
   setTheme: vi.fn(),
   theme: "dark",
   writeAppearancePendingToStorage: vi.fn(),
@@ -37,8 +37,8 @@ vi.mock("@/hooks/use-system-version", () => ({
   useSystemRestart: mocks.useSystemRestart,
 }));
 
-vi.mock("@/hooks/use-toast", () => ({
-  useToast: () => ({ toast: mocks.toast }),
+vi.mock("@/components/ui/sonner", () => ({
+  toast: mocks.toast,
 }));
 
 vi.mock("@/lib/theme-provider", () => ({
@@ -75,7 +75,6 @@ vi.mock("@/i18n/I18nProvider", () => ({
         "system.checkDeferredTitle": "暂时无法检查更新",
         "system.currentVersion": "当前版本",
         "system.latestVersion": "最新版本",
-        "system.noUpdateDescription": "无需操作。",
         "system.noUpdateTitle": "已是最新版本",
         "system.openUpdateDialog": "打开系统更新",
         "system.cloudflareDeployGuide": "Cloudflare 部署说明",
@@ -169,7 +168,8 @@ describe("Header system version entry", () => {
     mocks.useSystemUpdate.mockReset();
     mocks.useSystemUpdateStatus.mockReset();
     mocks.useSystemRestart.mockReset();
-    mocks.toast.mockReset();
+    mocks.toast.success.mockReset();
+    mocks.toast.error.mockReset();
     mocks.setTheme.mockReset();
     mocks.theme = "dark";
     mocks.writeAppearancePendingToStorage.mockReset();

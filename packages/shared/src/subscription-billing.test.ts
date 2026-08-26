@@ -4,6 +4,7 @@ import {
   calculateOneTimeTermEndDate,
   isOneTimeBuyout,
   isOneTimeFixedTerm,
+  toDailyAmountFromMonthly,
   toMonthlyAmount,
   toSubscriptionMonthlyAmount,
 } from "./subscription-billing";
@@ -45,6 +46,28 @@ describe("subscription-billing", () => {
       oneTimeTermCount: 2,
       oneTimeTermUnit: "year",
     })).toBe(10);
+  });
+
+  it("derives standardized daily amounts from normalized monthly amounts", () => {
+    const normalizedMonthlyAmounts = [
+      toMonthlyAmount(30, "monthly"),
+      toMonthlyAmount(360, "annual"),
+      toMonthlyAmount(10, "weekly"),
+      toMonthlyAmount(30, "custom", 15, "day"),
+      toMonthlyAmount(10, "custom", 2, "week"),
+      toMonthlyAmount(120, "custom", 3, "month"),
+      toMonthlyAmount(360, "custom", 3, "year"),
+      toMonthlyAmount(90, "one-time", undefined, "day", 90, "day"),
+      toMonthlyAmount(10, "one-time", undefined, "day", 2, "week"),
+      toMonthlyAmount(120, "one-time", undefined, "day", 3, "month"),
+      toMonthlyAmount(360, "one-time", undefined, "day", 3, "year"),
+    ];
+
+    for (const monthlyAmount of normalizedMonthlyAmounts) {
+      expect(toDailyAmountFromMonthly(monthlyAmount)).toBe(monthlyAmount / 30);
+    }
+    expect(toDailyAmountFromMonthly(toMonthlyAmount(199, "one-time"))).toBe(0);
+    expect(toDailyAmountFromMonthly(0)).toBe(0);
   });
 
   it("uses date-only renewal semantics for next billing and one-time term end dates", () => {

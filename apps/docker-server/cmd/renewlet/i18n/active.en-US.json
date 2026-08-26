@@ -277,6 +277,8 @@
   "system.updateCompleted": "Update completed. Restart Renewlet to apply it.",
   "system.updateFailed": "System update failed",
   "system.updateInProgress": "A system update is already running",
+  "system.updateInterrupted": "The update was interrupted. Try again.",
+  "system.updateTimedOut": "The update download timed out. Check the Renewlet container's network connection and try again.",
   "system.updateUnsupportedDockerBridge": "The Docker self-update binary was not found. Run docker compose pull && docker compose up -d once first.",
   "system.updateUnsupportedLinuxDocker": "In-app updates are only supported for the Linux Docker image.",
   "system.updateUnsupportedNotRelease": "This is not a release build. Upgrade it from source or Docker image instead.",

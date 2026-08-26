@@ -10,7 +10,11 @@ const AUTO_LOGO_RESOLVE_BATCH_SIZE = 100;
  *
  * favicon/domain 候选仍留在“修改 Logo”里手动选择，避免 AI/导入批量预览把弱推断 URL 写进 payload。
  */
-export async function resolveAutoLogosForPreparedImport(nextPrepared: PreparedImport): Promise<PreparedImport> {
+export async function resolveAutoLogosForPreparedImport(
+  nextPrepared: PreparedImport,
+  signal: AbortSignal,
+): Promise<PreparedImport> {
+  signal.throwIfAborted();
   const assetIndexes = new Set(nextPrepared.assets.flatMap((asset) => (
     asset.target.type === "subscriptionLogo" ? [asset.target.subscriptionIndex] : []
   )));
@@ -24,14 +28,18 @@ export async function resolveAutoLogosForPreparedImport(nextPrepared: PreparedIm
   const autoMatches: ImportLogoAutoMatch[] = [];
   try {
     for (let index = 0; index < items.length; index += AUTO_LOGO_RESOLVE_BATCH_SIZE) {
+      signal.throwIfAborted();
       const chunk = items.slice(index, index + AUTO_LOGO_RESOLVE_BATCH_SIZE);
       // 批量上限保护 Docker/Worker 两个运行面的媒体候选预算，自动匹配失败不能阻塞用户导入正文。
-      const response = await mediaCandidateService.resolve({
-        kind: "logo",
-        mode: "auto",
-        items: chunk,
-        limit: 1,
-      });
+      const response = await mediaCandidateService.resolve(
+        {
+          kind: "logo",
+          mode: "auto",
+          items: chunk,
+          limit: 1,
+        },
+        signal,
+      );
       for (const item of response.items) {
         const candidate = item.autoCandidate;
         const subscriptionIndex = Number.parseInt(item.id, 10);
@@ -46,8 +54,10 @@ export async function resolveAutoLogosForPreparedImport(nextPrepared: PreparedIm
       }
     }
   } catch {
+    signal.throwIfAborted();
     return nextPrepared;
   }
+  signal.throwIfAborted();
   return updatePreparedSubscriptionLogos(nextPrepared, logoOverrides, autoMatches);
 }
 

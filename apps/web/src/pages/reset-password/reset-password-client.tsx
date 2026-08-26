@@ -77,7 +77,6 @@ export function ResetPasswordClient({ token }: ResetPasswordClientProps) {
       setSucceeded(true);
       setPassword("");
       setConfirm("");
-      toast.success(t("passwordReset.passwordUpdated"));
     } catch (err: unknown) {
       toast.error(t("passwordReset.resetFailed"), {
         description: getDisplayErrorMessage(err, t("passwordReset.resetFailedDescription")),

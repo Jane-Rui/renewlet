@@ -52,7 +52,6 @@ export function ForgotPasswordClient({ enabled }: ForgotPasswordClientProps) {
     try {
       await authClient.requestPasswordReset(email.trim());
       setSubmitted(true);
-      toast.success(t("passwordReset.mailHandled"));
     } catch (err: unknown) {
       toast.error(t("passwordReset.sendFailed"), {
         description: getDisplayErrorMessage(err, t("passwordReset.sendFailedDescription")),

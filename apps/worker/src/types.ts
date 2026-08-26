@@ -189,6 +189,33 @@ export interface SubscriptionRow {
   updated_at: string;
 }
 
+/** 私有集合查询只读取轻量 DTO 所需列，详情字段不会进入列表、统计或日历的 D1 结果集。 */
+export type SubscriptionCollectionRow = Pick<SubscriptionRow,
+  | "id"
+  | "name"
+  | "logo"
+  | "price"
+  | "currency"
+  | "billing_cycle"
+  | "custom_days"
+  | "custom_cycle_unit"
+  | "one_time_term_count"
+  | "one_time_term_unit"
+  | "category"
+  | "status"
+  | "pinned"
+  | "public_hidden"
+  | "payment_method"
+  | "start_date"
+  | "next_billing_date"
+  | "auto_renew"
+  | "auto_calculate_next_billing_date"
+  | "trial_end_date"
+  | "reminder_days"
+  | "cost_sharing_json"
+  | "created_at"
+>;
+
 /** 每用户调度 gate；Cron 先读这里，空状态下不再触碰 subscriptions 候选查询。 */
 export interface SubscriptionSchedulerStateRow {
   user_id: string;

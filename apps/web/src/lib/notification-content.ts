@@ -23,7 +23,7 @@ import { effectiveReminderDays, isDisabledReminderDays } from "@renewlet/shared/
 import { daysBetweenDateOnly, isValidDateOnly, todayDateOnlyInTimeZone, type DateOnly } from "@/lib/time/date-only";
 import { isValidTimeZone } from "@/lib/time/time-zone";
 import { DEFAULT_LOCALE, normalizeLocale, type Locale } from "@/i18n/locales";
-import { translateStaticMessage, type MessageKey, type MessageParams } from "@/i18n/static-catalogs";
+import { translate, type MessageKey, type MessageParams } from "@/i18n/messages";
 import { divideMoney, moneyToNumber, type MoneyString } from "@renewlet/shared/money";
 import { costSharingCollectionReminderOccurrencesForDate } from "@renewlet/shared/cost-sharing";
 
@@ -150,7 +150,7 @@ function repeatIntervalHours(interval: string): number {
 }
 
 function translateNotification(locale: Locale, key: MessageKey, params: MessageParams = {}): string {
-  return translateStaticMessage(locale, key, params);
+  return translate(locale, key, params);
 }
 
 function formatItemLine(item: NotificationContentItem, locale: Locale): string {

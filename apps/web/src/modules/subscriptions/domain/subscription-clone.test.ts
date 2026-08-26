@@ -1,7 +1,7 @@
 // 订阅克隆测试保护隐藏元数据边界，避免副本把导入幂等键带到新记录上。
 import { describe, expect, it } from "vitest";
 import { assertDateOnly } from "@/lib/time/date-only";
-import type { Subscription, SubscriptionDraft } from "@/types/subscription";
+import type { Subscription, SubscriptionFormSubmission } from "@/types/subscription";
 import { buildClonedSubscriptionDraft, cloneSubscriptionExtra } from "./subscription-clone";
 
 const sourceSubscription: Subscription = {
@@ -11,10 +11,6 @@ const sourceSubscription: Subscription = {
   price: "29",
   currency: "USD",
   billingCycle: "monthly",
-  customDays: undefined,
-  customCycleUnit: undefined,
-  oneTimeTermCount: undefined,
-  oneTimeTermUnit: undefined,
   category: "productivity",
   status: "active",
   paymentMethod: "credit_card",
@@ -38,16 +34,12 @@ const sourceSubscription: Subscription = {
   },
 };
 
-const draftFromCloneForm: SubscriptionDraft = {
+const submissionFromCloneForm: SubscriptionFormSubmission = {
   name: "Original SaaS",
   logo: "https://example.com/logo.svg",
   price: "29",
   currency: "USD",
   billingCycle: "monthly",
-  customDays: undefined,
-  customCycleUnit: undefined,
-  oneTimeTermCount: undefined,
-  oneTimeTermUnit: undefined,
   category: "productivity",
   status: "active",
   paymentMethod: "credit_card",
@@ -55,7 +47,6 @@ const draftFromCloneForm: SubscriptionDraft = {
   nextBillingDate: assertDateOnly("2026-06-14"),
   autoRenew: false,
   autoCalculateNextBillingDate: false,
-  trialEndDate: undefined,
   website: "https://example.com",
   notes: "Team renewal",
   tags: ["team", "infra"],
@@ -63,7 +54,6 @@ const draftFromCloneForm: SubscriptionDraft = {
   repeatReminderEnabled: true,
   repeatReminderInterval: "1h",
   repeatReminderWindow: "72h",
-  pinned: false,
   publicHidden: false,
   costSharing: undefined,
 };
@@ -79,8 +69,16 @@ describe("subscription clone", () => {
     });
   });
 
+  it("omits extra when import metadata was the only hidden state", () => {
+    const clonedExtra = cloneSubscriptionExtra({
+      import: { source: "wallos", sourceId: "user:sub", confidence: "high" },
+    });
+
+    expect(clonedExtra).toBeUndefined();
+  });
+
   it("copies pinned state and non-import extra while keeping form-controlled public visibility", () => {
-    const draft = buildClonedSubscriptionDraft(sourceSubscription, draftFromCloneForm);
+    const draft = buildClonedSubscriptionDraft(sourceSubscription, submissionFromCloneForm);
 
     expect(draft).toMatchObject({
       name: "Original SaaS",

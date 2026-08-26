@@ -25,7 +25,7 @@ type VirtualizedListProps = {
   /** 总项数来自调用方筛选后的稳定列表；虚拟器不感知业务分页。 */
   count: number;
   /** 估算高度是滚动体验边界，必须覆盖动态内容的常见最大值，避免滚动条跳动。 */
-  estimateSize: (index: number) => number;
+  estimatedItemSize: number;
   /** key 必须来自业务稳定 id，不能用可变展示文案。 */
   getItemKey: (index: number) => VirtualItemKey;
   /** Renewlet 的滚动根通常是 #root 或 Dialog body，显式传入可避免 window 滚动假设。 */
@@ -53,7 +53,7 @@ function getScrollMargin(container: HTMLElement, scrollElement: HTMLElement) {
   const containerRect = container.getBoundingClientRect();
   const scrollRect = scrollElement.getBoundingClientRect();
   if (containerRect.height === 0 && scrollRect.height === 0) {
-    // 测试环境或隐藏 tab 里 DOMRect 可能全是 0；offsetTop 兜底能保持虚拟项定位可预测。
+    // 隐藏布局恢复前 DOMRect 可能全为 0；沿 offsetParent 链定位可避免虚拟项在首次可见时整体跳动。
     return getOffsetTopWithinScrollElement(container, scrollElement);
   }
   return Math.max(0, scrollElement.scrollTop + containerRect.top - scrollRect.top);
@@ -74,7 +74,7 @@ function getOffsetTopWithinScrollElement(container: HTMLElement, scrollElement: 
 /** VirtualizedList 封装 TanStack Virtual 与 Renewlet 固定滚动根之间的 scrollMargin 适配。 */
 export function VirtualizedList({
   count,
-  estimateSize,
+  estimatedItemSize,
   getItemKey,
   getScrollElement,
   renderItem,
@@ -87,6 +87,7 @@ export function VirtualizedList({
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollMargin, setScrollMargin] = useState(0);
   const initialRect = useMemo(() => getInitialRect(), []);
+  const estimateSize = useCallback(() => estimatedItemSize, [estimatedItemSize]);
   const measureElementWithFallback = useCallback(
     (
       element: HTMLDivElement,
@@ -96,11 +97,10 @@ export function VirtualizedList({
       const measuredSize = measureVirtualElement(element, entry, instance);
       if (measuredSize > 0) return measuredSize;
 
-      // jsdom/首帧测量可能返回 0；回退到 estimateSize，避免总高度坍缩导致列表不可滚动。
-      const index = Number(element.getAttribute(instance.options.indexAttribute));
-      return estimateSize(Number.isFinite(index) ? index : 0);
+      // 浏览器首帧或隐藏布局可能暂时返回 0；估算高度用于维持滚动范围，真实尺寸随后由 ResizeObserver 校正。
+      return estimatedItemSize;
     },
-    [estimateSize],
+    [estimatedItemSize],
   );
   const observeRectWithFallback = useCallback(
     (
@@ -128,7 +128,7 @@ export function VirtualizedList({
 
   useLayoutEffect(() => {
     measureScrollMargin();
-  });
+  }, [count, measureScrollMargin]);
 
   useLayoutEffect(() => {
     const container = containerRef.current;

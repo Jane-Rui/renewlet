@@ -17,9 +17,10 @@ export const uploadedAssetsQueryKeys = {
 export interface UploadedAssetsByKindResult {
   assets: UploadedAsset[];
   error: Error | null;
-  hasLoaded: boolean;
+  hasData: boolean;
   hasMore: boolean;
-  isLoading: boolean;
+  isInitialLoading: boolean;
+  isRefreshing: boolean;
   isLoadingMore: boolean;
   refresh: () => Promise<void>;
   loadMore: () => Promise<void>;
@@ -58,7 +59,7 @@ export function useUploadedAssetsByKind(
   const query = useInfiniteQuery({
     queryKey: uploadedAssetsQueryKeys.byKind(kind),
     initialPageParam: 1,
-    queryFn: ({ pageParam }) => assetService.list(kind, pageParam),
+    queryFn: ({ pageParam, signal }) => assetService.list(kind, pageParam, signal),
     getNextPageParam: (lastPage) => lastPage.page < lastPage.totalPages ? lastPage.page + 1 : undefined,
     enabled,
   });
@@ -69,8 +70,10 @@ export function useUploadedAssetsByKind(
     return mergeAssets(query.data?.pages.flatMap((page) => page.items) ?? []);
   }, [enabled, query.data?.pages]);
   const error = query.error instanceof Error ? query.error : query.error ? new Error("Uploaded assets load failed") : null;
-  const hasLoaded = enabled && (query.isFetched || query.isError);
-  const isLoading = enabled && query.isFetching && !query.isFetchingNextPage && !query.data;
+  const hasData = enabled && query.data !== undefined;
+  const isInitialLoading = enabled && !query.isFetched && query.isPending && query.isFetching && !query.isFetchingNextPage && !hasData;
+  // 首次失败后的 refetch 仍无缓存，但必须算刷新以锁定重复重试，不能重新伪装成首次加载。
+  const isRefreshing = enabled && query.isFetching && !query.isFetchingNextPage && !isInitialLoading;
   const isLoadingMore = enabled && query.isFetchingNextPage;
 
   const refresh = useCallback(async () => {
@@ -97,9 +100,10 @@ export function useUploadedAssetsByKind(
   return {
     assets,
     error,
-    hasLoaded,
+    hasData,
     hasMore: enabled && Boolean(query.hasNextPage),
-    isLoading,
+    isInitialLoading,
+    isRefreshing,
     isLoadingMore,
     refresh,
     loadMore,

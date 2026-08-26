@@ -34,27 +34,27 @@ msgid "settings.turnstileSiteKey"
 msgstr "Site key"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-access-security.ts:38
+#: src/i18n/descriptors/settings-access-security.ts:36
 msgid "settings.turnstileSecretClearedDescription"
 msgstr "Turnstile 人机验证已关闭，重新启用前需要保存新的 Secret key。"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-access-security.ts:37
+#: src/i18n/descriptors/settings-access-security.ts:35
 msgid "settings.turnstileSecretCleared"
 msgstr "Turnstile 密钥已清除"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-access-security.ts:34
+#: src/i18n/descriptors/settings-access-security.ts:32
 msgid "settings.turnstileSaveFailed"
 msgstr "Turnstile 配置保存失败"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-access-security.ts:32
+#: src/i18n/descriptors/settings-access-security.ts:31
 msgid "settings.turnstileSaved"
 msgstr "Turnstile 配置已保存"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-access-security.ts:27
+#: src/i18n/descriptors/settings-access-security.ts:26
 msgid "settings.turnstileTestFailed"
 msgstr "Turnstile 配置测试失败"
 
@@ -84,7 +84,7 @@ msgid "settings.turnstileSecretHelp"
 msgstr "只保存在服务端，用于调用 Cloudflare Siteverify。"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-access-security.ts:36
+#: src/i18n/descriptors/settings-access-security.ts:34
 msgid "settings.turnstileIncomplete"
 msgstr "启用 Turnstile 时需要同时填写 Site key 和 Secret key。"
 
@@ -114,22 +114,17 @@ msgid "settings.turnstileSecretConfiguredPlaceholder"
 msgstr "已保存，留空则保持不变"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-access-security.ts:29
+#: src/i18n/descriptors/settings-access-security.ts:28
 msgid "settings.turnstileDiscard"
 msgstr "放弃更改"
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/settings-access-security.ts:33
-msgid "settings.turnstileSavedDescription"
-msgstr "新的 Turnstile 配置会用于后续邮箱密码登录。"
-
-#. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-access-security.ts:35
 msgid "settings.turnstileSaveFailedDescription"
 msgstr "无法保存 Turnstile 配置，请稍后重试。"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-access-security.ts:28
+#: src/i18n/descriptors/settings-access-security.ts:27
 msgid "settings.turnstileTestFailedDescription"
 msgstr "无法完成 Turnstile 配置测试，请检查 Site key 和 Secret key 后重试。"
 
@@ -149,12 +144,12 @@ msgid "settings.turnstileTesting"
 msgstr "测试中..."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-access-security.ts:31
+#: src/i18n/descriptors/settings-access-security.ts:30
 msgid "settings.turnstileClearing"
 msgstr "清除中..."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-access-security.ts:30
+#: src/i18n/descriptors/settings-access-security.ts:29
 msgid "settings.turnstileClearSecret"
 msgstr "清除密钥"
 
@@ -182,8 +177,3 @@ msgstr "访问安全"
 #: src/i18n/descriptors/settings-access-security.ts:14
 msgid "settings.turnstileSecretPlaceholder"
 msgstr "输入 Cloudflare Turnstile Secret key"
-
-#. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-access-security.ts:26
-msgid "settings.turnstileTestPassedDescription"
-msgstr "这组 Site key 和 Secret key 已通过 Siteverify 校验。"

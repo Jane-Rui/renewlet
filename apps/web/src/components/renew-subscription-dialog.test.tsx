@@ -3,9 +3,37 @@ import userEvent from "@testing-library/user-event";
 import { useRef, useState, type ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { assertDateOnly } from "@/lib/time/date-only";
+import {
+  subscriptionCycleFixture,
+  type SubscriptionFixtureOverrides,
+} from "@/test/subscription-fixtures";
 import type { Subscription } from "@/types/subscription";
-import { RenewSubscriptionDialog } from "./renew-subscription-dialog";
+import {
+  RenewSubscriptionDialogContent,
+  type RenewSubscriptionDialogProps,
+} from "./renew-subscription-dialog";
+
+function RenewSubscriptionDialog(props: RenewSubscriptionDialogProps) {
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent
+        closeLabel="关闭"
+        dismissMode="explicit"
+        layout="content"
+        className="h5-dialog-auto-frame gap-0 border-border bg-card p-0 sm:max-w-lg"
+        onCloseAutoFocus={(event) => {
+          if (!props.restoreFocusRef?.current) return;
+          event.preventDefault();
+          props.restoreFocusRef.current.focus();
+        }}
+      >
+        <RenewSubscriptionDialogContent {...props} />
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 const mocks = vi.hoisted(() => ({
   config: {
@@ -17,7 +45,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/contexts/CustomConfigContext", () => ({
-  useCustomConfig: () => ({ config: mocks.config }),
+  useCustomConfigState: () => ({ config: mocks.config }),
 }));
 
 vi.mock("@/i18n/I18nProvider", () => ({
@@ -77,16 +105,13 @@ function setupUser() {
   return userEvent.setup();
 }
 
-function makeSubscription(overrides: Partial<Subscription> = {}): Subscription {
+function makeSubscription(overrides: SubscriptionFixtureOverrides<Subscription> = {}): Subscription {
   return {
     id: "sub-renew",
     name: "Renewable SaaS",
     logo: undefined,
     price: "12",
     currency: "USD",
-    billingCycle: "monthly",
-    customDays: undefined,
-    customCycleUnit: undefined,
     category: "productivity",
     status: "expired",
     pinned: false,
@@ -104,8 +129,10 @@ function makeSubscription(overrides: Partial<Subscription> = {}): Subscription {
     repeatReminderEnabled: false,
     repeatReminderInterval: "1h",
     repeatReminderWindow: "72h",
+    extra: {},
     ...overrides,
-  } as Subscription;
+    ...subscriptionCycleFixture(overrides),
+  };
 }
 
 function renderDialog(props: Partial<ComponentProps<typeof RenewSubscriptionDialog>> = {}) {
@@ -115,6 +142,7 @@ function renderDialog(props: Partial<ComponentProps<typeof RenewSubscriptionDial
     <TooltipProvider delayDuration={0}>
       <RenewSubscriptionDialog
         subscription={makeSubscription()}
+        loadingPreview={null}
         open
         today={assertDateOnly("2026-08-12")}
         submitting={false}
@@ -135,6 +163,7 @@ function FocusRestoreHarness() {
       <button type="button" ref={triggerRef}>续订入口</button>
       <RenewSubscriptionDialog
         subscription={makeSubscription()}
+        loadingPreview={null}
         open={open}
         today={assertDateOnly("2026-08-12")}
         submitting={false}
@@ -147,6 +176,47 @@ function FocusRestoreHarness() {
 }
 
 describe("RenewSubscriptionDialog", () => {
+  it("uses the resolved renewal scaffold while detail data is pending", () => {
+    const preview = makeSubscription({ status: "expired" });
+    const { rerender } = render(
+      <TooltipProvider delayDuration={0}>
+        <RenewSubscriptionDialog
+          subscription={null}
+          loadingPreview={preview}
+          open
+          today={assertDateOnly("2026-08-12")}
+          submitting={false}
+          onOpenChange={vi.fn()}
+          onSubmit={vi.fn()}
+          loading
+        />
+      </TooltipProvider>,
+    );
+    const dialog = screen.getByRole("dialog", { name: "续订「Renewable SaaS」" });
+    const form = dialog.querySelector("form");
+    expect(screen.getByTestId("renew-subscription-data-loading")).toBeInTheDocument();
+
+    rerender(
+      <TooltipProvider delayDuration={0}>
+        <RenewSubscriptionDialog
+          subscription={preview}
+          loadingPreview={preview}
+          open
+          today={assertDateOnly("2026-08-12")}
+          submitting={false}
+          onOpenChange={vi.fn()}
+          onSubmit={vi.fn()}
+          loading={false}
+        />
+      </TooltipProvider>,
+    );
+
+    expect(screen.getByRole("dialog", { name: "续订「Renewable SaaS」" })).toBe(dialog);
+    expect(dialog.querySelector("form")).toBe(form);
+    expect(screen.queryByTestId("renew-subscription-data-loading")).not.toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /重新开始订阅/ })).toBeChecked();
+  });
+
   it("opens expired subscriptions in restart mode by default", async () => {
     renderDialog();
 
@@ -161,6 +231,12 @@ describe("RenewSubscriptionDialog", () => {
     expect(screen.getByRole("button", { name: /开始日期 2026-08-12/ })).toBeEnabled();
     expect(screen.getByRole("button", { name: /到期日期 2026-09-12/ })).toBeEnabled();
     expect(screen.getByRole("button", { name: "重新开始订阅" })).toBeEnabled();
+    const pricingRow = screen.getByLabelText("价格").closest('[data-slot="form-field-row"]');
+    const scheduleRow = screen.getByRole("button", { name: /开始日期 2026-08-12/ }).closest('[data-slot="form-field-row"]');
+    expect(pricingRow).toHaveAttribute("data-align-at", "sm");
+    expect(pricingRow).toHaveAttribute("data-tracks", "2");
+    expect(scheduleRow).toHaveAttribute("data-align-at", "sm");
+    expect(scheduleRow).toHaveAttribute("data-tracks", "2");
   });
 
   it("opens active subscriptions in continue mode and submits an explicit payload", async () => {
@@ -219,6 +295,7 @@ describe("RenewSubscriptionDialog", () => {
       <TooltipProvider delayDuration={0}>
         <RenewSubscriptionDialog
           subscription={makeSubscription()}
+          loadingPreview={null}
           open
           today={assertDateOnly("2026-08-12")}
           submitting
@@ -234,6 +311,7 @@ describe("RenewSubscriptionDialog", () => {
       <TooltipProvider delayDuration={0}>
         <RenewSubscriptionDialog
           subscription={makeSubscription()}
+          loadingPreview={null}
           open
           today={assertDateOnly("2026-08-12")}
           submitting={false}

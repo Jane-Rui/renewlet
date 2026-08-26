@@ -6,7 +6,6 @@ import (
 	"math"
 	"net/http"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -411,10 +410,4 @@ func exchangeRatePublicBasisForUser(app core.App, userID string, now time.Time) 
 		SourceDate: snapshot.SourceDate,
 		CapturedAt: snapshot.CapturedAt,
 	}
-}
-
-func sortExchangeRateSnapshotsByMonth(snapshots []exchangeRateSnapshotDTO) {
-	sort.Slice(snapshots, func(i, j int) bool {
-		return snapshots[i].Month < snapshots[j].Month
-	})
 }

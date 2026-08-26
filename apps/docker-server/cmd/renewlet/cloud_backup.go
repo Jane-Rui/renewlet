@@ -163,7 +163,7 @@ func handleCloudBackupConfigUpdate(app core.App, e *core.RequestEvent) error {
 	}
 	if err := body.Validate(locale); err != nil {
 		if strings.TrimSpace(body.Provider) != cloudBackupProviderWebDAV && strings.TrimSpace(body.Provider) != cloudBackupProviderS3 {
-			return cloudBackupProviderParameterError(e, locale, "CLOUD_BACKUP_PROVIDER_INVALID", "provider_invalid", `Use JSON body {"provider":"webdav"} or {"provider":"s3"}.`)
+			return cloudBackupProviderParameterError(e, locale, "CLOUD_BACKUP_PROVIDER_INVALID", `Use JSON body {"provider":"webdav"} or {"provider":"s3"}.`)
 		}
 		return e.BadRequestError(validationErrorMessage(locale, "common.invalidPayload", err), err)
 	}
@@ -206,10 +206,10 @@ func handleCloudBackupsList(app core.App, e *core.RequestEvent) error {
 	locale := requestLocale(e.Request)
 	provider, hasProvider, err := cloudBackupProviderFromRequest(e.Request)
 	if err != nil {
-		return cloudBackupProviderParameterError(e, locale, "CLOUD_BACKUP_PROVIDER_INVALID", "provider_invalid", "Use provider=webdav or provider=s3.")
+		return cloudBackupProviderParameterError(e, locale, "CLOUD_BACKUP_PROVIDER_INVALID", "Use provider=webdav or provider=s3.")
 	}
 	if !hasProvider {
-		return cloudBackupProviderParameterError(e, locale, "CLOUD_BACKUP_PROVIDER_REQUIRED", "provider_required", "Use provider=webdav or provider=s3.")
+		return cloudBackupProviderParameterError(e, locale, "CLOUD_BACKUP_PROVIDER_REQUIRED", "Use provider=webdav or provider=s3.")
 	}
 	target, err := configuredCloudBackupTargetForProvider(app, e.Auth.Id, provider)
 	if err != nil {
@@ -253,7 +253,7 @@ func handleCloudBackupsDownload(app core.App, e *core.RequestEvent) error {
 	}
 	provider, hasProvider, err := cloudBackupProviderFromRequest(e.Request)
 	if err != nil {
-		return cloudBackupProviderParameterError(e, locale, "CLOUD_BACKUP_PROVIDER_INVALID", "provider_invalid", "Use provider=webdav or provider=s3.")
+		return cloudBackupProviderParameterError(e, locale, "CLOUD_BACKUP_PROVIDER_INVALID", "Use provider=webdav or provider=s3.")
 	}
 	ctx, cancel := context.WithTimeout(e.Request.Context(), 120*time.Second)
 	defer cancel()
@@ -295,7 +295,7 @@ func handleCloudBackupsDelete(app core.App, e *core.RequestEvent) error {
 	}
 	provider, hasProvider, err := cloudBackupProviderFromRequest(e.Request)
 	if err != nil {
-		return cloudBackupProviderParameterError(e, locale, "CLOUD_BACKUP_PROVIDER_INVALID", "provider_invalid", "Use provider=webdav or provider=s3.")
+		return cloudBackupProviderParameterError(e, locale, "CLOUD_BACKUP_PROVIDER_INVALID", "Use provider=webdav or provider=s3.")
 	}
 	ctx, cancel := context.WithTimeout(e.Request.Context(), 60*time.Second)
 	defer cancel()
@@ -344,14 +344,6 @@ func configuredCloudBackupTargetForProvider(app core.App, userID string, provide
 	}
 	// 列表、立即备份、恢复和删除都在这里收敛到单 provider，避免另一目标的配置或上游错误串进当前请求。
 	return cloudBackupRemoteTargetForProvider(config, provider)
-}
-
-func cloudBackupRemoteClientForProvider(config cloudBackupResolvedConfig, provider string) (cloudBackupRemoteClient, error) {
-	target, ok := config.Targets[provider]
-	if !ok {
-		return nil, errors.New("CLOUD_BACKUP_TARGET_REQUIRED")
-	}
-	return cloudBackupRemoteClientForTarget(target)
 }
 
 func cloudBackupRemoteClientForTarget(target cloudBackupResolvedTarget) (cloudBackupRemoteClient, error) {
@@ -601,7 +593,7 @@ func cloudBackupProviderFromRequest(request *http.Request) (string, bool, error)
 	return provider, true, nil
 }
 
-func cloudBackupProviderParameterError(e *core.RequestEvent, locale appLocale, code string, reason string, message string) error {
+func cloudBackupProviderParameterError(e *core.RequestEvent, locale appLocale, code string, message string) error {
 	return apiErrorJSON(e, http.StatusBadRequest, code, serverText(locale, "cloudBackup.providerInvalid"), &cloudBackupErrorDetails{
 		RawResponseText: optionalCloudBackupString(message),
 	})
@@ -620,17 +612,6 @@ func persistedCloudBackupErrorMessage(err error) string {
 		return remoteErr.code
 	}
 	return "local_sdk_error"
-}
-
-func filterNonEmpty(values []string) []string {
-	out := make([]string, 0, len(values))
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value != "" {
-			out = append(out, value)
-		}
-	}
-	return out
 }
 
 func markCloudBackupSuccess(app core.App, userID string, provider string, backupAt string) {

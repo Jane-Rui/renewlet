@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -301,20 +300,4 @@ func optionalUpstreamString(value string) *string {
 		return nil
 	}
 	return &value
-}
-
-func upstreamDetailsJSON(details *upstreamErrorDetails) map[string]interface{} {
-	if details == nil {
-		return nil
-	}
-	// Go 的 route response 仍是 map 组装，先按结构体 JSON tag 过一遍，避免 rawResponseText 字段名在各路由里手写漂移。
-	data, err := json.Marshal(details)
-	if err != nil {
-		return nil
-	}
-	var out map[string]interface{}
-	if err := json.Unmarshal(data, &out); err != nil {
-		return nil
-	}
-	return out
 }

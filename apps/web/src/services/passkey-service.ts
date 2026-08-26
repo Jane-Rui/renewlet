@@ -110,8 +110,8 @@ export const passkeyService = {
     WebAuthnAbortService.cancelCeremony();
   },
 
-  async list(): Promise<Passkey[]> {
-    const data = await apiFetch("/api/app/auth/passkeys", passkeysResponseSchema);
+  async list(signal?: AbortSignal): Promise<Passkey[]> {
+    const data = await apiFetch("/api/app/auth/passkeys", passkeysResponseSchema, signal ? { signal } : undefined);
     return data.passkeys;
   },
 

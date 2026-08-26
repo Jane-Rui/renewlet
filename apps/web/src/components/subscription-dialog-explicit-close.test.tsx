@@ -4,8 +4,12 @@ import userEvent from "@testing-library/user-event";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { assertDateOnly } from "@/lib/time/date-only";
+import {
+  subscriptionCycleFixture,
+  type SubscriptionFixtureOverrides,
+} from "@/test/subscription-fixtures";
 import type { Subscription } from "@/types/subscription";
-import { SubscriptionDialog } from "./subscription-dialog";
+import { preloadSubscriptionDialog, SubscriptionDialog } from "./subscription-dialog";
 
 const mocks = vi.hoisted(() => ({
   config: {
@@ -20,13 +24,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/contexts/CustomConfigContext", () => ({
-  useCustomConfig: () => ({
-    config: mocks.config,
-    updateCategories: vi.fn(),
-    updateStatuses: vi.fn(),
-    updatePaymentMethods: vi.fn(),
-    updateCurrencies: vi.fn(),
-  }),
+  useCustomConfigState: () => ({ config: mocks.config }),
 }));
 
 vi.mock("@/hooks/use-settings", () => ({
@@ -39,10 +37,11 @@ vi.mock("@/components/logo-picker", () => ({
   LogoPicker: () => null,
 }));
 
-beforeAll(() => {
+beforeAll(async () => {
   Element.prototype.hasPointerCapture ??= vi.fn(() => false);
   Element.prototype.setPointerCapture ??= vi.fn();
   Element.prototype.releasePointerCapture ??= vi.fn();
+  await preloadSubscriptionDialog();
 });
 
 function getTopDialogOverlay() {
@@ -52,22 +51,20 @@ function getTopDialogOverlay() {
   return overlay;
 }
 
-function makeSubscription(overrides: Partial<Subscription> = {}): Subscription {
+function makeSubscription(overrides: SubscriptionFixtureOverrides<Subscription> = {}): Subscription {
   return {
     id: "sub-1",
     name: "Critical SaaS",
     logo: undefined,
     price: "50",
     currency: "CNY",
-    billingCycle: "monthly",
-    customDays: undefined,
-    customCycleUnit: undefined,
     category: "productivity",
     status: "active",
     publicHidden: false,
     paymentMethod: "alipay",
     startDate: assertDateOnly("2026-05-14"),
     nextBillingDate: assertDateOnly("2026-06-13"),
+    autoRenew: false,
     autoCalculateNextBillingDate: false,
     trialEndDate: undefined,
     website: undefined,
@@ -77,9 +74,11 @@ function makeSubscription(overrides: Partial<Subscription> = {}): Subscription {
     repeatReminderEnabled: true,
     repeatReminderInterval: "1h",
     repeatReminderWindow: "72h",
+    extra: {},
     pinned: false,
     ...overrides,
-  } as Subscription;
+    ...subscriptionCycleFixture(overrides),
+  };
 }
 
 describe("SubscriptionDialog explicit close", () => {
@@ -90,6 +89,7 @@ describe("SubscriptionDialog explicit close", () => {
     render(
       <TooltipProvider delayDuration={0}>
         <SubscriptionDialog
+          loadingPreview={null}
           mode="create"
           open
           onOpenChange={onOpenChange}
@@ -116,6 +116,7 @@ describe("SubscriptionDialog explicit close", () => {
     render(
       <TooltipProvider delayDuration={0}>
         <SubscriptionDialog
+          loadingPreview={null}
           mode="edit"
           open
           onOpenChange={onOpenChange}

@@ -1,7 +1,7 @@
 // 公开展示页测试保护无需登录的只读渲染、金额开关和 noindex meta。
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api-client";
@@ -51,10 +51,8 @@ vi.mock("@/i18n/I18nProvider", () => ({
     t: (key: string, params?: Record<string, unknown>) => {
       const messages: Record<string, string> = {
         "publicStatus.activeCount": "活跃/试用",
-        "publicStatus.activeSubtitle": "状态正常运行",
         "publicStatus.annualTotal": "年化总价",
         "header.toggleTheme": "切换主题",
-        "publicStatus.emptyDescription": "当前公开链接没有可见订阅。",
         "publicStatus.emptyTitle": "暂无可展示订阅",
         "publicStatus.errorDescription": "请稍后刷新重试。",
         "publicStatus.errorTitle": "无法加载公开页",
@@ -70,8 +68,10 @@ vi.mock("@/i18n/I18nProvider", () => ({
         "publicStatus.moneySubtitleLive": `按 ${String(params?.["currency"] ?? "")} 实时汇率估算`,
         "publicStatus.moneySubtitleLocked": `按 ${String(params?.["month"] ?? "")} 报表口径`,
         "publicStatus.monthlyTotal": "月均总价",
+        "publicStatus.monthlyTotalSubtitle": `日均 ${String(params?.["amount"] ?? "")} · ${String(params?.["basis"] ?? "")}`,
         "publicStatus.ratesLoading": "汇率更新中",
         "publicStatus.startDate": `开始：${String(params?.["date"] ?? "")}`,
+        "publicStatus.subscriptionDailyAverage": `日均 ${String(params?.["amount"] ?? "")}`,
         "publicStatus.title": "订阅状态",
         "publicStatus.truncated": "订阅数量较多，仅展示前 500 条。",
         "publicStatus.upcomingCount": "未来 7 天",
@@ -79,7 +79,6 @@ vi.mock("@/i18n/I18nProvider", () => ({
         "publicStatus.updatedAt": `记录更新：${String(params?.["time"] ?? "")}`,
         "publicStatus.visibleCount": "展示订阅",
         "publicStatus.visibleMoneySubtitle": `其中 ${String(params?.["count"] ?? "")} 个计入金额`,
-        "publicStatus.visibleSubtitle": "当前公开可见",
         "subscription.billingCycle.annual": "每年",
         "subscription.billingCycle.monthly": "每月",
         "theme.dark": "深色",
@@ -167,7 +166,8 @@ describe("PublicStatusPage", () => {
     expect(screen.getByText("活跃/试用")).toBeInTheDocument();
     expect(screen.getByText("未来 7 天")).toBeInTheDocument();
     expect(screen.getByText("非活跃")).toBeInTheDocument();
-    expect(screen.getByText("当前公开可见")).toBeInTheDocument();
+    expect(screen.queryByText("当前公开可见")).not.toBeInTheDocument();
+    expect(screen.queryByText("状态正常运行")).not.toBeInTheDocument();
     expect(screen.getByText("即将到期或续费")).toBeInTheDocument();
     expect(screen.getByText("3")).toBeInTheDocument();
     expect(screen.getByText("2")).toBeInTheDocument();
@@ -178,7 +178,9 @@ describe("PublicStatusPage", () => {
     expect(screen.queryByText("隐藏金额")).not.toBeInTheDocument();
     expect(screen.queryByText("显示金额")).not.toBeInTheDocument();
     expect(screen.queryByText("USD 12")).not.toBeInTheDocument();
+    expect(screen.queryByText(/日均/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "切换主题" })).toBeInTheDocument();
+    expect(mocks.useExchangeRates).not.toHaveBeenCalled();
   });
 
   it("opens a compact theme menu with light, dark, and system choices", async () => {
@@ -238,12 +240,106 @@ describe("PublicStatusPage", () => {
     expect(screen.getByText("年化总价")).toBeInTheDocument();
     expect(screen.getByText("USD 20")).toBeInTheDocument();
     expect(screen.getByText("USD 240")).toBeInTheDocument();
-    expect(screen.getAllByText("按 2026-06 报表口径")).toHaveLength(2);
+    expect(screen.getByText("日均 $0.67 · 按 2026-06 报表口径")).toBeInTheDocument();
+    expect(screen.getByText("按 2026-06 报表口径")).toBeInTheDocument();
+    expect(screen.getAllByText("日均 $0.33")).toHaveLength(2);
     expect(screen.getByText("其中 2 个计入金额")).toBeInTheDocument();
     expect(screen.getByText("USD 120")).toBeInTheDocument();
     expect(screen.getByText("每年")).toBeInTheDocument();
     expect(screen.queryByText("显示金额")).not.toBeInTheDocument();
     expect(mocks.useExchangeRates).not.toHaveBeenCalled();
+  });
+
+  it("uses live conversion once for monthly and daily totals", () => {
+    const convert = vi.fn((amount: number | string, from?: string) => from === "CNY" ? Number(amount) / 2 : Number(amount));
+    mocks.useExchangeRates.mockReturnValueOnce({
+      convert,
+      loading: false,
+    });
+    mocks.usePublicStatus.mockReturnValue({
+      isPending: false,
+      isError: false,
+      data: {
+        ...baseResponse,
+        page: {
+          ...baseResponse.page,
+          showPrices: true,
+          currency: "USD",
+          exchangeRateBasis: { status: "live", month: "2026-06" },
+        },
+        subscriptions: [
+          { ...baseResponse.subscriptions[0]!, price: "30", currency: "CNY", billingCycle: "monthly" },
+        ],
+      },
+    });
+
+    renderPage();
+
+    expect(screen.getByText("USD 15")).toBeInTheDocument();
+    expect(screen.getByText("日均 $0.5 · 按 USD 实时汇率估算")).toBeInTheDocument();
+    expect(screen.getByText("日均 ¥1")).toBeInTheDocument();
+    expect(mocks.useExchangeRates).toHaveBeenCalledTimes(1);
+    expect(convert).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides buyout daily cost and shows fixed-term amortization", () => {
+    mocks.usePublicStatus.mockReturnValue({
+      isPending: false,
+      isError: false,
+      data: {
+        ...baseResponse,
+        page: {
+          ...baseResponse.page,
+          showPrices: true,
+          currency: "USD",
+          exchangeRateBasis: {
+            status: "locked",
+            month: "2026-06",
+            base: "USD",
+            rates: { USD: 1 },
+            sourceDate: "2026-06-01",
+            capturedAt: "2026-06-07T00:00:00.000Z",
+          },
+        },
+        subscriptions: [
+          { ...baseResponse.subscriptions[0]!, name: "Buyout", price: "199", currency: "USD", billingCycle: "one-time" },
+          {
+            ...baseResponse.subscriptions[1]!,
+            name: "Fixed term",
+            price: "180",
+            currency: "USD",
+            billingCycle: "one-time",
+            oneTimeTermCount: 6,
+            oneTimeTermUnit: "month",
+          },
+          { ...baseResponse.subscriptions[2]!, name: "Free recurring", price: "0", currency: "USD", billingCycle: "monthly" },
+        ],
+      },
+    });
+
+    renderPage();
+
+    const buyoutCard = screen.getByText("Buyout").closest("article");
+    const fixedTermCard = screen.getByText("Fixed term").closest("article");
+    const freeRecurringCard = screen.getByText("Free recurring").closest("article");
+    if (!buyoutCard || !fixedTermCard || !freeRecurringCard) throw new Error("Missing public subscription cards");
+    expect(within(buyoutCard).queryByText(/日均/)).not.toBeInTheDocument();
+    expect(within(fixedTermCard).getByText("日均 $1")).toBeInTheDocument();
+    expect(within(freeRecurringCard).getByText("日均 $0")).toBeInTheDocument();
+    expect(mocks.useExchangeRates).not.toHaveBeenCalled();
+  });
+
+  it("renders one concise empty state for a public page without visible subscriptions", () => {
+    mocks.usePublicStatus.mockReturnValue({
+      isPending: false,
+      isError: false,
+      data: { ...baseResponse, subscriptions: [] },
+    });
+
+    renderPage();
+
+    expect(screen.getAllByRole("heading", { name: "暂无可展示订阅" })).toHaveLength(1);
+    expect(screen.queryByText("当前公开链接没有可见订阅。")).not.toBeInTheDocument();
   });
 
   it("hides the start-date line when a public subscription has no known start date", () => {

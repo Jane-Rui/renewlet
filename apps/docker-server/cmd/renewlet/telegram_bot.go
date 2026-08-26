@@ -560,7 +560,7 @@ func filterPublicAPIDueItemsByDate(items []publicAPIDueItem, date string) []publ
 	return out
 }
 
-func telegramBotSubscriptionsText(response subscriptionsListResponse, locale appLocale) string {
+func telegramBotSubscriptionsText(response publicAPISubscriptionsResponse, locale appLocale) string {
 	lines := []string{serverFormat(locale, "telegramBot.subscriptions.title", map[string]interface{}{"total": response.Total})}
 	if len(response.Subscriptions) == 0 {
 		return strings.Join(append(lines, serverText(locale, "telegramBot.subscriptions.empty")), "\n")
@@ -578,30 +578,30 @@ func telegramBotSubscriptionsText(response subscriptionsListResponse, locale app
 	return strings.Join(lines, "\n")
 }
 
-func telegramBotSubscriptionName(subscription map[string]interface{}, locale appLocale) string {
-	if value, ok := subscription["name"].(string); ok && strings.TrimSpace(value) != "" {
-		return strings.TrimSpace(value)
+func telegramBotSubscriptionName(subscription publicAPISubscriptionResponse, locale appLocale) string {
+	if name := strings.TrimSpace(subscription.Name); name != "" {
+		return name
 	}
 	return serverText(locale, "telegramBot.subscription.unnamed")
 }
 
-func publicAPISubscriptionName(subscription map[string]interface{}) string {
-	if value, ok := subscription["name"].(string); ok && strings.TrimSpace(value) != "" {
-		return strings.TrimSpace(value)
+func publicAPISubscriptionName(subscription publicAPISubscriptionResponse) string {
+	if name := strings.TrimSpace(subscription.Name); name != "" {
+		return name
 	}
 	return "Unnamed subscription"
 }
 
-func telegramBotSubscriptionStatus(subscription map[string]interface{}, locale appLocale) string {
-	if value, ok := subscription["status"].(string); ok && strings.TrimSpace(value) != "" {
-		return telegramBotStatusLabel(locale, strings.TrimSpace(value))
+func telegramBotSubscriptionStatus(subscription publicAPISubscriptionResponse, locale appLocale) string {
+	if status := strings.TrimSpace(subscription.Status); status != "" {
+		return telegramBotStatusLabel(locale, status)
 	}
 	return serverText(locale, "telegramBot.subscriptionStatus.unknown")
 }
 
-func telegramBotSubscriptionNextDate(subscription map[string]interface{}, locale appLocale) string {
-	if value, ok := subscription["nextBillingDate"].(string); ok && strings.TrimSpace(value) != "" {
-		return strings.TrimSpace(value)
+func telegramBotSubscriptionNextDate(subscription publicAPISubscriptionResponse, locale appLocale) string {
+	if nextDate := strings.TrimSpace(subscription.NextBillingDate); nextDate != "" {
+		return nextDate
 	}
 	return serverText(locale, "telegramBot.subscription.unknown")
 }

@@ -22,9 +22,6 @@ import {
   type BillingCycle,
   type CustomCycleUnit,
   type DateOnly,
-  type RepeatReminderInterval,
-  type RepeatReminderWindow,
-  type SubscriptionStatus,
 } from "../runtime";
 
 /**
@@ -71,7 +68,7 @@ const optionalUrlSchema = z
   .optional()
   .refine((value) => !value || isHttpUrl(value), "Invalid URL");
 
-const logoReferenceSchema = z
+export const logoReferenceSchema = z
   .string()
   .trim()
   .max(maxLogoReferenceLength)
@@ -143,7 +140,7 @@ export const costSharingSchema = z.object({
 const oneTimeTermCountSchema = z.number().int().positive().max(MAX_REMINDER_DAYS);
 const oneTimeTermUnitSchema = z.enum(CUSTOM_CYCLE_UNITS);
 
-function oneTimeTermFieldsAreConsistent(value: {
+export function oneTimeTermFieldsAreConsistent(value: {
   billingCycle: BillingCycle;
   oneTimeTermCount?: number | null | undefined;
   oneTimeTermUnit?: CustomCycleUnit | null | undefined;
@@ -155,7 +152,16 @@ function oneTimeTermFieldsAreConsistent(value: {
   return hasCount === hasUnit;
 }
 
-function startDateRequirementIsSatisfied(value: {
+function customCycleFieldsAreConsistent(value: {
+  billingCycle?: BillingCycle | undefined;
+  customDays?: number | null | undefined;
+  customCycleUnit?: CustomCycleUnit | null | undefined;
+}): boolean {
+  if (value.billingCycle !== "custom") return true;
+  return typeof value.customDays === "number" && value.customDays > 0 && value.customCycleUnit !== null && value.customCycleUnit !== undefined;
+}
+
+export function startDateRequirementIsSatisfied(value: {
   billingCycle: BillingCycle;
   startDate: string | null;
   autoCalculateNextBillingDate: boolean;
@@ -165,7 +171,7 @@ function startDateRequirementIsSatisfied(value: {
   return !value.autoCalculateNextBillingDate || value.startDate !== null;
 }
 
-function costSharingCollectionReminderMatchesBillingCycle(value: {
+export function costSharingCollectionReminderMatchesBillingCycle(value: {
   billingCycle: BillingCycle;
   oneTimeTermCount?: number | null | undefined;
   costSharing?: z.infer<typeof costSharingSchema> | null | undefined;
@@ -175,14 +181,14 @@ function costSharingCollectionReminderMatchesBillingCycle(value: {
   return value.costSharing?.collectionReminder?.enabled !== true;
 }
 
-function subscriptionDateOrderIsValid(value: {
+export function subscriptionDateOrderIsValid(value: {
   startDate: string | null;
   nextBillingDate: string;
 }): boolean {
   return value.startDate === null || value.nextBillingDate >= value.startDate;
 }
 
-function costSharingMemberJoinedDateRangeIsValid(value: {
+export function costSharingMemberJoinedDateRangeIsValid(value: {
   billingCycle: BillingCycle;
   startDate: string | null;
   nextBillingDate: string;
@@ -205,7 +211,7 @@ function costSharingMemberJoinedDateRangeIsValid(value: {
  * Go route、Cloudflare Worker 和前端表单都应接受这组字段；新增或收窄字段时必须同步
  * PocketBase schema/hooks、D1 row 转换和前端 domain 类型，不能只改某一个运行面。
  */
-const subscriptionWriteBodyShape = {
+const subscriptionWriteFieldShape = {
   name: z.string().trim().min(1).max(120),
   logo: optionalLogoReferenceSchema,
   price: moneyStringSchema,
@@ -217,13 +223,12 @@ const subscriptionWriteBodyShape = {
   oneTimeTermUnit: oneTimeTermUnitSchema.nullable().optional(),
   category: z.string().trim().min(1).max(80),
   status: z.enum(SUBSCRIPTION_STATUSES),
-  pinned: z.boolean().default(false),
-  publicHidden: z.boolean().default(false),
+  pinned: z.boolean(),
+  publicHidden: z.boolean(),
   paymentMethod: z.string().trim().min(1).max(80).nullable().optional(),
   startDate: nullableDateInputSchema,
   nextBillingDate: dateInputSchema,
-  // autoRenew 默认关闭；缺省数据不能被解释成用户同意后台自动推进下一期。
-  autoRenew: z.boolean().default(false),
+  autoRenew: z.boolean(),
   autoCalculateNextBillingDate: z.boolean(),
   trialEndDate: dateInputSchema.nullable().optional(),
   website: optionalUrlSchema,
@@ -238,8 +243,20 @@ const subscriptionWriteBodyShape = {
   extra: extraSchema,
 } satisfies z.ZodRawShape;
 
-export const subscriptionCreateBodySchema = z.object(subscriptionWriteBodyShape)
+const subscriptionCreateBodyShape = {
+  ...subscriptionWriteFieldShape,
+  pinned: subscriptionWriteFieldShape.pinned.default(false),
+  publicHidden: subscriptionWriteFieldShape.publicHidden.default(false),
+  // 创建时缺省自动续订必须按关闭处理；PATCH 字段保持可选且绝不能注入默认值。
+  autoRenew: subscriptionWriteFieldShape.autoRenew.default(false),
+} satisfies z.ZodRawShape;
+
+export const subscriptionCreateBodySchema = z.object(subscriptionCreateBodyShape)
   .strict()
+  .refine(customCycleFieldsAreConsistent, {
+    path: ["customCycleUnit"],
+    message: "Custom cycle count and unit are required",
+  })
   .refine(oneTimeTermFieldsAreConsistent, {
     path: ["oneTimeTermCount"],
     message: "Invalid one-time term",
@@ -265,9 +282,13 @@ export const subscriptionCreateBodySchema = z.object(subscriptionWriteBodyShape)
     message: "Cost sharing member joined date is outside the subscription date range",
   });
 
-export const subscriptionUpdateBodySchema = z.object(subscriptionWriteBodyShape)
+export const subscriptionUpdateBodySchema = z.object(subscriptionWriteFieldShape)
   .strict()
   .partial()
+  .refine(customCycleFieldsAreConsistent, {
+    path: ["customCycleUnit"],
+    message: "Custom cycle count and unit are required",
+  })
   .refine((value) => {
     if (value.billingCycle === undefined) return true;
     return oneTimeTermFieldsAreConsistent({
@@ -299,23 +320,11 @@ export const subscriptionRenewBodySchema = z.object({
     message: "Next billing date must not be before start date",
   });
 
-/**
- * 订阅读取响应的稳定 API 形状。
- *
- * Worker 会把 D1 snake_case/int boolean 重新映射到这里，PocketBase 记录也会在前端先收敛再解析；
- * 这样 UI 只消费一种契约，运行面差异停留在 service/adapter 层。
- */
-export const apiSubscriptionSchema = z.object({
+const apiSubscriptionCollectionItemShape = {
   id: z.string(),
   name: z.string(),
-  logo: logoReferenceSchema.optional(),
   price: moneyStringSchema,
   currency: z.string(),
-  billingCycle: z.enum(BILLING_CYCLES),
-  customDays: z.number().int().optional(),
-  customCycleUnit: z.enum(CUSTOM_CYCLE_UNITS).optional(),
-  oneTimeTermCount: oneTimeTermCountSchema.optional(),
-  oneTimeTermUnit: oneTimeTermUnitSchema.optional(),
   category: z.string().min(1),
   status: z.enum(SUBSCRIPTION_STATUSES),
   pinned: z.boolean(),
@@ -325,42 +334,154 @@ export const apiSubscriptionSchema = z.object({
   // 订阅响应的 date-only 字段由 shared 统一守门；Go、Worker 和前端都不能在本地补解析 ISO datetime。
   nextBillingDate: dateInputSchema,
   autoRenew: z.boolean(),
+  // 集合卡片需要该日期锚点决定“手动续订”是否可用，不能等详情请求后再改变操作菜单。
   autoCalculateNextBillingDate: z.boolean(),
   trialEndDate: dateInputSchema.optional(),
+  reminderDays: reminderDaysSchema,
+  costSharing: costSharingSchema.optional(),
+} satisfies z.ZodRawShape;
+
+const recurringBillingCycles = ["weekly", "monthly", "quarterly", "semi-annual", "annual"] as const;
+const apiRecurringCycleShape = {
+  billingCycle: z.enum(recurringBillingCycles),
+  customDays: z.never().optional(),
+  customCycleUnit: z.never().optional(),
+  oneTimeTermCount: z.never().optional(),
+  oneTimeTermUnit: z.never().optional(),
+} satisfies z.ZodRawShape;
+const apiCustomCycleShape = {
+  billingCycle: z.literal("custom"),
+  customDays: z.number().int().positive(),
+  customCycleUnit: z.enum(CUSTOM_CYCLE_UNITS),
+  oneTimeTermCount: z.never().optional(),
+  oneTimeTermUnit: z.never().optional(),
+} satisfies z.ZodRawShape;
+const apiOneTimeBuyoutCycleShape = {
+  billingCycle: z.literal("one-time"),
+  customDays: z.never().optional(),
+  customCycleUnit: z.never().optional(),
+  oneTimeTermCount: z.never().optional(),
+  oneTimeTermUnit: z.never().optional(),
+} satisfies z.ZodRawShape;
+const apiOneTimeFixedTermCycleShape = {
+  billingCycle: z.literal("one-time"),
+  customDays: z.never().optional(),
+  customCycleUnit: z.never().optional(),
+  oneTimeTermCount: oneTimeTermCountSchema,
+  oneTimeTermUnit: oneTimeTermUnitSchema,
+} satisfies z.ZodRawShape;
+
+const apiSubscriptionDetailShape = {
   website: z.string().optional(),
   notes: z.string().optional(),
-  tags: z.array(z.string()).optional(),
-  reminderDays: reminderDaysSchema,
+  tags: z.array(z.string()),
   repeatReminderEnabled: z.boolean(),
   repeatReminderInterval: z.enum(REPEAT_REMINDER_INTERVALS),
   repeatReminderWindow: z.enum(REPEAT_REMINDER_WINDOWS),
-  costSharing: costSharingSchema.optional(),
-  extra: extraSchema,
+  extra: z.record(z.string(), z.unknown()),
   createdAt: z.string().optional(),
   updatedAt: z.string().optional(),
-}).strict().refine(oneTimeTermFieldsAreConsistent, {
-  path: ["oneTimeTermCount"],
-  message: "Invalid one-time term",
-}).refine(startDateRequirementIsSatisfied, {
+} satisfies z.ZodRawShape;
+
+function subscriptionRenewalFieldsAreConsistent(value: {
+  billingCycle: BillingCycle;
+  autoRenew: boolean;
+  autoCalculateNextBillingDate: boolean;
+}): boolean {
+  if (value.billingCycle !== "one-time") return true;
+  return !value.autoRenew && !value.autoCalculateNextBillingDate;
+}
+
+type ApiSubscriptionCycleBaseShape = typeof apiSubscriptionCollectionItemShape & {
+  logo: z.ZodType<string | undefined>;
+};
+
+function subscriptionCostSharingAnchorsAreSatisfied(value: {
+  costSharing?: z.infer<typeof costSharingSchema> | null | undefined;
+  startDate: string | null;
+}): boolean {
+  return costSharingCollectionAnchorsAreSatisfied(value.costSharing ?? undefined, value.startDate);
+}
+
+const startDateRequirementCheck = z.refine<Parameters<typeof startDateRequirementIsSatisfied>[0]>(startDateRequirementIsSatisfied, {
   path: ["startDate"],
   message: "Start date is required for one-time subscriptions and automatic billing date calculation",
-}).refine(subscriptionDateOrderIsValid, {
+});
+const subscriptionDateOrderCheck = z.refine<Parameters<typeof subscriptionDateOrderIsValid>[0]>(subscriptionDateOrderIsValid, {
   path: ["nextBillingDate"],
   message: "Next billing date must not be before start date",
-}).refine(costSharingCollectionReminderMatchesBillingCycle, {
-  path: ["costSharing", "collectionReminder"],
-  message: "Cost sharing collection reminder is not available for one-time buyouts",
-}).refine((value) => costSharingCollectionAnchorsAreSatisfied(value.costSharing ?? undefined, value.startDate), {
-  path: ["costSharing", "members"],
-  message: "Cost sharing collection reminder requires member joined dates or subscription start date",
-}).refine(costSharingMemberJoinedDateRangeIsValid, {
-  path: ["costSharing", "members"],
-  message: "Cost sharing member joined date is outside the subscription date range",
 });
+const subscriptionRenewalFieldsCheck = z.refine<Parameters<typeof subscriptionRenewalFieldsAreConsistent>[0]>(
+  subscriptionRenewalFieldsAreConsistent,
+  {
+    path: ["autoRenew"],
+    message: "One-time subscriptions cannot renew or calculate another billing date",
+  },
+);
+const costSharingCollectionReminderCheck = z.refine<Parameters<typeof costSharingCollectionReminderMatchesBillingCycle>[0]>(
+  costSharingCollectionReminderMatchesBillingCycle,
+  {
+    path: ["costSharing", "collectionReminder"],
+    message: "Cost sharing collection reminder is not available for one-time buyouts",
+  },
+);
+const costSharingCollectionAnchorsCheck = z.refine<Parameters<typeof subscriptionCostSharingAnchorsAreSatisfied>[0]>(
+  subscriptionCostSharingAnchorsAreSatisfied,
+  {
+    path: ["costSharing", "members"],
+    message: "Cost sharing collection reminder requires member joined dates or subscription start date",
+  },
+);
+const costSharingMemberJoinedDateRangeCheck = z.refine<Parameters<typeof costSharingMemberJoinedDateRangeIsValid>[0]>(
+  costSharingMemberJoinedDateRangeIsValid,
+  {
+    path: ["costSharing", "members"],
+    message: "Cost sharing member joined date is outside the subscription date range",
+  },
+);
 
-export const subscriptionsListQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(100).default(50),
-  cursor: z.string().trim().min(1).max(512).optional(),
+function createSubscriptionCycleBranches<TBaseShape extends ApiSubscriptionCycleBaseShape>(baseShape: TBaseShape) {
+  // 周期分支是 collection、完整详情与 ZIP 导出的共同事实源；base shape 先固定读取边界，周期字段最后写入以禁止调用方覆盖不变量。
+  return [
+    z.object({ ...baseShape, ...apiRecurringCycleShape }).strict(),
+    z.object({ ...baseShape, ...apiCustomCycleShape }).strict(),
+    z.object({ ...baseShape, ...apiOneTimeBuyoutCycleShape }).strict(),
+    z.object({ ...baseShape, ...apiOneTimeFixedTermCycleShape }).strict(),
+  ] as const;
+}
+
+export const apiSubscriptionCollectionItemSchema = z.union(createSubscriptionCycleBranches({
+  ...apiSubscriptionCollectionItemShape,
+  logo: logoReferenceSchema.optional(),
+})).check(
+  startDateRequirementCheck,
+  subscriptionDateOrderCheck,
+  subscriptionRenewalFieldsCheck,
+  costSharingCollectionReminderCheck,
+  costSharingCollectionAnchorsCheck,
+  costSharingMemberJoinedDateRangeCheck,
+);
+
+export function createApiSubscriptionSchema(logoSchema: z.ZodType<string>) {
+  return z.union(createSubscriptionCycleBranches({
+    ...apiSubscriptionCollectionItemShape,
+    logo: logoSchema.optional(),
+    ...apiSubscriptionDetailShape,
+  })).check(
+    startDateRequirementCheck,
+    subscriptionDateOrderCheck,
+    subscriptionRenewalFieldsCheck,
+    costSharingCollectionReminderCheck,
+    costSharingCollectionAnchorsCheck,
+    costSharingMemberJoinedDateRangeCheck,
+  );
+}
+
+export const apiSubscriptionSchema = createApiSubscriptionSchema(logoReferenceSchema);
+
+export const SUBSCRIPTION_INDEX_LIMIT = 5000;
+
+const subscriptionCollectionFilterShape = {
   q: z.string().trim().min(1).max(200).optional(),
   category: z.array(z.string().trim().min(1).max(80)).max(50).optional(),
   tag: z.array(z.string().trim().min(1).max(40)).max(100).optional(),
@@ -375,20 +496,72 @@ export const subscriptionsListQuerySchema = z.object({
   publicHidden: queryBooleanSchema.optional(),
   reminderMode: z.enum(SUBSCRIPTION_REMINDER_MODES).optional(),
   repeatReminder: queryBooleanSchema.optional(),
-}).strict().refine((value) => {
+} satisfies z.ZodRawShape;
+
+function subscriptionDateRangeIsValid(value: { nextBillingFrom?: string | undefined; nextBillingTo?: string | undefined }): boolean {
   if (!value.nextBillingFrom || !value.nextBillingTo) return true;
   return value.nextBillingFrom <= value.nextBillingTo;
-}, {
+}
+
+export const subscriptionsListQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  cursor: z.string().trim().min(1).max(512).optional(),
+  ...subscriptionCollectionFilterShape,
+}).strict().refine(subscriptionDateRangeIsValid, {
   path: ["nextBillingTo"],
   message: "Invalid date range",
 });
 
+export const subscriptionsIndexQuerySchema = z.object(subscriptionCollectionFilterShape).strict()
+  .refine(subscriptionDateRangeIsValid, {
+    path: ["nextBillingTo"],
+    message: "Invalid date range",
+  });
+
+export const subscriptionsCalendarQuerySchema = z.object({
+  from: dateInputSchema,
+  to: dateInputSchema,
+}).strict().refine((value) => value.from <= value.to, {
+  path: ["to"],
+  message: "Invalid date range",
+});
+
 export const subscriptionsListPayloadSchema = z.object({
-  subscriptions: z.array(apiSubscriptionSchema),
+  subscriptions: z.array(apiSubscriptionCollectionItemSchema),
   nextCursor: z.string().nullable(),
-  total: z.number().int().nonnegative().optional(),
+  total: z.number().int().nonnegative(),
 }).strict();
 export const subscriptionsListResponseSchema = apiSuccessResponseSchema(subscriptionsListPayloadSchema);
+
+export const subscriptionsIndexPayloadSchema = z.object({
+  subscriptions: z.array(apiSubscriptionCollectionItemSchema).max(SUBSCRIPTION_INDEX_LIMIT),
+  total: z.number().int().nonnegative(),
+}).strict();
+export const subscriptionsIndexResponseSchema = apiSuccessResponseSchema(subscriptionsIndexPayloadSchema);
+
+export const subscriptionsAnalyticsPayloadSchema = z.object({
+  subscriptions: z.array(apiSubscriptionCollectionItemSchema).max(SUBSCRIPTION_INDEX_LIMIT),
+}).strict();
+export const subscriptionsAnalyticsResponseSchema = apiSuccessResponseSchema(subscriptionsAnalyticsPayloadSchema);
+
+export const subscriptionsCalendarPayloadSchema = z.object({
+  subscriptions: z.array(apiSubscriptionCollectionItemSchema).max(SUBSCRIPTION_INDEX_LIMIT),
+}).strict();
+export const subscriptionsCalendarResponseSchema = apiSuccessResponseSchema(subscriptionsCalendarPayloadSchema);
+
+export const subscriptionFacetsPayloadSchema = z.object({
+  total: z.number().int().nonnegative(),
+  categoryCounts: z.record(z.string().min(1), z.number().int().nonnegative()),
+  tags: z.array(z.string().min(1)),
+  visibleCount: z.number().int().nonnegative(),
+  hiddenCount: z.number().int().nonnegative(),
+}).strict();
+export const subscriptionFacetsResponseSchema = apiSuccessResponseSchema(subscriptionFacetsPayloadSchema);
+
+export const subscriptionsExportPayloadSchema = z.object({
+  subscriptions: z.array(apiSubscriptionSchema),
+}).strict();
+export const subscriptionsExportResponseSchema = apiSuccessResponseSchema(subscriptionsExportPayloadSchema);
 
 export const subscriptionPayloadSchema = z.object({
   subscription: apiSubscriptionSchema,
@@ -398,15 +571,16 @@ export const subscriptionResponseSchema = apiSuccessResponseSchema(subscriptionP
 export const subscriptionDeleteResponseSchema = okResponseSchema;
 
 export type SubscriptionsListResponse = z.infer<typeof subscriptionsListPayloadSchema>;
+export type SubscriptionsIndexResponse = z.infer<typeof subscriptionsIndexPayloadSchema>;
+export type SubscriptionsAnalyticsResponse = z.infer<typeof subscriptionsAnalyticsPayloadSchema>;
+export type SubscriptionsCalendarResponse = z.infer<typeof subscriptionsCalendarPayloadSchema>;
+export type SubscriptionFacetsResponse = z.infer<typeof subscriptionFacetsPayloadSchema>;
+export type SubscriptionsExportResponse = z.infer<typeof subscriptionsExportPayloadSchema>;
 export type SubscriptionResponse = z.infer<typeof subscriptionPayloadSchema>;
 export type SubscriptionRenewBody = z.infer<typeof subscriptionRenewBodySchema>;
 
-export type ApiSubscription = z.infer<typeof apiSubscriptionSchema> & {
-  billingCycle: BillingCycle;
-  customCycleUnit?: CustomCycleUnit | undefined;
-  oneTimeTermUnit?: CustomCycleUnit | undefined;
-  status: SubscriptionStatus;
-  repeatReminderInterval: RepeatReminderInterval;
-  repeatReminderWindow: RepeatReminderWindow;
-};
+export type ApiSubscriptionCollectionItem = z.infer<typeof apiSubscriptionCollectionItemSchema>;
+export type ApiSubscription = z.infer<typeof apiSubscriptionSchema>;
 export type SubscriptionsListQuery = z.infer<typeof subscriptionsListQuerySchema>;
+export type SubscriptionsIndexQuery = z.infer<typeof subscriptionsIndexQuerySchema>;
+export type SubscriptionsCalendarQuery = z.infer<typeof subscriptionsCalendarQuerySchema>;

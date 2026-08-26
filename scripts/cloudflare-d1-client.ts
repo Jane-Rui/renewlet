@@ -22,7 +22,7 @@ export type D1RowParser<T> = (value: unknown) => T;
 export interface D1Client {
   /** 每一行都必须经调用方 parser 验证；transport 不把 unknown JSON 伪装成业务类型。 */
   query<T>(sql: string, params: readonly D1Value[], parseRow: D1RowParser<T>): Promise<T[]>;
-  /** 空批次不发请求；非空批次保持调用顺序并要求逐语句结果完整。 */
+  /** 空批次不发请求；非空批次保持顺序和结果基数，调用方仍须保证中断或响应丢失后可整批重放。 */
   batch(statements: readonly D1Statement[]): Promise<D1QueryResult[]>;
 }
 
@@ -294,7 +294,7 @@ function retryFailureMessage(error: unknown): string {
 
 /**
  * D1 Query REST transport，只对瞬时网络/平台失败做有限重试。
- * 调用方必须只提交可重放的查询、UPSERT 或键级 DELETE，避免提交成功但响应丢失后重复副作用。
+ * 调用方只能提交幂等查询、键级写入或整批重放仍收敛的状态机 DDL，避免响应丢失后重复副作用。
  */
 export class D1RemoteClient implements D1Client {
   private readonly fetchImpl: typeof fetch;
@@ -337,7 +337,7 @@ export class D1RemoteClient implements D1Client {
     if (statements.length === 0) return [];
     const normalized = statements.map(normalizeStatement);
 
-    // 远端可能在提交后丢失响应；有限重试只适用于本 backfill 的查询、UPSERT 与键级 DELETE，调用方不得传入非幂等写入。
+    // 远端可能在提交后丢失响应；调用方必须保证整个批次重放后收敛到同一持久状态。
     for (let attempt = 1; attempt <= this.maxAttempts; attempt += 1) {
       try {
         return await this.request(normalized);

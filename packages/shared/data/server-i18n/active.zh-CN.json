@@ -336,6 +336,8 @@
   "system.updateCompleted": "更新已完成，请重启服务以应用更新。",
   "system.updateFailed": "系统更新失败",
   "system.updateInProgress": "已有系统更新正在执行",
+  "system.updateInterrupted": "更新被中断，请重试。",
+  "system.updateTimedOut": "更新下载超时，请检查 Renewlet 容器的网络连接后重试。",
   "system.restartNotPending": "没有待应用的系统更新",
   "system.updateUnsupportedDockerBridge": "未找到可替换的 Docker 运行二进制，请先用 docker compose pull && docker compose up -d 升级一次。",
   "system.updateUnsupportedLinuxDocker": "页面内一键更新只支持 Linux Docker 镜像。",

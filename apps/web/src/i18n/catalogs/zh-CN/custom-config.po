@@ -29,14 +29,49 @@ msgid "customConfig.dragSortOnly"
 msgstr "仅支持拖拽排序"
 
 #. js-lingui-explicit-id
+#: src/i18n/descriptors/custom-config.ts:22
+msgid "customConfig.saveNamed"
+msgstr "保存「{label}」"
+
+#. js-lingui-explicit-id
 #: src/i18n/descriptors/custom-config.ts:16
 msgid "customConfig.totalItems"
 msgstr "共 {count} 项"
 
 #. js-lingui-explicit-id
+#: src/i18n/descriptors/custom-config.ts:21
+msgid "customConfig.deleteNamed"
+msgstr "删除「{label}」"
+
+#. js-lingui-explicit-id
+#: src/i18n/descriptors/custom-config.ts:24
+msgid "customConfig.confirmDeleteTitle"
+msgstr "删除「{label}」？"
+
+#. js-lingui-explicit-id
+#: src/i18n/descriptors/custom-config.ts:23
+msgid "customConfig.cancelEditNamed"
+msgstr "取消编辑「{label}」"
+
+#. js-lingui-explicit-id
+#: src/i18n/descriptors/custom-config.ts:19
+msgid "customConfig.toggleNamed"
+msgstr "启用或停用「{label}」"
+
+#. js-lingui-explicit-id
 #: src/i18n/descriptors/custom-config.ts:5
 msgid "customConfig.iconLabel"
 msgstr "图标："
+
+#. js-lingui-explicit-id
+#: src/i18n/descriptors/custom-config.ts:25
+msgid "customConfig.confirmDeleteDescription"
+msgstr "已有订阅数据会保留；该选项将不再可选，并可能影响展示或筛选。"
+
+#. js-lingui-explicit-id
+#: src/i18n/descriptors/custom-config.ts:18
+msgid "customConfig.dragNamed"
+msgstr "拖动「{label}」排序"
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/custom-config.ts:15
@@ -59,19 +94,14 @@ msgid "customConfig.addOption"
 msgstr "添加选项"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/custom-config.ts:19
-msgid "customConfig.confirmDeleteDescription"
-msgstr "确定要删除「{label}」吗？删除后不会影响已有订阅数据，但该选项将不再可选，且可能影响展示/筛选。"
-
-#. js-lingui-explicit-id
-#: src/i18n/descriptors/custom-config.ts:18
-msgid "customConfig.confirmDeleteTitle"
-msgstr "确认删除"
-
-#. js-lingui-explicit-id
 #: src/i18n/descriptors/custom-config.ts:12
 msgid "customConfig.srDescription"
 msgstr "管理{title}的选项、排序和启用状态。"
+
+#. js-lingui-explicit-id
+#: src/i18n/descriptors/custom-config.ts:20
+msgid "customConfig.editNamed"
+msgstr "编辑「{label}」"
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/custom-config.ts:9

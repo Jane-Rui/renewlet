@@ -4,12 +4,14 @@
  *
  * 触发时机：本地 Worker 启动、`pnpm deploy`、自管 Cloudflare workflow 和稳定版生产部署。
  * 前置依赖：显式选择 local/remote；remote 需要 Wrangler 登录或 Cloudflare API token/account。
- * 副作用：对所选 D1 应用尚未执行的 migration；非重试错误必须继续阻断启动或部署。
+ * 状态流：迁移守卫 -> Feed 持久保护 -> migration -> Feed 恢复 -> v3 派生回填 -> 外键校验。
+ * 任一步失败都必须阻断 Worker 更新；各持久阶段可由下一次部署从数据库状态安全重放。
  */
 import { spawn } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { checkCloudflareMigrationSafety } from "./check-cloudflare-migration-safety.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -27,7 +29,7 @@ function usage() {
   return [
     "Usage: node scripts/apply-cloudflare-d1-migrations.mjs (--local | --remote) [--config <path>]",
     "",
-    "Applies D1 migrations, backfills derived state, and verifies foreign keys.",
+    "Protects calendar Feeds, applies D1 migrations, backfills derived state, and verifies foreign keys.",
   ].join("\n");
 }
 
@@ -81,6 +83,12 @@ function wranglerArgs(options) {
 
 function derivedBackfillArgs(options) {
   const args = ["exec", "tsx", "scripts/backfill-cloudflare-subscription-derived-state.ts", `--${options.target}`];
+  if (options.configPath) args.push("--config", options.configPath);
+  return args;
+}
+
+function calendarFeedProtectionArgs(options, phase) {
+  const args = ["exec", "tsx", "scripts/protect-cloudflare-calendar-feeds.ts", `--${options.target}`, "--phase", phase];
   if (options.configPath) args.push("--config", options.configPath);
   return args;
 }
@@ -163,6 +171,9 @@ function assertForeignKeyCheck(result) {
 }
 
 async function runPostMigrationSteps(options) {
+  // Feed 是不可推导事实，必须先恢复并校验；其后的集合与调度状态都能从 subscriptions 重建。
+  const restoreFeeds = await runWranglerMigration(calendarFeedProtectionArgs(options, "restore"));
+  if (restoreFeeds.status !== 0) throw new Error("Cloudflare D1 calendar Feed restore failed.");
   const backfill = await runWranglerMigration(derivedBackfillArgs(options));
   if (backfill.status !== 0) throw new Error("Cloudflare D1 derived-state backfill failed.");
   const foreignKeys = await runWranglerMigration(foreignKeyCheckArgs(options));
@@ -171,6 +182,10 @@ async function runPostMigrationSteps(options) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+  // 守卫必须先于 Feed prepare 的首个远端写入，避免 CI 路径绕过 check:deploy 后污染 D1。
+  checkCloudflareMigrationSafety(repoRoot);
+  const prepareFeeds = await runWranglerMigration(calendarFeedProtectionArgs(options, "prepare"));
+  if (prepareFeeds.status !== 0) throw new Error("Cloudflare D1 calendar Feed backup failed.");
   const args = wranglerArgs(options);
   if (options.target === "local") {
     const result = await runWranglerMigration(args);

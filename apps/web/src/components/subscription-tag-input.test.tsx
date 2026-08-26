@@ -34,7 +34,7 @@ describe("SubscriptionTagInput", () => {
     const listbox = await screen.findByRole("listbox");
     const content = listbox.parentElement;
     expect(content).toHaveAttribute("data-side", "top");
-    expect(content).toHaveClass("w-[var(--radix-popover-trigger-width)]");
+    expect(content).toHaveClass("w-(--radix-popover-trigger-width)");
   });
 
   it("keeps suggestions inside the parent dialog portal so the list remains interactive", async () => {
@@ -78,7 +78,7 @@ describe("SubscriptionTagInput", () => {
     expect(input).toHaveClass("min-w-0");
     expect(input).not.toHaveClass("basis-[1ch]");
     expect(input).not.toHaveClass("flex-[1_0_1ch]");
-    expect(input).not.toHaveClass("min-w-[8rem]");
+    expect(input).not.toHaveClass("min-w-32");
 
     await user.type(input, "Design");
 
@@ -157,7 +157,7 @@ describe("SubscriptionTagInput", () => {
 
     const input = screen.getByLabelText("标签");
     const sizer = input.closest('[data-slot="subscription-tag-input-sizer"]');
-    expect(sizer).toHaveClass("min-w-[8rem]");
+    expect(sizer).toHaveClass("min-w-32");
     expect(sizer).toHaveClass("flex-1");
   });
 

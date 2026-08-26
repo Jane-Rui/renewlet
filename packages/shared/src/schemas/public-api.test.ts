@@ -7,6 +7,8 @@ import {
   publicApiDueResponseSchema,
   publicApiMeResponseSchema,
   publicApiStatusResponseSchema,
+  publicApiSubscriptionResponseSchema,
+  publicApiSubscriptionsListResponseSchema,
   publicApiTokenPlainSchema,
 } from "./public-api";
 
@@ -90,5 +92,38 @@ describe("public API schemas", () => {
         subscription: subscription({ startDate: null, autoCalculateNextBillingDate: false }),
       }],
     })).data.items[0]?.subscription.startDate).toBeNull();
+  });
+
+  it("keeps the published subscription DTO independent from the private collection contract", () => {
+    const { tags: _tags, extra: _extra, ...publishedShape } = subscription();
+
+    expect(publicApiSubscriptionsListResponseSchema.parse(success({
+      subscriptions: [publishedShape],
+      nextCursor: null,
+    })).data.subscriptions).toHaveLength(1);
+    expect(publicApiSubscriptionResponseSchema.parse(success({
+      subscription: publishedShape,
+    })).data.subscription.id).toBe("sub_public_api");
+  });
+
+  it("keeps the published optional billing fields while preserving existing one-time validation", () => {
+    expect(publicApiSubscriptionResponseSchema.safeParse(success({
+      subscription: subscription({ billingCycle: "custom" }),
+    })).success).toBe(true);
+    expect(publicApiSubscriptionResponseSchema.safeParse(success({
+      subscription: subscription({ billingCycle: "monthly", customDays: 3, customCycleUnit: "month" }),
+    })).success).toBe(true);
+    expect(publicApiSubscriptionResponseSchema.safeParse(success({
+      subscription: subscription({ billingCycle: "one-time" }),
+    })).success).toBe(true);
+    expect(publicApiSubscriptionResponseSchema.safeParse(success({
+      subscription: subscription({ billingCycle: "one-time", oneTimeTermCount: 6, oneTimeTermUnit: "month" }),
+    })).success).toBe(true);
+    expect(publicApiSubscriptionResponseSchema.safeParse(success({
+      subscription: subscription({ billingCycle: "one-time", oneTimeTermCount: 6 }),
+    })).success).toBe(false);
+    expect(publicApiSubscriptionResponseSchema.safeParse(success({
+      subscription: subscription({ billingCycle: "one-time", oneTimeTermUnit: "month" }),
+    })).success).toBe(false);
   });
 });

@@ -9,7 +9,6 @@ const IMPORT_MESSAGE_KEYS: Record<string, MessageKey> = {
   IMPORT_ERROR_UNRECOGNIZED_FILE: "import.error.unrecognizedFile",
   IMPORT_ERROR_WALLOS_TABLE_TOO_LARGE: "import.error.wallosTableTooLarge",
   IMPORT_ERROR_WORKER_PARSE_FAILED: "import.error.workerParseFailed",
-  IMPORT_ERROR_WORKER_UNSUPPORTED: "import.error.workerUnsupported",
   IMPORT_KEY_REQUIRED: "import.error.keyRequired",
   IMPORT_SKIP_INDEX_INVALID: "import.error.skipIndexInvalid",
   IMPORT_SOURCE_ID_DUPLICATE: "import.error.sourceIdDuplicate",

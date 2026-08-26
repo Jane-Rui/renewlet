@@ -5,9 +5,9 @@ import {
   recomputePreviewForConflictMode,
   type PreviewFilter,
 } from "@/components/import-preview-list";
-import { toast } from "@/hooks/use-toast";
-import { SETTINGS_QUERY_KEY } from "@/hooks/use-settings";
-import { invalidateSubscriptionsQueries } from "@/hooks/use-subscriptions";
+import { toast } from "@/components/ui/sonner";
+import { SETTINGS_QUERY_KEY } from "@/hooks/settings-query-key";
+import { invalidateSubscriptionCollections, removeSubscriptionDetails } from "@/hooks/subscription-query-cache";
 import { invalidateUploadedAssetsQueries } from "@/hooks/use-uploaded-assets";
 import { useI18n } from "@/i18n/I18nProvider";
 import { getDisplayErrorMessage } from "@/lib/display-error";
@@ -71,16 +71,22 @@ export function useImportPreviewApply({ onApplied }: UseImportPreviewApplyOption
     setApplyProgress(null);
   }, []);
 
-  const previewPrepared = useCallback(async (nextPrepared: PreparedImport, nextConflictMode = conflictMode) => {
-    const preparedWithAutoLogos = await resolveAutoLogosForPreparedImport(nextPrepared);
-    const result = await importExportService.preview(preparedWithAutoLogos.payload, nextConflictMode);
+  const previewPrepared = useCallback(async (
+    nextPrepared: PreparedImport,
+    nextConflictMode: ImportConflictMode,
+    signal: AbortSignal,
+  ) => {
+    const preparedWithAutoLogos = await resolveAutoLogosForPreparedImport(nextPrepared, signal);
+    signal.throwIfAborted();
+    const result = await importExportService.preview(preparedWithAutoLogos.payload, nextConflictMode, signal);
+    signal.throwIfAborted();
     setPrepared(preparedWithAutoLogos);
     setPreview(result);
     setPreviewFilter("all");
     setSkippedIndexes(new Set());
     setAssetProgress(null);
     setApplyProgress(null);
-  }, [conflictMode]);
+  }, []);
 
   const handleConflictModeChange = useCallback((value: ImportConflictMode) => {
     setConflictMode(value);
@@ -135,28 +141,27 @@ export function useImportPreviewApply({ onApplied }: UseImportPreviewApplyOption
         ? [invalidateUploadedAssetsQueries(queryClient, "icon")]
         : [];
       // 导入可能同时写订阅、设置和自定义配置；成功后统一失效，避免页面继续展示导入前缓存。
+      // 导入可能替换任意 id 的完整记录；detail cache 无法局部证明有效，必须整体清空。
+      removeSubscriptionDetails(queryClient);
       await Promise.all([
-        invalidateSubscriptionsQueries(queryClient),
+        invalidateSubscriptionCollections(queryClient),
         queryClient.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY }),
         queryClient.invalidateQueries({ queryKey: ["custom-config"] }),
         ...assetInvalidations,
         ...iconAssetInvalidations,
       ]);
-      toast({
-        title: t("import.successTitle"),
-        description: t("import.successDescription", {
+      toast.success(t("import.successResult", {
           creates: result.summary.creates,
           replaces: result.summary.replaces,
           skips: result.summary.skips,
-        }),
-      });
+        }));
       onApplied();
     } catch (err) {
       const message = err instanceof ImportAssetUploadError
         ? t("import.assetUploadFailed")
         : getDisplayErrorMessage(err, t("import.applyFailed"));
       setError(message);
-      toast({ title: message, variant: "destructive" });
+      toast.error(message);
     } finally {
       setApplying(false);
     }

@@ -10,8 +10,13 @@ import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router";
 import { AppScrollRestoration } from "@/components/app-scroll-restoration";
 import { ProtectedRoute } from "@/components/protected-route";
-import { lazyRouteLoader, routeFallbackForPathname } from "@/lib/route-resources";
+import {
+  lazyPrivateAppShellLoader,
+  lazyRouteLoader,
+  routeFallbackForPathname,
+} from "@/lib/route-resources";
 
+const PrivateAppShell = lazy(lazyPrivateAppShellLoader);
 const Dashboard = lazy(lazyRouteLoader("dashboard"));
 const Subscriptions = lazy(lazyRouteLoader("subscriptions"));
 const Calendar = lazy(lazyRouteLoader("calendar"));
@@ -40,12 +45,14 @@ export default function App() {
       <AppScrollRestoration />
       <Suspense fallback={<RouteFallback />}>
         <Routes>
-          <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-          <Route path="/subscriptions" element={<ProtectedRoute><Subscriptions /></ProtectedRoute>} />
-          <Route path="/calendar" element={<ProtectedRoute><Calendar /></ProtectedRoute>} />
-          <Route path="/statistics" element={<ProtectedRoute><Statistics /></ProtectedRoute>} />
-          <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
-          <Route path="/admin/users" element={<ProtectedRoute adminOnly><AdminUsers /></ProtectedRoute>} />
+          <Route element={<ProtectedRoute><PrivateAppShell /></ProtectedRoute>}>
+            <Route index element={<Dashboard />} />
+            <Route path="subscriptions" element={<Subscriptions />} />
+            <Route path="calendar" element={<Calendar />} />
+            <Route path="statistics" element={<Statistics />} />
+            <Route path="settings" element={<Settings />} />
+            <Route path="admin/users" element={<ProtectedRoute adminOnly><AdminUsers /></ProtectedRoute>} />
+          </Route>
           <Route path="/setup" element={<Setup />} />
           <Route path="/login" element={<Login />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />

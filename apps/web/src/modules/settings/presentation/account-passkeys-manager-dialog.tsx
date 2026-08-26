@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { KeyRound, Plus, Trash2 } from "lucide-react";
 import {
@@ -12,15 +12,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { FormField } from "@/components/ui/form-field";
+import { Dialog } from "@/components/ui/dialog";
+import { FormField, FormFieldRow, FormFieldRowAction } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
 import { useI18n } from "@/i18n/I18nProvider";
@@ -29,14 +22,16 @@ import { getDisplayErrorMessage } from "@/lib/display-error";
 import { passkeyService } from "@/services/passkey-service";
 import { LoadingButtonContent } from "./settings-shared-controls";
 import { MFA_STATUS_QUERY_KEY, PASSKEYS_QUERY_KEY } from "./account-security-query-keys";
+import type { SettingsReadState } from "../application/settings-read-state";
+import { ManagerDataBoundary } from "./manager-data-boundary";
+import { SettingsManagerDialogFrame } from "./settings-manager-dialog-frame";
 
-interface AccountPasskeysManagerDialogProps {
+export interface AccountPasskeysManagerDialogProps {
   accountEmail: string | null;
   disabled?: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  passkeys: Passkey[];
-  isLoading: boolean;
+  passkeys: SettingsReadState<Passkey[]>;
 }
 
 /**
@@ -49,7 +44,6 @@ export function AccountPasskeysManagerDialog({
   open,
   onOpenChange,
   passkeys,
-  isLoading,
 }: AccountPasskeysManagerDialogProps) {
   const { t, formatDateTime } = useI18n();
   const queryClient = useQueryClient();
@@ -57,6 +51,8 @@ export function AccountPasskeysManagerDialog({
   const [passkeyPassword, setPasskeyPassword] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<Passkey | null>(null);
   const [deletePasskeyPassword, setDeletePasskeyPassword] = useState("");
+  const passkeyNameInputRef = useRef<HTMLInputElement>(null);
+  const items = passkeys.data ?? [];
 
   const invalidatePasskeys = async () => {
     // 通行密钥和身份验证器可共存；mutation 后同时刷新两块摘要，确保设置页 badge 和数量不读旧缓存。
@@ -129,23 +125,17 @@ export function AccountPasskeysManagerDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent
-          dismissMode="explicit"
-          layout="frame"
-          className="flex h-[min(calc(var(--app-viewport-height)-2rem),44rem)] min-h-0 max-w-3xl flex-col gap-0 overflow-hidden border-border bg-card p-0"
-          closeLabel={t("common.close")}
+        <SettingsManagerDialogFrame
+          icon={<KeyRound className="h-5 w-5 text-primary" aria-hidden="true" />}
+          title={t("settings.passkeysManageTitle")}
+          description={t("settings.passkeysManageDescription")}
+          bodyTestId="passkeys-manager-scroll"
+          footer={(
+            <Button type="button" onClick={() => handleOpenChange(false)} disabled={isBusy} className="w-full sm:w-auto">
+              {t("common.close")}
+            </Button>
+          )}
         >
-          <DialogHeader className="border-b border-border px-4 py-5 pr-12 text-left sm:px-6 sm:pr-14">
-            <DialogTitle className="flex items-center gap-2">
-              <KeyRound className="h-5 w-5 text-primary" aria-hidden="true" />
-              {t("settings.passkeysManageTitle")}
-            </DialogTitle>
-            <DialogDescription className="text-left">
-              {t("settings.passkeysManageDescription")}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6" data-testid="passkeys-manager-scroll">
             <div className="grid gap-5">
               <form
                 aria-label={t("settings.addPasskey")}
@@ -167,10 +157,14 @@ export function AccountPasskeysManagerDialog({
                   aria-hidden="true"
                   className="sr-only"
                 />
-                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] md:items-end">
+                <FormFieldRow
+                  alignAt="md"
+                  rowClassName="md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]"
+                >
                   <FormField id="passkey-name" label={t("settings.passkeyName")}>
                     {({ id }) => (
                       <Input
+                        ref={passkeyNameInputRef}
                         id={id}
                         name="passkey-name"
                         autoComplete="off"
@@ -182,8 +176,12 @@ export function AccountPasskeysManagerDialog({
                       />
                     )}
                   </FormField>
-                  <FormField id="passkey-password" label={t("settings.currentPassword")}>
-                    {({ id }) => (
+                  <FormField
+                    id="passkey-password"
+                    label={t("settings.currentPassword")}
+                    description={t("settings.addPasskeyPasswordHelp")}
+                  >
+                    {({ id, describedBy }) => (
                       <Input
                         id={id}
                         name="current-password"
@@ -193,35 +191,33 @@ export function AccountPasskeysManagerDialog({
                         onChange={(event) => setPasskeyPassword(event.target.value)}
                         placeholder={t("settings.currentPasswordPlaceholder")}
                         disabled={disabled || registerMutation.isPending}
+                        aria-describedby={describedBy}
                       />
                     )}
                   </FormField>
-                  <Button
-                    type="submit"
-                    className="justify-center gap-2"
-                    disabled={!canRegister}
-                  >
-                    <LoadingButtonContent loading={registerMutation.isPending} loadingLabel={t("common.saving")}>
-                      <Plus className="h-4 w-4" />
-                      {t("settings.addPasskey")}
-                    </LoadingButtonContent>
-                  </Button>
-                </div>
+                  <FormFieldRowAction>
+                    <Button
+                      type="submit"
+                      className="w-full justify-center gap-2 md:w-auto"
+                      disabled={!canRegister}
+                    >
+                      <LoadingButtonContent loading={registerMutation.isPending} loadingLabel={t("common.saving")}>
+                        <Plus className="h-4 w-4" />
+                        {t("settings.addPasskey")}
+                      </LoadingButtonContent>
+                    </Button>
+                  </FormFieldRowAction>
+                </FormFieldRow>
               </form>
 
               <div className="grid gap-3 border-t border-border pt-4">
-                <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-sm font-medium text-foreground">{t("settings.passkeys")}</h3>
-                  <span className="text-xs text-muted-foreground">{t("settings.passkeyCount", { count: passkeys.length })}</span>
-                </div>
-                {isLoading && passkeys.length === 0 ? (
-                  <p className="rounded-md border border-dashed border-border bg-background px-3 py-4 text-sm text-muted-foreground">{t("common.loading")}</p>
-                ) : passkeys.length === 0 ? (
+                <ManagerDataBoundary state={passkeys}>
+                {items.length === 0 ? (
                   <p className="rounded-md border border-dashed border-border bg-background px-3 py-4 text-sm text-muted-foreground">{t("settings.noPasskeys")}</p>
                 ) : (
                   // 管理弹窗承载完整通行密钥列表，避免凭据数量把设置页主内容撑长。
                   <ul className="grid gap-2" aria-label={t("settings.passkeys")}>
-                    {passkeys.map((passkey) => (
+                    {items.map((passkey) => (
                       <li key={passkey.id} className="grid gap-3 rounded-md border border-border bg-background p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
                         <div className="min-w-0">
                           <p className="truncate text-sm font-medium text-foreground">{passkey.name}</p>
@@ -245,19 +241,10 @@ export function AccountPasskeysManagerDialog({
                     ))}
                   </ul>
                 )}
+                </ManagerDataBoundary>
               </div>
             </div>
-          </div>
-
-          <DialogFooter className="border-t border-border px-4 py-4 sm:px-6">
-            <p className="text-left text-xs leading-5 text-muted-foreground sm:mr-auto">
-              {t("settings.passkeysManageHint")}
-            </p>
-            <Button type="button" onClick={() => handleOpenChange(false)} disabled={isBusy} className="w-full sm:w-auto">
-              {t("common.close")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
+        </SettingsManagerDialogFrame>
       </Dialog>
 
       <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(nextOpen) => {
@@ -267,7 +254,13 @@ export function AccountPasskeysManagerDialog({
           setDeletePasskeyPassword("");
         }
       }}>
-        <AlertDialogContent>
+        <AlertDialogContent
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            // 删除成功会卸载对应行，统一回到添加名称字段，避免焦点落到已移除按钮。
+            passkeyNameInputRef.current?.focus();
+          }}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>{t("settings.deletePasskeyTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
@@ -294,6 +287,7 @@ export function AccountPasskeysManagerDialog({
             <AlertDialogCancel disabled={deleteMutation.isPending}>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               disabled={disabled || deleteMutation.isPending || !deleteTarget || !deletePasskeyPassword}
+              aria-busy={deleteMutation.isPending ? true : undefined}
               onClick={(event) => {
                 event.preventDefault();
                 if (disabled || !deleteTarget || !deletePasskeyPassword) return;

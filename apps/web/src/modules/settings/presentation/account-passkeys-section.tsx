@@ -1,25 +1,29 @@
 import { KeyRound, SlidersHorizontal } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n/I18nProvider";
+import type { Passkey } from "@/lib/api/schemas/auth";
+import type { SettingsReadState } from "../application/settings-read-state";
 
 export interface AccountPasskeysSectionProps {
   disabled?: boolean;
-  count: number;
-  isLoading: boolean;
+  state: SettingsReadState<Passkey[]>;
   onManagePasskeys: () => void;
 }
 
 export function AccountPasskeysSection({
   disabled = false,
-  count,
-  isLoading,
+  state,
   onManagePasskeys,
 }: AccountPasskeysSectionProps) {
   const { t } = useI18n();
 
-  const hasPasskeys = count > 0;
-  const countLabel = isLoading ? t("common.loading") : t("settings.passkeyCount", { count });
+  const countLabel = state.isInitialLoading
+    ? t("common.loading")
+    : !state.hasData && state.error
+      ? t("settings.statusUnknown")
+      : state.error
+        ? t("settings.passkeyCountStale", { count: state.data?.length ?? 0 })
+        : t("settings.passkeyCount", { count: state.data?.length ?? 0 });
 
   return (
     <div className="grid gap-3 rounded-md border border-border bg-secondary/20 p-4">
@@ -27,15 +31,11 @@ export function AccountPasskeysSection({
         <div className="grid min-w-0 gap-1">
           <div className="flex flex-wrap items-center gap-2">
             <KeyRound className="h-4 w-4 text-primary" aria-hidden="true" />
-            <h3 className="text-sm font-semibold text-foreground">{t("settings.passkeys")}</h3>
-            <Badge variant={hasPasskeys ? "default" : "secondary"}>
-              {hasPasskeys ? t("common.enabled") : t("common.disabled")}
-            </Badge>
+            <h3 className="text-sm font-semibold text-foreground">
+              {t("settings.passkeysSummary", { summary: countLabel })}
+            </h3>
           </div>
           <p className="text-xs leading-5 text-muted-foreground">{t("settings.passkeyHelp")}</p>
-          <p className="text-xs font-medium text-foreground">
-            {t("settings.passkeyCountLabel")}：{countLabel}
-          </p>
         </div>
         <Button
           type="button"

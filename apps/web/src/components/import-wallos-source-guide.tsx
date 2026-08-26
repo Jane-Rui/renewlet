@@ -89,7 +89,7 @@ export function ImportWallosSourceGuide() {
         </span>
       </summary>
       <div className="overflow-x-auto border-t border-border">
-        <table className="w-full min-w-[760px] border-collapse text-xs">
+        <table className="w-full min-w-190 border-collapse text-xs">
           <caption className="sr-only">{t("import.wallosGuideTitle")}</caption>
           <thead className="bg-background/40 text-[11px] text-muted-foreground">
             <tr>
@@ -104,7 +104,7 @@ export function ImportWallosSourceGuide() {
           <tbody>
             {rows.map((row) => (
               <tr key={row.source} className={cn("border-t border-border/70", row.recommended && "bg-primary/5")}>
-                <th scope="row" className="w-[210px] px-3 py-2 text-left align-middle">
+                <th scope="row" className="w-52.5 px-3 py-2 text-left align-middle">
                   <div className="flex min-w-0 items-center gap-2">
                     <span className={cn(
                       "flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground",

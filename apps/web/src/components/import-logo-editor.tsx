@@ -1,4 +1,4 @@
-import { lazy, Suspense, useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import { useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { Image as ImageIcon, ImageOff, Images, Link, Loader2, RefreshCw, Search, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -9,18 +9,15 @@ import { MediaCandidateViewport } from "@/components/media-candidate-viewport";
 import { MediaThumbnailButton } from "@/components/media-thumbnail-button";
 import { LogoUrlInputPanel } from "@/components/logo-url-input-panel";
 import { SubscriptionLogo } from "@/components/subscription-logo";
+import {
+  DeferredImageCropDialog,
+  preloadImageCropDialog,
+} from "@/components/image-crop-dialog-loader";
 import { useMediaCandidates } from "@/hooks/use-media-candidates";
 import { useUploadedLogoAssets } from "@/hooks/use-uploaded-logo-assets";
 import { dataUrlToBlob, validateImageFileForUpload } from "@/lib/upload-image";
 import { IMAGE_UPLOAD_ACCEPT, imageExtensionForMime, isIcoImageMime, isSvgImageMime, uploadMimeTypeForFile } from "@/lib/upload-constraints";
 import { useI18n } from "@/i18n/I18nProvider";
-
-const loadImageCropDialog = () => import("@/components/image-crop-dialog");
-const LazyImageCropDialog = lazy(() => loadImageCropDialog().then((mod) => ({ default: mod.ImageCropDialog })));
-
-function CropDialogFallback() {
-  return <div className="fixed inset-0 z-50 bg-background/80" aria-hidden="true" />;
-}
 
 export interface DeferredLogoAsset {
   /** 待导入订阅最终保存前才上传，避免用户取消导入后留下孤立私有资产。 */
@@ -177,7 +174,16 @@ export function ImportLogoEditor({ name, website, value, assetPreviewUrl, onChan
 
             <input ref={fileInputRef} type="file" accept={IMAGE_UPLOAD_ACCEPT} className="hidden" onChange={handleFileUpload} />
             <div className="grid gap-2">
-              <Button type="button" variant="outline" size="sm" className="gap-2 border-border" onClick={() => fileInputRef.current?.click()}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-2 border-border"
+                onFocus={preloadImageCropDialog}
+                onPointerEnter={preloadImageCropDialog}
+                onTouchStart={preloadImageCropDialog}
+                onClick={() => fileInputRef.current?.click()}
+              >
                 <Upload className="h-4 w-4" />
                 {t("media.uploadLogo")}
               </Button>
@@ -265,18 +271,14 @@ export function ImportLogoEditor({ name, website, value, assetPreviewUrl, onChan
         </PopoverContent>
       </Popover>
 
-      {cropDialogOpen ? (
-        <Suspense fallback={<CropDialogFallback />}>
-          <LazyImageCropDialog
-            open={cropDialogOpen}
-            onOpenChange={setCropDialogOpen}
-            imageSrc={uploadedImage}
-            onCropComplete={(croppedImage) => void handleCropComplete(croppedImage)}
-            aspectRatio={1}
-            maxOutputSize={256}
-          />
-        </Suspense>
-      ) : null}
+      <DeferredImageCropDialog
+        open={cropDialogOpen}
+        onOpenChange={setCropDialogOpen}
+        imageSrc={uploadedImage}
+        onCropComplete={(croppedImage) => void handleCropComplete(croppedImage)}
+        aspectRatio={1}
+        maxOutputSize={256}
+      />
     </>
   );
 }

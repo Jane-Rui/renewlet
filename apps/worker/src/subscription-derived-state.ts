@@ -53,7 +53,15 @@ export interface SubscriptionDerivedBulkWritePlan extends SubscriptionDerivedWri
   fact: D1PreparedStatement;
 }
 
-const LIST_INDEX_UPSERT_SQL = `
+/** 在线写入与离线 v3 修复共享此列序；任何顺序变化都必须同步 SQL placeholder 和校验器。 */
+export const SUBSCRIPTION_LIST_INDEX_COLUMNS = [
+  "subscription_id", "user_id", "name", "website", "notes", "search_text_lower", "category", "billing_cycle",
+  "currency", "payment_method", "status", "pinned", "public_hidden", "next_billing_date", "trial_end_date",
+  "one_time_term_count", "auto_renew", "reminder_days", "repeat_reminder_enabled", "created_at", "updated_at",
+] as const;
+
+/** 业务键 UPSERT 允许 migration/backfill 在响应丢失后重放，参数顺序由 SUBSCRIPTION_LIST_INDEX_COLUMNS 锁定。 */
+export const SUBSCRIPTION_LIST_INDEX_UPSERT_SQL = `
   INSERT INTO subscription_list_index (
     subscription_id, user_id, name, website, notes, search_text_lower, category, billing_cycle, currency,
     payment_method, status, pinned, public_hidden, next_billing_date, trial_end_date, one_time_term_count,
@@ -82,9 +90,14 @@ const LIST_INDEX_UPSERT_SQL = `
     updated_at = excluded.updated_at
 `;
 
-const TAG_INSERT_SQL = `
+/** 标签以 owner、订阅和规范化 key 幂等收敛；原始显示值仍跟随当前 facts 重建。 */
+export const SUBSCRIPTION_TAG_UPSERT_SQL = `
   INSERT INTO subscription_tags (user_id, subscription_id, tag_norm, tag, created_at, updated_at)
   VALUES (?, ?, ?, ?, ?, ?)
+  ON CONFLICT(user_id, subscription_id, tag_norm) DO UPDATE SET
+    tag = excluded.tag,
+    created_at = excluded.created_at,
+    updated_at = excluded.updated_at
 `;
 
 /**
@@ -102,11 +115,11 @@ export function subscriptionDerivedMutationPlan(
   if (!row) throw new Error("subscription derived mutation requires a before or after row");
   const statements: D1PreparedStatement[] = [];
   if (mutation.after) {
-    const tags = normalizedTags(mutation.after);
+    const tags = normalizeSubscriptionTags(mutation.after);
     statements.push(projectionUpsertStatement(env, mutation.after, tags));
     statements.push(env.DB.prepare("DELETE FROM subscription_tags WHERE user_id = ? AND subscription_id = ?")
       .bind(row.user_id, row.id));
-    statements.push(...tags.map((tag) => env.DB.prepare(TAG_INSERT_SQL).bind(
+    statements.push(...tags.map((tag) => env.DB.prepare(SUBSCRIPTION_TAG_UPSERT_SQL).bind(
       row.user_id,
       row.id,
       tag.key,
@@ -157,8 +170,8 @@ export function subscriptionDerivedBulkMutationPlan(
 
   // JSON 数组只在 D1 batch 内展开成表；事实、投影、tag 和 schedule 仍共享同一事务提交点。
   const identities = rows.map((row) => [row.user_id, row.id]);
-  const projectionRows = rows.map((row) => projectionValues(row, normalizedTags(row)));
-  const tagRows = rows.flatMap((row) => normalizedTags(row).map((tag) => [
+  const projectionRows = rows.map((row) => subscriptionListProjectionValues(row, normalizeSubscriptionTags(row)));
+  const tagRows = rows.flatMap((row) => normalizeSubscriptionTags(row).map((tag) => [
     row.user_id, row.id, tag.key, tag.value, row.created_at, row.updated_at,
   ]));
   const repeatRows = rows.flatMap((row) => {
@@ -285,19 +298,13 @@ function subscriptionBulkFactUpsertStatement(env: Env, rows: SubscriptionRow[]):
   `).bind(JSON.stringify(rows.map(subscriptionRowValues)));
 }
 
-const projectionColumns = [
-  "subscription_id", "user_id", "name", "website", "notes", "search_text_lower", "category", "billing_cycle",
-  "currency", "payment_method", "status", "pinned", "public_hidden", "next_billing_date", "trial_end_date",
-  "one_time_term_count", "auto_renew", "reminder_days", "repeat_reminder_enabled", "created_at", "updated_at",
-] as const;
-
 function subscriptionBulkProjectionUpsertStatement(env: Env, rows: unknown[][]): D1PreparedStatement {
-  const selectedColumns = projectionColumns.map((_, index) => `json_extract(value, '$[${index}]')`).join(", ");
+  const selectedColumns = SUBSCRIPTION_LIST_INDEX_COLUMNS.map((_, index) => `json_extract(value, '$[${index}]')`).join(", ");
   return env.DB.prepare(`
-    INSERT INTO subscription_list_index (${projectionColumns.join(", ")})
+    INSERT INTO subscription_list_index (${SUBSCRIPTION_LIST_INDEX_COLUMNS.join(", ")})
     SELECT ${selectedColumns} FROM json_each(?) WHERE true
     ON CONFLICT(subscription_id) DO UPDATE SET
-      ${projectionColumns.slice(1).map((column) => `${column} = excluded.${column}`).join(",\n      ")}
+      ${SUBSCRIPTION_LIST_INDEX_COLUMNS.slice(1).map((column) => `${column} = excluded.${column}`).join(",\n      ")}
   `).bind(JSON.stringify(rows));
 }
 
@@ -357,9 +364,9 @@ export async function rebuildSubscriptionDerivedStateForUser(env: Env, userId: s
   for (const row of rows.results) {
     if (row.auto_renew === 1) autoRenewCount += 1;
     if (row.repeat_reminder_enabled === 1) repeatReminderCount += 1;
-    const tags = normalizedTags(row);
+    const tags = normalizeSubscriptionTags(row);
     statements.push(projectionUpsertStatement(env, row, tags));
-    statements.push(...tags.map((tag) => env.DB.prepare(TAG_INSERT_SQL).bind(
+    statements.push(...tags.map((tag) => env.DB.prepare(SUBSCRIPTION_TAG_UPSERT_SQL).bind(
       row.user_id, row.id, tag.key, tag.value, row.created_at, row.updated_at,
     )));
     const nextDue = nextRepeatDueForRow(row, settings, now);
@@ -414,11 +421,18 @@ export async function getSubscriptionTotal(env: Env, userId: string): Promise<nu
   return (await getSubscriptionStats(env, userId)).total;
 }
 
-function projectionUpsertStatement(env: Env, row: SubscriptionRow, tags: ReturnType<typeof normalizedTags>): D1PreparedStatement {
-  return env.DB.prepare(LIST_INDEX_UPSERT_SQL).bind(...projectionValues(row, tags));
+function projectionUpsertStatement(env: Env, row: SubscriptionRow, tags: ReturnType<typeof normalizeSubscriptionTags>): D1PreparedStatement {
+  return env.DB.prepare(SUBSCRIPTION_LIST_INDEX_UPSERT_SQL).bind(...subscriptionListProjectionValues(row, tags));
 }
 
-function projectionValues(row: SubscriptionRow, tags: ReturnType<typeof normalizedTags>): unknown[] {
+/** 将事实行投影为固定 D1 列序；search 文本必须消费同一批已规范化标签，避免筛选与标签表分叉。 */
+export function subscriptionListProjectionValues(
+  row: Pick<SubscriptionRow,
+    "id" | "user_id" | "name" | "website" | "notes" | "category" | "billing_cycle" | "currency"
+    | "payment_method" | "status" | "pinned" | "public_hidden" | "next_billing_date" | "trial_end_date"
+    | "one_time_term_count" | "auto_renew" | "reminder_days" | "repeat_reminder_enabled" | "created_at" | "updated_at">,
+  tags: readonly { value: string }[],
+): Array<string | number | null> {
   return [
     row.id,
     row.user_id,
@@ -556,17 +570,25 @@ function nextRepeatDueForRow(row: SubscriptionRow, settings: ApiAppSettings, now
   return getNextRepeatScheduleOccurrence(now, settings, [subscription])?.scheduledInstantUtc ?? null;
 }
 
-function normalizedTags(row: SubscriptionRow): Array<{ key: string; value: string }> {
+/** 使用 locale 无关的 Unicode case mapping 与码点顺序，保证在线写入和 Node 回填生成相同 key 与显示值。 */
+export function normalizeSubscriptionTags(
+  row: Pick<SubscriptionRow, "tags_json">,
+): Array<{ key: string; value: string }> {
   const byKey = new Map<string, string>();
   for (const rawTag of parseStringArray(row.tags_json)) {
     const value = rawTag.trim();
-    if (value) byKey.set(value.toLocaleLowerCase(), value);
+    if (value) byKey.set(value.toLowerCase(), value);
   }
-  return [...byKey.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([key, value]) => ({ key, value }));
+  return [...byKey.entries()]
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    .map(([key, value]) => ({ key, value }));
 }
 
-function searchTextLower(row: SubscriptionRow, tags: string[]): string {
-  return [row.name, row.website ?? "", row.notes ?? "", ...tags].join("\n").toLocaleLowerCase();
+function searchTextLower(
+  row: Pick<SubscriptionRow, "name" | "website" | "notes">,
+  tags: string[],
+): string {
+  return [row.name, row.website ?? "", row.notes ?? "", ...tags].join("\n").toLowerCase();
 }
 
 function numberValue(value: number | string | null): number {

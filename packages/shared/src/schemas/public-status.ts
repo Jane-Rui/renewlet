@@ -88,6 +88,31 @@ const publicStatusSubscriptionSchema = z.object({
 }).refine((value) => value.price === undefined || value.billingCycle !== undefined, {
   path: ["billingCycle"],
   message: "Billing cycle is required when price is exposed",
+}).refine((value) => {
+  if (value.billingCycle === undefined) {
+    return value.customDays === undefined
+      && value.customCycleUnit === undefined
+      && value.oneTimeTermCount === undefined
+      && value.oneTimeTermUnit === undefined;
+  }
+  if (value.billingCycle === "custom") {
+    return value.customDays !== undefined
+      && value.customCycleUnit !== undefined
+      && value.oneTimeTermCount === undefined
+      && value.oneTimeTermUnit === undefined;
+  }
+  if (value.billingCycle === "one-time") {
+    return value.customDays === undefined
+      && value.customCycleUnit === undefined
+      && (value.oneTimeTermCount === undefined) === (value.oneTimeTermUnit === undefined);
+  }
+  return value.customDays === undefined
+    && value.customCycleUnit === undefined
+    && value.oneTimeTermCount === undefined
+    && value.oneTimeTermUnit === undefined;
+}, {
+  path: ["billingCycle"],
+  message: "Billing cycle fields are inconsistent",
 });
 
 export const publicStatusPayloadSchema = z.object({

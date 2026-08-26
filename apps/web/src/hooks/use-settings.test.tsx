@@ -9,7 +9,8 @@ import {
   WEBHOOK_PAYLOAD_PLACEHOLDER,
   type AppSettings,
 } from "@/types/subscription";
-import { normalizeSettings, SETTINGS_QUERY_KEY, useSettings, useUpdateSettings } from "./use-settings";
+import { SETTINGS_QUERY_KEY } from "./settings-query-key";
+import { normalizeSettings, useSettings, useUpdateSettings } from "./use-settings";
 import { EMPTY_SETTINGS_SECRET_STATUS, type SettingsReadModel } from "@/services/settings-service";
 
 const mocks = vi.hoisted(() => ({

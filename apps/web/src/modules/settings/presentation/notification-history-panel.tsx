@@ -22,10 +22,6 @@ import { TruncatedTooltipText } from "@/components/ui/truncated-tooltip-text";
 import { VirtualizedList } from "@/components/ui/virtualized-list";
 import {
   Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -37,24 +33,19 @@ import { CHANNEL_LABELS, type NotificationChannel } from "@/types/subscription";
 import type {
   NotificationJobResult,
   NotificationHistoryJob,
-  NotificationHistoryResponse,
   NotificationHistoryStatusFilter,
+  SettingsNotificationHistoryController,
   UpcomingNotificationBatch,
 } from "../application/use-notification-history";
+import { ManagerDataBoundary } from "./manager-data-boundary";
+import { SettingsManagerDialogFrame } from "./settings-manager-dialog-frame";
 
 const UPCOMING_VIRTUALIZATION_THRESHOLD = 30;
 const UPCOMING_BATCH_GAP = 12;
 const UPCOMING_BATCH_ESTIMATE = 132;
 
 type NotificationHistoryPanelProps = {
-  data: NotificationHistoryResponse | undefined;
-  isLoading: boolean;
-  isFetching: boolean;
-  error: unknown;
-  status: NotificationHistoryStatusFilter;
-  setStatus: (status: NotificationHistoryStatusFilter) => void;
-  loadMore: () => void;
-  refetch: () => void;
+  controller: SettingsNotificationHistoryController;
 };
 
 function formatSchedule(date: string, time: string, timeZone: string, scheduledInstantUtc: string) {
@@ -195,6 +186,14 @@ function UpcomingBatchList({
 }) {
   const { t } = useI18n();
   const getScrollElement = useCallback(() => scrollElementRef.current, [scrollElementRef]);
+  const getItemKey = useCallback((index: number) => {
+    const batch = batches[index];
+    return batch ? getUpcomingBatchKey(batch) : index;
+  }, [batches]);
+  const renderItem = useCallback((index: number) => {
+    const batch = batches[index];
+    return batch ? <UpcomingBatchCard batch={batch} /> : null;
+  }, [batches]);
 
   if (batches.length === 0) {
     return <div className="rounded-lg border border-dashed border-border p-4 text-center text-sm text-muted-foreground sm:p-6">{t("notification.upcoming.empty")}</div>;
@@ -204,19 +203,13 @@ function UpcomingBatchList({
     return (
       <VirtualizedList
         count={batches.length}
-        estimateSize={() => UPCOMING_BATCH_ESTIMATE}
+        estimatedItemSize={UPCOMING_BATCH_ESTIMATE}
         gap={UPCOMING_BATCH_GAP}
-        getItemKey={(index) => {
-          const batch = batches[index];
-          return batch ? getUpcomingBatchKey(batch) : index;
-        }}
+        getItemKey={getItemKey}
         getScrollElement={getScrollElement}
         overscan={5}
         testId="virtualized-upcoming-notification-list"
-        renderItem={(index) => {
-          const batch = batches[index];
-          return batch ? <UpcomingBatchCard batch={batch} /> : null;
-        }}
+        renderItem={renderItem}
       />
     );
   }
@@ -329,7 +322,7 @@ function HistoryDetailDrawer({
           closeLabel={t("common.close")}
           icon={<History className="h-5 w-5 shrink-0 text-primary" />}
           className="h5-notification-history-detail-drawer"
-          zIndexClassName="z-[70]"
+          zIndexClassName="z-70"
           data-testid="notification-history-detail-drawer"
         >
           <HistoryDetail job={job} />
@@ -370,32 +363,30 @@ function HistoryList({
 }
 
 export function NotificationHistoryPanel({
-  data,
-  isLoading,
-  isFetching,
-  error,
-  status,
-  setStatus,
-  loadMore,
-  refetch,
+  controller,
 }: NotificationHistoryPanelProps) {
   const [open, setOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"upcoming" | "history">("upcoming");
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [detailJob, setDetailJob] = useState<NotificationHistoryJob | null>(null);
   const isCompactHistoryLayout = useMediaQuery("(max-width: 1023px)");
   const dialogScrollRef = useRef<HTMLDivElement>(null);
   const { t } = useI18n();
+  const overview = controller.overview;
+  const history = controller.history;
+  const overviewData = overview.data;
+  const historyData = history.data;
   const filterLabels: Array<{ value: NotificationHistoryStatusFilter; label: string }> = [
     { value: "all", label: t("notification.filter.all") },
     { value: "sent", label: t("notification.status.sent") },
     { value: "failed", label: t("notification.status.failed") },
     { value: "skipped", label: t("notification.status.skipped") },
   ];
-  const latestJob = data?.summary.latestJob ?? null;
-  const nextBatch = data?.summary.nextContentBatch ?? null;
-  const blockerText = data?.summary.blockers.includes("no_enabled_channels")
+  const latestJob = overviewData?.summary.latestJob ?? null;
+  const nextBatch = overviewData?.summary.nextContentBatch ?? null;
+  const blockerText = overviewData?.summary.blockers.includes("no_enabled_channels")
     ? t("notification.blocker.noChannels")
-    : data?.summary.blockers.includes("no_upcoming_items")
+    : overviewData?.summary.blockers.includes("no_upcoming_items")
       ? t("notification.blocker.noUpcoming")
       : t("notification.blocker.ok");
 
@@ -407,22 +398,21 @@ export function NotificationHistoryPanel({
   return (
     <div className="min-w-0 rounded-lg border border-border bg-secondary/30 p-4">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <ManagerDataBoundary state={overview} className="min-w-0 flex-1">
         <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-3">
           <SummaryValue
             label={t("notification.nextCheck")}
             value={
-              data
+              overviewData
                 ? formatSchedule(
-                  data.summary.nextCheck.scheduledLocalDate,
-                  data.summary.nextCheck.scheduledLocalTime,
-                  data.summary.nextCheck.timeZone,
-                  data.summary.nextCheck.scheduledInstantUtc,
+                  overviewData.summary.nextCheck.scheduledLocalDate,
+                  overviewData.summary.nextCheck.scheduledLocalTime,
+                  overviewData.summary.nextCheck.timeZone,
+                  overviewData.summary.nextCheck.scheduledInstantUtc,
                 )
-                : isLoading
-                  ? t("common.loading")
-                  : t("common.unknown")
+                : t("common.unknown")
             }
-            muted={!data}
+            muted={!overviewData}
           />
           <SummaryValue
             label={t("notification.nextContent")}
@@ -431,6 +421,7 @@ export function NotificationHistoryPanel({
           />
           <SummaryValue label={t("notification.latestRun")} value={latestResult} muted={!latestJob} />
         </div>
+        </ManagerDataBoundary>
 
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
@@ -439,52 +430,61 @@ export function NotificationHistoryPanel({
               {t("notification.viewScheduleHistory")}
             </Button>
           </DialogTrigger>
-          <DialogContent layout="frame" className="h5-dialog-frame flex min-h-0 max-w-5xl flex-col overflow-hidden border-border bg-card p-0">
-            <div className="flex min-h-0 flex-1 flex-col">
-              <DialogHeader className="border-b border-border px-4 py-5 pr-12 sm:px-6 sm:pr-14">
-                <DialogTitle className="flex items-center gap-2 text-left">
-                  <BellRing className="h-5 w-5 text-primary" />
-                  {t("notification.historyTitle")}
-                </DialogTitle>
-                <DialogDescription className="text-left">{t("notification.historyDescription")}</DialogDescription>
-              </DialogHeader>
-
-              <Tabs defaultValue="upcoming" className="flex min-h-0 flex-1 flex-col">
+          <SettingsManagerDialogFrame
+            icon={<BellRing className="h-5 w-5 text-primary" />}
+            title={t("notification.historyTitle")}
+            description={t("notification.historyDescription")}
+            bodyClassName="flex overflow-hidden px-0 py-0 sm:px-0"
+            footer={(
+              <Button type="button" onClick={() => setOpen(false)} className="w-full sm:w-auto">
+                {t("common.close")}
+              </Button>
+            )}
+          >
+              <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "upcoming" | "history")} className="flex min-h-0 flex-1 flex-col">
                 <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
                   <TabsList className="w-full justify-start sm:w-auto">
                     <TabsTrigger value="upcoming" className="flex-1 sm:flex-none">{t("notification.upcomingTab")}</TabsTrigger>
                     <TabsTrigger value="history" className="flex-1 sm:flex-none">{t("notification.historyTab")}</TabsTrigger>
                   </TabsList>
-                  <Button type="button" variant="outline" size="sm" className="w-full gap-2 sm:w-auto" onClick={() => refetch()} disabled={isFetching}>
-                    <RefreshCw className={cn("h-4 w-4", isFetching && "animate-spin")} />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full gap-2 sm:w-auto"
+                    onClick={() => void (activeTab === "upcoming" ? overview.retry() : history.retry())}
+                    disabled={activeTab === "upcoming" ? overview.isRefreshing : history.isRefreshing}
+                  >
+                    <RefreshCw className={cn(
+                      "h-4 w-4",
+                      (activeTab === "upcoming" ? overview.isRefreshing : history.isRefreshing) && "animate-spin",
+                    )} />
                     {t("notification.refresh")}
                   </Button>
                 </div>
 
                 <div ref={dialogScrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6" data-testid="notification-history-scroll">
-                  {error ? (
-                    <div className="mb-4 rounded-lg border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive">
-                      {t("notification.historyLoadFailed")}
-                    </div>
-                  ) : null}
-
                   <TabsContent value="upcoming" className="mt-0">
-                    <UpcomingBatchList batches={data?.upcoming ?? []} scrollElementRef={dialogScrollRef} />
+                    <p className="mb-4 text-xs leading-5 text-muted-foreground">{t("notification.upcomingDescription")}</p>
+                    <ManagerDataBoundary state={overview}>
+                      <UpcomingBatchList batches={overviewData?.upcoming ?? []} scrollElementRef={dialogScrollRef} />
+                    </ManagerDataBoundary>
                   </TabsContent>
 
                   <TabsContent value="history" className="mt-0 grid gap-4">
+                    <p className="text-xs leading-5 text-muted-foreground">{t("notification.executionSnapshotsDescription")}</p>
                     <div className="flex min-w-0 flex-wrap gap-2">
                       {filterLabels.map((item) => (
                         <Button
                           key={item.value}
                           type="button"
                           size="sm"
-                          variant={status === item.value ? "default" : "outline"}
+                          variant={controller.historyStatus === item.value ? "default" : "outline"}
                           className="min-w-0"
                           onClick={() => {
                             setSelectedJobId(null);
                             setDetailJob(null);
-                            setStatus(item.value);
+                            controller.setStatus(item.value);
                           }}
                         >
                           {item.label}
@@ -492,25 +492,23 @@ export function NotificationHistoryPanel({
                       ))}
                     </div>
 
-                    {isLoading ? (
-                      <div className="rounded-lg border border-border p-4 text-center text-sm text-muted-foreground sm:p-6">{t("common.loading")}</div>
-                    ) : (
+                    <ManagerDataBoundary state={history}>
                       <HistoryList
-                        jobs={data?.history.jobs ?? []}
+                        jobs={historyData?.jobs ?? []}
                         selectedJobId={selectedJobId}
                         onSelect={(jobId) => {
-                          const job = data?.history.jobs.find((item) => item.id === jobId) ?? null;
+                          const job = historyData?.jobs.find((item) => item.id === jobId) ?? null;
                           setSelectedJobId(jobId);
                           if (isCompactHistoryLayout) {
                             setDetailJob(job);
                           }
                         }}
                       />
-                    )}
+                    </ManagerDataBoundary>
 
-                    {data?.history.hasMore ? (
+                    {historyData?.hasMore ? (
                       <div className="flex justify-center">
-                        <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={loadMore} disabled={isFetching}>
+                        <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={controller.loadMore} disabled={history.isRefreshing}>
                           {t("notification.loadMore")}
                         </Button>
                       </div>
@@ -518,8 +516,7 @@ export function NotificationHistoryPanel({
                   </TabsContent>
                 </div>
               </Tabs>
-            </div>
-          </DialogContent>
+          </SettingsManagerDialogFrame>
           <HistoryDetailDrawer
             job={detailJob}
             open={Boolean(detailJob)}

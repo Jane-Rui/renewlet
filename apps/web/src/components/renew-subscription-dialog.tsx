@@ -1,19 +1,23 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, RefObject } from "react";
 import { Loader2 } from "lucide-react";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  createRenewSubscriptionLoadingSlots,
+  RenewSubscriptionScaffold,
+} from "@/components/renew-subscription-scaffold";
 import { Button } from "@/components/ui/button";
 import { FormField, FormFieldRow } from "@/components/ui/form-field";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { DateOnlyPickerField } from "@/components/date-only-picker-field";
-import { useCustomConfig } from "@/contexts/CustomConfigContext";
+import { useCustomConfigState } from "@/contexts/CustomConfigContext";
 import { useI18n } from "@/i18n/I18nProvider";
 import { useManagedCurrencyOptions } from "@/hooks/use-managed-currency-options";
+import { useDeferredDialogInitialFocus } from "@/hooks/use-deferred-dialog-initial-focus";
 import { compareDateOnly, type DateOnly } from "@/lib/time/date-only";
 import { parseMoneyInput } from "@/lib/subscription-form";
-import type { Subscription } from "@/types/subscription";
+import type { Subscription, SubscriptionCollectionItem } from "@/types/subscription";
 import { advanceSubscriptionRenewal, calculateNextBillingDate } from "@renewlet/shared/subscription-renewal";
 import type { SubscriptionRenewBody } from "@renewlet/shared/schemas/subscriptions";
 
@@ -35,8 +39,9 @@ interface RenewFormErrors {
   nextBillingDate?: string | undefined;
 }
 
-interface RenewSubscriptionDialogProps {
+export interface RenewSubscriptionDialogProps {
   subscription: Subscription | null;
+  loadingPreview: SubscriptionCollectionItem | null;
   open: boolean;
   today: DateOnly;
   submitting: boolean;
@@ -44,6 +49,7 @@ interface RenewSubscriptionDialogProps {
   restoreFocusRef?: RefObject<HTMLElement | null> | undefined;
   onOpenChange: (open: boolean) => void;
   onSubmit: (payload: SubscriptionRenewBody) => Promise<void> | void;
+  loading?: boolean | undefined;
 }
 
 function defaultContinueNextBillingDate(subscription: Subscription, today: DateOnly): DateOnly {
@@ -67,7 +73,7 @@ function defaultRestartNextBillingDate(subscription: Subscription, startDate: Da
     subscription.billingCycle,
     subscription.customDays,
     undefined,
-    subscription.customCycleUnit ?? "day",
+    subscription.customCycleUnit,
   ) as DateOnly;
 }
 
@@ -87,20 +93,23 @@ function hasRenewBodyDates(value: SubscriptionRenewBody): value is SubscriptionR
   return value.mode !== "restart" || typeof value.startDate === "string";
 }
 
-export function RenewSubscriptionDialog({
+export function RenewSubscriptionDialogContent({
   subscription,
   open,
   today,
   submitting,
   error,
-  restoreFocusRef,
   onOpenChange,
   onSubmit,
+  loading,
+  loadingPreview,
 }: RenewSubscriptionDialogProps) {
   const formRef = useRef<HTMLFormElement>(null);
-  const { config } = useCustomConfig();
+  const { config } = useCustomConfigState();
   const { t, locale, formatDateOnly } = useI18n();
-  const [form, setForm] = useState<RenewFormState | null>(null);
+  const [form, setForm] = useState<RenewFormState | null>(() => (
+    open && subscription ? createInitialState(subscription, today) : null
+  ));
   const [errors, setErrors] = useState<RenewFormErrors>({});
   const includeDisabledCurrent = form?.currency ?? subscription?.currency ?? null;
   const currencyOptions = useManagedCurrencyOptions({
@@ -109,7 +118,7 @@ export function RenewSubscriptionDialog({
     locale,
   });
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open || !subscription) return;
     setForm(createInitialState(subscription, today));
     setErrors({});
@@ -212,9 +221,23 @@ export function RenewSubscriptionDialog({
     await onSubmit(payload);
   };
 
-  const title = subscription ? t("subscription.renew.title", { name: subscription.name }) : t("subscription.renew");
-  const currentForm = form;
-  const restartMode = currentForm?.mode === "restart";
+  const titleSubscription = subscription ?? loadingPreview;
+  const title = titleSubscription
+    ? t("subscription.renew.title", { name: titleSubscription.name })
+    : t("subscription.renew");
+  const description = t("subscription.renew.description");
+  const currentForm = form ?? (subscription ? createInitialState(subscription, today) : null);
+  const resolveInitialFocus = useCallback(
+    () => formRef.current?.querySelector<HTMLElement>('[role="radio"][data-state="checked"]') ?? null,
+    [],
+  );
+  useDeferredDialogInitialFocus(
+    open,
+    !loading && currentForm !== null,
+    subscription?.id ?? "renew-subscription",
+    resolveInitialFocus,
+  );
+  const restartMode = currentForm?.mode === "restart" || (currentForm === null && loadingPreview?.status === "expired");
   const submitLabel = restartMode ? t("subscription.renew.restartSubmit") : t("subscription.renew.submit");
   const modeDescription = useMemo(() => {
     if (!currentForm) return "";
@@ -223,189 +246,184 @@ export function RenewSubscriptionDialog({
       : t("subscription.renew.modeRestartHelp");
   }, [currentForm, t]);
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        closeLabel={t("common.close")}
-        dismissMode="explicit"
-        layout="content"
-        className="h5-dialog-auto-frame gap-0 border-border bg-card p-0 sm:max-w-lg"
-        onCloseAutoFocus={(event) => {
-          if (!restoreFocusRef?.current) return;
-          event.preventDefault();
-          restoreFocusRef.current.focus();
-        }}
-      >
-        <DialogHeader className="shrink-0 p-6 pb-0">
-          <DialogTitle className="text-xl font-semibold">{title}</DialogTitle>
-          <DialogDescription className="sr-only">
-            {t("subscription.renew.description")}
-          </DialogDescription>
-        </DialogHeader>
+  const loadingSlots = loading
+    ? createRenewSubscriptionLoadingSlots({ label: t("common.loading"), restartMode })
+    : null;
+  if (!loading && !currentForm) return null;
 
-        {currentForm ? (
-          <form ref={formRef} onSubmit={submit} className="flex min-h-0 flex-col overflow-hidden" noValidate>
-            <div className="h5-mobile-sheet-scroll grid min-h-0 flex-1 gap-5 px-6 py-4">
-              <FormField id="renew-mode" label={t("subscription.renew.mode")} description={modeDescription}>
-                {(field) => (
-                  <RadioGroup
-                    value={currentForm.mode}
-                    onValueChange={(value) => switchMode(value as RenewMode)}
-                    aria-describedby={field.describedBy}
-                    className="grid gap-2 sm:grid-cols-2"
+  return (
+    <RenewSubscriptionScaffold
+      formRef={formRef}
+      onSubmit={submit}
+      noValidate
+      data-testid={loading ? "renew-subscription-data-loading" : undefined}
+      heading={title}
+      description={description}
+      mode={loadingSlots?.mode ?? (currentForm ? (
+        <FormField id="renew-mode" label={t("subscription.renew.mode")} description={modeDescription}>
+          {(field) => (
+            <RadioGroup
+              value={currentForm.mode}
+              onValueChange={(value) => switchMode(value as RenewMode)}
+              aria-describedby={field.describedBy}
+              className="grid gap-2 sm:grid-cols-2"
+            >
+              {(["continue", "restart"] as const).map((mode) => {
+                const optionId = `renew-mode-${mode}`;
+                return (
+                  <label
+                    key={mode}
+                    htmlFor={optionId}
+                    className="flex min-w-0 cursor-pointer items-start gap-3 rounded-md border border-border bg-secondary p-3 text-sm transition-colors hover:bg-accent"
                   >
-                    {(["continue", "restart"] as const).map((mode) => {
-                      const optionId = `renew-mode-${mode}`;
-                      return (
-                        <label
-                          key={mode}
-                          htmlFor={optionId}
-                          className="flex min-w-0 cursor-pointer items-start gap-3 rounded-md border border-border bg-secondary p-3 text-sm transition-colors hover:bg-accent"
-                        >
-                          <RadioGroupItem id={optionId} value={mode} className="mt-0.5 shrink-0" />
-                          <span className="grid min-w-0 gap-1">
-                            <span className="font-medium text-foreground">
-                              {mode === "continue" ? t("subscription.renew.modeContinue") : t("subscription.renew.modeRestart")}
-                            </span>
-                            <span className="text-xs leading-relaxed text-muted-foreground">
-                              {mode === "continue" ? t("subscription.renew.modeContinueShort") : t("subscription.renew.modeRestartShort")}
-                            </span>
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </RadioGroup>
+                    <RadioGroupItem id={optionId} value={mode} className="mt-0.5 shrink-0" />
+                    <span className="grid min-w-0 gap-1">
+                      <span className="font-medium text-foreground">
+                        {mode === "continue" ? t("subscription.renew.modeContinue") : t("subscription.renew.modeRestart")}
+                      </span>
+                      <span className="text-xs leading-relaxed text-muted-foreground">
+                        {mode === "continue" ? t("subscription.renew.modeContinueShort") : t("subscription.renew.modeRestartShort")}
+                      </span>
+                    </span>
+                  </label>
+                );
+              })}
+            </RadioGroup>
+          )}
+        </FormField>
+      ) : null)}
+      pricing={loadingSlots?.pricing ?? (currentForm ? (
+        <FormFieldRow
+          alignAt="sm"
+          rowClassName="sm:grid-cols-[minmax(0,1fr)_minmax(10rem,14rem)]"
+          errors={[
+            { id: "renew-price-error", message: errors.price },
+            { id: "renew-currency-error", message: errors.currency },
+          ]}
+        >
+          <FormField id="renew-price" label={t("subscription.field.price")} error={errors.price} renderError={false}>
+            {(field) => (
+              <NumericInput
+                id={field.id}
+                value={currentForm.price}
+                onRawValueChange={(value) => setField("price", value)}
+                decimalScale={6}
+                allowNegative={false}
+                thousandSeparator
+                aria-invalid={field.invalid}
+                aria-describedby={field.describedBy}
+                className="h-11 border-border bg-secondary"
+              />
+            )}
+          </FormField>
+          <FormField id="renew-currency" label={t("subscription.field.currency")} error={errors.currency} renderError={false}>
+            {(field) => (
+              <SearchableSelect
+                id={field.id}
+                value={currentForm.currency}
+                onValueChange={(value) => setField("currency", value)}
+                options={currencyOptions}
+                placeholder={t("subscription.placeholder.currency")}
+                searchPlaceholder={t("subscription.search.currency")}
+                emptyMessage={t("subscription.empty.currency")}
+                aria-invalid={field.invalid}
+                aria-describedby={field.describedBy}
+                className="h-11 border-border bg-secondary"
+              />
+            )}
+          </FormField>
+        </FormFieldRow>
+      ) : null)}
+      schedule={loadingSlots?.schedule ?? (currentForm ? (
+        <>
+          {restartMode ? (
+            <FormFieldRow
+              alignAt="sm"
+              rowClassName="sm:grid-cols-2"
+              errors={[
+                { id: "renew-start-date-error", message: errors.startDate },
+                { id: "renew-next-billing-date-error", message: errors.nextBillingDate },
+              ]}
+            >
+              <FormField
+                id="renew-start-date"
+                label={t("subscription.field.startDate")}
+                labelId="renew-start-date-label"
+                error={errors.startDate}
+                renderError={false}
+              >
+                {(field) => (
+                  <DateOnlyPickerField
+                    id={field.id}
+                    labelId="renew-start-date-label"
+                    valueId="renew-start-date-value"
+                    value={currentForm.startDate ?? undefined}
+                    onChange={handleRestartStartDateChange}
+                    placeholder={t("subscription.placeholder.date")}
+                    describedBy={field.describedBy}
+                    invalid={field.invalid}
+                    minDate={today}
+                    defaultMonth={currentForm.startDate ?? today}
+                    size="large"
+                  />
                 )}
               </FormField>
-
-              <FormFieldRow
-                rowClassName="grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(10rem,14rem)]"
-                errors={[
-                  { id: "renew-price-error", message: errors.price },
-                  { id: "renew-currency-error", message: errors.currency },
-                ]}
+              <FormField
+                id="renew-next-billing-date"
+                label={t("subscription.field.nextBillingDate")}
+                labelId="renew-next-billing-date-label"
+                error={errors.nextBillingDate}
+                renderError={false}
               >
-                <FormField id="renew-price" label={t("subscription.field.price")} error={errors.price} renderError={false}>
-                  {(field) => (
-                    <NumericInput
-                      id={field.id}
-                      value={currentForm.price}
-                      onRawValueChange={(value) => setField("price", value)}
-                      decimalScale={6}
-                      allowNegative={false}
-                      thousandSeparator
-                      aria-invalid={field.invalid}
-                      aria-describedby={field.describedBy}
-                      className="h-11 border-border bg-secondary"
-                    />
-                  )}
-                </FormField>
-                <FormField id="renew-currency" label={t("subscription.field.currency")} error={errors.currency} renderError={false}>
-                  {(field) => (
-                    <SearchableSelect
-                      id={field.id}
-                      value={currentForm.currency}
-                      onValueChange={(value) => setField("currency", value)}
-                      options={currencyOptions}
-                      placeholder={t("subscription.placeholder.currency")}
-                      searchPlaceholder={t("subscription.search.currency")}
-                      emptyMessage={t("subscription.empty.currency")}
-                      aria-invalid={field.invalid}
-                      aria-describedby={field.describedBy}
-                      className="h-11 border-border bg-secondary"
-                    />
-                  )}
-                </FormField>
-              </FormFieldRow>
-
-              {restartMode ? (
-                <FormFieldRow
-                  rowClassName="grid-cols-1 gap-4 sm:grid-cols-2"
-                  errors={[
-                    { id: "renew-start-date-error", message: errors.startDate },
-                    { id: "renew-next-billing-date-error", message: errors.nextBillingDate },
-                  ]}
-                >
-                  <FormField
-                    id="renew-start-date"
-                    label={t("subscription.field.startDate")}
-                    labelId="renew-start-date-label"
-                    error={errors.startDate}
-                    renderError={false}
-                  >
-                    {(field) => (
-                      <DateOnlyPickerField
-                        id={field.id}
-                        labelId="renew-start-date-label"
-                        valueId="renew-start-date-value"
-                        value={currentForm.startDate ?? undefined}
-                        onChange={handleRestartStartDateChange}
-                        placeholder={t("subscription.placeholder.date")}
-                        describedBy={field.describedBy}
-                        invalid={field.invalid}
-                        minDate={today}
-                        defaultMonth={currentForm.startDate ?? today}
-                        size="large"
-                      />
-                    )}
-                  </FormField>
-                  <FormField
-                    id="renew-next-billing-date"
-                    label={t("subscription.field.nextBillingDate")}
+                {(field) => (
+                  <DateOnlyPickerField
+                    id={field.id}
                     labelId="renew-next-billing-date-label"
-                    error={errors.nextBillingDate}
-                    renderError={false}
-                  >
-                    {(field) => (
-                      <DateOnlyPickerField
-                        id={field.id}
-                        labelId="renew-next-billing-date-label"
-                        valueId="renew-next-billing-date-value"
-                        value={currentForm.nextBillingDate}
-                        onChange={handleNextBillingDateChange}
-                        placeholder={t("subscription.placeholder.date")}
-                        describedBy={field.describedBy}
-                        invalid={field.invalid}
-                        minDate={currentForm.startDate ?? today}
-                        defaultMonth={currentForm.nextBillingDate}
-                        size="large"
-                      />
-                    )}
-                  </FormField>
-                </FormFieldRow>
-              ) : (
-                <div className="grid gap-3 rounded-md border border-border bg-secondary/40 p-3 text-sm">
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="min-w-0">
-                      <p className="text-xs leading-5 text-muted-foreground">{t("subscription.renew.currentNextBillingDate")}</p>
-                      <p className="font-medium text-foreground">{subscription ? formatDateOnly(subscription.nextBillingDate) : "-"}</p>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-xs leading-5 text-muted-foreground">{t("subscription.renew.continueNextBillingDate")}</p>
-                      <p className="font-medium text-foreground">{formatDateOnly(currentForm.nextBillingDate)}</p>
-                    </div>
-                  </div>
+                    valueId="renew-next-billing-date-value"
+                    value={currentForm.nextBillingDate}
+                    onChange={handleNextBillingDateChange}
+                    placeholder={t("subscription.placeholder.date")}
+                    describedBy={field.describedBy}
+                    invalid={field.invalid}
+                    minDate={currentForm.startDate ?? today}
+                    defaultMonth={currentForm.nextBillingDate}
+                    size="large"
+                  />
+                )}
+              </FormField>
+            </FormFieldRow>
+          ) : (
+            <div className="grid gap-3 rounded-md border border-border bg-secondary/40 p-3 text-sm">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="min-w-0">
+                  <p className="text-xs leading-5 text-muted-foreground">{t("subscription.renew.currentNextBillingDate")}</p>
+                  <p className="font-medium text-foreground">{subscription ? formatDateOnly(subscription.nextBillingDate) : "-"}</p>
                 </div>
-              )}
+                <div className="min-w-0">
+                  <p className="text-xs leading-5 text-muted-foreground">{t("subscription.renew.continueNextBillingDate")}</p>
+                  <p className="font-medium text-foreground">{formatDateOnly(currentForm.nextBillingDate)}</p>
+                </div>
+              </div>
             </div>
-
-            <div className="flex shrink-0 flex-col gap-3 border-t border-border bg-card p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:flex-row sm:justify-end md:p-6 md:pt-4">
-              {error ? (
-                <p className="w-full min-w-0 wrap-break-word text-center text-sm text-destructive sm:mr-auto sm:w-auto sm:text-left">
-                  {error}
-                </p>
-              ) : null}
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="w-full border-border sm:w-auto" disabled={submitting}>
-                {t("common.cancel")}
-              </Button>
-              <Button type="submit" disabled={submitting} className="w-full bg-primary text-primary-foreground hover:bg-primary-glow sm:w-auto">
-                {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                {submitLabel}
-              </Button>
-            </div>
-          </form>
-        ) : null}
-      </DialogContent>
-    </Dialog>
+          )}
+        </>
+      ) : null)}
+      actions={loadingSlots?.actions ?? (currentForm ? (
+        <>
+          {error ? (
+            <p className="w-full min-w-0 wrap-break-word text-center text-sm text-destructive sm:mr-auto sm:w-auto sm:text-left">
+              {error}
+            </p>
+          ) : null}
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="w-full border-border sm:w-auto" disabled={submitting}>
+            {t("common.cancel")}
+          </Button>
+          <Button type="submit" disabled={submitting} className="w-full bg-primary text-primary-foreground hover:bg-primary-glow sm:w-auto">
+            {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            {submitLabel}
+          </Button>
+        </>
+      ) : null)}
+    />
   );
 }

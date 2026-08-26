@@ -194,7 +194,7 @@ func publicTurnstileConfig(app core.App) (turnstilePublicConfig, error) {
 	return turnstilePublicConfig{Enabled: true, SiteKey: settings.TurnstileSiteKey}, nil
 }
 
-func requireTurnstileForPasswordLogin(app core.App, request *http.Request, token string, locale appLocale) error {
+func requireTurnstileForPasswordLogin(app core.App, request *http.Request, token string) error {
 	settings, err := readAuthSecuritySettings(app)
 	if err != nil {
 		return err

@@ -11,7 +11,7 @@
  */
 import { useCallback, useState } from "react";
 import { getDisplayErrorMessage } from "@/lib/display-error";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "@/components/ui/sonner";
 import { createRawErrorResponseDetails, type RawErrorResponseDetails } from "@/lib/raw-error-response";
 import { CHANNEL_LABELS, type AppSettings, type NotificationChannel } from "@/types/subscription";
 import { useI18n } from "@/i18n/I18nProvider";
@@ -24,7 +24,6 @@ export function useNotificationTest(
   secretDrafts: SettingsSecretDrafts = {},
   clearedSecrets: ReadonlySet<SettingsSecretKey> = new Set(),
 ) {
-  const { toast } = useToast();
   const { t, label } = useI18n();
   const [testingChannel, setTestingChannel] = useState<NotificationChannel | null>(null);
   const [errorDetails, setErrorDetails] = useState<RawErrorResponseDetails | null>(null);
@@ -38,24 +37,19 @@ export function useNotificationTest(
 
       try {
         await notificationService.test(channel, settings, settingsSecretUpdatesFromDrafts(secretDrafts, clearedSecrets));
-        toast({
-          title: t("notification.testSuccess"),
-          description: `${t("notification.channel")}：${label(CHANNEL_LABELS[channel])}`,
-        });
+        toast.success(t("notification.testSuccessForChannel", { channel: label(CHANNEL_LABELS[channel]) }));
       } catch (e: unknown) {
         const details = createRawErrorResponseDetails(e);
         setErrorDetails(details);
         setErrorDetailsOpen(true);
-        toast({
-          title: t("notification.testFailed"),
+        toast.error(t("notification.testFailed"), {
           description: getDisplayErrorMessage(e, t("notification.testFailedDescription")),
-          variant: "destructive",
         });
       } finally {
         setTestingChannel(null);
       }
     },
-    [clearedSecrets, label, secretDrafts, settings, t, testingChannel, toast],
+    [clearedSecrets, label, secretDrafts, settings, t, testingChannel],
   );
 
   return {

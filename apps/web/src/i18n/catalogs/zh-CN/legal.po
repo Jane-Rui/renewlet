@@ -61,7 +61,7 @@ msgstr "AI 识别：当你主动使用 AI 识别添加订阅时，粘贴的文�
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/legal.ts:7
 msgid "legal.privacy.intro"
-msgstr "Renewlet 默认不注入任何外部脚本。部署者可以通过环境变量提供一个外链 script；你在使用某个部署实例时，该脚本及其数据处理由实例运营者（可能是你自己）负责。"
+msgstr "Renewlet 默认不注入自定义 head HTML。实例运营者可以启用拥有页面同源代码权限的可信片段；你使用某个部署实例时，该片段及其全部数据处理由实例运营者（可能是你自己）负责。"
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/legal.ts:26
@@ -91,7 +91,7 @@ msgstr "你需要自行确保录入的订阅/价格/汇率等数据准确性，�
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/legal.ts:6
 msgid "legal.privacy.subtitle"
-msgstr "最后更新：2026-01-12"
+msgstr "最后更新：2026-08-24"
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/legal.ts:25
@@ -176,7 +176,7 @@ msgstr "部分功能会请求第三方服务（例如汇率 API、通知渠道�
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/legal.ts:20
 msgid "legal.privacy.thirdParty.customScript"
-msgstr "部署者自定义脚本：实例运营者可通过环境变量提供单个外链 script；该脚本可能向其服务商发送访问数据。"
+msgstr "部署者自定义 head：统计、会话录屏或其他第三方脚本可能收集并发送页面与交互数据。实例运营者负责数据披露、隐私政策和法律要求的 consent signal；Renewlet 不内置 Clarity 专用逻辑或 CMP。"
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/legal.ts:5

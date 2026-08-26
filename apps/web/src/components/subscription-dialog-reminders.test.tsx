@@ -4,8 +4,12 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { assertDateOnly } from "@/lib/time/date-only";
-import type { Subscription } from "@/types/subscription";
-import { SubscriptionDialog } from "./subscription-dialog";
+import {
+  subscriptionCycleFixture,
+  type SubscriptionFixtureOverrides,
+} from "@/test/subscription-fixtures";
+import type { Subscription, SubscriptionFormSubmission } from "@/types/subscription";
+import { preloadSubscriptionDialog, SubscriptionDialog } from "./subscription-dialog";
 
 const mocks = vi.hoisted(() => ({
   config: {
@@ -21,7 +25,7 @@ const mocks = vi.hoisted(() => ({
 const FIXED_DIALOG_NOW = new Date("2026-06-01T12:00:00.000Z");
 
 vi.mock("@/contexts/CustomConfigContext", () => ({
-  useCustomConfig: () => ({ config: mocks.config }),
+  useCustomConfigState: () => ({ config: mocks.config }),
 }));
 
 vi.mock("@/hooks/use-settings", () => ({
@@ -40,10 +44,11 @@ vi.mock("@/components/logo-picker", () => ({
   LogoPicker: () => null,
 }));
 
-beforeAll(() => {
+beforeAll(async () => {
   Element.prototype.hasPointerCapture ??= vi.fn(() => false);
   Element.prototype.setPointerCapture ??= vi.fn();
   Element.prototype.releasePointerCapture ??= vi.fn();
+  await preloadSubscriptionDialog();
 });
 
 beforeEach(() => {
@@ -59,22 +64,20 @@ function setupUser() {
   return userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
 }
 
-function makeSubscription(overrides: Partial<Subscription> = {}): Subscription {
+function makeSubscription(overrides: SubscriptionFixtureOverrides<Subscription> = {}): Subscription {
   return {
     id: "sub-1",
     name: "Critical SaaS",
     logo: undefined,
     price: "99",
     currency: "USD",
-    billingCycle: "monthly",
-    customDays: undefined,
-    customCycleUnit: undefined,
     category: "productivity",
     status: "active",
     publicHidden: false,
     paymentMethod: "alipay",
     startDate: assertDateOnly("2026-05-14"),
     nextBillingDate: assertDateOnly("2026-06-13"),
+    autoRenew: false,
     autoCalculateNextBillingDate: false,
     trialEndDate: undefined,
     website: undefined,
@@ -84,16 +87,80 @@ function makeSubscription(overrides: Partial<Subscription> = {}): Subscription {
     repeatReminderEnabled: true,
     repeatReminderInterval: "1h",
     repeatReminderWindow: "72h",
+    extra: {},
     pinned: false,
     ...overrides,
-  } as Subscription;
+    ...subscriptionCycleFixture(overrides),
+  };
 }
 
 describe("SubscriptionDialog reminders", () => {
+  it("shows repeat reminder controls when enabled for an edited subscription", () => {
+    const subscription = makeSubscription({
+      nextBillingDate: assertDateOnly("2026-05-17"),
+      autoRenew: false,
+      reminderDays: 3,
+      repeatReminderInterval: "3h",
+      repeatReminderWindow: "full",
+    });
+
+    render(
+      <TooltipProvider delayDuration={0}>
+        <SubscriptionDialog
+          loadingPreview={null}
+          mode="edit"
+          open
+          onOpenChange={vi.fn()}
+          onSubmit={vi.fn()}
+          subscription={subscription}
+        />
+      </TooltipProvider>,
+    );
+
+    expect(screen.getByLabelText("重复提醒")).toBeChecked();
+    expect(screen.getByRole("combobox", { name: "间隔" })).toHaveTextContent("每 3 小时");
+    expect(screen.getByRole("combobox", { name: "重复范围" })).toHaveTextContent("从首次提醒后开始");
+  });
+
+  it("explains repeat reminders from the first reminder when the range covers the lead time", () => {
+    render(
+      <TooltipProvider delayDuration={0}>
+        <SubscriptionDialog
+          loadingPreview={null}
+          mode="edit"
+          open
+          onOpenChange={vi.fn()}
+          onSubmit={vi.fn()}
+          subscription={makeSubscription({ reminderDays: 1 })}
+        />
+      </TooltipProvider>,
+    );
+
+    expect(screen.getByText("首次提醒后，每 1 小时重复一次，直到到期日通知时间。")).toBeInTheDocument();
+  });
+
+  it("explains that repeats only run in the final range when the lead time is longer", () => {
+    render(
+      <TooltipProvider delayDuration={0}>
+        <SubscriptionDialog
+          loadingPreview={null}
+          mode="edit"
+          open
+          onOpenChange={vi.fn()}
+          onSubmit={vi.fn()}
+          subscription={makeSubscription({ reminderDays: 30 })}
+        />
+      </TooltipProvider>,
+    );
+
+    expect(screen.getByText("首次提醒照常发送，重复提醒只在到期前最后 72 小时内发送。")).toBeInTheDocument();
+  });
+
   it("defaults new subscriptions to the inherited reminder setting", () => {
     render(
       <TooltipProvider delayDuration={0}>
         <SubscriptionDialog
+          loadingPreview={null}
           mode="create"
           open
           onOpenChange={vi.fn()}
@@ -111,6 +178,7 @@ describe("SubscriptionDialog reminders", () => {
     render(
       <TooltipProvider delayDuration={0}>
         <SubscriptionDialog
+          loadingPreview={null}
           mode="create"
           open
           onOpenChange={vi.fn()}
@@ -142,6 +210,7 @@ describe("SubscriptionDialog reminders", () => {
     render(
       <TooltipProvider delayDuration={0}>
         <SubscriptionDialog
+          loadingPreview={null}
           mode="create"
           open
           onOpenChange={vi.fn()}
@@ -167,11 +236,12 @@ describe("SubscriptionDialog reminders", () => {
 
   it("defaults one-time purchases to buyout and disabled reminders on submit", async () => {
     const user = setupUser();
-    const onSubmit = vi.fn();
+    const onSubmit = vi.fn<(submission: SubscriptionFormSubmission) => void>();
 
     render(
       <TooltipProvider delayDuration={0}>
         <SubscriptionDialog
+          loadingPreview={null}
           mode="create"
           open
           onOpenChange={vi.fn()}
@@ -195,24 +265,26 @@ describe("SubscriptionDialog reminders", () => {
     await user.click(await screen.findByRole("button", { name: /2026年6月8日/ }));
     await user.click(screen.getByRole("button", { name: "添加订阅" }));
 
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+    const submitted = onSubmit.mock.calls[0]?.[0];
+    expect(submitted).toMatchObject({
       name: "Lifetime App",
       billingCycle: "one-time",
       nextBillingDate: "2026-06-08",
-      oneTimeTermCount: undefined,
-      oneTimeTermUnit: undefined,
       reminderDays: -2,
       repeatReminderEnabled: false,
-    }));
+    });
+    expect(submitted).not.toHaveProperty("oneTimeTermCount");
+    expect(submitted).not.toHaveProperty("oneTimeTermUnit");
   });
 
   it("disables collection reminders when an edited subscription becomes a one-time buyout", async () => {
     const user = setupUser();
-    const onSubmit = vi.fn<(subscription: Subscription) => void>();
+    const onSubmit = vi.fn<(submission: SubscriptionFormSubmission) => void>();
 
     render(
       <TooltipProvider delayDuration={0}>
         <SubscriptionDialog
+          loadingPreview={null}
           mode="edit"
           open
           onOpenChange={vi.fn()}
@@ -248,11 +320,12 @@ describe("SubscriptionDialog reminders", () => {
 
   it("calculates and disables the expiry date when switching to one-time fixed term", async () => {
     const user = setupUser();
-    const onSubmit = vi.fn();
+    const onSubmit = vi.fn<(submission: SubscriptionFormSubmission) => void>();
 
     render(
       <TooltipProvider delayDuration={0}>
         <SubscriptionDialog
+          loadingPreview={null}
           mode="edit"
           open
           onOpenChange={vi.fn()}
@@ -282,15 +355,16 @@ describe("SubscriptionDialog reminders", () => {
 
     await user.click(screen.getByRole("button", { name: "保存修改" }));
 
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
-      id: "sub-1",
+    const submitted = onSubmit.mock.calls[0]?.[0];
+    expect(submitted).toMatchObject({
       billingCycle: "one-time",
       nextBillingDate: "2026-06-14",
       autoCalculateNextBillingDate: false,
       oneTimeTermCount: 1,
       oneTimeTermUnit: "month",
       reminderDays: -1,
-    }));
+    });
+    expect(submitted).not.toHaveProperty("id");
   });
 
   it("renders buyout date help inline without disabled renewal controls", async () => {
@@ -300,6 +374,7 @@ describe("SubscriptionDialog reminders", () => {
     render(
       <TooltipProvider delayDuration={0}>
         <SubscriptionDialog
+          loadingPreview={null}
           mode="create"
           open
           onOpenChange={vi.fn()}

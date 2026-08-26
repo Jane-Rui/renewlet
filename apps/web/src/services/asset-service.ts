@@ -24,7 +24,6 @@ export type { UploadedAsset, UploadedAssetsPage };
  *
  * 两种运行面都返回同一页码契约，前端 hook 才能用同一套“加载更多 + 去重”状态机。
  */
-const UPLOADED_LOGOS_PAGE_SIZE = 48;
 const UPLOADED_ASSETS_PAGE_SIZE = 48;
 
 /**
@@ -54,21 +53,15 @@ export const assetService = {
   },
 
   /**
-   * 分页列出当前用户上传的 Logo 资产。
-   *
-   * @param page 从 1 开始的页码；调用方负责防止重复并发加载。
+   * 分页列出当前用户上传的指定类型资产；Logo 选择器与设置页共用这条可取消数据流。
    */
-  async listLogos(page: number): Promise<UploadedAssetsPage> {
-    const params = new URLSearchParams({ kind: "logo", page: String(page), perPage: String(UPLOADED_LOGOS_PAGE_SIZE) });
-    return await apiFetch(`/api/app/assets?${params.toString()}`, uploadedAssetsPageResponseSchema);
-  },
-
-  /**
-   * 分页列出当前用户上传的指定类型资产，用于设置页上传图标管理。
-   */
-  async list(kind: UploadKind, page: number): Promise<UploadedAssetsPage> {
+  async list(kind: UploadKind, page: number, signal?: AbortSignal): Promise<UploadedAssetsPage> {
     const params = new URLSearchParams({ kind, page: String(page), perPage: String(UPLOADED_ASSETS_PAGE_SIZE) });
-    return await apiFetch(`/api/app/assets?${params.toString()}`, uploadedAssetsPageResponseSchema);
+    return await apiFetch(
+      `/api/app/assets?${params.toString()}`,
+      uploadedAssetsPageResponseSchema,
+      signal ? { signal } : undefined,
+    );
   },
 
   /**

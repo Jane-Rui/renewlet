@@ -38,8 +38,8 @@
   ],
   "webBudget": {
     "authenticatedIdleRoutePreloads": 0,
-    "subscriptionCollectionCacheEntries": 1,
-    "dataRequests": 2
+    "subscriptionCollectionCacheEntries": 2,
+    "dataRequests": 3
   },
   "scenarios": [
     {

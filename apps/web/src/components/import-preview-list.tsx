@@ -52,6 +52,24 @@ export function ImportPreviewList({ prepared, preview, filter, skippedIndexes, o
   const scrollRef = useRef<HTMLDivElement>(null);
   const filteredItems = useMemo(() => filterPreviewItems(preview.items, filter), [filter, preview.items]);
   const getScrollElement = useCallback(() => scrollRef.current, []);
+  const getItemKey = useCallback((index: number) => {
+    const item = filteredItems[index];
+    return item ? `${item.source}:${item.sourceId}:${item.index}` : index;
+  }, [filteredItems]);
+  const renderItem = useCallback((index: number) => {
+    const item = filteredItems[index];
+    if (!item) return null;
+    return (
+      <PreviewRow
+        item={item}
+        prepared={prepared}
+        manualSkipped={skippedIndexes.has(item.index)}
+        actionLabel={t(IMPORT_ACTION_LABEL_KEYS[item.action])}
+        onLogoChange={onLogoChange}
+        onSkipChange={onSkipChange}
+      />
+    );
+  }, [filteredItems, onLogoChange, onSkipChange, prepared, skippedIndexes, t]);
 
   return (
     <>
@@ -75,27 +93,11 @@ export function ImportPreviewList({ prepared, preview, filter, skippedIndexes, o
         {filteredItems.length > 0 ? (
           <VirtualizedList
             count={filteredItems.length}
-            estimateSize={() => 126}
-            getItemKey={(index) => {
-              const item = filteredItems[index];
-              return item ? `${item.source}:${item.sourceId}:${item.index}` : index;
-            }}
+            estimatedItemSize={126}
+            getItemKey={getItemKey}
             getScrollElement={getScrollElement}
             overscan={8}
-            renderItem={(index) => {
-              const item = filteredItems[index];
-              if (!item) return null;
-              return (
-                <PreviewRow
-                  item={item}
-                  prepared={prepared}
-                  manualSkipped={skippedIndexes.has(item.index)}
-                  actionLabel={t(IMPORT_ACTION_LABEL_KEYS[item.action])}
-                  onLogoChange={onLogoChange}
-                  onSkipChange={onSkipChange}
-                />
-              );
-            }}
+            renderItem={renderItem}
           />
         ) : (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">

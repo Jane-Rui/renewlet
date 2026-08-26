@@ -294,7 +294,7 @@ msgid "notification.historyEmpty"
 msgstr "Schedule records will appear here after notification time arrives."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:146
+#: src/i18n/descriptors/notification.ts:148
 msgid "notification.refresh"
 msgstr "Refresh"
 
@@ -304,12 +304,12 @@ msgid "media.loadMoreUploadedLogo"
 msgstr "Load more"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:148
+#: src/i18n/descriptors/notification.ts:150
 msgid "notification.loadMore"
 msgstr "Load more"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:147
+#: src/i18n/descriptors/notification.ts:149
 msgid "notification.historyLoadFailed"
 msgstr "Could not load notification history. Please try again later."
 
@@ -329,11 +329,6 @@ msgid "notification.upcomingTab"
 msgstr "Upcoming"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:142
-msgid "notification.historyDescription"
-msgstr "Upcoming reminders are derived from current settings. Send history keeps the execution snapshot."
-
-#. js-lingui-explicit-id
 #: src/i18n/descriptors/notification.ts:98
 msgid "notification.content.renewalBlock"
 msgstr "Upcoming renewals:"
@@ -344,9 +339,14 @@ msgid "notification.status.sending"
 msgstr "Sending"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:145
+#: src/i18n/descriptors/notification.ts:146
 msgid "notification.historyTab"
 msgstr "History"
+
+#. js-lingui-explicit-id
+#: src/i18n/descriptors/notification.ts:147
+msgid "notification.executionSnapshotsDescription"
+msgstr "Sent history keeps the settings and result snapshot from each execution."
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/notification.ts:97
@@ -444,6 +444,11 @@ msgid "notification.status.sent"
 msgstr "Sent"
 
 #. js-lingui-explicit-id
+#: src/i18n/descriptors/notification.ts:145
+msgid "notification.upcomingDescription"
+msgstr "Derived live from the current notification settings for the next 30 days."
+
+#. js-lingui-explicit-id
 #: src/i18n/descriptors/notification.ts:107
 msgid "notification.content.beforeDays"
 msgstr "{days} days before"
@@ -524,6 +529,11 @@ msgid "notification.viewScheduleHistory"
 msgstr "View schedule and history"
 
 #. js-lingui-explicit-id
+#: src/i18n/descriptors/notification.ts:142
+msgid "notification.historyDescription"
+msgstr "Upcoming reminders are derived from current settings. Send history keeps the execution snapshot."
+
+#. js-lingui-explicit-id
 #: src/i18n/descriptors/notification.ts:17
 msgid "media.loadingUploadedLogo"
 msgstr "Loading uploaded Logo..."
@@ -560,8 +570,8 @@ msgstr "Test notification failed"
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/notification.ts:95
-msgid "notification.testSuccess"
-msgstr "Test notification sent"
+msgid "notification.testSuccessForChannel"
+msgstr "Test notification sent · {channel}"
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/notification.ts:60

@@ -30,12 +30,6 @@ type customConfigResponse struct {
 	Config customConfigPayload `json:"config"`
 }
 
-type subscriptionsListResponse struct {
-	Subscriptions []map[string]interface{} `json:"subscriptions"`
-	NextCursor    *string                  `json:"nextCursor"`
-	Total         int64                    `json:"total,omitempty"`
-}
-
 type subscriptionCursorPayload struct {
 	CreatedAt string `json:"createdAt"`
 	ID        string `json:"id"`
@@ -251,27 +245,6 @@ func handleCustomConfigUpdate(app core.App, e *core.RequestEvent) error {
 		return e.BadRequestError(validationErrorMessage(locale, "common.invalidRequestBody", err), err)
 	}
 	return apiSuccessJSON(e, http.StatusOK, customConfigResponse{Config: body.Config})
-}
-
-func handleSubscriptionsList(app core.App, e *core.RequestEvent) error {
-	locale := requestLocale(e.Request)
-	query, err := parseSubscriptionListQuery(e.Request.URL.Query())
-	if err != nil {
-		return e.BadRequestError(serverText(locale, "common.invalidRequestParameters"), err)
-	}
-	page, err := listSubscriptionRecordsForQuery(app, e.Auth.Id, query, todayDateOnly(time.Now(), currentUserSettingsTimezone(app, e.Auth)))
-	if err != nil {
-		return e.InternalServerError(serverText(locale, "common.internalError"), err)
-	}
-	subscriptions := make([]map[string]interface{}, 0, len(page.Rows))
-	for _, record := range page.Rows {
-		subscriptions = append(subscriptions, subscriptionAPIFromRecord(record))
-	}
-	return apiSuccessJSON(e, http.StatusOK, subscriptionsListResponse{
-		Subscriptions: subscriptions,
-		NextCursor:    page.NextCursor,
-		Total:         page.Total,
-	})
 }
 
 func handleSubscriptionCreate(app core.App, e *core.RequestEvent) error {

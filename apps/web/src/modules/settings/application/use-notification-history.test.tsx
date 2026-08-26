@@ -1,4 +1,4 @@
-// 通知历史 hook 测试保护 infinite query 合并策略，summary/upcoming 不应随翻页被历史页覆盖。
+// 通知历史 hook 测试保护 overview 与 history 的独立读取状态，筛选刷新不能清空实时概览。
 import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
@@ -122,7 +122,8 @@ describe("useNotificationHistory", () => {
     const { result } = renderHook(() => useNotificationHistory(), { wrapper: createWrapper() });
 
     await waitFor(() => {
-      expect(result.current.data?.summary.nextCheck.scheduledLocalDate).toBe("2026-05-16");
+      expect(result.current.overview.data?.summary.nextCheck.scheduledLocalDate).toBe("2026-05-16");
+      expect(result.current.history.data?.status).toBe("all");
     });
 
     act(() => {
@@ -133,18 +134,19 @@ describe("useNotificationHistory", () => {
       expect(result.current.historyStatus).toBe("skipped");
     });
 
-    expect(result.current.isLoading).toBe(true);
-    expect(result.current.data?.summary.nextCheck.scheduledLocalDate).toBe("2026-05-16");
-    expect(result.current.data?.history.status).toBe("skipped");
-    expect(result.current.data?.history.jobs).toEqual([]);
+    expect(result.current.overview.data?.summary.nextCheck.scheduledLocalDate).toBe("2026-05-16");
+    expect(result.current.overview.isRefreshing).toBe(false);
+    expect(result.current.history.isRefreshing).toBe(true);
+    expect(result.current.history.data?.status).toBe("skipped");
+    expect(result.current.history.data?.jobs).toEqual([]);
 
     skippedResponse.resolve(createHistoryResponse("skipped"));
 
     await waitFor(() => {
-      expect(result.current.isLoading).toBe(false);
+      expect(result.current.history.isRefreshing).toBe(false);
     });
 
-    expect(result.current.data?.summary.nextCheck.scheduledLocalDate).toBe("2026-05-16");
-    expect(result.current.data?.history.jobs).toHaveLength(1);
+    expect(result.current.overview.data?.summary.nextCheck.scheduledLocalDate).toBe("2026-05-16");
+    expect(result.current.history.data?.jobs).toHaveLength(1);
   });
 });

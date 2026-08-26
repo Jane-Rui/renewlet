@@ -1,5 +1,6 @@
 import { memo, useCallback } from "react";
 import { FormField, FormFieldRow } from "@/components/ui/form-field";
+import { FieldError } from "@/components/ui/field-error";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NumericInput } from "@/components/ui/numeric-input";
@@ -196,6 +197,7 @@ export const SubscriptionFormFields = memo(function SubscriptionFormFields({
       ) : null}
 
       <FormFieldRow
+        alignAt="sm"
         rowClassName="sm:grid-cols-2"
         errors={[
           { id: id("price-error"), message: errors.price },
@@ -254,41 +256,44 @@ export const SubscriptionFormFields = memo(function SubscriptionFormFields({
         </FormField>
       </FormFieldRow>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="grid gap-2">
-          <Label htmlFor={id("status")}>{t("subscription.field.status")}</Label>
-          <Select value={formData.status} onValueChange={(value) => update("status", value as SubscriptionStatus)}>
-            <SelectTrigger className="border-border bg-secondary" tooltipContent={statusLabel ? label(statusLabel) : formData.status}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {config.statuses.map((status) => (
-                <SelectItem key={status.id} value={status.value}>
-                  {label(status.labels)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+      <FormFieldRow alignAt="sm" rowClassName="sm:grid-cols-2">
+        <FormField id={id("status")} label={t("subscription.field.status")}>
+          {({ id: fieldId }) => (
+            <Select value={formData.status} onValueChange={(value) => update("status", value as SubscriptionStatus)}>
+              <SelectTrigger id={fieldId} className="border-border bg-secondary" tooltipContent={statusLabel ? label(statusLabel) : formData.status}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {config.statuses.map((status) => (
+                  <SelectItem key={status.id} value={status.value}>
+                    {label(status.labels)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </FormField>
 
-        <div className="grid gap-2">
-          <Label htmlFor={categoryId}>{t("subscription.field.category")}</Label>
-          <Select value={formData.category} onValueChange={(value) => update("category", value)}>
-            <SelectTrigger className="border-border bg-secondary" tooltipContent={categoryLabel ? label(categoryLabel) : formData.category}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {config.categories.map((category) => (
-                <SelectItem key={category.id} value={category.value}>
-                  {label(category.labels)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
+        <FormField id={categoryId} label={t("subscription.field.category")}>
+          {({ id: fieldId }) => (
+            <Select value={formData.category} onValueChange={(value) => update("category", value)}>
+              <SelectTrigger id={fieldId} className="border-border bg-secondary" tooltipContent={categoryLabel ? label(categoryLabel) : formData.category}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {config.categories.map((category) => (
+                  <SelectItem key={category.id} value={category.value}>
+                    {label(category.labels)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </FormField>
+      </FormFieldRow>
 
       <FormFieldRow
+        alignAt="sm"
         rowClassName="sm:grid-cols-2"
         errors={[
           { id: id("billingCycle-error"), message: errors.billingCycle },
@@ -376,39 +381,53 @@ export const SubscriptionFormFields = memo(function SubscriptionFormFields({
             )}
           </FormField>
         ) : formData.billingCycle === "one-time" ? (
-          <div className="grid gap-2">
-            <Label>{t("subscription.field.oneTimeMode")}</Label>
-            <div className="grid grid-cols-2 rounded-md border border-border bg-secondary p-1" role="group" aria-label={t("subscription.field.oneTimeMode")}>
-              {(["term", "buyout"] as const).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  className={cn(
-                    "inline-flex min-h-8 min-w-0 items-center justify-center whitespace-nowrap rounded-sm px-2 text-sm font-medium transition-colors",
-                    formData.oneTimeMode === mode
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                  aria-pressed={formData.oneTimeMode === mode}
-                  onClick={() => update("oneTimeMode", mode)}
-                >
-                  {mode === "term" ? t("subscription.oneTimeMode.term") : t("subscription.oneTimeMode.buyout")}
-                </button>
-              ))}
-            </div>
-          </div>
+          <FormField
+            id={id("oneTimeMode")}
+            labelSlot={(
+              <span id={id("oneTimeMode-label")} className="text-sm font-medium leading-none">
+                {t("subscription.field.oneTimeMode")}
+              </span>
+            )}
+          >
+            {() => (
+              <div
+                className="grid grid-cols-2 rounded-md border border-border bg-secondary p-1"
+                role="group"
+                aria-labelledby={id("oneTimeMode-label")}
+              >
+                {(["term", "buyout"] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    className={cn(
+                      "inline-flex min-h-8 min-w-0 items-center justify-center whitespace-nowrap rounded-sm px-2 text-sm font-medium transition-colors",
+                      formData.oneTimeMode === mode
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                    aria-pressed={formData.oneTimeMode === mode}
+                    onClick={() => update("oneTimeMode", mode)}
+                  >
+                    {mode === "term" ? t("subscription.oneTimeMode.term") : t("subscription.oneTimeMode.buyout")}
+                  </button>
+                ))}
+              </div>
+            )}
+          </FormField>
         ) : (
-          <div className="grid gap-2">
-            <Label htmlFor={id("paymentMethod")}>{t("subscription.field.paymentMethod")}</Label>
-            <SubscriptionPaymentMethodSelect
-              value={formData.paymentMethod}
-              methods={config.paymentMethods}
-              labelFor={label}
-              placeholder={t("subscription.placeholder.paymentMethod")}
-              tooltipContent={paymentMethodLabel ? label(paymentMethodLabel) : undefined}
-              onValueChange={(value) => update("paymentMethod", value)}
-            />
-          </div>
+          <FormField id={id("paymentMethod")} label={t("subscription.field.paymentMethod")}>
+            {({ id: fieldId }) => (
+              <SubscriptionPaymentMethodSelect
+                id={fieldId}
+                value={formData.paymentMethod}
+                methods={config.paymentMethods}
+                labelFor={label}
+                placeholder={t("subscription.placeholder.paymentMethod")}
+                tooltipContent={paymentMethodLabel ? label(paymentMethodLabel) : undefined}
+                onValueChange={(value) => update("paymentMethod", value)}
+              />
+            )}
+          </FormField>
         )}
       </FormFieldRow>
 
@@ -463,6 +482,7 @@ export const SubscriptionFormFields = memo(function SubscriptionFormFields({
         <div className="grid gap-2">
           <Label htmlFor={id("paymentMethod")}>{t("subscription.field.paymentMethod")}</Label>
           <SubscriptionPaymentMethodSelect
+            id={id("paymentMethod")}
             value={formData.paymentMethod}
             methods={config.paymentMethods}
             labelFor={label}
@@ -531,67 +551,67 @@ export const SubscriptionFormFields = memo(function SubscriptionFormFields({
 
           {!isReminderDisabled ? (
             <>
-              <FormFieldRow
-                rowClassName="flex flex-col gap-3 sm:flex-row"
-                errors={[{ id: id("reminder-error"), message: errors.reminderDays }]}
-              >
-                <Select
-                  value={formData.reminderType === "custom" ? "custom" : formData.reminderType === "inherit" ? String(INHERIT_REMINDER_DAYS) : formData.reminderDays}
-                  onValueChange={(value) => {
-                    if (value === "custom") {
-                      update("reminderType", "custom");
-                    } else if (value === String(INHERIT_REMINDER_DAYS)) {
-                      update("reminderType", "inherit");
-                      update("reminderDays", String(INHERIT_REMINDER_DAYS));
-                    } else {
-                      update("reminderType", "preset");
-                      update("reminderDays", value);
-                    }
-                  }}
-                >
-                  <SelectTrigger
-                    id={id("reminderDays")}
-                    className={cn(
-                      "w-full border-border bg-secondary sm:flex-1",
-                      errors.reminderDays && "border-destructive focus:ring-destructive/40",
-                    )}
-                    aria-invalid={Boolean(errors.reminderDays)}
-                    aria-describedby={errors.reminderDays ? id("reminder-error") : undefined}
-                    aria-label={t("subscription.field.reminder")}
+              <div className="grid gap-2">
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <Select
+                    value={formData.reminderType === "custom" ? "custom" : formData.reminderType === "inherit" ? String(INHERIT_REMINDER_DAYS) : formData.reminderDays}
+                    onValueChange={(value) => {
+                      if (value === "custom") {
+                        update("reminderType", "custom");
+                      } else if (value === String(INHERIT_REMINDER_DAYS)) {
+                        update("reminderType", "inherit");
+                        update("reminderDays", String(INHERIT_REMINDER_DAYS));
+                      } else {
+                        update("reminderType", "preset");
+                        update("reminderDays", value);
+                      }
+                    }}
                   >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={String(INHERIT_REMINDER_DAYS)}>
-                      {t("subscription.reminderInherit", { days: notificationReminderDays })}
-                    </SelectItem>
-                    {REMINDER_DAYS_OPTIONS.map((option) => (
-                      <SelectItem key={option.value} value={option.value.toString()}>
-                        {label(option.labels)}
-                      </SelectItem>
-                    ))}
-                    <SelectItem value="custom">{t("subscription.reminderCustom")}</SelectItem>
-                  </SelectContent>
-                </Select>
-
-                {formData.reminderType === "custom" && (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm text-muted-foreground whitespace-nowrap">{t("subscription.reminderBefore")}</span>
-                    <NumericInput
-                      name={id("customReminderDays")} allowNegative={false}
-                      decimalScale={0}
-                      inputMode="numeric" enterKeyHint="next"
-                      placeholder={t("subscription.daysPlaceholder")}
-                      value={formData.customReminderDays}
-                      onRawValueChange={(value: string) => update("customReminderDays", value)}
+                    <SelectTrigger
+                      id={id("reminderDays")}
+                      className={cn(
+                        "w-full border-border bg-secondary sm:flex-1",
+                        errors.reminderDays && "border-destructive focus:ring-destructive/40",
+                      )}
                       aria-invalid={Boolean(errors.reminderDays)}
                       aria-describedby={errors.reminderDays ? id("reminder-error") : undefined}
-                      className="w-20 border-border bg-secondary"
-                    />
-                    <span className="text-sm text-muted-foreground">{t("subscription.daysUnit")}</span>
-                  </div>
-                )}
-              </FormFieldRow>
+                      aria-label={t("subscription.field.reminder")}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={String(INHERIT_REMINDER_DAYS)}>
+                        {t("subscription.reminderInherit", { days: notificationReminderDays })}
+                      </SelectItem>
+                      {REMINDER_DAYS_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value.toString()}>
+                          {label(option.labels)}
+                        </SelectItem>
+                      ))}
+                      <SelectItem value="custom">{t("subscription.reminderCustom")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+
+                  {formData.reminderType === "custom" && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm text-muted-foreground whitespace-nowrap">{t("subscription.reminderBefore")}</span>
+                      <NumericInput
+                        name={id("customReminderDays")} allowNegative={false}
+                        decimalScale={0}
+                        inputMode="numeric" enterKeyHint="next"
+                        placeholder={t("subscription.daysPlaceholder")}
+                        value={formData.customReminderDays}
+                        onRawValueChange={(value: string) => update("customReminderDays", value)}
+                        aria-invalid={Boolean(errors.reminderDays)}
+                        aria-describedby={errors.reminderDays ? id("reminder-error") : undefined}
+                        className="w-20 border-border bg-secondary"
+                      />
+                      <span className="text-sm text-muted-foreground">{t("subscription.daysUnit")}</span>
+                    </div>
+                  )}
+                </div>
+                <FieldError id={id("reminder-error")} message={errors.reminderDays} />
+              </div>
 
               <div className="flex items-center gap-2">
                 <Label htmlFor={id("repeatReminderEnabled")} className="text-sm text-muted-foreground cursor-pointer">
@@ -605,45 +625,54 @@ export const SubscriptionFormFields = memo(function SubscriptionFormFields({
               </div>
 
               {formData.repeatReminderEnabled && (
-                <div className="grid gap-3 rounded-lg border border-border bg-secondary/30 p-3 sm:grid-cols-2">
-                  <div className="grid gap-2">
-                    <Label htmlFor={id("repeatReminderInterval")}>{t("subscription.repeatReminderInterval")}</Label>
-                    <Select
-                      value={formData.repeatReminderInterval}
-                      onValueChange={(value) => update("repeatReminderInterval", value as RepeatReminderInterval)}
-                    >
-                      <SelectTrigger id={id("repeatReminderInterval")} className="border-border bg-secondary">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {REPEAT_REMINDER_INTERVAL_OPTIONS.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {label(option.labels)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor={id("repeatReminderWindow")}>{t("subscription.repeatReminderWindow")}</Label>
-                    <Select
-                      value={formData.repeatReminderWindow}
-                      onValueChange={(value) => update("repeatReminderWindow", value as RepeatReminderWindow)}
-                    >
-                      <SelectTrigger id={id("repeatReminderWindow")} className="border-border bg-secondary">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {REPEAT_REMINDER_WINDOW_OPTIONS.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {label(option.labels)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <p className="text-xs text-muted-foreground sm:col-span-2">{repeatReminderPreview}</p>
-                </div>
+                <FormFieldRow
+                  alignAt="sm"
+                  className="rounded-lg border border-border bg-secondary/30 p-3"
+                  rowClassName="sm:grid-cols-2"
+                >
+                  <FormField id={id("repeatReminderInterval")} label={t("subscription.repeatReminderInterval")}>
+                    {({ id: fieldId }) => (
+                      <Select
+                        value={formData.repeatReminderInterval}
+                        onValueChange={(value) => update("repeatReminderInterval", value as RepeatReminderInterval)}
+                      >
+                        <SelectTrigger id={fieldId} className="border-border bg-secondary">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {REPEAT_REMINDER_INTERVAL_OPTIONS.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {label(option.labels)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </FormField>
+                  <FormField
+                    id={id("repeatReminderWindow")}
+                    label={t("subscription.repeatReminderWindow")}
+                    description={repeatReminderPreview}
+                  >
+                    {({ id: fieldId, describedBy }) => (
+                      <Select
+                        value={formData.repeatReminderWindow}
+                        onValueChange={(value) => update("repeatReminderWindow", value as RepeatReminderWindow)}
+                      >
+                        <SelectTrigger id={fieldId} className="border-border bg-secondary" aria-describedby={describedBy}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {REPEAT_REMINDER_WINDOW_OPTIONS.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {label(option.labels)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </FormField>
+                </FormFieldRow>
               )}
             </>
           ) : null}

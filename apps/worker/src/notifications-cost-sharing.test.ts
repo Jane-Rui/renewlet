@@ -1,6 +1,6 @@
 import { createDefaultAppSettings } from "@renewlet/shared/settings-defaults";
 import type { ApiAppSettings } from "@renewlet/shared/schemas/settings";
-import type { ApiSubscription } from "@renewlet/shared/schemas/subscriptions";
+import { apiSubscriptionSchema, type ApiSubscription } from "@renewlet/shared/schemas/subscriptions";
 import { isValidDateOnly, type DateOnly } from "@renewlet/shared/runtime";
 import { describe, expect, it, vi } from "vitest";
 import { listNotificationScheduleCandidateSubscriptions } from "./db";
@@ -29,7 +29,7 @@ function dateOnly(value: string): DateOnly {
 }
 
 function subscription(overrides: Partial<ApiSubscription> = {}): ApiSubscription {
-  return {
+  return apiSubscriptionSchema.parse({
     id: "sub_family",
     name: "Family Plan",
     price: "30",
@@ -39,7 +39,7 @@ function subscription(overrides: Partial<ApiSubscription> = {}): ApiSubscription
     status: "active",
     pinned: false,
     publicHidden: false,
-    startDate: "2026-01-01",
+    startDate: "2025-12-01",
     nextBillingDate: "2026-01-10",
     autoRenew: false,
     autoCalculateNextBillingDate: true,
@@ -48,8 +48,9 @@ function subscription(overrides: Partial<ApiSubscription> = {}): ApiSubscription
     repeatReminderEnabled: false,
     repeatReminderInterval: "1h",
     repeatReminderWindow: "72h",
+    extra: {},
     ...overrides,
-  };
+  });
 }
 
 function d1All<T>(results: T[] = []): D1Result<T> {
@@ -115,19 +116,23 @@ describe("Cloudflare cost sharing collection notifications", () => {
       subscription({
         id: "sub_buyout",
         billingCycle: "one-time",
+        startDate: "2025-12-10",
+        nextBillingDate: "2025-12-10",
         autoCalculateNextBillingDate: false,
         costSharing: {
           enabled: true,
           splitMode: "equal",
-          collectionReminder: { enabled: true, reminderDays: 3 },
+          collectionReminder: { enabled: false, reminderDays: 3 },
           members: [{ id: "partner", name: "Partner", currency: "USD", joinedDate: dateOnly("2025-12-10") }],
         },
       }),
       subscription({
         id: "sub_fixed_term",
         billingCycle: "one-time",
-        oneTimeTermCount: 6,
+        oneTimeTermCount: 1,
         oneTimeTermUnit: "month",
+        startDate: "2025-12-10",
+        nextBillingDate: "2026-01-10",
         autoCalculateNextBillingDate: false,
         costSharing: {
           enabled: true,

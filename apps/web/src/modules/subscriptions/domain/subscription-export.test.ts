@@ -3,6 +3,10 @@ import { describe, expect, it } from "vitest";
 import { buildSubscriptionsCsv, escapeCsvCell } from "./subscription-export";
 import type { Subscription } from "@/types/subscription";
 import { assertDateOnly } from "@/lib/time/date-only";
+import {
+  subscriptionCycleFixture,
+  type SubscriptionFixtureOverrides,
+} from "@/test/subscription-fixtures";
 import { moneyToNumber } from "@renewlet/shared/money";
 
 describe("subscription-export", () => {
@@ -103,16 +107,13 @@ describe("subscription-export", () => {
   });
 });
 
-function makeSubscription(overrides: Partial<Subscription> = {}): Subscription {
+function makeSubscription(overrides: SubscriptionFixtureOverrides<Subscription> = {}): Subscription {
   return {
     id: "sub-1",
     name: "=Formula",
     logo: undefined,
     price: "10",
     currency: "USD",
-    billingCycle: "monthly",
-    customDays: undefined,
-    customCycleUnit: undefined,
     category: "productivity",
     status: "active",
     pinned: false,
@@ -120,6 +121,7 @@ function makeSubscription(overrides: Partial<Subscription> = {}): Subscription {
     paymentMethod: undefined,
     startDate: assertDateOnly("2026-01-01"),
     nextBillingDate: assertDateOnly("2026-02-01"),
+    autoRenew: false,
     autoCalculateNextBillingDate: true,
     trialEndDate: undefined,
     website: undefined,
@@ -128,7 +130,9 @@ function makeSubscription(overrides: Partial<Subscription> = {}): Subscription {
     repeatReminderEnabled: false,
     repeatReminderInterval: "1h",
     repeatReminderWindow: "72h",
+    extra: {},
     tags: ["SaaS", "Work"],
     ...overrides,
-  } as Subscription;
+    ...subscriptionCycleFixture(overrides),
+  };
 }

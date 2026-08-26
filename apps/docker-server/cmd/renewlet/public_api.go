@@ -5,7 +5,6 @@ package main
 // 架构位置：
 //   - 登录态 `/api/app/api-tokens` 只负责 token 生命周期管理。
 //   - 公开 `/api/public/v1/*` 只接受 `Authorization: Bearer rlt_*`，不读取 session、日历 token 或公开页 token。
-//   - 订阅响应复用站内订阅 DTO，避免 Telegram/CLI/Shortcuts 后续各自读库。
 import (
 	"crypto/rand"
 	"crypto/sha256"
@@ -75,6 +74,50 @@ type publicAPIMeResponse struct {
 	Scopes []string `json:"scopes"`
 }
 
+type publicAPISubscriptionResponse struct {
+	ID                           string                 `json:"id"`
+	Name                         string                 `json:"name"`
+	Logo                         *string                `json:"logo,omitempty"`
+	Price                        string                 `json:"price"`
+	Currency                     string                 `json:"currency"`
+	BillingCycle                 string                 `json:"billingCycle"`
+	CustomDays                   int                    `json:"customDays,omitempty"`
+	CustomCycleUnit              string                 `json:"customCycleUnit,omitempty"`
+	OneTimeTermCount             int                    `json:"oneTimeTermCount,omitempty"`
+	OneTimeTermUnit              string                 `json:"oneTimeTermUnit,omitempty"`
+	Category                     string                 `json:"category"`
+	Status                       string                 `json:"status"`
+	Pinned                       bool                   `json:"pinned"`
+	PublicHidden                 bool                   `json:"publicHidden"`
+	PaymentMethod                *string                `json:"paymentMethod,omitempty"`
+	StartDate                    *string                `json:"startDate"`
+	NextBillingDate              string                 `json:"nextBillingDate"`
+	AutoRenew                    bool                   `json:"autoRenew"`
+	AutoCalculateNextBillingDate bool                   `json:"autoCalculateNextBillingDate"`
+	TrialEndDate                 *string                `json:"trialEndDate,omitempty"`
+	Website                      *string                `json:"website,omitempty"`
+	Notes                        *string                `json:"notes,omitempty"`
+	Tags                         []string               `json:"tags"`
+	ReminderDays                 int                    `json:"reminderDays"`
+	RepeatReminderEnabled        bool                   `json:"repeatReminderEnabled"`
+	RepeatReminderInterval       string                 `json:"repeatReminderInterval"`
+	RepeatReminderWindow         string                 `json:"repeatReminderWindow"`
+	CostSharing                  map[string]interface{} `json:"costSharing,omitempty"`
+	Extra                        map[string]interface{} `json:"extra"`
+	CreatedAt                    string                 `json:"createdAt,omitempty"`
+	UpdatedAt                    string                 `json:"updatedAt,omitempty"`
+}
+
+type publicAPISubscriptionEnvelope struct {
+	Subscription publicAPISubscriptionResponse `json:"subscription"`
+}
+
+type publicAPISubscriptionsResponse struct {
+	Subscriptions []publicAPISubscriptionResponse `json:"subscriptions"`
+	NextCursor    *string                         `json:"nextCursor"`
+	Total         int64                           `json:"total,omitempty"`
+}
+
 type publicAPIStatusResponse struct {
 	GeneratedAt string           `json:"generatedAt"`
 	Total       int64            `json:"total"`
@@ -82,9 +125,9 @@ type publicAPIStatusResponse struct {
 }
 
 type publicAPIDueItem struct {
-	DueDate      string                 `json:"dueDate"`
-	DueType      string                 `json:"dueType"`
-	Subscription map[string]interface{} `json:"subscription"`
+	DueDate      string                        `json:"dueDate"`
+	DueType      string                        `json:"dueType"`
+	Subscription publicAPISubscriptionResponse `json:"subscription"`
 }
 
 type publicAPIDueResponse struct {
@@ -178,7 +221,9 @@ func handlePublicAPISubscriptionDetail(app core.App, e *core.RequestEvent) error
 		return e.NotFoundError(serverText(requestLocale(e.Request), "subscription.notFound"), err)
 	}
 	setPublicAPIHeaders(e.Response.Header())
-	return apiSuccessJSON(e, http.StatusOK, subscriptionResponse{Subscription: subscriptionAPIFromRecord(record)})
+	return apiSuccessJSON(e, http.StatusOK, publicAPISubscriptionEnvelope{
+		Subscription: publicAPISubscriptionFromRecord(record),
+	})
 }
 
 func handlePublicAPIStatus(app core.App, e *core.RequestEvent) error {
@@ -212,13 +257,13 @@ func handlePublicAPIDue(app core.App, e *core.RequestEvent) error {
 	return apiSuccessJSON(e, http.StatusOK, response)
 }
 
-func publicAPISubscriptionsForUser(app core.App, userID string, limit int, rawCursor string) (subscriptionsListResponse, error) {
+func publicAPISubscriptionsForUser(app core.App, userID string, limit int, rawCursor string) (publicAPISubscriptionsResponse, error) {
 	filter := "user = {:user}"
 	params := dbx.Params{"user": userID}
 	if cursorText := strings.TrimSpace(rawCursor); cursorText != "" {
 		cursor, err := parseSubscriptionCursorPayload(cursorText)
 		if err != nil {
-			return subscriptionsListResponse{}, errPublicAPIInvalidCursor
+			return publicAPISubscriptionsResponse{}, errPublicAPIInvalidCursor
 		}
 		filter = "user = {:user} && (created < {:createdAt} || (created = {:createdAt} && id < {:id}))"
 		params["createdAt"] = cursor.CreatedAt
@@ -226,7 +271,7 @@ func publicAPISubscriptionsForUser(app core.App, userID string, limit int, rawCu
 	}
 	rows, err := app.FindRecordsByFilter("subscriptions", filter, "-created,-id", limit+1, 0, params)
 	if err != nil {
-		return subscriptionsListResponse{}, err
+		return publicAPISubscriptionsResponse{}, err
 	}
 	pageRows := rows
 	var nextCursor *string
@@ -235,15 +280,15 @@ func publicAPISubscriptionsForUser(app core.App, userID string, limit int, rawCu
 		cursor := encodeSubscriptionCursor(pageRows[len(pageRows)-1])
 		nextCursor = &cursor
 	}
-	subscriptions := make([]map[string]interface{}, 0, len(pageRows))
+	subscriptions := make([]publicAPISubscriptionResponse, 0, len(pageRows))
 	for _, record := range pageRows {
-		subscriptions = append(subscriptions, subscriptionAPIFromRecord(record))
+		subscriptions = append(subscriptions, publicAPISubscriptionFromRecord(record))
 	}
 	total, err := app.CountRecords("subscriptions", dbx.HashExp{"user": userID})
 	if err != nil {
-		return subscriptionsListResponse{}, err
+		return publicAPISubscriptionsResponse{}, err
 	}
-	return subscriptionsListResponse{Subscriptions: subscriptions, NextCursor: nextCursor, Total: total}, nil
+	return publicAPISubscriptionsResponse{Subscriptions: subscriptions, NextCursor: nextCursor, Total: total}, nil
 }
 
 func publicAPIStatusForUser(app core.App, userID string) (publicAPIStatusResponse, error) {
@@ -414,6 +459,54 @@ func findSubscriptionForPublicAPI(app core.App, userID string, id string) (*core
 	)
 }
 
+func publicAPISubscriptionFromRecord(record *core.Record) publicAPISubscriptionResponse {
+	billingCycle := record.GetString("billingCycle")
+	out := publicAPISubscriptionResponse{
+		ID:                           record.Id,
+		Name:                         record.GetString("name"),
+		Logo:                         trimmedSubscriptionString(record.GetString("logo")),
+		Price:                        moneyForRecord(record.Get("price")),
+		Currency:                     record.GetString("currency"),
+		BillingCycle:                 billingCycle,
+		Category:                     record.GetString("category"),
+		Status:                       record.GetString("status"),
+		Pinned:                       record.GetBool("pinned"),
+		PublicHidden:                 record.GetBool("publicHidden"),
+		PaymentMethod:                trimmedSubscriptionString(record.GetString("paymentMethod")),
+		StartDate:                    trimmedSubscriptionString(record.GetString("startDate")),
+		NextBillingDate:              record.GetString("nextBillingDate"),
+		AutoRenew:                    billingCycle != "one-time" && record.GetBool("autoRenew"),
+		AutoCalculateNextBillingDate: record.GetBool("autoCalculateNextBillingDate"),
+		TrialEndDate:                 trimmedSubscriptionString(record.GetString("trialEndDate")),
+		Website:                      trimmedSubscriptionString(record.GetString("website")),
+		Notes:                        trimmedSubscriptionString(record.GetString("notes")),
+		Tags:                         subscriptionRecordStringSlice(record, "tags"),
+		ReminderDays:                 record.GetInt("reminderDays"),
+		RepeatReminderEnabled:        record.GetBool("repeatReminderEnabled"),
+		RepeatReminderInterval:       normalizeRepeatReminderInterval(record.GetString("repeatReminderInterval")),
+		RepeatReminderWindow:         normalizeRepeatReminderWindow(record.GetString("repeatReminderWindow")),
+		Extra:                        subscriptionRecordJSONMap(record, "extra"),
+	}
+	if billingCycle == "custom" {
+		out.CustomDays = maxInt(1, record.GetInt("customDays"))
+		out.CustomCycleUnit = strings.TrimSpace(record.GetString("customCycleUnit"))
+	}
+	if billingCycle == "one-time" && record.GetInt("oneTimeTermCount") > 0 {
+		out.OneTimeTermCount = record.GetInt("oneTimeTermCount")
+		out.OneTimeTermUnit = strings.TrimSpace(record.GetString("oneTimeTermUnit"))
+	}
+	if costSharing := subscriptionRecordJSONMap(record, "costSharing"); len(costSharing) > 0 {
+		out.CostSharing = costSharing
+	}
+	if !record.GetDateTime("created").IsZero() {
+		out.CreatedAt = record.GetDateTime("created").Time().UTC().Format(time.RFC3339Nano)
+	}
+	if !record.GetDateTime("updated").IsZero() {
+		out.UpdatedAt = record.GetDateTime("updated").Time().UTC().Format(time.RFC3339Nano)
+	}
+	return out
+}
+
 func publicAPIDueItemsFromRecords(rows []*core.Record, today string, through string) []publicAPIDueItem {
 	items := []publicAPIDueItem{}
 	for _, row := range rows {
@@ -421,7 +514,7 @@ func publicAPIDueItemsFromRecords(rows []*core.Record, today string, through str
 			items = append(items, publicAPIDueItem{
 				DueDate:      publicAPIDueDate(row, dueType),
 				DueType:      dueType,
-				Subscription: subscriptionAPIFromRecord(row),
+				Subscription: publicAPISubscriptionFromRecord(row),
 			})
 		}
 	}

@@ -7,7 +7,7 @@ package main
 //   - 静态前端由 embedded FS 提供，自定义 API 使用 Renewlet 产品 session。
 //   - 具体请求/响应 DTO 在 api_contracts.go，通知任务在 notifications.go，文件资产在 assets.go。
 //
-// 注意： 这里的 route 是前端 API schema 的后端真相来源；新增字段时必须同步 Zod schema 和 route 测试。
+// 注意： 跨运行面 wire shape 以 shared schema 为事实源；Go route 必须通过共享 fixture 与 Worker 保持同一契约。
 import (
 	"fmt"
 	"io/fs"
@@ -54,7 +54,9 @@ func main() {
 	if err := validatePBEncryptionKeyEnv(); err != nil {
 		log.Fatal(err)
 	}
-	if err := validateCustomHeadScriptEnv(); err != nil {
+	// 配置在进程启动时冻结并贯穿静态 HTML 与响应 CSP，避免运行中环境变化造成“脚本已注入但策略仍严格”的分裂状态。
+	customHeadHTML, err := customHeadHTMLFromEnv()
+	if err != nil {
 		log.Fatal(err)
 	}
 	pprofRuntime, err := startPprofFromEnv()
@@ -115,7 +117,9 @@ func main() {
 			if err != nil {
 				return err
 			}
-			registerStaticFallback(e.Router, staticFS)
+			if err := registerStaticFallback(e.Router, staticFS, customHeadHTML); err != nil {
+				return err
+			}
 
 			return e.Next()
 		},
@@ -187,11 +191,19 @@ func disablePocketBaseInstaller(e *core.ServeEvent) {
 	e.InstallerFunc = nil
 }
 
-func registerStaticFallback(router *pbrouter.Router[*core.RequestEvent], staticFS fs.FS) {
+func registerStaticFallback(
+	router *pbrouter.Router[*core.RequestEvent],
+	staticFS fs.FS,
+	customHeadHTML customHeadHTMLConfig,
+) error {
 	if router.HasRoute("", "/") {
-		return
+		return nil
 	}
-	staticHandler := staticWithSecurityHeaders(staticFS)
+	preparedFS, err := prepareCustomHeadHTMLFS(staticFS, customHeadHTML)
+	if err != nil {
+		return err
+	}
+	staticHandler := staticWithSecurityHeaders(preparedFS, customHeadHTML)
 	// Go 1.22+ ServeMux 会拒绝 GET /{path...} 与 /api/app/{path...} 这类非严格子集 pattern；根兜底保留 API wildcard 的优先级。
 	router.Route("", "/", func(e *core.RequestEvent) error {
 		if !shouldServeStaticFallback(e.Request) {
@@ -201,6 +213,7 @@ func registerStaticFallback(router *pbrouter.Router[*core.RequestEvent], staticF
 		e.Request.SetPathValue(apis.StaticWildcardParam, strings.TrimPrefix(e.Request.URL.Path, "/"))
 		return staticHandler(e)
 	})
+	return nil
 }
 
 func shouldServeStaticFallback(request *http.Request) bool {
@@ -233,16 +246,17 @@ func runHealthcheck() {
 	}
 }
 
-// staticWithSecurityHeaders 为嵌入式前端静态资源补安全响应头。
-// 注意： CSP connect-src 需要覆盖前端直接访问的第三方 API；新增外部 fetch 时要同步这里。
-func staticWithSecurityHeaders(staticFS fs.FS) func(*core.RequestEvent) error {
-	handler := apis.Static(customHeadScriptFS{FS: staticFS}, true)
+func staticWithSecurityHeaders(staticFS fs.FS, customHeadHTML customHeadHTMLConfig) func(*core.RequestEvent) error {
+	handler := staticWithContentEncoding(
+		staticFS,
+		apis.Static(staticFS, true),
+	)
 	return func(e *core.RequestEvent) error {
 		headers := e.Response.Header()
 		headers.Set("X-Content-Type-Options", "nosniff")
 		headers.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		headers.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-		headers.Set("Content-Security-Policy", staticContentSecurityPolicy(e.Request))
+		headers.Set("Content-Security-Policy", staticContentSecurityPolicy(e.Request, customHeadHTML))
 		headers.Set("Cache-Control", staticCacheControl(e.Request, staticFS))
 		return handler(e)
 	}
@@ -259,18 +273,26 @@ func staticCacheControl(request *http.Request, staticFS fs.FS) string {
 	return "no-cache"
 }
 
-func staticContentSecurityPolicy(request *http.Request) string {
+func staticContentSecurityPolicy(request *http.Request, customHeadHTML customHeadHTMLConfig) string {
+	if customHeadHTML.Enabled() {
+		// 自定义 head 拥有同源代码权限；启用后只保留结构性 CSP，避免用不完整域名猜测制造“受限执行”的错误安全承诺。
+		// 不得补回 default-src 或其他 fetch directive：default-src 会回退约束所有未声明资源类型，再次阻断动态脚本、请求、图片或 frame。
+		directives := []string{
+			"object-src 'none'",
+			"base-uri 'self'",
+			"frame-ancestors 'none'",
+			"form-action 'self'",
+		}
+		if externalRequestProto(request) == "https" {
+			directives = append(directives, "upgrade-insecure-requests")
+		}
+		return strings.Join(directives, "; ")
+	}
+
 	turnstileChallengeOrigin := "https://challenges.cloudflare.com"
 	scriptSources := []string{"'self'", "'wasm-unsafe-eval'", turnstileChallengeOrigin}
 	// 汇率仍由浏览器直连公开 provider；Turnstile widget 还会加载 challenge iframe，三份 CSP 必须同源列表同步。
 	connectSources := []string{"'self'", "https://cdn.jsdelivr.net", "https://latest.currency-api.pages.dev", "https://api.frankfurter.dev", "https://www.floatrates.com", turnstileChallengeOrigin}
-	if script, ok := customHeadScriptFromEnv(); ok {
-		// 自定义 head 脚本是部署者显式打开的外部执行边界；注入和 CSP 必须从同一份校验结果派生。
-		scriptSources = appendUniqueString(scriptSources, script.ScriptOrigin)
-		for _, origin := range script.ConnectOrigins {
-			connectSources = appendUniqueString(connectSources, origin)
-		}
-	}
 	directives := []string{
 		"default-src 'self'",
 		// wasm-unsafe-eval 只给前端 Worker 内 sql.js 解析用户本地 Wallos DB；不允许后端代请求 Wallos URL。

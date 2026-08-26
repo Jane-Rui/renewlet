@@ -1,9 +1,10 @@
 // Public API 与 Telegram 命令入口测试单独成文件，避免设置页主装配测试超过文件行数门禁。
-import { screen, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createControllerState,
+  createSettingsReadState,
   createUploadedAssetsManagerState,
   mocks,
   renderSettingsScreen,
@@ -75,7 +76,15 @@ describe("SettingsScreen Public API and Telegram commands", () => {
     await user.click(getDialogOverlay());
     expect(screen.getByRole("dialog", { name: "管理 Public API token" })).toBeInTheDocument();
 
-    await user.type(within(managementDialog).getByLabelText("Token 名称"), "Shortcuts");
+    const tokenNameInput = within(managementDialog).getByLabelText("Token 名称");
+    const tokenCreateRow = tokenNameInput.closest('[data-slot="form-field-row"]');
+    expect(tokenCreateRow).toHaveAttribute("data-align-at", "sm");
+    expect(tokenNameInput).toHaveAttribute("aria-describedby", "public-api-token-name-description");
+    expect(tokenCreateRow?.querySelector('[data-slot="form-field-row-action"]')).toContainElement(
+      within(managementDialog).getByRole("button", { name: "创建 token" }),
+    );
+
+    await user.type(tokenNameInput, "Shortcuts");
     await user.click(within(managementDialog).getByRole("button", { name: "创建 token" }));
     expect(controller.publicApi.createToken).toHaveBeenCalledWith("Shortcuts");
 
@@ -90,7 +99,7 @@ describe("SettingsScreen Public API and Telegram commands", () => {
     await user.click(within(reopenedManagementDialog).getByRole("button", { name: "关闭一次性 API Token" }));
     expect(controller.publicApi.dismissPlainToken).toHaveBeenCalled();
 
-    await user.click(within(reopenedManagementDialog).getByRole("button", { name: "删除" }));
+    await user.click(within(reopenedManagementDialog).getByRole("button", { name: "删除 API Token Telegram Bot" }));
     const deleteDialog = await screen.findByRole("alertdialog", { name: "删除 API Token？" });
     expect(within(deleteDialog).getByText("「Telegram Bot」会被永久删除，外部集成后续请求将返回未授权。")).toBeInTheDocument();
     await user.click(within(deleteDialog).getByRole("button", { name: "删除" }));
@@ -146,10 +155,60 @@ describe("SettingsScreen Public API and Telegram commands", () => {
     expect(within(managementDialog).queryByText("已撤销")).not.toBeInTheDocument();
   });
 
+  it("does not report zero Public API tokens when the first read fails", async () => {
+    const user = userEvent.setup();
+    const retry = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const controller = createControllerState();
+    controller.publicApi.tokens = createSettingsReadState<NonNullable<typeof controller.publicApi.tokens.data>>(undefined, {
+      error: new Error("token list unavailable"),
+      retry,
+    });
+    mocks.useSettingsFormController.mockReturnValue(controller);
+
+    renderSettingsScreen();
+
+    expect(screen.getByText("Token 加载失败")).toBeInTheDocument();
+    expect(screen.queryByText(/当前 0 个 token/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "管理 token" }));
+    const managementDialog = await screen.findByRole("dialog", { name: "管理 Public API token" });
+    expect(within(managementDialog).getByText("加载失败")).toBeInTheDocument();
+    expect(within(managementDialog).queryByText(/还没有 API token/)).not.toBeInTheDocument();
+
+    await user.click(within(managementDialog).getByRole("button", { name: "重试" }));
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps cached Public API tokens visible when refresh fails", async () => {
+    const user = userEvent.setup();
+    const controller = createControllerState();
+    controller.publicApi.tokens = createSettingsReadState([{
+      id: "tok_cached",
+      name: "Cached CLI",
+      tokenPrefix: "rlt_cached",
+      scopes: ["read"],
+      createdAt: "2026-06-20T00:00:00Z",
+      lastUsedAt: null,
+    }], { error: new Error("refresh failed") });
+    mocks.useSettingsFormController.mockReturnValue(controller);
+
+    renderSettingsScreen();
+
+    expect(screen.getByText("当前 1 个 token · 未更新")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "管理 token" }));
+    const managementDialog = await screen.findByRole("dialog", { name: "管理 Public API token" });
+    expect(within(managementDialog).getByText("未更新")).toBeInTheDocument();
+    expect(within(managementDialog).getByText("Cached CLI")).toBeInTheDocument();
+    expect(within(managementDialog).queryByText(/还没有 API token/)).not.toBeInTheDocument();
+  });
+
   it("renders Telegram Bot query command controls inside the Telegram notification panel", async () => {
     const user = userEvent.setup();
     const install = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
-    const deleteCommands = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    let resolveDeleteCommands: () => void = () => undefined;
+    const deleteCommands = vi.fn<() => Promise<void>>(() => new Promise<void>((resolve) => {
+      resolveDeleteCommands = resolve;
+    }));
     const controller = createControllerState({
       settings: {
         enabledChannels: ["telegram"],
@@ -198,6 +257,11 @@ describe("SettingsScreen Public API and Telegram commands", () => {
     expect(within(deleteDialog).getByText("删除后 Telegram 菜单命令会失效，需要时可以重新安装。")).toBeInTheDocument();
     await user.click(within(deleteDialog).getByRole("button", { name: "删除命令" }));
     expect(deleteCommands).toHaveBeenCalledTimes(1);
+    expect(deleteDialog).toBeInTheDocument();
+
+    act(() => resolveDeleteCommands());
+    await waitFor(() => expect(screen.queryByRole("alertdialog", { name: "删除 Telegram Bot 查询命令？" })).not.toBeInTheDocument());
+    expect(telegramPanel.getByRole("button", { name: "重新安装" })).toHaveFocus();
   });
 
   it("disables Telegram command installation when saved Telegram credentials are missing", () => {
@@ -219,6 +283,61 @@ describe("SettingsScreen Public API and Telegram commands", () => {
     const telegramPanel = within(notificationsSection as HTMLElement);
     expect(telegramPanel.getByText("请先填写并保存 Bot Token 和 Chat ID。")).toBeInTheDocument();
     expect(telegramPanel.getByRole("button", { name: "安装命令" })).toBeDisabled();
+  });
+
+  it("does not report Telegram commands as unconfigured when the first read fails", async () => {
+    const user = userEvent.setup();
+    const retry = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const controller = createControllerState({
+      settings: {
+        enabledChannels: ["telegram"],
+        telegramBotToken: "123456:bot-token",
+        telegramChatId: "123456",
+      },
+    });
+    controller.telegramBotCommands.readState = createSettingsReadState<NonNullable<typeof controller.telegramBotCommands.readState.data>>(undefined, {
+      error: new Error("command status unavailable"),
+      retry,
+    });
+    mocks.useSettingsFormController.mockReturnValue(controller);
+
+    renderSettingsScreen();
+
+    const notificationsSection = document.getElementById("settings-notifications") as HTMLElement;
+    const telegramPanel = within(notificationsSection);
+    expect(telegramPanel.getByText("状态未知")).toBeInTheDocument();
+    expect(telegramPanel.getByText("加载失败")).toBeInTheDocument();
+    expect(telegramPanel.queryByText("未配置")).not.toBeInTheDocument();
+    expect(telegramPanel.queryByText("未安装")).not.toBeInTheDocument();
+
+    await user.click(telegramPanel.getByRole("button", { name: "重试" }));
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps cached Telegram binding details when refresh fails", () => {
+    const controller = createControllerState({
+      settings: {
+        enabledChannels: ["telegram"],
+        telegramBotToken: "123456:bot-token",
+        telegramChatId: "123456",
+      },
+    });
+    controller.telegramBotCommands.readState = createSettingsReadState({
+      configComplete: true,
+      installed: true,
+      status: "installed",
+      chatId: "123456",
+      installedAt: "2026-06-20T00:00:00Z",
+      lastUsedAt: null,
+    }, { error: new Error("refresh failed") });
+    mocks.useSettingsFormController.mockReturnValue(controller);
+
+    renderSettingsScreen();
+
+    const notificationsSection = document.getElementById("settings-notifications") as HTMLElement;
+    const telegramPanel = within(notificationsSection);
+    expect(telegramPanel.getByText("未更新")).toBeInTheDocument();
+    expect(telegramPanel.getByText("绑定 Chat ID：123456")).toBeInTheDocument();
   });
 
   it("shows Telegram command install loading label", () => {

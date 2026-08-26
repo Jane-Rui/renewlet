@@ -11,13 +11,16 @@ import (
 )
 
 const (
-	systemUpdateRepository            = "zhiyingzzhou/renewlet"
-	systemUpdateChannelStable         = "stable"
-	systemUpdateChannelRC             = "rc"
-	systemUpdateCacheTTL              = 20 * time.Minute
-	systemUpdateCheckTimeout          = 15 * time.Second
-	systemUpdateDownloadTimeout       = 2 * time.Minute
-	systemUpdateOperationTimeout      = 5 * time.Minute
+	systemUpdateRepository    = "zhiyingzzhou/renewlet"
+	systemUpdateChannelStable = "stable"
+	systemUpdateChannelRC     = "rc"
+	systemUpdateCacheTTL      = 20 * time.Minute
+	systemUpdateCheckTimeout  = 15 * time.Second
+	// 小资产保留总请求超时；大归档分别限制响应头、连续无进展和 operation 总时长，三者不能合并回 Client.Timeout。
+	systemUpdateAssetRequestTimeout   = 30 * time.Second
+	systemUpdateDownloadHeaderTimeout = 30 * time.Second
+	systemUpdateDownloadIdleTimeout   = 60 * time.Second
+	systemUpdateOperationTimeout      = 30 * time.Minute
 	systemUpdateShutdownWait          = 3 * time.Second
 	systemUpdateReleaseFeedLimitBytes = 512 * 1024
 	systemUpdateMaxArchiveBytes       = 200 * 1024 * 1024
@@ -65,7 +68,7 @@ type systemReleaseClient interface {
 	// Release client 是系统更新测试的隔离点；生产实现只读 GitHub Web Release feed，不再依赖 REST/token。
 	FetchReleases(ctx context.Context) ([]systemRelease, error)
 	ProbeReleaseAssets(ctx context.Context, tagName string, version string) []systemReleaseAsset
-	DownloadFile(ctx context.Context, sourceURL string, targetPath string, maxBytes int64) (string, error)
+	DownloadFile(ctx context.Context, sourceURL string, targetPath string, expectedSize int64, maxBytes int64) (string, error)
 	FetchText(ctx context.Context, sourceURL string, maxBytes int64) ([]byte, error)
 }
 
@@ -218,5 +221,6 @@ type semanticVersion struct {
 
 type httpSystemReleaseClient struct {
 	metadataClient *http.Client
-	downloadClient *http.Client
+	assetClient    *http.Client
+	downloader     *systemReleaseDownloader
 }

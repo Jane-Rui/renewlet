@@ -1,9 +1,9 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useRef, useState } from "react";
 import { Clipboard, ExternalLink, Globe2, RefreshCw, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { FormField, FormFieldRow } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { SearchableSelect, type SearchableSelectOption } from "@/components/ui/searchable-select";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -20,27 +20,27 @@ import { useI18n } from "@/i18n/I18nProvider";
 import type { ClipboardCopyTarget } from "@/shared/browser/clipboard";
 import { LoadingButtonContent } from "./settings-shared-controls";
 import { getSettingsSectionClassName } from "./settings-layout";
+import type { PublicStatusPage } from "@/lib/api/schemas/public-status";
+import type { SettingsReadState } from "../application/settings-read-state";
+import { ManagerDataBoundary } from "./manager-data-boundary";
+import { SettingsSectionHeader } from "./settings-section-header";
 
 interface PublicStatusPageSectionProps {
   id?: string;
   className?: string;
-  enabled: boolean;
-  pageUrl: string | null;
-  showPrices: boolean;
+  status: SettingsReadState<PublicStatusPage>;
+  visibility: SettingsReadState<{ visibleCount: number; hiddenCount: number }>;
   publicStatusCurrency: string;
   effectivePublicStatusCurrency: string;
   publicStatusCurrencyOptions: SearchableSelectOption[];
-  visibleCount: number;
-  hiddenCount: number;
-  isLoading: boolean;
   isCreating: boolean;
   isDeleting: boolean;
   isUpdating: boolean;
   onCreate: () => void | Promise<void>;
   onCopy: (target?: ClipboardCopyTarget | null) => void | Promise<void>;
-  onDelete: () => void | Promise<void>;
+  onDelete: () => void | Promise<boolean>;
   onOpenPage: () => void | Promise<void>;
-  onRegenerate: () => void | Promise<void>;
+  onRegenerate: () => void | Promise<boolean>;
   onShowPricesChange: (checked: boolean) => void | Promise<void>;
   onPublicStatusCurrencyChange: (value: string) => void | Promise<void>;
 }
@@ -96,32 +96,6 @@ function PublicStatusLinkRow({
   );
 }
 
-interface PublicStatusSettingRowProps {
-  label: ReactNode;
-  description: ReactNode;
-  control: ReactNode;
-}
-
-function PublicStatusSettingRow({
-  label,
-  description,
-  control,
-}: PublicStatusSettingRowProps) {
-  return (
-    <div className="grid min-w-0 gap-3">
-      <div className="flex min-w-0 items-start justify-between gap-4">
-        <div className="min-w-0">
-          {label}
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
-        </div>
-        <div className="flex shrink-0 items-center pt-0.5">
-          {control}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /**
  * 管理公开展示页的私密 URL。
  *
@@ -130,15 +104,11 @@ function PublicStatusSettingRow({
 export function PublicStatusPageSection({
   id,
   className,
-  enabled,
-  pageUrl,
-  showPrices,
+  status,
+  visibility,
   publicStatusCurrency,
   effectivePublicStatusCurrency,
   publicStatusCurrencyOptions,
-  visibleCount,
-  hiddenCount,
-  isLoading,
   isCreating,
   isDeleting,
   isUpdating,
@@ -151,24 +121,52 @@ export function PublicStatusPageSection({
   onPublicStatusCurrencyChange,
 }: PublicStatusPageSectionProps) {
   const { t } = useI18n();
-  const [confirmRegenerateOpen, setConfirmRegenerateOpen] = useState(false);
-  const busy = isLoading || isCreating || isDeleting || isUpdating;
-
+  const [confirmation, setConfirmation] = useState<"regenerate" | "revoke" | null>(null);
+  const confirmationTriggerRef = useRef<HTMLButtonElement>(null);
+  const generateButtonRef = useRef<HTMLButtonElement>(null);
+  const page = status.data;
+  const enabled = page?.enabled === true;
+  const pageUrl = page?.pageUrl ?? null;
+  const showPrices = page?.showPrices === true;
+  const busy = isCreating || isDeleting || isUpdating;
+  const headerStatus = status.isInitialLoading
+    ? t("common.loading")
+    : !status.hasData && status.error
+      ? t("settings.publicStatusUnknown")
+      : status.error
+        ? t("settings.publicStatusNotUpdated")
+        : enabled
+          ? t("settings.publicStatusEnabled")
+          : t("settings.publicStatusDisabled");
+  const visibilitySummary = visibility.isInitialLoading
+    ? t("settings.categoryChecking")
+    : !visibility.hasData && visibility.error
+      ? t("settings.publicStatusVisibilityUnknown")
+      : visibility.error
+        ? t("settings.publicStatusVisibilityStale", {
+          visible: visibility.data?.visibleCount ?? 0,
+          hidden: visibility.data?.hiddenCount ?? 0,
+        })
+        : t("settings.publicStatusSummary", {
+          visible: visibility.data?.visibleCount ?? 0,
+          hidden: visibility.data?.hiddenCount ?? 0,
+        });
   return (
     <section id={id} className={getSettingsSectionClassName(className)}>
-      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex min-w-0 items-start gap-3">
-          <Globe2 className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-          <div className="min-w-0">
-            <h2 className="text-lg font-semibold text-foreground">{t("settings.publicStatus")}</h2>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("settings.publicStatusHelp")}</p>
-          </div>
-        </div>
+      <SettingsSectionHeader
+        className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"
+        icon={<Globe2 className="mt-0.5 h-5 w-5 shrink-0 text-primary" />}
+        title={t("settings.publicStatus")}
+        help={t("settings.publicStatusHelp")}
+        summary={visibilitySummary}
+        status={(
         <Badge variant={enabled ? "default" : "secondary"} className="w-fit shrink-0">
-          {enabled ? t("settings.publicStatusEnabled") : t("settings.publicStatusDisabled")}
+          {headerStatus}
         </Badge>
-      </div>
+        )}
+      />
 
+      <ManagerDataBoundary state={status}>
       {pageUrl ? (
         <div className="grid gap-4">
           <PublicStatusLinkRow
@@ -182,57 +180,65 @@ export function PublicStatusPageSection({
             onOpenPage={onOpenPage}
           />
 
-          <div className="grid gap-4 border-t border-border pt-4 lg:grid-cols-2 lg:gap-6">
-            <PublicStatusSettingRow
-              label={(
-                <Label htmlFor="publicStatusShowPrices" className="cursor-pointer text-sm font-medium">
-                  {t("settings.publicStatusShowPrices")}
-                </Label>
-              )}
+          <FormFieldRow
+            alignAt="lg"
+            className="border-t border-border pt-4"
+            rowClassName="lg:grid-cols-2 lg:gap-x-6"
+          >
+            <FormField
+              id="publicStatusShowPrices"
+              label={t("settings.publicStatusShowPrices")}
+              labelClassName="cursor-pointer text-sm font-medium"
               description={t("settings.publicStatusShowPricesHelp")}
-              control={(
+            >
+              {({ id, describedBy }) => (
                 <Switch
-                  id="publicStatusShowPrices"
+                  id={id}
                   checked={showPrices}
                   disabled={busy}
                   onCheckedChange={onShowPricesChange}
                   aria-label={t("settings.publicStatusShowPrices")}
+                  aria-describedby={describedBy}
                 />
               )}
-            />
+            </FormField>
 
-            <div className="grid min-w-0 gap-2">
-              <div className="min-w-0">
-                <Label className="text-sm font-medium">{t("settings.publicStatusCurrency")}</Label>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  {t("settings.publicStatusCurrencyHelp", { currency: effectivePublicStatusCurrency })}
-                </p>
-              </div>
-              <SearchableSelect
-                value={publicStatusCurrency}
-                onValueChange={onPublicStatusCurrencyChange}
-                options={publicStatusCurrencyOptions}
-                placeholder={t("settings.currencyPlaceholder")}
-                searchPlaceholder={t("settings.currencySearch")}
-                emptyMessage={t("settings.currencyEmpty")}
-                disabled={busy}
-                className="h-9 w-full border-border bg-background"
-                contentClassName="max-w-md"
-                aria-label={t("settings.publicStatusCurrency")}
-              />
-            </div>
-          </div>
+            <FormField
+              id="publicStatusCurrency"
+              label={t("settings.publicStatusCurrency")}
+              labelClassName="text-sm font-medium"
+              description={t("settings.publicStatusCurrencyHelp", { currency: effectivePublicStatusCurrency })}
+              descriptionClassName="leading-5"
+            >
+              {({ id, describedBy }) => (
+                <SearchableSelect
+                  id={id}
+                  value={publicStatusCurrency}
+                  onValueChange={onPublicStatusCurrencyChange}
+                  options={publicStatusCurrencyOptions}
+                  placeholder={t("settings.currencyPlaceholder")}
+                  searchPlaceholder={t("settings.currencySearch")}
+                  emptyMessage={t("settings.currencyEmpty")}
+                  disabled={busy}
+                  className="h-9 w-full border-border bg-background"
+                  contentClassName="max-w-md"
+                  aria-label={t("settings.publicStatusCurrency")}
+                  aria-describedby={describedBy}
+                />
+              )}
+            </FormField>
+          </FormFieldRow>
 
           <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs text-muted-foreground">
-              {t("settings.publicStatusSummary", { visible: visibleCount, hidden: hiddenCount })}
-            </p>
             <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
               <Button
                 type="button"
                 size="sm"
                 variant="outline"
-                onClick={() => setConfirmRegenerateOpen(true)}
+                onClick={(event) => {
+                  confirmationTriggerRef.current = event.currentTarget;
+                  setConfirmation("regenerate");
+                }}
                 disabled={busy}
                 aria-busy={isCreating ? true : undefined}
                 className="justify-center gap-2 border-border"
@@ -242,7 +248,18 @@ export function PublicStatusPageSection({
                   {t("settings.publicStatusRegenerate")}
                 </LoadingButtonContent>
               </Button>
-              <Button type="button" variant="ghost" size="sm" onClick={onDelete} disabled={busy} aria-busy={isDeleting ? true : undefined} className="justify-center gap-2 text-destructive hover:text-destructive">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={(event) => {
+                  confirmationTriggerRef.current = event.currentTarget;
+                  setConfirmation("revoke");
+                }}
+                disabled={busy}
+                aria-busy={isDeleting ? true : undefined}
+                className="justify-center gap-2 text-destructive hover:text-destructive"
+              >
                 <LoadingButtonContent loading={isDeleting} loadingLabel={t("common.saving")}>
                   <Trash2 className="h-4 w-4" />
                   {t("settings.publicStatusRevoke")}
@@ -253,43 +270,62 @@ export function PublicStatusPageSection({
         </div>
       ) : (
         <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <p className="text-sm leading-6 text-muted-foreground">{t("settings.publicStatusDisabledHelp")}</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {t("settings.publicStatusSummary", { visible: visibleCount, hidden: hiddenCount })}
-            </p>
-          </div>
-          <Button type="button" size="sm" variant="default" onClick={onCreate} disabled={busy} aria-busy={isCreating ? true : undefined} className="justify-center gap-2 sm:shrink-0">
+          <p className="min-w-0 text-sm leading-6 text-muted-foreground">{t("settings.publicStatusDisabledHelp")}</p>
+          <Button ref={generateButtonRef} type="button" size="sm" variant="default" onClick={onCreate} disabled={busy} aria-busy={isCreating ? true : undefined} className="justify-center gap-2 sm:shrink-0">
             <LoadingButtonContent loading={isCreating} loadingLabel={t("common.saving")}>
               <RefreshCw className="h-4 w-4" />
               {t("settings.publicStatusGenerate")}
             </LoadingButtonContent>
           </Button>
-          {enabled ? (
-            <Button type="button" variant="ghost" size="sm" onClick={onDelete} disabled={busy} aria-busy={isDeleting ? true : undefined} className="justify-center gap-2 text-destructive hover:text-destructive">
-              <LoadingButtonContent loading={isDeleting} loadingLabel={t("common.saving")}>
-                <Trash2 className="h-4 w-4" />
-                {t("settings.publicStatusRevoke")}
-              </LoadingButtonContent>
-            </Button>
-          ) : null}
         </div>
       )}
+      </ManagerDataBoundary>
 
-      <AlertDialog open={confirmRegenerateOpen} onOpenChange={setConfirmRegenerateOpen}>
-        <AlertDialogContent>
+      <AlertDialog
+        open={confirmation !== null}
+        onOpenChange={(open) => {
+          if (!open && !busy) setConfirmation(null);
+        }}
+      >
+        <AlertDialogContent
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            // 受控确认框有两个自定义触发器；关闭后回到实际触发按钮，撤销导致其卸载时回退到新生成操作。
+            const trigger = confirmationTriggerRef.current;
+            (trigger?.isConnected ? trigger : generateButtonRef.current)?.focus();
+            confirmationTriggerRef.current = null;
+          }}
+        >
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("settings.publicStatusRegenerateTitle")}</AlertDialogTitle>
-            <AlertDialogDescription>{t("settings.publicStatusRegenerateDescription")}</AlertDialogDescription>
+            <AlertDialogTitle>
+              {confirmation === "revoke"
+                ? t("settings.publicStatusRevokeTitle")
+                : t("settings.publicStatusRegenerateTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmation === "revoke"
+                ? t("settings.publicStatusRevokeDescription")
+                : t("settings.publicStatusRegenerateDescription")}
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogCancel disabled={busy}>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => {
-                void onRegenerate();
+              disabled={busy}
+              aria-busy={busy ? true : undefined}
+              onClick={(event) => {
+                event.preventDefault();
+                const operation = confirmation === "revoke" ? onDelete : onRegenerate;
+                void Promise.resolve(operation()).then((succeeded) => {
+                  if (succeeded !== false) setConfirmation(null);
+                });
               }}
             >
-              {t("settings.publicStatusRegenerate")}
+              <LoadingButtonContent loading={busy} loadingLabel={t("common.saving")}>
+                {confirmation === "revoke"
+                  ? t("settings.publicStatusRevoke")
+                  : t("settings.publicStatusRegenerate")}
+              </LoadingButtonContent>
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

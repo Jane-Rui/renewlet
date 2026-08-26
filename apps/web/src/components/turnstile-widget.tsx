@@ -135,7 +135,7 @@ export function TurnstileWidget({ siteKey, theme, errorId, error, resetSignal, c
     <div className={cn("grid gap-2", className)} data-turnstile-theme={theme}>
       <div
         className={cn(
-          "min-h-[76px] overflow-hidden rounded-md border border-border bg-secondary/30 p-2 transition-colors",
+          "min-h-19 overflow-hidden rounded-md border border-border bg-secondary/30 p-2 transition-colors",
           error && "border-destructive/70",
         )}
       >

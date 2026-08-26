@@ -234,6 +234,11 @@ msgid "error.loginUnavailable"
 msgstr "登录服务暂时不可用，请稍后重试"
 
 #. js-lingui-explicit-id
+#: src/i18n/descriptors/error.ts:102
+msgid "error.code.SUBSCRIPTION_COLLECTION_LIMIT_EXCEEDED"
+msgstr "结果超过可处理上限，请缩小搜索或筛选范围"
+
+#. js-lingui-explicit-id
 #: src/i18n/descriptors/error.ts:6
 msgid "error.network"
 msgstr "网络请求失败"

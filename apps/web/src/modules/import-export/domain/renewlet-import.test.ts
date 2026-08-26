@@ -148,13 +148,18 @@ describe("renewlet import", () => {
       },
     });
 
-    const prepared = buildFromRenewletExport(parsed, context, new Map([["assets/asset_icon.svg", "assets/asset_icon.svg"]]));
+    const assetBuffer = new TextEncoder().encode("<svg />").buffer;
+    const prepared = buildFromRenewletExport(parsed, context, new Map([[
+      "assets/asset_icon.svg",
+      { buffer: assetBuffer, mimeType: "image/svg+xml" },
+    ]]));
 
     expect(prepared.assets).toEqual([{
       target: { type: "paymentMethodIcon", paymentMethodIndex: 0 },
       kind: "icon",
       filename: "asset_icon.svg",
-      zipEntryName: "assets/asset_icon.svg",
+      buffer: assetBuffer,
+      mimeType: "image/svg+xml",
     }]);
     expect(prepared.payload.customConfig?.paymentMethods[0]).not.toHaveProperty("icon");
     expect(prepared.payload.customConfig?.paymentMethods[1]).not.toHaveProperty("icon");

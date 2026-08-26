@@ -51,6 +51,10 @@ func TestPublicAPITokenLifecycleAndReadRoutes(t *testing.T) {
 		"status":           "active",
 		"nextBillingDate":  expiryDate,
 	})
+	expiry.Set("autoCalculateNextBillingDate", true)
+	if !publicAPISubscriptionFromRecord(expiry).AutoCalculateNextBillingDate {
+		t.Fatal("public API mapper must preserve the published autoCalculateNextBillingDate value")
+	}
 	foreign := createRouteTestSubscription(t, app, otherUser.Id, map[string]interface{}{
 		"name":            "Foreign Plan",
 		"nextBillingDate": renewalDate,
@@ -156,11 +160,11 @@ func TestPublicAPITokenLifecycleAndReadRoutes(t *testing.T) {
 	if listPublicRes.Code != http.StatusOK {
 		t.Fatalf("expected public subscriptions 200, got %d: %s", listPublicRes.Code, listPublicRes.Body.String())
 	}
-	listBody := decodeAPISuccessDataForTest[subscriptionsListResponse](t, listPublicRes.Body.Bytes())
+	listBody := decodeAPISuccessDataForTest[publicAPISubscriptionsResponse](t, listPublicRes.Body.Bytes())
 	if listBody.Total != 3 || len(listBody.Subscriptions) != 1 || listBody.NextCursor == nil {
 		t.Fatalf("unexpected paged subscriptions response: %#v", listBody)
 	}
-	if _, ok := listBody.Subscriptions[0]["user"]; ok {
+	if strings.Contains(listPublicRes.Body.String(), `"user"`) {
 		t.Fatalf("public API subscription DTO must not expose owner relation: %#v", listBody.Subscriptions[0])
 	}
 
@@ -168,7 +172,7 @@ func TestPublicAPITokenLifecycleAndReadRoutes(t *testing.T) {
 	if listAllRes.Code != http.StatusOK {
 		t.Fatalf("expected full public subscriptions 200, got %d: %s", listAllRes.Code, listAllRes.Body.String())
 	}
-	listAllBody := decodeAPISuccessDataForTest[subscriptionsListResponse](t, listAllRes.Body.Bytes())
+	listAllBody := decodeAPISuccessDataForTest[publicAPISubscriptionsResponse](t, listAllRes.Body.Bytes())
 	if !publicAPITestListContainsStartDateNull(listAllBody.Subscriptions, renewal.Id) {
 		t.Fatalf("expected public API list to preserve startDate null, got %#v", listAllBody.Subscriptions)
 	}
@@ -177,8 +181,8 @@ func TestPublicAPITokenLifecycleAndReadRoutes(t *testing.T) {
 	if detailRes.Code != http.StatusOK || !strings.Contains(detailRes.Body.String(), `"name":"Renewal Plan"`) {
 		t.Fatalf("expected own subscription detail 200, got %d: %s", detailRes.Code, detailRes.Body.String())
 	}
-	detailBody := decodeAPISuccessDataForTest[subscriptionResponse](t, detailRes.Body.Bytes())
-	if value, ok := detailBody.Subscription["startDate"]; !ok || value != nil {
+	detailBody := decodeAPISuccessDataForTest[publicAPISubscriptionEnvelope](t, detailRes.Body.Bytes())
+	if detailBody.Subscription.StartDate != nil {
 		t.Fatalf("expected public subscription detail to preserve startDate null, got %#v", detailBody.Subscription)
 	}
 	foreignRes := serveTestRequest(t, app, http.MethodGet, "/api/public/v1/subscriptions/"+foreign.Id, "", publicToken)
@@ -220,7 +224,7 @@ func TestPublicAPITokenLifecycleAndReadRoutes(t *testing.T) {
 		t.Fatalf("due response leaked another user's subscription: %s", dueRes.Body.String())
 	}
 	for _, item := range dueBody.Items {
-		if item.Subscription["id"] == renewal.Id && item.Subscription["startDate"] != nil {
+		if item.Subscription.ID == renewal.Id && item.Subscription.StartDate != nil {
 			t.Fatalf("expected due item to preserve startDate null, got %#v", item.Subscription)
 		}
 	}
@@ -251,17 +255,17 @@ func publicAPITestDueContains(items []publicAPIDueItem, subscriptionID string, d
 		if item.DueType != dueType || item.DueDate != dueDate {
 			continue
 		}
-		if item.Subscription["id"] == subscriptionID {
+		if item.Subscription.ID == subscriptionID {
 			return true
 		}
 	}
 	return false
 }
 
-func publicAPITestListContainsStartDateNull(items []map[string]interface{}, subscriptionID string) bool {
+func publicAPITestListContainsStartDateNull(items []publicAPISubscriptionResponse, subscriptionID string) bool {
 	for _, item := range items {
-		if item["id"] == subscriptionID {
-			return item["startDate"] == nil
+		if item.ID == subscriptionID {
+			return item.StartDate == nil
 		}
 	}
 	return false

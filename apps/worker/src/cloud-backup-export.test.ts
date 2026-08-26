@@ -1,5 +1,5 @@
 import { createDefaultAppSettings } from "@renewlet/shared/settings-defaults";
-import type { ApiSubscription } from "@renewlet/shared/schemas/subscriptions";
+import { apiSubscriptionSchema, type ApiSubscription } from "@renewlet/shared/schemas/subscriptions";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildCloudBackupExportZip } from "./cloud-backup-export";
 import type { AssetRow, Env } from "./types";
@@ -191,17 +191,13 @@ function assetRow(overrides: Partial<AssetRow> = {}): AssetRow {
 }
 
 function subscriptionFixture(overrides: Partial<ApiSubscription> = {}): ApiSubscription {
-  return {
+  return apiSubscriptionSchema.parse({
     id: "sub_1",
     name: "GitHub",
     logo: undefined,
     price: "4",
     currency: "USD",
     billingCycle: "monthly",
-    customDays: undefined,
-    customCycleUnit: undefined,
-    oneTimeTermCount: undefined,
-    oneTimeTermUnit: undefined,
     category: "productivity",
     status: "active",
     pinned: false,
@@ -223,7 +219,7 @@ function subscriptionFixture(overrides: Partial<ApiSubscription> = {}): ApiSubsc
     createdAt: "2026-05-21T00:00:00.000Z",
     updatedAt: "2026-05-21T00:00:00.000Z",
     ...overrides,
-  };
+  });
 }
 
 function readStoredZipJson(content: Uint8Array, name: string) {

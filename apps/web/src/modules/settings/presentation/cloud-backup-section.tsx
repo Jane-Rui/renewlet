@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Cloud } from "lucide-react";
 import { CloudBackupErrorDetailsDialog } from "@/components/cloud-backup-error-details-dialog";
 import {
@@ -20,6 +20,8 @@ import { LoadingButtonContent } from "./settings-shared-controls";
 import { getSettingsSectionClassName } from "./settings-layout";
 import type { CloudBackupController } from "../application/use-cloud-backup-controller";
 import type { CloudBackupProvider, CloudBackupSnapshot } from "@/lib/api/schemas/cloud-backup";
+import { ManagerDataBoundary } from "./manager-data-boundary";
+import { SettingsSectionHeader } from "./settings-section-header";
 
 interface CloudBackupSectionProps {
   id?: string;
@@ -39,19 +41,18 @@ export function CloudBackupSection({
 }: CloudBackupSectionProps) {
   const { t, formatDateTime } = useI18n();
   const [deleteTarget, setDeleteTarget] = useState<CloudBackupSnapshot | null>(null);
+  const deleteFocusFallbackRef = useRef<HTMLHeadingElement>(null);
   const {
     config,
     form,
     snapshots,
     credentialSet,
     canCreateSnapshot,
-    isLoading,
     isSaving,
     isTesting,
     isCreating,
     isDownloading,
     isDeleting,
-    isRefreshingSnapshots,
     restoringSnapshotKey,
     deletingSnapshotKey,
     hasUnsavedChanges,
@@ -66,10 +67,9 @@ export function CloudBackupSection({
     createSnapshot,
     restoreSnapshot,
     deleteSnapshot,
-    refreshSnapshots,
   } = controller;
   const busy = isSaving || isTesting || isCreating || isDownloading || isDeleting;
-  const providerStatus = config?.statusByProvider[form.provider] ?? null;
+  const providerStatus = config.data?.statusByProvider[form.provider] ?? null;
   const status = providerStatus?.lastStatus ?? "idle";
   const statusLabel = statusLabelFor(status, {
     idle: t("settings.cloudBackupStatusIdle"),
@@ -87,17 +87,28 @@ export function CloudBackupSection({
     ? formatDateTime(providerStatus.lastBackupAt, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
     : t("settings.cloudBackupNeverBackedUp");
   const deleteDialogBusy = deleteTarget ? deletingSnapshotKey === cloudBackupSnapshotKey(deleteTarget) : false;
+  const sectionSummary = config.isInitialLoading
+    ? t("common.loading")
+    : !config.hasData && config.error
+      ? t("settings.statusUnknown")
+      : config.error
+        ? t("settings.notUpdated")
+        : t("settings.cloudBackupSummary", {
+          provider: providerLabel,
+          credential: credentialLabel,
+          status: statusLabel,
+        });
 
   return (
     <section id={id} className={getSettingsSectionClassName(className)}>
-      <div className="mb-5 flex min-w-0 items-start gap-3">
-        <Cloud className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-        <div className="min-w-0">
-          <h2 className="text-lg font-semibold text-foreground">{t("settings.cloudBackup")}</h2>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("settings.cloudBackupHelp")}</p>
-        </div>
-      </div>
-
+      <SettingsSectionHeader
+        className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"
+        icon={<Cloud className="mt-0.5 h-5 w-5 shrink-0 text-primary" />}
+        title={t("settings.cloudBackup")}
+        help={t("settings.cloudBackupHelp")}
+        summary={sectionSummary}
+      />
+      <ManagerDataBoundary state={config}>
       <div className="grid gap-5">
         <CloudBackupConnectionForm
           form={form}
@@ -138,28 +149,35 @@ export function CloudBackupSection({
           onCreate={createSnapshot}
         />
         <CloudBackupSnapshotList
-          snapshots={snapshots}
-          isLoading={isLoading}
+          state={snapshots}
           busy={busy}
           disabled={disabled}
           restoringSnapshotKey={restoringSnapshotKey}
           deletingSnapshotKey={deletingSnapshotKey}
           canRefreshSnapshots={canCreateSnapshot}
-          isRefreshingSnapshots={isRefreshingSnapshots}
           snapshotsErrorMessage={snapshotsErrorMessage}
-          onRefresh={refreshSnapshots}
+          focusFallbackRef={deleteFocusFallbackRef}
           onOpenErrorDetails={openSnapshotsErrorDetails}
           onRestore={restoreSnapshot}
           onDelete={setDeleteTarget}
         />
       </div>
+      </ManagerDataBoundary>
 
       <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => {
         if (!open && !deleteDialogBusy) setDeleteTarget(null);
       }}>
-        <AlertDialogContent>
+        <AlertDialogContent
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            // 删除成功会卸载快照行，回到稳定的列表标题，避免焦点落到已移除按钮或尚未解锁的操作。
+            deleteFocusFallbackRef.current?.focus();
+          }}
+        >
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("settings.cloudBackupDeleteTitle")}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("settings.cloudBackupDeleteTitle", { name: deleteTarget?.filename ?? "" })}
+            </AlertDialogTitle>
             <AlertDialogDescription>{t("settings.cloudBackupDeleteDescription")}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -174,7 +192,7 @@ export function CloudBackupSection({
                 if (!snapshot) return;
                 void deleteSnapshot(snapshot).finally(() => setDeleteTarget(null));
               }}
-              className="min-w-[5.25rem] bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="min-w-21 bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               <LoadingButtonContent loading={deleteDialogBusy} loadingLabel={t("settings.cloudBackupDeleting")}>
                 {t("common.delete")}

@@ -106,7 +106,7 @@ export function AdvancedSelectionEntry({
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center justify-between gap-3">
           <span className="truncate text-sm font-semibold text-foreground">{title}</span>
-          <span className="max-w-[11rem] shrink-0 truncate text-right text-xs text-muted-foreground">{summary}</span>
+          <span className="max-w-44 shrink-0 truncate text-right text-xs text-muted-foreground">{summary}</span>
         </span>
         {preview ? (
           <span
@@ -156,10 +156,10 @@ export function AdvancedFilterGroupDialog<T>({
           dismissMode="explicit"
           layout="frame"
           closeLabel={t("common.close")}
-          overlayClassName="z-[90] bg-black/60"
+          overlayClassName="z-90 bg-black/60"
           className={mobile
-            ? "z-[100] h-[var(--app-viewport-height)] max-h-[var(--app-viewport-height)] w-full max-w-none gap-0 overflow-hidden rounded-none border-0 bg-card p-0"
-            : "z-[100] h-[min(calc(var(--app-viewport-height)-2rem),40rem)] max-h-[min(calc(var(--app-viewport-height)-2rem),40rem)] max-w-2xl gap-0 overflow-hidden border-border bg-card p-0"}
+            ? "z-100 h-(--app-viewport-height) max-h-(--app-viewport-height) w-full max-w-none gap-0 overflow-hidden rounded-none border-0 bg-card p-0"
+            : "z-100 h-[min(calc(var(--app-viewport-height)-2rem),40rem)] max-h-[min(calc(var(--app-viewport-height)-2rem),40rem)] max-w-2xl gap-0 overflow-hidden border-border bg-card p-0"}
           data-testid={testId}
         >
           <DialogHeader className={mobile
@@ -241,15 +241,15 @@ export function AdvancedOptionSelectionDialog<T extends string = string>({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {open ? (
-        // 桌面分组弹窗叠在右侧 Drawer 之上；z-index 与高级筛选面板 z-[80] 成对维护。
+        // 桌面分组弹窗叠在右侧 Drawer 之上；z-index 与高级筛选面板 z-80 成对维护。
         <DialogContent
           dismissMode="explicit"
           layout="frame"
           closeLabel={t("common.close")}
-          overlayClassName="z-[90] bg-black/60"
+          overlayClassName="z-90 bg-black/60"
           className={mobile
-            ? "z-[100] h-[var(--app-viewport-height)] max-h-[var(--app-viewport-height)] w-full max-w-none gap-0 overflow-hidden rounded-none border-0 bg-card p-0"
-            : "z-[100] h-[min(calc(var(--app-viewport-height)-2rem),40rem)] max-h-[min(calc(var(--app-viewport-height)-2rem),40rem)] max-w-2xl gap-0 overflow-hidden border-border bg-card p-0"}
+            ? "z-100 h-(--app-viewport-height) max-h-(--app-viewport-height) w-full max-w-none gap-0 overflow-hidden rounded-none border-0 bg-card p-0"
+            : "z-100 h-[min(calc(var(--app-viewport-height)-2rem),40rem)] max-h-[min(calc(var(--app-viewport-height)-2rem),40rem)] max-w-2xl gap-0 overflow-hidden border-border bg-card p-0"}
           data-testid={testId}
         >
           <DialogHeader className={mobile

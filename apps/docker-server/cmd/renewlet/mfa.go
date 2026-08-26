@@ -12,7 +12,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
@@ -213,7 +212,7 @@ func enableTOTP(app core.App, user *core.Record, setupID string, code string) (m
 	return response, nil
 }
 
-func verifyLoginMFA(app core.App, httpRequest *http.Request, request mfaVerifyRequest) (sessionResponse, error) {
+func verifyLoginMFA(app core.App, request mfaVerifyRequest) (sessionResponse, error) {
 	ticket, err := mfaTicketByToken(app, request.TicketID)
 	if err != nil {
 		return sessionResponse{}, err

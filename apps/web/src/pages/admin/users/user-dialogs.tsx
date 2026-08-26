@@ -59,6 +59,7 @@ export function CreateUserDialog({
         </DialogHeader>
         <form onSubmit={onSubmit} noValidate className="grid gap-4">
           <FormFieldRow
+            alignAt="sm"
             rowClassName="sm:grid-cols-2"
             errors={[
               { id: "create-user-name-error", message: errors.name },
@@ -96,6 +97,7 @@ export function CreateUserDialog({
             </FormField>
           </FormFieldRow>
           <FormFieldRow
+            alignAt="sm"
             rowClassName="sm:grid-cols-2"
             errors={[
               { id: "create-user-password-error", message: errors.password },

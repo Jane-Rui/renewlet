@@ -10,10 +10,16 @@ import type {
 } from "@/lib/api/schemas/cloud-backup";
 
 // Controller 测试保护 provider 草稿隔离、write-only secret 和快照行级状态，避免 UI mock 掩盖串目标问题。
+type AppToast = (typeof import("@/components/ui/sonner"))["toast"];
+
 const mocks = vi.hoisted(() => ({
-  toast: vi.fn(),
+  toast: {
+    success: vi.fn<AppToast["success"]>(),
+    error: vi.fn<AppToast["error"]>(),
+  },
   locale: "zh-CN" as "zh-CN" | "en-US",
   config: null as CloudBackupConfig | null,
+  configPending: false,
   snapshots: [] as CloudBackupSnapshot[],
   snapshotsError: null as Error | null,
   snapshotQueryParams: [] as Array<{ enabled?: boolean; provider: CloudBackupConfig["provider"]; configUpdatedAt?: string | null; locale: "zh-CN" | "en-US" }>,
@@ -25,8 +31,8 @@ const mocks = vi.hoisted(() => ({
   refetchSnapshots: vi.fn(),
 }));
 
-vi.mock("@/hooks/use-toast", () => ({
-  useToast: () => ({ toast: mocks.toast }),
+vi.mock("@/components/ui/sonner", () => ({
+  toast: mocks.toast,
 }));
 
 vi.mock("@/i18n/I18nProvider", () => ({
@@ -41,15 +47,20 @@ vi.mock("@/i18n/api-locale", () => ({
 
 vi.mock("@/hooks/use-cloud-backup", () => ({
   useCloudBackupConfig: () => ({
-    data: mocks.config,
-    isLoading: false,
+    data: mocks.config ?? undefined,
+    error: null,
+    isFetched: !mocks.configPending,
+    isPending: mocks.configPending,
+    isFetching: mocks.configPending,
+    refetch: vi.fn(),
   }),
   useCloudBackupSnapshots: (params: { enabled?: boolean; provider: CloudBackupConfig["provider"]; configUpdatedAt?: string | null; locale: "zh-CN" | "en-US" }) => {
     mocks.snapshotQueryParams.push(params);
     return {
       data: mocks.snapshots,
       error: mocks.snapshotsError,
-      isLoading: false,
+      isFetched: true,
+      isPending: false,
       isFetching: false,
       refetch: mocks.refetchSnapshots,
     };
@@ -137,9 +148,11 @@ async function renderController() {
 
 describe("useCloudBackupController provider drafts", () => {
   beforeEach(() => {
-    mocks.toast.mockReset();
+    mocks.toast.success.mockReset();
+    mocks.toast.error.mockReset();
     mocks.locale = "zh-CN";
     mocks.config = createConfig();
+    mocks.configPending = false;
     mocks.snapshots = [];
     mocks.snapshotsError = null;
     mocks.snapshotQueryParams = [];
@@ -162,6 +175,23 @@ describe("useCloudBackupController provider drafts", () => {
     });
     mocks.testMutateAsync.mockResolvedValue({ checkedAt: "2026-06-09T00:00:00.000Z" });
     mocks.createSnapshotMutateAsync.mockResolvedValue([]);
+  });
+
+  it("reports stable layout only after initial config and draft synchronization", async () => {
+    mocks.config = null;
+    mocks.configPending = true;
+    const { result, rerender } = renderHook(() => useCloudBackupController(vi.fn()));
+
+    expect(result.current.isInitialLayoutReady).toBe(false);
+
+    mocks.config = createConfig();
+    mocks.configPending = false;
+    rerender();
+
+    await waitFor(() => {
+      expect(result.current.isInitialLayoutReady).toBe(true);
+    });
+    expect(result.current.form.webdavUrl).toBe("https://dav.example.com/remote.php/dav/files/alice");
   });
 
   it("keeps WebDAV and S3 policy drafts isolated while switching providers", async () => {
@@ -263,10 +293,9 @@ describe("useCloudBackupController provider drafts", () => {
 
     expect(mocks.updateConfigMutateAsync).not.toHaveBeenCalled();
     expect(mocks.testMutateAsync).not.toHaveBeenCalled();
-    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
-      title: "settings.cloudBackupInvalid",
-      variant: "destructive",
-    }));
+    expect(mocks.toast.error).toHaveBeenCalledWith("settings.cloudBackupInvalid", {
+      description: "settings.cloudBackupInvalidDescription",
+    });
   });
 
   it("does not overwrite a dirty provider draft when cloud config refetches", async () => {

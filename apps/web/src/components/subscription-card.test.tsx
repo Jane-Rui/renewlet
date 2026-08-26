@@ -1,7 +1,7 @@
 // 订阅卡片测试保护有效状态、公开隐藏、菜单操作和日历入口，避免列表展示与 domain 状态计算分叉。
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { assertDateOnly } from "@/lib/time/date-only";
@@ -9,9 +9,7 @@ import {
   baseSubscription,
   expectMetaFlowItemsInOrder,
   mediaUtilitiesCss,
-  mockUserAgent,
   openMoreActionsMenu,
-  originalWindowOpen,
   renderSubscriptionCard,
   setSubscriptionCardTestMocks,
 } from "./subscription-card.test-utils";
@@ -55,16 +53,13 @@ const mocks = vi.hoisted(() => {
         icon: "/icons/payment-methods/google_pay.svg",
       },
     ],
-    createSubscriptionCalendarFeed: vi.fn(),
-    deleteSubscriptionCalendarFeed: vi.fn(),
-    subscriptionCalendarFeedStatus: { data: { enabled: false, feedUrl: undefined as string | undefined }, isLoading: false },
   };
 });
 
 setSubscriptionCardTestMocks(mocks);
 
 vi.mock("@/contexts/CustomConfigContext", () => ({
-  useCustomConfig: () => ({
+  useCustomConfigState: () => ({
     config: {
       categories: mocks.categories,
       statuses: [],
@@ -80,40 +75,15 @@ vi.mock("@/hooks/use-settings", () => ({
   }),
 }));
 
-vi.mock("@/hooks/use-calendar-feed", () => ({
-  useCreateSubscriptionCalendarFeed: () => ({
-    isPending: false,
-    mutateAsync: mocks.createSubscriptionCalendarFeed,
-  }),
-  useDeleteSubscriptionCalendarFeed: () => ({
-    isPending: false,
-    mutateAsync: mocks.deleteSubscriptionCalendarFeed,
-  }),
-  useSubscriptionCalendarFeedStatus: () => mocks.subscriptionCalendarFeedStatus,
-}));
-
 describe("SubscriptionCard", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-18T00:00:00.000Z"));
-    mocks.createSubscriptionCalendarFeed.mockReset();
-    mocks.deleteSubscriptionCalendarFeed.mockReset();
-    mocks.subscriptionCalendarFeedStatus = { data: { enabled: false, feedUrl: undefined }, isLoading: false };
-    mocks.createSubscriptionCalendarFeed.mockResolvedValue({
-      enabled: true,
-      createdAt: "2026-05-18T00:00:00.000Z",
-      updatedAt: "2026-05-18T00:00:00.000Z",
-      feedUrl: "https://example.com/calendar/renewals.ics?token=secret",
-    });
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n", {
-      headers: { "content-type": "text/calendar; charset=utf-8" },
-    })));
   });
 
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
-    Object.defineProperty(window, "open", { configurable: true, value: originalWindowOpen });
   });
 
   it("keeps the card body free of global settings and config hooks", () => {
@@ -133,6 +103,7 @@ describe("SubscriptionCard", () => {
     const dateGroup = screen.getByTestId("subscription-card-meta-date-group");
     const startDateMeta = screen.getByTestId("subscription-card-meta-start-date");
     const billingDateMeta = screen.getByTestId("subscription-card-meta-billing-date");
+    const dailyAverageMeta = screen.getByTestId("subscription-card-meta-daily-average");
     const paymentMethodMeta = screen.getByTestId("subscription-card-meta-payment-method");
     const badgeFlow = screen.getByTestId("subscription-card-badge-flow");
 
@@ -145,7 +116,10 @@ describe("SubscriptionCard", () => {
     expect(dateGroup).toContainElement(startDateMeta);
     expect(dateGroup).toContainElement(billingDateMeta);
     expect(metaFlow).toContainElement(paymentMethodMeta);
+    expect(metaFlow).toContainElement(dailyAverageMeta);
     expect(dateGroup).not.toContainElement(paymentMethodMeta);
+    expect(dateGroup).not.toContainElement(dailyAverageMeta);
+    expect(dailyAverageMeta).toHaveClass("tabular-nums");
     expect(paymentMethodMeta).toHaveClass("min-w-0", "max-w-full");
     expect(paymentMethodMeta).not.toHaveClass("shrink-0");
     expect(badgeFlow).toHaveClass("col-span-full", "flex", "flex-wrap", "gap-x-1.5", "gap-y-2", "sm:gap-2");
@@ -161,7 +135,7 @@ describe("SubscriptionCard", () => {
     expect(logo).not.toHaveClass("media-thumbnail-image", "invert", "brightness-125", "mix-blend-screen");
     expect(logoTile).not.toBeNull();
     expect(logoTile).not.toHaveClass("media-thumbnail-canvas");
-    expect(logoTile).not.toHaveClass("bg-gradient-to-br");
+    expect(logoTile).not.toHaveClass("bg-linear-to-br");
     expect(logoTile?.getAttribute("style")).not.toContain("accent");
   });
 
@@ -197,7 +171,7 @@ describe("SubscriptionCard", () => {
 
     expect(initials).toHaveClass("subscription-logo-fallback");
     expect(logoTile).not.toBeNull();
-    expect(logoTile).not.toHaveClass("bg-gradient-to-br");
+    expect(logoTile).not.toHaveClass("bg-linear-to-br");
   });
 
   it("shows pin actions from the card menu", () => {
@@ -321,7 +295,7 @@ describe("SubscriptionCard", () => {
       "px-2",
       "sm:px-2.5",
     );
-    expect(categoryBadge).not.toHaveClass("min-w-[3.5rem]", "max-w-[7.5rem]");
+    expect(categoryBadge).not.toHaveClass("min-w-14", "max-w-30");
     expect(categoryText).toHaveClass("block", "max-w-full", "truncate");
     expect(statusBadge).toHaveClass("shrink-0", "whitespace-nowrap");
   });
@@ -334,7 +308,7 @@ describe("SubscriptionCard", () => {
 
     expect(categoryBadge).toHaveTextContent(mocks.shortCategoryLabel);
     expect(categoryBadge).not.toHaveAttribute("title");
-    expect(categoryBadge).not.toHaveClass("min-w-[3.5rem]", "max-w-[7.5rem]");
+    expect(categoryBadge).not.toHaveClass("min-w-14", "max-w-30");
     expect(categoryText).toHaveAttribute("data-slot", "truncated-tooltip-text");
     expect(categoryText).toHaveClass("block", "max-w-full", "truncate");
   });
@@ -439,122 +413,18 @@ describe("SubscriptionCard", () => {
     expect(onViewDetails).not.toHaveBeenCalled();
   });
 
-  it("opens the add-to-calendar dialog from the overflow menu", async () => {
-    const open = vi.fn();
-    Object.defineProperty(window, "open", { configurable: true, value: open });
+  it("forwards the add-to-calendar intent from the overflow menu", () => {
+    const onAddToCalendar = vi.fn();
     renderSubscriptionCard({
       name: "Fastmail",
       website: "https://fastmail.example",
       notes: "Team renewal",
-    });
+    }, { onAddToCalendar });
 
     openMoreActionsMenu();
     fireEvent.click(screen.getByRole("menuitem", { name: "添加到日历" }));
 
-    expect(screen.getByRole("dialog", { name: "添加到日历" })).toBeInTheDocument();
-    expect(screen.getByText("为「Fastmail」创建单独日历订阅，只同步这一条续费。")).toBeInTheDocument();
-    const generateButton = screen.getByRole("button", { name: "生成订阅链接" });
-    expect(generateButton).toHaveClass("bg-primary");
-    expect(screen.queryByRole("link", { name: "打开系统日历" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "下载 ICS 文件" })).toHaveClass("border");
-    expect(screen.getByText("在线日历服务")).toBeInTheDocument();
-    expect(screen.getByText("事件日期")).toBeInTheDocument();
-    expect(screen.getByText("2026年6月15日")).toBeInTheDocument();
-    expect(screen.getByText("事件类型")).toBeInTheDocument();
-    expect(screen.getByText("订阅 Feed")).toBeInTheDocument();
-    expect(screen.getByText("同步状态")).toBeInTheDocument();
-    expect(screen.getByText("持续同步此订阅")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "用 Google Calendar 打开" })).toHaveAttribute(
-      "href",
-      expect.stringContaining("calendar.google.com"),
-    );
-    expect(screen.queryByRole("button", { name: "用 Google Calendar 打开" })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "用 Outlook.com 打开" })).not.toHaveClass("bg-primary");
-    expect(screen.getByRole("link", { name: "用 Office 365 打开" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "用 Yahoo Calendar 打开" })).toBeInTheDocument();
-    expect(screen.getByText("系统订阅需要日历 App 能持续访问这个 URL；下载 ICS 和在线日历入口都是一次性添加。")).toBeInTheDocument();
-
-    vi.useRealTimers();
-    fireEvent.click(generateButton);
-    await waitFor(() => expect(mocks.createSubscriptionCalendarFeed).toHaveBeenCalledWith("sub-1"));
-    expect(open).toHaveBeenCalledWith("webcal://example.com/calendar/renewals.ics?token=secret", "_self");
-    expect(screen.getByLabelText("本次订阅 URL")).toHaveValue("https://example.com/calendar/renewals.ics?token=secret");
-    expect(screen.getByRole("button", { name: "复制 URL" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "重新生成订阅链接" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "在系统日历中订阅" })).toBeInTheDocument();
-  });
-
-  it("shows an existing per-subscription feed URL without generating a new token", async () => {
-    const open = vi.fn();
-    Object.defineProperty(window, "open", { configurable: true, value: open });
-    mocks.subscriptionCalendarFeedStatus = {
-      data: {
-        enabled: true,
-        feedUrl: "https://example.com/calendar/renewals.ics?token=existing",
-      },
-      isLoading: false,
-    };
-
-    renderSubscriptionCard({ name: "Fastmail" });
-
-    openMoreActionsMenu();
-    fireEvent.click(screen.getByRole("menuitem", { name: "添加到日历" }));
-
-    vi.useRealTimers();
-    fireEvent.click(screen.getByRole("button", { name: "在系统日历中订阅" }));
-    await waitFor(() => expect(open).toHaveBeenCalledWith("webcal://example.com/calendar/renewals.ics?token=existing", "_self"));
-    expect(screen.getByLabelText("本次订阅 URL")).toHaveValue("https://example.com/calendar/renewals.ics?token=existing");
-    expect(screen.queryByRole("button", { name: "生成订阅链接" })).not.toBeInTheDocument();
-    expect(mocks.createSubscriptionCalendarFeed).not.toHaveBeenCalled();
-  });
-
-  it("does not open the system calendar when the feed preflight returns HTML", async () => {
-    const open = vi.fn();
-    Object.defineProperty(window, "open", { configurable: true, value: open });
-    const fetchMock = vi.fn().mockResolvedValue(new Response("<html></html>", {
-      headers: { "content-type": "text/html" },
-    }));
-    vi.stubGlobal("fetch", fetchMock);
-    mocks.subscriptionCalendarFeedStatus = {
-      data: {
-        enabled: true,
-        feedUrl: "http://localhost:5173/calendar/renewals.ics?token=existing",
-      },
-      isLoading: false,
-    };
-
-    renderSubscriptionCard({ name: "Fastmail" });
-
-    openMoreActionsMenu();
-    fireEvent.click(screen.getByRole("menuitem", { name: "添加到日历" }));
-    vi.useRealTimers();
-    fireEvent.click(screen.getByRole("button", { name: "在系统日历中订阅" }));
-
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("http://localhost:5173/calendar/renewals.ics?token=existing", {
-      cache: "no-store",
-      credentials: "omit",
-      headers: { Accept: "text/calendar,*/*;q=0.1" },
-    }));
-    expect(open).not.toHaveBeenCalled();
-  });
-
-  it("uses an Android insert intent for the system calendar entry in Chrome on Android", () => {
-    const restoreUserAgent = mockUserAgent("Mozilla/5.0 (Linux; Android 15; Pixel 8) AppleWebKit/537.36 Chrome/126.0.0.0 Mobile Safari/537.36");
-
-    try {
-      renderSubscriptionCard({ name: "Fastmail", website: "https://fastmail.example" });
-
-      openMoreActionsMenu();
-      fireEvent.click(screen.getByRole("menuitem", { name: "添加到日历" }));
-
-      const androidSingleEventLink = screen.getByRole("link", { name: "添加单次事件到 Android 日历" });
-      expect(androidSingleEventLink).toHaveAttribute("href", expect.stringContaining("intent://renewlet/calendar-event#Intent;"));
-      expect(androidSingleEventLink).toHaveAttribute("href", expect.stringContaining("action=android.intent.action.INSERT"));
-      expect(androidSingleEventLink).toHaveAttribute("href", expect.stringContaining("type=vnd.android.cursor.dir/event"));
-      expect(androidSingleEventLink).toHaveAttribute("href", expect.stringContaining("S.title=Fastmail"));
-    } finally {
-      restoreUserAgent();
-    }
+    expect(onAddToCalendar).toHaveBeenCalledWith("sub-1");
   });
 
   it("hides the add-to-calendar entry for one-time buyouts", () => {
@@ -566,19 +436,17 @@ describe("SubscriptionCard", () => {
   });
 
   it("keeps the add-to-calendar entry available for one-time fixed terms", () => {
+    const onAddToCalendar = vi.fn();
     renderSubscriptionCard({
       billingCycle: "one-time",
       oneTimeTermCount: 6,
       oneTimeTermUnit: "month",
-    });
+    }, { onAddToCalendar });
 
     openMoreActionsMenu();
     fireEvent.click(screen.getByRole("menuitem", { name: "添加到日历" }));
 
-    expect(screen.getByRole("dialog", { name: "添加到期日历" })).toBeInTheDocument();
-    expect(screen.getByText("为「dmit」创建单独日历订阅，只同步这次服务到期。")).toBeInTheDocument();
-    expect(screen.getByText("事件日期")).toBeInTheDocument();
-    expect(screen.getByText("2026年6月15日")).toBeInTheDocument();
+    expect(onAddToCalendar).toHaveBeenCalledWith("sub-1");
   });
 
   it("renders concrete custom billing cycle labels", () => {
@@ -591,7 +459,7 @@ describe("SubscriptionCard", () => {
   it("renders future recurring subscriptions with remaining days and the target date", () => {
     renderSubscriptionCard({ nextBillingDate: assertDateOnly("2026-06-15") });
 
-    expectMetaFlowItemsInOrder("开始: 2026/5/15", "到期: 2026/6/15", "28 天后续费");
+    expectMetaFlowItemsInOrder("开始: 2026/5/15", "到期: 2026/6/15", "日均 $5.3", "28 天后续费");
   });
 
   it("hides the start-date meta item when a recurring subscription has an unknown start date", () => {
@@ -601,7 +469,7 @@ describe("SubscriptionCard", () => {
       nextBillingDate: assertDateOnly("2026-06-15"),
     });
 
-    const metaFlow = expectMetaFlowItemsInOrder("到期: 2026/6/15", "28 天后续费");
+    const metaFlow = expectMetaFlowItemsInOrder("到期: 2026/6/15", "日均 $5.3", "28 天后续费");
 
     expect(within(metaFlow).queryByText(/开始:/)).not.toBeInTheDocument();
   });
@@ -615,6 +483,7 @@ describe("SubscriptionCard", () => {
     expectMetaFlowItemsInOrder(
       "开始: 2026/5/15",
       "到期: 2026/6/15",
+      "日均 $5.3",
       mocks.creditCardLabel,
       "28 天后续费",
     );
@@ -626,7 +495,7 @@ describe("SubscriptionCard", () => {
       nextBillingDate: assertDateOnly("2026-06-02"),
     });
 
-    const metaFlow = expectMetaFlowItemsInOrder("到期: 2026/6/2", mocks.longPaymentMethodLabel, "15 天后续费");
+    const metaFlow = expectMetaFlowItemsInOrder("到期: 2026/6/2", "日均 $5.3", mocks.longPaymentMethodLabel, "15 天后续费");
     const paymentMethodMeta = screen.getByTestId("subscription-card-meta-payment-method");
     const paymentMethodText = within(paymentMethodMeta).getByText(mocks.longPaymentMethodLabel);
 
@@ -639,7 +508,7 @@ describe("SubscriptionCard", () => {
   it("keeps relative billing after the billing date when there is no payment method", () => {
     renderSubscriptionCard({ paymentMethod: undefined, nextBillingDate: assertDateOnly("2026-06-02") });
 
-    const metaFlow = expectMetaFlowItemsInOrder("开始: 2026/5/15", "到期: 2026/6/2", "15 天后续费");
+    const metaFlow = expectMetaFlowItemsInOrder("开始: 2026/5/15", "到期: 2026/6/2", "日均 $5.3", "15 天后续费");
 
     expect(within(metaFlow).queryByText(mocks.creditCardLabel)).not.toBeInTheDocument();
   });
@@ -647,12 +516,21 @@ describe("SubscriptionCard", () => {
   it("renders future one-time fixed terms with remaining days and the expiry date", () => {
     renderSubscriptionCard({
       billingCycle: "one-time",
+      price: "180",
       oneTimeTermCount: 6,
       oneTimeTermUnit: "month",
       nextBillingDate: assertDateOnly("2026-08-01"),
     });
 
-    expectMetaFlowItemsInOrder("开始: 2026/5/15", "到期: 2026/8/1", "75 天后到期");
+    expectMetaFlowItemsInOrder("开始: 2026/5/15", "到期: 2026/8/1", "日均 $1", "75 天后到期");
+  });
+
+  it("keeps long daily amounts constrained inside the shared metadata flow", () => {
+    renderSubscriptionCard({ price: "1000000000" });
+
+    const dailyAverageMeta = screen.getByTestId("subscription-card-meta-daily-average");
+    expect(dailyAverageMeta).toHaveClass("min-w-0", "max-w-full", "tabular-nums");
+    expect(within(dailyAverageMeta).getByText("日均 $33,333,333.33")).toBeInTheDocument();
   });
 
   it("renders buyout purchase dates without relative renewal days", () => {
@@ -662,6 +540,7 @@ describe("SubscriptionCard", () => {
 
     expect(within(metaFlow).queryByText("28 天后续费")).not.toBeInTheDocument();
     expect(within(metaFlow).queryByText("到期: 2026/6/15")).not.toBeInTheDocument();
+    expect(within(metaFlow).queryByText(/日均/)).not.toBeInTheDocument();
   });
 
   it("renders overdue active subscriptions with the expired status treatment", () => {
@@ -701,6 +580,7 @@ describe("SubscriptionCard", () => {
     renderSubscriptionCard({ reminderDays: -1 }, {}, { viewMode: "list" });
 
     expect(screen.getByText("默认提醒：提前 5 天")).toBeInTheDocument();
+    expect(screen.getByText("日均 $5.3")).toBeInTheDocument();
   });
 
   it("renders disabled reminder days", () => {

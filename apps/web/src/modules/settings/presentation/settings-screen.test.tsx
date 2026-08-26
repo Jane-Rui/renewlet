@@ -1,13 +1,16 @@
 // SettingsScreen 测试保护设置页分区装配、H5 布局契约和 Cloudflare/Docker 差异入口，不验证普通控件细节样式。
-import { render, screen, within } from "@testing-library/react";
+import { useState } from "react";
+import { render, screen, waitFor, waitForElementToBeRemoved, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { assertDateOnly } from "@/lib/time/date-only";
 import { DEFAULT_CUSTOM_CONFIG } from "@/types/config";
 import {
   WEBHOOK_HEADERS_PLACEHOLDER,
   WEBHOOK_PAYLOAD_PLACEHOLDER,
 } from "@/types/subscription";
 import {
+  createCalendarFeedControllerState,
   createControllerState,
   createUploadedAssetsManagerState,
   mocks,
@@ -16,6 +19,18 @@ import {
   StatefulEmailNotificationPanel,
   useStatefulMonthlyBudgetController,
 } from "./settings-screen.test-utils";
+
+function useStatefulPublicStatusController() {
+  const [pageUrl, setPageUrl] = useState<string | null>("https://example.com/status/secret");
+  const controller = createControllerState({
+    publicStatusPage: { enabled: pageUrl !== null, pageUrl, showPrices: true, visibleCount: 3, hiddenCount: 1 },
+  });
+  controller.publicStatusPage.revoke = vi.fn(async () => {
+    setPageUrl(null);
+    return true;
+  });
+  return controller;
+}
 
 describe("SettingsScreen SMTP email settings", () => {
   beforeEach(() => {
@@ -30,6 +45,7 @@ describe("SettingsScreen SMTP email settings", () => {
       dispatchEvent: vi.fn(),
     })));
     mocks.useSettingsFormController.mockReturnValue(createControllerState());
+    mocks.useCalendarFeedSettingsController.mockReturnValue(createCalendarFeedControllerState());
     mocks.useUploadedAssetsManager.mockReturnValue(createUploadedAssetsManagerState());
   });
 
@@ -168,7 +184,7 @@ describe("SettingsScreen SMTP email settings", () => {
     expect(accessSecuritySection).not.toBeNull();
     expect(within(accountSection as HTMLElement).queryByRole("heading", { name: "Cloudflare Turnstile" })).not.toBeInTheDocument();
     expect(within(accessSecuritySection as HTMLElement).getByRole("heading", { name: "访问安全" })).toBeInTheDocument();
-    expect(within(accessSecuritySection as HTMLElement).getByRole("heading", { name: "Cloudflare Turnstile" })).toBeInTheDocument();
+    expect(within(accessSecuritySection as HTMLElement).getByLabelText("要求邮箱密码登录通过人机验证")).toBeInTheDocument();
   });
 
   it("keeps user management visible for Cloudflare admins while hiding PocketBase admin", () => {
@@ -332,6 +348,9 @@ describe("SettingsScreen SMTP email settings", () => {
     const input = screen.getByLabelText("默认提前提醒天数");
     expect(input).toHaveValue("5");
     expect(input).toHaveAttribute("inputmode", "numeric");
+    const notificationScheduleRow = input.closest('[data-slot="form-field-row"]');
+    expect(notificationScheduleRow).toHaveAttribute("data-align-at", "sm");
+    expect(notificationScheduleRow).toHaveAttribute("data-tracks", "3");
 
     await user.clear(input);
     await user.type(input, "14");
@@ -339,56 +358,71 @@ describe("SettingsScreen SMTP email settings", () => {
     expect(controller.updateSetting).toHaveBeenLastCalledWith("notificationReminderDays", 14);
   });
 
-  it("renders calendar subscription controls and exposes the permanent URL actions", async () => {
+  it("opens the calendar feed manager with separate global and subscription tabs", async () => {
     const user = userEvent.setup();
-    const controller = createControllerState({
-      calendarFeed: {
-        enabled: true,
-        feedUrl: "https://example.com/calendar/renewals.ics?token=secret",
+    const calendarFeed = createCalendarFeedControllerState({
+      global: {
+        data: {
+          enabled: true,
+          feedUrl: "https://example.com/calendar/renewals.ics?token=all",
+          createdAt: "2026-08-20T00:00:00.000Z",
+          updatedAt: "2026-08-20T00:00:00.000Z",
+        },
+      },
+      subscriptions: {
+        data: {
+          total: 1,
+          hasMore: false,
+          items: [{
+            id: "cal-sub",
+            feedUrl: "https://example.com/calendar/renewals.ics?token=fastmail",
+            createdAt: "2026-08-19T00:00:00.000Z",
+            updatedAt: "2026-08-19T00:00:00.000Z",
+            subscription: {
+              id: "sub-fastmail",
+              name: "Fastmail",
+              status: "active",
+              nextBillingDate: assertDateOnly("2026-09-01"),
+            },
+          }],
+        },
       },
     });
-    mocks.useSettingsFormController.mockReturnValue(controller);
+    mocks.useCalendarFeedSettingsController.mockReturnValue(calendarFeed);
 
     renderSettingsScreen();
 
     expect(screen.getByRole("heading", { name: "日历订阅" })).toBeInTheDocument();
-    expect(screen.getAllByText("已启用").length).toBeGreaterThan(0);
-    expect(screen.getByLabelText("日历订阅 URL")).toHaveValue("https://example.com/calendar/renewals.ics?token=secret");
-    expect(screen.getByText("这是你的私有订阅链接；如果误分享，可以重新生成让旧链接失效。")).toBeInTheDocument();
-    const copyButton = screen.getByRole("button", { name: "复制 URL" });
-    const systemCalendarButton = screen.getByRole("button", { name: "在系统日历中订阅" });
-    expect(copyButton).toHaveClass("bg-primary");
-    expect(systemCalendarButton).not.toHaveClass("bg-primary");
+    expect(screen.getByText("单个订阅 · 1 个")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "管理" }));
 
-    await user.click(copyButton);
-    expect(controller.calendarFeed.copyUrl).toHaveBeenCalled();
+    const manager = screen.getByRole("dialog", { name: "日历订阅" });
+    expect(within(manager).getByLabelText("「全部续费」的日历订阅 URL")).toHaveValue(
+      "https://example.com/calendar/renewals.ics?token=all",
+    );
+    expect(within(manager).queryByText("Fastmail")).not.toBeInTheDocument();
 
-    await user.click(systemCalendarButton);
-    expect(controller.calendarFeed.openSystem).toHaveBeenCalled();
-
-    await user.click(screen.getByRole("button", { name: "重新生成" }));
-    const regenerateDialog = await screen.findByRole("alertdialog", { name: "重新生成日历订阅 URL？" });
-    expect(within(regenerateDialog).getByText("旧 URL 会立即失效，已经添加到日历 App 的订阅需要重新添加。")).toBeInTheDocument();
-    await user.click(within(regenerateDialog).getByRole("button", { name: "重新生成" }));
-    expect(controller.calendarFeed.regenerate).toHaveBeenCalled();
-
-    await user.click(screen.getByRole("button", { name: "撤销订阅" }));
-    expect(controller.calendarFeed.revoke).toHaveBeenCalled();
+    await user.click(within(manager).getByRole("tab", { name: "单个订阅" }));
+    const row = within(manager).getByRole("listitem");
+    expect(row).toHaveTextContent("Fastmail");
+    await user.click(within(row).getByRole("button", { name: "复制「Fastmail」的日历订阅 URL" }));
+    expect(calendarFeed.copyUrl).toHaveBeenCalledWith(
+      "https://example.com/calendar/renewals.ics?token=fastmail",
+      expect.any(HTMLInputElement),
+    );
   });
 
-  it("shows the disabled calendar feed state before URL generation", () => {
-    mocks.useSettingsFormController.mockReturnValue(createControllerState({
-      calendarFeed: { enabled: false, feedUrl: null },
-    }));
+  it("offers global feed generation when no feed has been created", async () => {
+    const user = userEvent.setup();
+    const calendarFeed = createCalendarFeedControllerState();
+    mocks.useCalendarFeedSettingsController.mockReturnValue(calendarFeed);
 
     renderSettingsScreen();
 
-    expect(screen.getByRole("heading", { name: "日历订阅" })).toBeInTheDocument();
-    expect(screen.getByText("生成后可在 iOS、macOS、Android、Outlook、Thunderbird 等日历应用中通过 URL 订阅。")).toBeInTheDocument();
-    expect(screen.queryByLabelText("日历订阅 URL")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "复制 URL" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "在系统日历中订阅" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "生成订阅 URL" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "管理" }));
+    const manager = screen.getByRole("dialog", { name: "日历订阅" });
+    await user.click(within(manager).getByRole("button", { name: "生成全部续费日历订阅链接" }));
+    expect(calendarFeed.create).toHaveBeenCalledWith({ scope: "all" });
   });
 
   it("lets users choose the public status reporting currency from the public status section", async () => {
@@ -425,19 +459,33 @@ describe("SettingsScreen SMTP email settings", () => {
     expect(controller.publicStatusPage.updateShowPrices).toHaveBeenCalledWith(false);
 
     const currencySelect = screen.getByRole("combobox", { name: "公开页统计货币" });
+    const publicStatusFields = currencySelect.closest('[data-slot="form-field-row"]');
+    expect(publicStatusFields).toHaveAttribute("data-align-at", "lg");
+    expect(publicStatusFields?.querySelectorAll('[data-slot="form-field"]')).toHaveLength(2);
+    expect(screen.getByRole("switch", { name: "公开金额" }).closest('[data-slot="form-field-row"]')).toBe(publicStatusFields);
     expect(currencySelect).toHaveTextContent("继承统计货币（当前 USD）");
 
     await user.click(currencySelect);
 
     expect(controller.updateSetting).toHaveBeenLastCalledWith("publicStatusCurrency", "CNY");
 
-    await user.click(screen.getByRole("button", { name: "重新生成" }));
+    const regenerateTrigger = screen.getByRole("button", { name: "重新生成" });
+    await user.click(regenerateTrigger);
     const regenerateDialog = await screen.findByRole("alertdialog", { name: "重新生成公开展示 URL？" });
     expect(within(regenerateDialog).getByText("旧 URL 会立即失效，已经分享出去的公开页需要使用新链接访问。")).toBeInTheDocument();
+    const regenerateDialogClosed = waitForElementToBeRemoved(regenerateDialog);
     await user.click(within(regenerateDialog).getByRole("button", { name: "重新生成" }));
     expect(controller.publicStatusPage.regenerate).toHaveBeenCalled();
+    await regenerateDialogClosed;
+    await waitFor(() => {
+      expect(regenerateTrigger).toHaveFocus();
+      expect(document.body).not.toHaveAttribute("data-scroll-locked");
+    });
 
     await user.click(screen.getByRole("button", { name: "撤销公开页" }));
+    const revokeDialog = await screen.findByRole("alertdialog", { name: "撤销公开展示？" });
+    expect(within(revokeDialog).getByText("公开链接会立即失效，后续访问将返回 404。")).toBeInTheDocument();
+    await user.click(within(revokeDialog).getByRole("button", { name: "撤销公开页" }));
     expect(controller.publicStatusPage.revoke).toHaveBeenCalled();
   });
 
@@ -459,6 +507,21 @@ describe("SettingsScreen SMTP email settings", () => {
     const currencySelect = screen.getByRole("combobox", { name: "公开页统计货币" });
     expect(currencySelect).toHaveTextContent("¥ 人民币 (CNY)");
     expect(currencySelect).not.toHaveTextContent("¥ 人民币 (¥)");
+  });
+
+  it("returns focus to public status generation after revocation removes its trigger", async () => {
+    const user = userEvent.setup();
+    mocks.useSettingsFormController.mockImplementation(useStatefulPublicStatusController);
+    renderSettingsScreen();
+
+    await user.click(screen.getByRole("button", { name: "撤销公开页" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "撤销公开展示？" });
+    await user.click(within(dialog).getByRole("button", { name: "撤销公开页" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("alertdialog", { name: "撤销公开展示？" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "生成公开链接" })).toHaveFocus();
+    });
   });
 
   it("keeps the public status setup compact before URL generation", async () => {
@@ -516,8 +579,9 @@ describe("SettingsScreen SMTP email settings", () => {
     renderSettingsScreen();
 
     const providerModelGrid = screen.getByTestId("ai-provider-model-grid");
-    expect(providerModelGrid).toHaveClass("items-start");
-    expect(providerModelGrid).toHaveClass("md:gap-y-2");
+    expect(providerModelGrid).toHaveAttribute("data-align-at", "md");
+    expect(providerModelGrid).toHaveAttribute("data-tracks", "2");
+    expect(providerModelGrid.firstElementChild).toHaveClass("md:grid-cols-2", "md:gap-y-2");
   });
 
   it("uses test wording for the Notifyx channel button", () => {
@@ -693,7 +757,7 @@ describe("SettingsScreen SMTP email settings", () => {
         "bg-card",
         "p-4",
         "sm:p-6",
-        "scroll-mt-[var(--settings-section-scroll-offset)]",
+        "scroll-mt-(--settings-section-scroll-offset)",
       );
       expect(section).not.toHaveClass("lg:scroll-mt-24");
       expect(section).not.toHaveClass("p-6");

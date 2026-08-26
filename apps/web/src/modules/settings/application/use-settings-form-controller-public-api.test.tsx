@@ -15,7 +15,8 @@ describe("useSettingsFormController public API integrations", () => {
   it("creates, copies, and deletes Public API tokens without marking settings dirty", async () => {
     const { result } = renderSettingsFormController();
 
-    expect(result.current.publicApi.tokens).toEqual([]);
+    expect(result.current.publicApi.tokens.data).toEqual([]);
+    expect(result.current.publicApi.tokens.hasData).toBe(true);
     expect(result.current.hasUnsavedChanges).toBe(false);
 
     await act(async () => {
@@ -25,10 +26,7 @@ describe("useSettingsFormController public API integrations", () => {
     expect(mocks.createPublicApiTokenMutateAsync).toHaveBeenCalledWith("Telegram Bot");
     expect(result.current.publicApi.createdPlainToken).toBe("rlt_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNO12");
     expect(result.current.hasUnsavedChanges).toBe(false);
-    expect(mocks.toast).toHaveBeenCalledWith({
-      title: "API Token 已创建",
-      description: "明文 token 只显示一次，请复制到需要调用 Public API 的客户端。",
-    });
+    expect(mocks.toast.success).toHaveBeenCalledWith("API Token 已创建");
 
     await act(async () => {
       await result.current.publicApi.copyPlainToken();
@@ -44,10 +42,7 @@ describe("useSettingsFormController public API integrations", () => {
       await result.current.publicApi.deleteToken("tok_test");
     });
     expect(mocks.deletePublicApiTokenMutateAsync).toHaveBeenCalledWith("tok_test");
-    expect(mocks.toast).toHaveBeenCalledWith({
-      title: "API Token 已删除",
-      description: "旧 token 已失效，后续 Public API 请求会被拒绝。",
-    });
+    expect(mocks.toast.success).toHaveBeenCalledWith("API Token 已删除");
   });
 
   it("refreshes Telegram command status after saved Telegram credentials change", async () => {

@@ -1,6 +1,6 @@
 import { importPayloadSchema, type ImportSubscription } from "@/lib/api/schemas/import-export";
 import type { AiRecognizedSubscriptionDraft } from "@/lib/api/schemas/ai-recognition";
-import { toSubscriptionDraft } from "@/lib/subscription-form";
+import { toSubscriptionFormSubmission } from "@/lib/subscription-form";
 import {
   IMPORT_MESSAGE_CODES,
   importMessage,
@@ -52,8 +52,8 @@ export function buildPreparedImportFromAIDrafts(
 
 function buildAIImportSubscription(item: AIImportDraft, state: AIImportBuildState): ImportSubscription {
   const { sourceDraft, formData } = item;
-  const draft = toSubscriptionDraft(formData);
-  if (!draft) throw new Error("AI_RECOGNITION_DRAFT_INVALID");
+  const submission = toSubscriptionFormSubmission(formData);
+  if (!submission) throw new Error("AI_RECOGNITION_DRAFT_INVALID");
 
   // sourceDraft 的 warning 只记录模型当时的识别证据；标准导入提示必须从用户已确认的当前表单重新计算。
   const warnings: string[] = [];
@@ -71,33 +71,34 @@ function buildAIImportSubscription(item: AIImportDraft, state: AIImportBuildStat
   ensureCurrency(formData.currency, state);
 
   return {
-    name: draft.name,
-    logo: draft.logo ?? null,
-    price: draft.price,
-    currency: draft.currency,
-    billingCycle: draft.billingCycle,
-    customDays: draft.billingCycle === "custom" ? draft.customDays : null,
-    customCycleUnit: draft.billingCycle === "custom" ? draft.customCycleUnit : null,
-    oneTimeTermCount: draft.billingCycle === "one-time" ? draft.oneTimeTermCount ?? null : null,
-    oneTimeTermUnit: draft.billingCycle === "one-time" ? draft.oneTimeTermUnit ?? null : null,
+    name: submission.name,
+    logo: submission.logo ?? null,
+    price: submission.price,
+    currency: submission.currency,
+    billingCycle: submission.billingCycle,
+    customDays: submission.billingCycle === "custom" ? submission.customDays : null,
+    customCycleUnit: submission.billingCycle === "custom" ? submission.customCycleUnit : null,
+    oneTimeTermCount: submission.billingCycle === "one-time" ? submission.oneTimeTermCount ?? null : null,
+    oneTimeTermUnit: submission.billingCycle === "one-time" ? submission.oneTimeTermUnit ?? null : null,
     category,
-    status: draft.status,
+    status: submission.status,
     pinned: false,
-    publicHidden: draft.publicHidden,
+    publicHidden: submission.publicHidden,
     paymentMethod,
-    startDate: draft.startDate,
-    nextBillingDate: draft.nextBillingDate,
-    autoRenew: draft.billingCycle === "one-time" ? false : draft.autoRenew,
-    autoCalculateNextBillingDate: draft.autoCalculateNextBillingDate,
-    trialEndDate: draft.status === "trial" ? sourceDraft.trialEndDate : null,
+    startDate: submission.startDate,
+    nextBillingDate: submission.nextBillingDate,
+    autoRenew: submission.billingCycle === "one-time" ? false : submission.autoRenew,
+    autoCalculateNextBillingDate: submission.autoCalculateNextBillingDate,
+    // 试用结束日是不可编辑的识别事实；普通表单不拥有该字段，只有 AI import 能从原始草稿写入。
+    trialEndDate: submission.status === "trial" ? sourceDraft.trialEndDate : null,
     website: website ?? null,
     notes,
-    tags: draft.tags,
-    reminderDays: draft.reminderDays,
-    repeatReminderEnabled: draft.repeatReminderEnabled,
-    repeatReminderInterval: draft.repeatReminderInterval,
-    repeatReminderWindow: draft.repeatReminderWindow,
-    costSharing: draft.costSharing ?? null,
+    tags: submission.tags,
+    reminderDays: submission.reminderDays,
+    repeatReminderEnabled: submission.repeatReminderEnabled,
+    repeatReminderInterval: submission.repeatReminderInterval,
+    repeatReminderWindow: submission.repeatReminderWindow,
+    costSharing: submission.costSharing ?? null,
     extra: {
       import: {
         source: "ai",

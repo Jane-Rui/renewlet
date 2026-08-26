@@ -1,31 +1,50 @@
 #!/usr/bin/env node
 
 /**
- * 客户端压缩包体守卫。
- * 初始入口按 manifest 静态依赖闭包计费，lazy route 与 vendor 分开限额，避免总量正常时隐藏单路由退化。
+ * 客户端压缩预算按 manifest 静态闭包计费：入口 + 单个当前语言 + CSS，以及每条路由的完整静态依赖。
+ * chunk 名只用于报告；依赖禁入读取 Vite 生成的 module graph，避免自动分包改名绕过守卫。
  */
 import { brotliCompressSync, constants as zlibConstants, gzipSync } from "node:zlib";
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// gzip/brotli 都是硬门，避免只优化一种发布压缩格式后把另一种回归隐藏在总构建成功里。
-
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const distRoot = join(workspaceRoot, "dist");
-const manifestPath = join(distRoot, ".vite/manifest.json");
-const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-
+const manifest = JSON.parse(readFileSync(join(distRoot, ".vite/manifest.json"), "utf8"));
+const moduleGraph = JSON.parse(readFileSync(join(distRoot, ".vite/module-graph.json"), "utf8"));
+const locales = ["en-US", "zh-CN"];
+const catalogEntryKey = (locale) => `src/i18n/catalog-loaders/${locale}.ts`;
+const privateRouteKeys = new Set([
+  "src/pages/dashboard.tsx",
+  "src/pages/subscriptions.tsx",
+  "src/pages/calendar.tsx",
+  "src/pages/statistics.tsx",
+  "src/pages/settings.tsx",
+  "src/pages/admin/users.tsx",
+]);
 const budgets = {
-  // 首次真实构建基线上浮 5% 后固化；调整数字必须附新的构建证据，不能为通过 CI 随意抬高。
-  initial: { gzip: 556075, brotli: 468559 },
-  lazyRoute: { gzip: 73240, brotli: 60088 },
-  vendor: { gzip: 112455, brotli: 93798 },
+  // 相比 510 KB gzip / 431 KB Brotli 基线分别下降 21.6% / 20.2%。
+  startup: { gzip: 400000, brotli: 344000 },
+  route: { gzip: 400000, brotli: 344000 },
 };
+const forbiddenStartupModules = [
+  ["Recharts", (id) => id.includes("node_modules/recharts/")],
+  ["JSZip", (id) => id.includes("node_modules/jszip/")],
+  ["sql.js", (id) => id.includes("node_modules/sql.js/")],
+  ["完整 settings 模型", (id) => id.endsWith("apps/web/src/types/subscription.ts")],
+];
+const forbiddenLazyDialogShellModules = [
+  ["react-image-crop", (id) => id.includes("node_modules/react-image-crop/")],
+  ["qrcode.react", (id) => id.includes("node_modules/qrcode.react/")],
+  ["AI 草稿编辑器", (id) => id.endsWith("apps/web/src/components/ai-recognition/ai-draft-editor-panel.tsx")],
+  ["ImportPreview", (id) => id.endsWith("apps/web/src/components/import-preview-panel.tsx")],
+  ["JSZip", (id) => id.includes("node_modules/jszip/")],
+  ["sql.js", (id) => id.includes("node_modules/sql.js/")],
+];
 
 const compressedSizeCache = new Map();
 function compressedSizes(file) {
-  // 同一 chunk 可能同时属于入口闭包和最大项候选；缓存压缩结果避免构建门禁重复做最高质量 Brotli。
   const cached = compressedSizeCache.get(file);
   if (cached) return cached;
   const content = readFileSync(join(distRoot, file));
@@ -39,13 +58,26 @@ function compressedSizes(file) {
   return sizes;
 }
 
-function collectStaticImports(key, files = new Set()) {
-  // 首屏预算只递归 manifest.imports；dynamicImports 属于 lazy route，必须留在独立预算中暴露退化。
+function collectStaticClosure(key, closure = { keys: new Set(), files: new Set() }) {
+  if (closure.keys.has(key)) return closure;
   const entry = manifest[key];
-  if (!entry || !entry.file.endsWith(".js") || files.has(entry.file)) return files;
-  files.add(entry.file);
-  for (const importedKey of entry.imports ?? []) collectStaticImports(importedKey, files);
-  return files;
+  if (!entry) throw new Error(`Client bundle manifest is missing ${key}`);
+  closure.keys.add(key);
+  if (typeof entry.file === "string") closure.files.add(entry.file);
+  for (const cssFile of entry.css ?? []) closure.files.add(cssFile);
+  for (const importedKey of entry.imports ?? []) collectStaticClosure(importedKey, closure);
+  return closure;
+}
+
+function mergeClosures(...closures) {
+  return closures.reduce(
+    (merged, closure) => {
+      for (const key of closure.keys) merged.keys.add(key);
+      for (const file of closure.files) merged.files.add(file);
+      return merged;
+    },
+    { keys: new Set(), files: new Set() },
+  );
 }
 
 function sumCompressed(files) {
@@ -58,20 +90,44 @@ function sumCompressed(files) {
   return total;
 }
 
-function largestEntry(entries, label) {
-  if (entries.length === 0) throw new Error(`Client bundle manifest has no ${label} chunks`);
-  return entries
-    .map(([key, entry]) => ({ key, file: entry.file, ...compressedSizes(entry.file) }))
-    .sort((left, right) => right.gzip - left.gzip || right.brotli - left.brotli)[0];
-}
-
 function assertBudget(label, actual, budget) {
   const exceeded = ["gzip", "brotli"].filter((format) => actual[format] > budget[format]);
   console.log(`${label}: gzip=${actual.gzip} B, brotli=${actual.brotli} B`);
   if (exceeded.length > 0) {
     throw new Error(
-      `${label} exceeds ${exceeded.join("/")} budget ` +
-        `(limits: gzip=${budget.gzip} B, brotli=${budget.brotli} B)`,
+      `${label} exceeds ${exceeded.join("/")} budget `
+        + `(limits: gzip=${budget.gzip} B, brotli=${budget.brotli} B)`,
+    );
+  }
+}
+
+function modulesForFiles(files) {
+  return [...files].flatMap((file) => moduleGraph[file] ?? []);
+}
+
+function assertStartupDependencies(locale, closure) {
+  const modules = modulesForFiles(closure.files);
+  const forbidden = forbiddenStartupModules.filter(([, matches]) => modules.some(matches));
+  if (forbidden.length > 0) {
+    throw new Error(`${locale} startup closure includes forbidden modules: ${forbidden.map(([label]) => label).join(", ")}`);
+  }
+  const otherLocales = locales.filter((candidate) => candidate !== locale);
+  const unexpectedCatalogs = modules.filter((id) => otherLocales.some((candidate) => (
+    id.includes(`apps/web/src/i18n/catalogs/${candidate}/`)
+    || id.endsWith(`apps/web/src/i18n/catalog-loaders/${candidate}.ts`)
+  )));
+  if (unexpectedCatalogs.length > 0) {
+    throw new Error(`${locale} startup closure includes non-current locale catalog: ${unexpectedCatalogs[0]}`);
+  }
+}
+
+function assertLazyDialogShellDependencies(routeKey, files) {
+  const modules = modulesForFiles(files);
+  const forbidden = forbiddenLazyDialogShellModules.filter(([, matches]) => modules.some(matches));
+  if (forbidden.length > 0) {
+    throw new Error(
+      `${routeKey} synchronous route shell includes lazy dialog modules: `
+        + forbidden.map(([label]) => label).join(", "),
     );
   }
 }
@@ -79,28 +135,33 @@ function assertBudget(label, actual, budget) {
 const manifestEntries = Object.entries(manifest);
 const appEntry = manifestEntries.find(([, entry]) => entry.isEntry && entry.file.endsWith(".js"));
 if (!appEntry) throw new Error("Client bundle manifest has no JavaScript application entry");
+const appClosure = collectStaticClosure(appEntry[0]);
+const privateShellKey = "src/components/private-app-shell.tsx";
+if (!manifest[privateShellKey]) throw new Error("Client bundle manifest has no private application shell entry");
+const privateShellClosure = collectStaticClosure(privateShellKey);
 
-const initialFiles = collectStaticImports(appEntry[0]);
-const initial = sumCompressed(initialFiles);
-const largestLazyRoute = largestEntry(
-  manifestEntries.filter(
-    ([key, entry]) =>
-      entry.isDynamicEntry &&
-      entry.file.endsWith(".js") &&
-      /(?:^|\/)src\/pages\//.test(key),
-  ),
-  "lazy route",
-);
-const largestVendor = largestEntry(
-  manifestEntries.filter(
-    ([key, entry]) =>
-      entry.file.endsWith(".js") &&
-      (/(?:^|[-_/])vendor(?:[-_.]|$)/.test(entry.file) || /vendor/.test(entry.name ?? key)),
-  ),
-  "vendor",
-);
+for (const locale of locales) {
+  const localeKey = catalogEntryKey(locale);
+  if (!manifest[localeKey]) throw new Error(`Client bundle manifest has no ${locale} catalog entry`);
+  const startupClosure = mergeClosures(appClosure, collectStaticClosure(localeKey));
+  const startupSizes = sumCompressed(startupClosure.files);
+  console.log(`${locale} startup files: ${[...startupClosure.files].sort().join(", ")}`);
+  assertStartupDependencies(locale, startupClosure);
+  assertBudget(`${locale} startup closure`, startupSizes, budgets.startup);
+}
 
-console.log(`initial files: ${[...initialFiles].sort().join(", ")}`);
-assertBudget("initial", initial, budgets.initial);
-assertBudget(`largest lazy route (${largestLazyRoute.file})`, largestLazyRoute, budgets.lazyRoute);
-assertBudget(`largest vendor (${largestVendor.file})`, largestVendor, budgets.vendor);
+const routeClosures = manifestEntries
+  .filter(([key, entry]) => entry.isDynamicEntry && /(?:^|\/)src\/pages\//.test(key))
+  .map(([key]) => ({
+    key,
+    closure: privateRouteKeys.has(key)
+      ? mergeClosures(collectStaticClosure(key), privateShellClosure)
+      : collectStaticClosure(key),
+  }))
+  .map(({ key, closure }) => ({ key, files: closure.files, ...sumCompressed(closure.files) }))
+  .sort((left, right) => right.gzip - left.gzip || right.brotli - left.brotli);
+if (routeClosures.length === 0) throw new Error("Client bundle manifest has no lazy route entries");
+for (const route of routeClosures) assertLazyDialogShellDependencies(route.key, route.files);
+const largestRoute = routeClosures[0];
+console.log(`largest route files (${largestRoute.key}): ${[...largestRoute.files].sort().join(", ")}`);
+assertBudget(`largest complete route closure (${largestRoute.key})`, largestRoute, budgets.route);

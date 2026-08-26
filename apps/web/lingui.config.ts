@@ -1,6 +1,6 @@
 import { defineConfig } from "@lingui/conf";
 
-// catalog domain 是人工维护的 i18n 边界；check-i18n-catalogs.mjs 和 key 生成脚本依赖同一组 domain 来防止 descriptor、PO、静态 key 漂移。
+// catalog domain 是人工维护的 i18n 边界；检查器和生成脚本依赖同一组 domain 来防止 descriptor、PO、类型化生成物漂移。
 const catalogDomains = [
   "common",
   "legal",

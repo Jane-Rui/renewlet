@@ -5,8 +5,8 @@ import type { ExchangeRateStore } from "./exchange-rate-store";
 import { createUseReportExchangeRates } from "./use-report-exchange-rates";
 
 const serviceMocks = vi.hoisted(() => ({
-  list: vi.fn<() => Promise<ExchangeRateSnapshotV1[]>>(),
-  capture: vi.fn<(month: string, body: ExchangeRateSnapshotBody) => Promise<ExchangeRateSnapshotV1>>(),
+  list: vi.fn<(_range: { from?: string; to?: string }, _signal?: AbortSignal) => Promise<ExchangeRateSnapshotV1[]>>(),
+  capture: vi.fn<(_month: string, _body: ExchangeRateSnapshotBody, _signal?: AbortSignal) => Promise<ExchangeRateSnapshotV1>>(),
 }));
 
 vi.mock("@/services/exchange-rate-snapshot-service", () => ({
@@ -56,14 +56,17 @@ describe("useReportExchangeRates", () => {
     const { result } = renderHook(() => useReportExchangeRates("frankfurter"));
 
     await waitFor(() => expect(serviceMocks.capture).toHaveBeenCalledTimes(1));
-    expect(serviceMocks.list).toHaveBeenCalledWith({ from: currentMonth, to: currentMonth });
+    expect(serviceMocks.list).toHaveBeenCalledWith(
+      { from: currentMonth, to: currentMonth },
+      expect.any(AbortSignal),
+    );
     expect(serviceMocks.capture).toHaveBeenCalledWith(currentMonth, {
       base: "USD",
       rates: { USD: 1, CNY: 7 },
       requestedProvider: "frankfurter",
       provider: "frankfurter",
       sourceDate: "2026-08-01",
-    });
+    }, expect.any(AbortSignal));
     expect(result.current.reportBasisStatus).toEqual({
       month: currentMonth,
       locked: true,

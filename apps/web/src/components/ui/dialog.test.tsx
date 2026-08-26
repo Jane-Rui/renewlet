@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import * as React from "react";
 import { describe, expect, it, vi } from "vitest";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 function DialogHarness({
   dismissMode,
@@ -103,5 +103,30 @@ describe("DialogContent dismissMode", () => {
     expect(onInteractOutside).toHaveBeenCalled();
     expect(onPointerDownOutside).toHaveBeenCalled();
     expect(screen.getByRole("dialog", { name: "测试弹窗" })).toBeInTheDocument();
+  });
+
+  it("restores focus to the trigger after the default close control dismisses", async () => {
+    const user = userEvent.setup();
+    render(
+      <Dialog>
+        <DialogTrigger asChild>
+          <button type="button">打开弹窗</button>
+        </DialogTrigger>
+        <DialogContent closeLabel="关闭">
+          <DialogTitle>焦点恢复</DialogTitle>
+          <DialogDescription>关闭后回到触发控件。</DialogDescription>
+        </DialogContent>
+      </Dialog>,
+    );
+
+    const trigger = screen.getByRole("button", { name: "打开弹窗" });
+    await user.click(trigger);
+    const close = screen.getByRole("button", { name: "关闭" });
+    expect(close).toHaveAttribute("data-dialog-close");
+    expect(close).toHaveClass("dialog-close-touch-target", "touch-target", "right-4", "top-4");
+    expect(close).not.toHaveClass("h-11", "w-11");
+    await user.click(close);
+
+    await waitFor(() => expect(trigger).toHaveFocus());
   });
 });

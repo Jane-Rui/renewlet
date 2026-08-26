@@ -26,92 +26,6 @@ function isTextOverflowing(node: HTMLElement) {
   return node.scrollWidth > node.clientWidth + 1 || node.scrollHeight > node.clientHeight + 1;
 }
 
-type MeasuredTextProps = React.HTMLAttributes<HTMLElement> & {
-  as: TruncatedTextElement;
-  className: string;
-  text: string;
-  setNodeRef: React.RefCallback<HTMLElement>;
-};
-
-const MeasuredText = React.forwardRef<HTMLElement, MeasuredTextProps>(function MeasuredText(
-  { as, className, text, setNodeRef, ...props },
-  forwardedRef,
-) {
-  const handleRef = React.useCallback(
-    (node: HTMLElement | null) => {
-      setNodeRef(node);
-      if (typeof forwardedRef === "function") {
-        forwardedRef(node);
-      } else if (forwardedRef) {
-        forwardedRef.current = node;
-      }
-    },
-    [forwardedRef, setNodeRef],
-  );
-
-  if (as === "div") {
-    return (
-      <div {...props} ref={handleRef as React.RefCallback<HTMLDivElement>} className={className} data-slot="truncated-tooltip-text">
-        {text}
-      </div>
-    );
-  }
-  if (as === "p") {
-    return (
-      <p {...props} ref={handleRef as React.RefCallback<HTMLParagraphElement>} className={className} data-slot="truncated-tooltip-text">
-        {text}
-      </p>
-    );
-  }
-  if (as === "h1") {
-    return (
-      <h1 {...props} ref={handleRef as React.RefCallback<HTMLHeadingElement>} className={className} data-slot="truncated-tooltip-text">
-        {text}
-      </h1>
-    );
-  }
-  if (as === "h2") {
-    return (
-      <h2 {...props} ref={handleRef as React.RefCallback<HTMLHeadingElement>} className={className} data-slot="truncated-tooltip-text">
-        {text}
-      </h2>
-    );
-  }
-  if (as === "h3") {
-    return (
-      <h3 {...props} ref={handleRef as React.RefCallback<HTMLHeadingElement>} className={className} data-slot="truncated-tooltip-text">
-        {text}
-      </h3>
-    );
-  }
-  if (as === "h4") {
-    return (
-      <h4 {...props} ref={handleRef as React.RefCallback<HTMLHeadingElement>} className={className} data-slot="truncated-tooltip-text">
-        {text}
-      </h4>
-    );
-  }
-  if (as === "h5") {
-    return (
-      <h5 {...props} ref={handleRef as React.RefCallback<HTMLHeadingElement>} className={className} data-slot="truncated-tooltip-text">
-        {text}
-      </h5>
-    );
-  }
-  if (as === "h6") {
-    return (
-      <h6 {...props} ref={handleRef as React.RefCallback<HTMLHeadingElement>} className={className} data-slot="truncated-tooltip-text">
-        {text}
-      </h6>
-    );
-  }
-  return (
-    <span {...props} ref={handleRef as React.RefCallback<HTMLSpanElement>} className={className} data-slot="truncated-tooltip-text">
-      {text}
-    </span>
-  );
-});
-
 export function TruncatedTooltipText({
   text,
   as = "span",
@@ -140,26 +54,6 @@ export function TruncatedTooltipText({
     [],
   );
 
-  React.useLayoutEffect(() => {
-    if (!measureOverflow()) setOpen(false);
-
-    const node = nodeRef.current;
-    if (!node || disabled) return;
-
-    const handleSizeChange = () => {
-      if (!measureOverflow()) setOpen(false);
-    };
-    const ResizeObserverCtor = node.ownerDocument.defaultView?.ResizeObserver ?? globalThis.ResizeObserver;
-    const observer = ResizeObserverCtor ? new ResizeObserverCtor(handleSizeChange) : null;
-    observer?.observe(node);
-
-    window.addEventListener("resize", handleSizeChange);
-    return () => {
-      observer?.disconnect();
-      window.removeEventListener("resize", handleSizeChange);
-    };
-  }, [disabled, measureOverflow]);
-
   const handleOpenChange = React.useCallback(
     (nextOpen: boolean) => {
       setOpen(nextOpen && measureOverflow());
@@ -167,14 +61,11 @@ export function TruncatedTooltipText({
     [measureOverflow],
   );
 
-  const element = (
-    <MeasuredText
-      as={as}
-      className={cn("block max-w-full truncate", className)}
-      text={text}
-      setNodeRef={setNodeRef}
-    />
-  );
+  const element = React.createElement(as, {
+    ref: setNodeRef,
+    className: cn("block max-w-full truncate", className),
+    "data-slot": "truncated-tooltip-text",
+  }, text);
 
   if (disabled || !text) {
     return element;

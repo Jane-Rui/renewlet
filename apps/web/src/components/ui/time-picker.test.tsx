@@ -77,6 +77,22 @@ describe("TimePicker", () => {
     expect(minuteColumn).toHaveAttribute("aria-valuetext", "12");
   });
 
+  it("forwards the field description relationship to the trigger", () => {
+    render(
+      <TimePicker
+        value="08:12"
+        onChange={vi.fn()}
+        ariaLabel="通知时间"
+        ariaDescribedBy="notification-time-description"
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /通知时间/ })).toHaveAttribute(
+      "aria-describedby",
+      "notification-time-description",
+    );
+  });
+
   it("selects an option by click", async () => {
     const onChange = vi.fn();
     const { hourColumn } = await openPicker("08:12", onChange);
@@ -260,12 +276,12 @@ describe("TimePicker", () => {
         density="compact"
         ariaLabel="执行时间"
         disabled
-        className="w-full sm:max-w-[9rem]"
+        className="w-full sm:max-w-36"
       />,
     );
 
     expect(screen.getByRole("button", { name: /执行时间/ })).toHaveTextContent("04:30");
-    expect(screen.getByRole("button", { name: /执行时间/ })).toHaveClass("h-9", "bg-background", "sm:max-w-[9rem]");
+    expect(screen.getByRole("button", { name: /执行时间/ })).toHaveClass("h-9", "bg-background", "sm:max-w-36");
     expect(screen.getByRole("button", { name: /执行时间/ })).toBeDisabled();
 
     await user.click(screen.getByRole("button", { name: /执行时间/ }));
@@ -277,7 +293,7 @@ describe("TimePicker", () => {
         onChange={onChange}
         density="compact"
         ariaLabel="执行时间"
-        className="w-full sm:max-w-[9rem]"
+        className="w-full sm:max-w-36"
       />,
     );
 

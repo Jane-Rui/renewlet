@@ -51,6 +51,7 @@ const baseSubscription: RecurringCycleSubscription = {
   repeatReminderEnabled: false,
   repeatReminderInterval: "1h",
   repeatReminderWindow: "72h",
+  extra: {},
   pinned: false,
   publicHidden: false,
 };

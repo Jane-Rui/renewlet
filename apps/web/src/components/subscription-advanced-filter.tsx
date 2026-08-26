@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ChevronRight, SlidersHorizontal, X } from "lucide-react";
-import { Drawer } from "vaul";
 
 import {
   AdvancedFilterGroupDialog,
@@ -8,13 +7,20 @@ import {
   AdvancedSelectionEntry,
 } from "@/components/subscription-advanced-selection-picker";
 import { AdvancedFilterFooter } from "@/components/subscription-advanced-filter-footer";
-import { SubscriptionAdvancedDateRangeFields } from "@/components/subscription-advanced-date-range-fields";
+import { DeferredSubscriptionAdvancedDateRangeFields } from "@/components/subscription-advanced-date-range-fields-loader";
 import { TagFilterChip } from "@/components/subscription-tag-filter-drawer";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { FloatingPortalContainerProvider } from "@/components/ui/floating-portal-container";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  SideDrawerClose,
+  SideDrawerContent,
+  SideDrawerDescription,
+  SideDrawerRoot,
+  SideDrawerTitle,
+  SideDrawerTrigger,
+} from "@/components/ui/side-drawer";
 import { useI18n } from "@/i18n/I18nProvider";
 import { cn } from "@/lib/utils";
 import {
@@ -186,7 +192,7 @@ function AdvancedSectionList({
           <span className="min-w-0 flex-1">
             <span className="flex min-w-0 items-center justify-between gap-3">
               <span className="truncate text-sm font-semibold text-foreground">{section.title}</span>
-              <span data-testid={`advanced-section-${section.id}-summary`} className="max-w-[8rem] shrink-0 truncate text-right text-xs text-muted-foreground">
+              <span data-testid={`advanced-section-${section.id}-summary`} className="max-w-32 shrink-0 truncate text-right text-xs text-muted-foreground">
                 {section.summary}
               </span>
             </span>
@@ -317,7 +323,7 @@ function AdvancedFilterContent({
     currentFilters: SubscriptionAdvancedFilterState,
     onPatch: (patch: Partial<SubscriptionAdvancedFilterState>) => void,
     contentLayout: AdvancedFilterLayout,
-  ) => <SubscriptionAdvancedDateRangeFields filters={currentFilters} onChange={onPatch} mobile={contentLayout === "mobile"} />;
+  ) => <DeferredSubscriptionAdvancedDateRangeFields filters={currentFilters} onChange={onPatch} mobile={contentLayout === "mobile"} />;
   const renderFlagsContent = (
     currentFilters: SubscriptionAdvancedFilterState,
     onPatch: (patch: Partial<SubscriptionAdvancedFilterState>) => void,
@@ -544,7 +550,6 @@ export function SubscriptionAdvancedFilter({
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [draftFilters, setDraftFilters] = useState(filters);
-  const [desktopPortalContainer, setDesktopPortalContainer] = useState<HTMLElement | null>(null);
   const activeCount = useMemo(() => countAdvancedFilters(filters), [filters]);
   const draftActive = hasActiveSubscriptionAdvancedFilters(draftFilters);
   const triggerLabel = activeCount > 0
@@ -568,9 +573,6 @@ export function SubscriptionAdvancedFilter({
     handleOpenChange(false);
   };
   const resetDraftFilters = () => setDraftFilters(DEFAULT_SUBSCRIPTION_ADVANCED_FILTERS);
-  const setDesktopPanelRef = useCallback((node: HTMLDivElement | null) => {
-    setDesktopPortalContainer(node);
-  }, []);
   const contentProps = {
     filters: draftFilters,
     onChange: setDraftFilters,
@@ -595,7 +597,7 @@ export function SubscriptionAdvancedFilter({
           <DialogContent
             dismissMode="explicit"
             closeLabel={t("common.close")}
-            className="h-[var(--app-viewport-height)] max-h-[var(--app-viewport-height)] w-full max-w-none gap-0 overflow-hidden rounded-none border-0 bg-card p-0"
+            className="h-(--app-viewport-height) max-h-(--app-viewport-height) w-full max-w-none gap-0 overflow-hidden rounded-none border-0 bg-card p-0"
             data-testid="mobile-advanced-filter-workspace"
           >
             <div className="flex min-h-0 flex-1 flex-col">
@@ -624,56 +626,49 @@ export function SubscriptionAdvancedFilter({
   }
 
   return (
-    <Drawer.Root open={open} onOpenChange={handleOpenChange} shouldScaleBackground={false} direction="right">
+    <SideDrawerRoot open={open} onOpenChange={handleOpenChange}>
       <div className={cn("shrink-0", className)} data-testid="desktop-advanced-filter">
-        <Drawer.Trigger asChild>
+        <SideDrawerTrigger asChild>
           <Button variant="outline" className="h-10 shrink-0 border-border bg-secondary px-3">
             <SlidersHorizontal className="h-4 w-4" />
             <span>{triggerLabel}</span>
           </Button>
-        </Drawer.Trigger>
+        </SideDrawerTrigger>
       </div>
 
-      {open ? (
-        <Drawer.Portal>
-          <Drawer.Overlay className="fixed inset-0 z-[70] bg-black/60 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
-          <Drawer.Content
-            ref={setDesktopPanelRef}
-            className="fixed right-0 top-[var(--app-visual-viewport-offset-top)] z-[80] flex h-[var(--app-viewport-height)] max-h-[var(--app-viewport-height)] w-[min(30rem,calc(100vw-2rem))] flex-col overflow-hidden border-l border-border bg-card text-card-foreground shadow-lg outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-right-4"
-            data-testid="desktop-advanced-filter-panel"
-          >
-            <FloatingPortalContainerProvider container={desktopPortalContainer}>
-              <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
-                <div className="min-w-0">
-                  <Drawer.Title className="text-base font-semibold text-foreground">
-                    {t("subscriptions.advanced.drawerTitle")}
-                  </Drawer.Title>
-                  <Drawer.Description className="sr-only">
-                    {t("subscriptions.advanced.panelDescription")}
-                  </Drawer.Description>
-                </div>
-                <Drawer.Close asChild>
-                  <Button variant="ghost" size="icon" className="-mr-2 -mt-2 h-10 w-10 text-muted-foreground">
-                    <X className="h-4 w-4" />
-                    <span className="sr-only">{t("common.close")}</span>
-                  </Button>
-                </Drawer.Close>
-              </div>
+      <SideDrawerContent
+        side="right"
+        className="w-[min(30rem,calc(100vw-2rem))]"
+        data-testid="desktop-advanced-filter-panel"
+      >
+        <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+          <div className="min-w-0">
+            <SideDrawerTitle className="text-base font-semibold text-foreground">
+              {t("subscriptions.advanced.drawerTitle")}
+            </SideDrawerTitle>
+            <SideDrawerDescription className="sr-only">
+              {t("subscriptions.advanced.panelDescription")}
+            </SideDrawerDescription>
+          </div>
+          <SideDrawerClose asChild>
+            <Button variant="ghost" size="icon" className="-mr-2 -mt-2 h-10 w-10 text-muted-foreground">
+              <X className="h-4 w-4" />
+              <span className="sr-only">{t("common.close")}</span>
+            </Button>
+          </SideDrawerClose>
+        </div>
 
-              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5" data-testid="desktop-advanced-filter-scroll">
-                <AdvancedFilterContent {...contentProps} layout="desktop" />
-              </div>
-              <AdvancedFilterFooter
-                active={draftActive}
-                onClear={resetDraftFilters}
-                onApply={applyDraftFilters}
-                className="px-5"
-              />
-            </FloatingPortalContainerProvider>
-          </Drawer.Content>
-        </Drawer.Portal>
-      ) : null}
-    </Drawer.Root>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5" data-testid="desktop-advanced-filter-scroll">
+          <AdvancedFilterContent {...contentProps} layout="desktop" />
+        </div>
+        <AdvancedFilterFooter
+          active={draftActive}
+          onClear={resetDraftFilters}
+          onApply={applyDraftFilters}
+          className="px-5"
+        />
+      </SideDrawerContent>
+    </SideDrawerRoot>
   );
 }
 
@@ -758,13 +753,13 @@ export function SelectedAdvancedFilterScroller({
   return (
     <div
       data-testid={testId}
-      className={cn("min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden", className)}
+      className={cn("min-w-0 overflow-x-auto scrollbar-none [&::-webkit-scrollbar]:hidden", className)}
       aria-label={t("subscriptions.advanced.selectedCount", { count: chips.length })}
     >
       <div className="flex w-max gap-2 pr-1">
         {chips.map((chip) => (
           <span key={chip.id} className="inline-flex h-9 shrink-0 items-center rounded-full border border-primary bg-primary/10 pl-3 pr-1 text-xs font-semibold text-primary">
-            <span className="max-w-[10rem] truncate">{chip.label}</span>
+            <span className="max-w-40 truncate">{chip.label}</span>
             <button
               type="button"
               aria-label={t("subscriptions.advanced.removeChip", { label: chip.label })}

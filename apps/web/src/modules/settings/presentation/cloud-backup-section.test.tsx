@@ -4,8 +4,8 @@ import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CloudBackupSection } from "./cloud-backup-section";
 import type { CloudBackupController, CloudBackupFormState } from "../application/use-cloud-backup-controller";
-import type { CloudBackupPolicy, CloudBackupSnapshot } from "@/lib/api/schemas/cloud-backup";
-
+import type { CloudBackupConfig, CloudBackupPolicy, CloudBackupSnapshot } from "@/lib/api/schemas/cloud-backup";
+import type { SettingsReadState } from "../application/settings-read-state";
 vi.mock("@/i18n/I18nProvider", () => ({
   useI18n: () => ({
     t: (key: string, params?: Record<string, string | number>) => {
@@ -19,6 +19,12 @@ vi.mock("@/i18n/I18nProvider", () => ({
         "time.minute": "分",
         "settings.cloudBackup": "云同步与备份",
         "settings.cloudBackupHelp": "保存可恢复云端快照；恢复时会进入导入预览，不会自动覆盖数据。",
+        "settings.cloudBackupSummary": "{provider} · {credential} · {status}",
+        "settings.statusUnknown": "状态未知",
+        "settings.notUpdated": "未更新",
+        "settings.managerLoadFailed": "加载失败",
+        "settings.managerRefreshFailed": "未更新",
+        "settings.managerRetry": "重试",
         "settings.cloudBackupStatusIdle": "未运行",
         "settings.cloudBackupStatusSuccess": "上次成功",
         "settings.cloudBackupStatusFailed": "上次失败",
@@ -77,7 +83,11 @@ vi.mock("@/i18n/I18nProvider", () => ({
         "settings.cloudBackupRestore": "恢复",
         "settings.cloudBackupRestoring": "恢复中...",
         "settings.cloudBackupDeleting": "删除中...",
-        "settings.cloudBackupDeleteTitle": "删除云端快照？",
+        "settings.cloudBackupRestoreNamed": "恢复「{name}」",
+        "settings.cloudBackupRestoringNamed": "正在恢复「{name}」",
+        "settings.cloudBackupDeleteNamed": "删除「{name}」",
+        "settings.cloudBackupDeletingNamed": "正在删除「{name}」",
+        "settings.cloudBackupDeleteTitle": "删除「{name}」？",
         "settings.cloudBackupDeleteDescription": "该操作会删除远端 ZIP 和 manifest，删除后无法通过 Renewlet 恢复。",
         "settings.cloudBackupUpstreamTitle": "云存储错误详情",
         "settings.cloudBackupUpstreamDescription": "接口返回的原始响应。",
@@ -94,7 +104,6 @@ vi.mock("@/i18n/I18nProvider", () => ({
     formatDateTime: () => "2026-06-09 08:00",
   }),
 }));
-
 function installPointerCaptureMocks() {
   Object.defineProperty(HTMLElement.prototype, "hasPointerCapture", {
     configurable: true,
@@ -166,27 +175,42 @@ const s3Status = {
   updatedAt: "2026-06-09T12:00:00.000Z",
 };
 
+function readState<T>(data: T | undefined, overrides: Partial<SettingsReadState<T>> = {}): SettingsReadState<T> {
+  return {
+    data,
+    hasData: data !== undefined,
+    error: null,
+    isInitialLoading: false,
+    isRefreshing: false,
+    retry: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    ...overrides,
+  };
+}
+
+function defaultConfigData(): CloudBackupConfig {
+  return {
+    provider: defaultForm.provider,
+    credentialSet: true,
+    credentialSetByProvider: { webdav: true, s3: false },
+    policyByProvider: { webdav: defaultPolicy, s3: defaultPolicy },
+    statusByProvider: { webdav: defaultStatus, s3: defaultStatus },
+    updatedAt: "2026-06-09T00:00:00.000Z",
+  };
+}
+
 function createController(overrides: Partial<CloudBackupController> = {}): CloudBackupController {
   return {
-    config: {
-      provider: defaultForm.provider,
-      credentialSet: true,
-      credentialSetByProvider: { webdav: true, s3: false },
-      policyByProvider: { webdav: defaultPolicy, s3: defaultPolicy },
-      statusByProvider: { webdav: defaultStatus, s3: defaultStatus },
-      updatedAt: "2026-06-09T00:00:00.000Z",
-    },
-    snapshots: [],
+    config: readState(defaultConfigData()),
+    snapshots: readState([]),
+    isInitialLayoutReady: true,
     form: defaultForm,
     credentialSet: true,
     canCreateSnapshot: true,
-    isLoading: false,
     isSaving: false,
     isTesting: false,
     isCreating: false,
     isDownloading: false,
     isDeleting: false,
-    isRefreshingSnapshots: false,
     restoringSnapshotKey: null,
     deletingSnapshotKey: null,
     hasUnsavedChanges: false,
@@ -201,11 +225,9 @@ function createController(overrides: Partial<CloudBackupController> = {}): Cloud
     createSnapshot: vi.fn(async () => undefined),
     restoreSnapshot: vi.fn(async () => undefined),
     deleteSnapshot: vi.fn(async () => undefined),
-    refreshSnapshots: vi.fn(async () => undefined),
     ...overrides,
   };
 }
-
 type TestDraftByProvider = Record<CloudBackupFormState["provider"], CloudBackupFormState>;
 
 function createTestDraft(provider: CloudBackupFormState["provider"], policy: CloudBackupPolicy = defaultPolicy): CloudBackupFormState {
@@ -293,14 +315,14 @@ function StatefulSection({ credentialSet = true }: { credentialSet?: boolean }) 
     form,
     credentialSet: providerCredentialSet,
     canCreateSnapshot: providerCredentialSet,
-    config: {
-      ...createController().config!,
+    config: readState({
+      ...defaultConfigData(),
       credentialSet: providerCredentialSet,
       credentialSetByProvider,
       policyByProvider: { webdav: defaultPolicy, s3: s3Policy },
       statusByProvider: { webdav: webdavStatus, s3: s3Status },
       provider,
-    },
+    }),
     updateForm: (key, value) => {
       if (key === "provider") {
         setProvider(value as CloudBackupFormState["provider"]);
@@ -341,13 +363,13 @@ function StatefulSnapshotSection({
     form,
     credentialSet,
     canCreateSnapshot: true,
-    config: {
-      ...createController().config!,
+    config: readState({
+      ...defaultConfigData(),
       credentialSet,
       credentialSetByProvider,
       provider,
-    },
-    snapshots: snapshots.filter((snapshot) => snapshot.provider === provider),
+    }),
+    snapshots: readState(snapshots.filter((snapshot) => snapshot.provider === provider)),
     isDownloading,
     isDeleting,
     restoringSnapshotKey,
@@ -370,13 +392,30 @@ describe("CloudBackupSection", () => {
     installPointerCaptureMocks();
   });
 
+  it("does not render empty default configuration when the first config read fails", async () => {
+    const user = userEvent.setup();
+    const retry = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+
+    render(<CloudBackupSection controller={createController({
+      config: readState<CloudBackupConfig>(undefined, {
+        error: new Error("config unavailable"),
+        retry,
+      }),
+    })} />);
+
+    expect(screen.getByText("状态未知")).toBeInTheDocument();
+    expect(screen.getByText("加载失败")).toBeInTheDocument();
+    expect(screen.queryByLabelText("WebDAV 地址")).not.toBeInTheDocument();
+    expect(screen.queryByText("未保存密钥")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "重试" }));
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
+
   it("switches provider forms and keeps saved credentials write-only", async () => {
     const user = userEvent.setup();
     render(<StatefulSection credentialSet />);
 
     expect(screen.getByRole("heading", { name: "云同步与备份" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "连接配置" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "备份策略" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "状态与操作" })).toBeInTheDocument();
     expect(screen.getByLabelText("密码")).toHaveAttribute("placeholder", "留空保留已保存密钥");
     expect(screen.getAllByText("上次成功")).toHaveLength(1);
@@ -442,7 +481,7 @@ describe("CloudBackupSection", () => {
     });
     const restoreSnapshot = vi.fn(async () => undefined);
     const controller = createController({
-      snapshots: [snapshot],
+      snapshots: readState([snapshot]),
       restoreSnapshot,
     });
 
@@ -451,7 +490,7 @@ describe("CloudBackupSection", () => {
 
     rerender(<CloudBackupSection controller={controller} />);
     expect(screen.getAllByText("WebDAV").length).toBeGreaterThan(0);
-    await user.click(screen.getByRole("button", { name: "恢复" }));
+    await user.click(screen.getByRole("button", { name: "恢复「renewlet-export-v1-20260609T000000Z-abcd1234.zip」" }));
 
     expect(restoreSnapshot).toHaveBeenCalledWith(snapshot);
   });
@@ -473,7 +512,6 @@ describe("CloudBackupSection", () => {
     });
     const restoreSnapshot = vi.fn(async () => undefined);
     const deleteSnapshot = vi.fn(async () => undefined);
-
     render(
       <StatefulSnapshotSection
         snapshots={[webdavSnapshot, s3Snapshot]}
@@ -486,24 +524,23 @@ describe("CloudBackupSection", () => {
     expect(screen.getByText("1.9 KiB")).toBeInTheDocument();
     expect(screen.queryByText("renewlet-s3.zip")).not.toBeInTheDocument();
     expect(screen.queryByText("2.0 KiB")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "恢复" })).toHaveTextContent("恢复");
-    expect(screen.getByRole("button", { name: "删除" })).toHaveTextContent("删除");
+    expect(screen.getByRole("button", { name: "恢复「renewlet-webdav.zip」" })).toHaveTextContent("恢复");
+    expect(screen.getByRole("button", { name: "删除「renewlet-webdav.zip」" })).toHaveTextContent("删除");
 
     await user.click(screen.getByRole("tab", { name: "S3 兼容存储" }));
-
     expect(screen.getByText("renewlet-s3.zip")).toBeInTheDocument();
     expect(screen.getByText("2.0 KiB")).toBeInTheDocument();
     expect(screen.queryByText("renewlet-webdav.zip")).not.toBeInTheDocument();
     expect(screen.queryByText("1.9 KiB")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "恢复" }));
+    await user.click(screen.getByRole("button", { name: "恢复「renewlet-s3.zip」" }));
     expect(restoreSnapshot).toHaveBeenCalledWith(s3Snapshot);
 
-    await user.click(screen.getByRole("button", { name: "删除" }));
-    const dialog = screen.getByRole("alertdialog", { name: "删除云端快照？" });
+    await user.click(screen.getByRole("button", { name: "删除「renewlet-s3.zip」" }));
+    const dialog = screen.getByRole("alertdialog", { name: "删除「renewlet-s3.zip」？" });
     await user.click(within(dialog).getByRole("button", { name: "删除" }));
-
     expect(deleteSnapshot).toHaveBeenCalledWith(s3Snapshot);
+    expect(screen.getByRole("heading", { name: "云端快照" })).toHaveFocus();
   });
 
   it("shows restoring loading state only on the matching snapshot row", () => {
@@ -521,21 +558,21 @@ describe("CloudBackupSection", () => {
     });
 
     render(<CloudBackupSection controller={createController({
-      snapshots: [restoringSnapshot, idleSnapshot],
+      snapshots: readState([restoringSnapshot, idleSnapshot]),
       isDownloading: true,
       restoringSnapshotKey: "webdav:shared-snapshot-id",
     })} />);
 
     const restoringRow = screen.getByText("renewlet-webdav.zip").closest("div.grid");
     expect(restoringRow).not.toBeNull();
-    expect(within(restoringRow as HTMLElement).getByRole("button", { name: "恢复中..." })).toHaveAttribute("aria-busy", "true");
+    expect(within(restoringRow as HTMLElement).getByRole("button", { name: "正在恢复「renewlet-webdav.zip」" })).toHaveAttribute("aria-busy", "true");
 
     const idleRow = screen.getByText("renewlet-webdav-idle.zip").closest("div.grid");
     expect(idleRow).not.toBeNull();
     const idleScope = within(idleRow as HTMLElement);
-    expect(idleScope.queryByRole("button", { name: "恢复中..." })).not.toBeInTheDocument();
-    expect(idleScope.getByRole("button", { name: "恢复" })).toBeDisabled();
-    expect(idleScope.getByRole("button", { name: "删除" })).toBeDisabled();
+    expect(idleScope.queryByRole("button", { name: "正在恢复「renewlet-webdav-idle.zip」" })).not.toBeInTheDocument();
+    expect(idleScope.getByRole("button", { name: "恢复「renewlet-webdav-idle.zip」" })).toBeDisabled();
+    expect(idleScope.getByRole("button", { name: "删除「renewlet-webdav-idle.zip」" })).toBeDisabled();
   });
 
   it("shows deleting loading state only on the matching snapshot row", () => {
@@ -553,21 +590,21 @@ describe("CloudBackupSection", () => {
     });
 
     render(<CloudBackupSection controller={createController({
-      snapshots: [deletingSnapshot, idleSnapshot],
+      snapshots: readState([deletingSnapshot, idleSnapshot]),
       isDeleting: true,
       deletingSnapshotKey: "webdav:deleting-snapshot-id",
     })} />);
 
     const deletingRow = screen.getByText("renewlet-webdav.zip").closest("div.grid");
     expect(deletingRow).not.toBeNull();
-    expect(within(deletingRow as HTMLElement).getByRole("button", { name: "删除中..." })).toHaveAttribute("aria-busy", "true");
+    expect(within(deletingRow as HTMLElement).getByRole("button", { name: "正在删除「renewlet-webdav.zip」" })).toHaveAttribute("aria-busy", "true");
 
     const idleRow = screen.getByText("renewlet-webdav-idle.zip").closest("div.grid");
     expect(idleRow).not.toBeNull();
     const idleScope = within(idleRow as HTMLElement);
-    expect(idleScope.queryByRole("button", { name: "删除中..." })).not.toBeInTheDocument();
-    expect(idleScope.getByRole("button", { name: "恢复" })).toBeDisabled();
-    expect(idleScope.getByRole("button", { name: "删除" })).toBeDisabled();
+    expect(idleScope.queryByRole("button", { name: "正在删除「renewlet-webdav-idle.zip」" })).not.toBeInTheDocument();
+    expect(idleScope.getByRole("button", { name: "恢复「renewlet-webdav-idle.zip」" })).toBeDisabled();
+    expect(idleScope.getByRole("button", { name: "删除「renewlet-webdav-idle.zip」" })).toBeDisabled();
   });
 
   it("matches restoring state by provider and id so S3 does not inherit WebDAV loading", async () => {
@@ -594,13 +631,13 @@ describe("CloudBackupSection", () => {
       restoringSnapshotKey="webdav:same-id"
     />);
     expect(screen.getByText("renewlet-webdav.zip")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "恢复中..." })).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByRole("button", { name: "正在恢复「renewlet-webdav.zip」" })).toHaveAttribute("aria-busy", "true");
 
     await user.click(screen.getByRole("tab", { name: "S3 兼容存储" }));
 
     expect(screen.getByText("renewlet-s3.zip")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "恢复中..." })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "恢复" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "正在恢复「renewlet-s3.zip」" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "恢复「renewlet-s3.zip」" })).toBeDisabled();
 
     expect(restoreSnapshot).not.toHaveBeenCalled();
   });
@@ -629,13 +666,13 @@ describe("CloudBackupSection", () => {
       deletingSnapshotKey="webdav:same-id"
     />);
     expect(screen.getByText("renewlet-webdav.zip")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "删除中..." })).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByRole("button", { name: "正在删除「renewlet-webdav.zip」" })).toHaveAttribute("aria-busy", "true");
 
     await user.click(screen.getByRole("tab", { name: "S3 兼容存储" }));
 
     expect(screen.getByText("renewlet-s3.zip")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "删除中..." })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "删除" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "正在删除「renewlet-s3.zip」" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "删除「renewlet-s3.zip」" })).toBeDisabled();
 
     expect(deleteSnapshot).not.toHaveBeenCalled();
   });
@@ -652,24 +689,24 @@ describe("CloudBackupSection", () => {
       resolveDelete = resolve;
     }));
     const { rerender } = render(<CloudBackupSection controller={createController({
-      snapshots: [snapshot],
+      snapshots: readState([snapshot]),
       deleteSnapshot,
     })} />);
 
-    await user.click(screen.getByRole("button", { name: "删除" }));
-    const dialog = screen.getByRole("alertdialog", { name: "删除云端快照？" });
+    await user.click(screen.getByRole("button", { name: "删除「renewlet-delete.zip」" }));
+    const dialog = screen.getByRole("alertdialog", { name: "删除「renewlet-delete.zip」？" });
     await user.click(within(dialog).getByRole("button", { name: "删除" }));
 
     expect(deleteSnapshot).toHaveBeenCalledWith(snapshot);
 
     rerender(<CloudBackupSection controller={createController({
-      snapshots: [snapshot],
+      snapshots: readState([snapshot]),
       isDeleting: true,
       deletingSnapshotKey: "webdav:delete-pending-id",
       deleteSnapshot,
     })} />);
 
-    const pendingDialog = screen.getByRole("alertdialog", { name: "删除云端快照？" });
+    const pendingDialog = screen.getByRole("alertdialog", { name: "删除「renewlet-delete.zip」？" });
     expect(within(pendingDialog).getByRole("button", { name: "删除中..." })).toHaveAttribute("aria-busy", "true");
     expect(within(pendingDialog).getByRole("button", { name: "取消" })).toBeDisabled();
 
@@ -702,7 +739,7 @@ describe("CloudBackupSection", () => {
       controller={createController({
         credentialSet: true,
         canCreateSnapshot: true,
-        snapshots: [snapshot],
+        snapshots: readState([snapshot]),
       })}
       disabled
     />);
@@ -717,40 +754,39 @@ describe("CloudBackupSection", () => {
     expect(screen.getByRole("button", { name: "测试连接" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "立即备份" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "刷新" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "恢复" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "删除" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "恢复「renewlet-disabled.zip」" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "删除「renewlet-disabled.zip」" })).toBeDisabled();
   });
 
   it("shows raw response details for snapshot list failures", async () => {
     const user = userEvent.setup();
     const writeText = vi.fn(async () => undefined);
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: { writeText },
-    });
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     const openSnapshotsErrorDetails = vi.fn();
     const cloudBackupErrorDetails = {
       message: "云端快照列表加载失败",
       responseText: "<Error><Code>AccessDenied</Code></Error>",
     };
+    const staleSnapshots = readState([snapshotFixture({ filename: "renewlet-cached.zip" })], { error: new Error("云端快照列表加载失败") });
     const controller = createController({
+      snapshots: staleSnapshots,
       snapshotsErrorMessage: "云端快照列表加载失败",
       openSnapshotsErrorDetails,
       cloudBackupErrorDetails,
     });
-
     const { rerender } = render(<CloudBackupSection controller={controller} />);
-
-    expect(screen.getByText("云端快照列表加载失败")).toBeInTheDocument();
+    expect(screen.getByText("未更新")).toBeInTheDocument();
+    expect(screen.getByText("renewlet-cached.zip")).toBeInTheDocument();
+    expect(screen.queryByText("云端快照列表加载失败")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "查看错误详情" }));
     expect(openSnapshotsErrorDetails).toHaveBeenCalled();
 
     rerender(<CloudBackupSection controller={createController({
+      snapshots: staleSnapshots,
       snapshotsErrorMessage: "云端快照列表加载失败",
       cloudBackupErrorDetailsOpen: true,
       cloudBackupErrorDetails,
     })} />);
-
     expect(screen.getByRole("dialog", { name: "云存储错误详情" })).toBeInTheDocument();
     expect(screen.queryByText(/CLOUD_BACKUP_S3_LIST_FAILED/)).not.toBeInTheDocument();
     expect(screen.queryByText(/rawResponseText/)).not.toBeInTheDocument();
@@ -759,5 +795,4 @@ describe("CloudBackupSection", () => {
     await user.click(screen.getByRole("button", { name: "复制错误详情" }));
     expect(writeText).toHaveBeenCalledWith(expect.stringContaining("<Error><Code>AccessDenied</Code></Error>"));
   });
-
 });

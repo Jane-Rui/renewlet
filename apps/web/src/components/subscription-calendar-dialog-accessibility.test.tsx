@@ -1,33 +1,22 @@
 // 日历弹窗可访问性测试保护移动/桌面详情弹层的标题、焦点和订阅入口语义。
 import { fireEvent, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { assertDateOnly } from "@/lib/time/date-only";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { subscriptionQueryKeys } from "@/hooks/subscription-query-cache";
 import type { Subscription } from "@/types/subscription";
+import {
+  subscriptionCycleFixture,
+  type SubscriptionFixtureOverrides,
+} from "@/test/subscription-fixtures";
 import { SubscriptionCalendar } from "./subscription-calendar";
 
-type RecurringBillingCycle = Exclude<Subscription["billingCycle"], "custom" | "one-time">;
 type SubscriptionBaseFixture = Omit<Subscription, "billingCycle" | "customDays" | "customCycleUnit" | "oneTimeTermCount" | "oneTimeTermUnit">;
-type SubscriptionOverrides = Partial<Omit<Subscription, "billingCycle" | "customDays" | "customCycleUnit" | "oneTimeTermCount" | "oneTimeTermUnit">> & (
-  | {
-      billingCycle?: RecurringBillingCycle;
-      customDays?: undefined;
-      customCycleUnit?: undefined;
-      oneTimeTermCount?: undefined;
-      oneTimeTermUnit?: undefined;
-    }
-  | {
-      billingCycle: "one-time";
-      customDays?: undefined;
-      customCycleUnit?: undefined;
-      oneTimeTermCount?: number | undefined;
-      oneTimeTermUnit?: Subscription["oneTimeTermUnit"];
-    }
-  | { billingCycle: "custom"; customDays?: number; customCycleUnit?: Subscription["customCycleUnit"] }
-);
+type SubscriptionOverrides = SubscriptionFixtureOverrides<Subscription>;
 
 vi.mock("@/contexts/CustomConfigContext", () => ({
-  useCustomConfig: () => ({
+  useCustomConfigState: () => ({
     config: {
       categories: [{ id: "productivity", value: "productivity", labels: { "zh-CN": "效率工具", "en-US": "Productivity" } }],
       statuses: [],
@@ -53,17 +42,24 @@ vi.mock("@/hooks/use-settings", () => ({
 }));
 
 vi.mock("@/hooks/use-calendar-feed", () => ({
-  useCreateSubscriptionCalendarFeed: () => ({
-    isPending: false,
-    mutateAsync: vi.fn(),
-  }),
-  useDeleteSubscriptionCalendarFeed: () => ({
-    isPending: false,
-    mutateAsync: vi.fn(),
-  }),
-  useSubscriptionCalendarFeedStatus: () => ({
+  useCalendarFeedStatus: () => ({
     data: { enabled: false, feedUrl: undefined },
-    isLoading: false,
+    isError: false,
+    isFetching: false,
+    isPending: false,
+    refetch: vi.fn(),
+  }),
+  useCreateCalendarFeed: () => ({
+    isPending: false,
+    mutateAsync: vi.fn(),
+  }),
+  useDeleteCalendarFeed: () => ({
+    isPending: false,
+    mutateAsync: vi.fn(),
+  }),
+  useRotateCalendarFeed: () => ({
+    isPending: false,
+    mutateAsync: vi.fn(),
   }),
 }));
 
@@ -89,50 +85,35 @@ function subscription(overrides: SubscriptionOverrides = {}): Subscription {
     repeatReminderEnabled: false,
     repeatReminderInterval: "1h",
     repeatReminderWindow: "72h",
+    extra: {},
     pinned: false,
     publicHidden: false,
   };
 
-  if (overrides.billingCycle === "custom") {
-    return {
-      ...base,
-      ...overrides,
-      billingCycle: "custom",
-      customDays: overrides.customDays ?? 30,
-      customCycleUnit: overrides.customCycleUnit ?? "day",
-      oneTimeTermCount: undefined,
-      oneTimeTermUnit: undefined,
-    };
-  }
-
-  if (overrides.billingCycle === "one-time") {
-    return {
-      ...base,
-      ...overrides,
-      billingCycle: "one-time",
-      customDays: undefined,
-      customCycleUnit: undefined,
-      oneTimeTermCount: overrides.oneTimeTermCount,
-      oneTimeTermUnit: overrides.oneTimeTermUnit,
-    };
-  }
-
   return {
     ...base,
     ...overrides,
-    billingCycle: overrides.billingCycle ?? "monthly",
-    customDays: undefined,
-    customCycleUnit: undefined,
-    oneTimeTermCount: undefined,
-    oneTimeTermUnit: undefined,
+    ...subscriptionCycleFixture(overrides),
   };
 }
 
 function renderCalendar(subscriptions: Subscription[]) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  for (const item of subscriptions) {
+    queryClient.setQueryData(subscriptionQueryKeys.detail(item.id), item);
+  }
   return render(
-    <TooltipProvider delayDuration={0}>
-      <SubscriptionCalendar subscriptions={subscriptions} />
-    </TooltipProvider>,
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider delayDuration={0}>
+        <SubscriptionCalendar
+          subscriptions={subscriptions}
+          currentMonth={new Date(2026, 4, 1)}
+          onCurrentMonthChange={vi.fn()}
+        />
+      </TooltipProvider>
+    </QueryClientProvider>,
   );
 }
 
@@ -193,7 +174,7 @@ describe("SubscriptionCalendar dialogs", () => {
     expect(logo).not.toHaveClass("object-cover");
     expect(logoTile).not.toBeNull();
     expect(logoTile).not.toHaveClass("media-thumbnail-canvas");
-    expect(logoTile).not.toHaveClass("bg-gradient-to-br");
+    expect(logoTile).not.toHaveClass("bg-linear-to-br");
   });
 
   it("uses the same detail dialog logo path for dark transparent logos", async () => {
@@ -228,7 +209,7 @@ describe("SubscriptionCalendar dialogs", () => {
 
     expect(initials).toHaveClass("subscription-logo-fallback");
     expect(logoTile).not.toBeNull();
-    expect(logoTile).not.toHaveClass("bg-gradient-to-br");
+    expect(logoTile).not.toHaveClass("bg-linear-to-br");
   });
 
   it("renders inherited reminder days in the detail dialog", async () => {
@@ -252,7 +233,7 @@ describe("SubscriptionCalendar dialogs", () => {
     fireEvent.click(screen.getByRole("button", { name: "添加到日历" }));
 
     expect(screen.getByRole("dialog", { name: "添加到日历" })).toBeInTheDocument();
-    expect(screen.getByText("为「Fastmail」创建单独日历订阅，只同步这一条续费。")).toBeInTheDocument();
+    expect(screen.getByText("为「Fastmail」选择持续同步，或单次添加到日历。")).toBeInTheDocument();
     const generateButton = screen.getByRole("button", { name: "生成订阅链接" });
     expect(generateButton).toHaveClass("bg-primary");
     expect(screen.queryByRole("link", { name: "打开系统日历" })).not.toBeInTheDocument();
@@ -301,7 +282,7 @@ describe("SubscriptionCalendar dialogs", () => {
     expect(logo).not.toHaveClass("object-cover");
     expect(logoTile).not.toBeNull();
     expect(logoTile).not.toHaveClass("media-thumbnail-canvas");
-    expect(logoTile).not.toHaveClass("bg-gradient-to-br");
+    expect(logoTile).not.toHaveClass("bg-linear-to-br");
   });
 
   it("renders the mobile agenda with only active and trial subscriptions", async () => {

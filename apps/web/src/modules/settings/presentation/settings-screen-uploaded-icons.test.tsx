@@ -1,8 +1,10 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { UploadedAsset } from "@/lib/api/schemas/media";
 import {
   createControllerState,
+  createSettingsReadState,
   createUploadedAssetsManagerState,
   mocks,
   renderSettingsScreen,
@@ -35,7 +37,7 @@ describe("SettingsScreen uploaded icon management", () => {
     const loadMore = vi.fn().mockResolvedValue(undefined);
     mocks.useUploadedAssetsManager.mockReturnValue(createUploadedAssetsManagerState({
       logo: {
-        assets: Array.from({ length: 4 }, (_, index) => ({
+        readState: createSettingsReadState(Array.from({ length: 4 }, (_, index) => ({
           id: `asset-logo-${index + 1}`,
           url: `/api/app/assets/asset-logo-${index + 1}`,
           kind: "logo" as const,
@@ -43,17 +45,13 @@ describe("SettingsScreen uploaded icon management", () => {
           mimeType: "image/png",
           sizeBytes: 2048 + index,
           updated: "2026-06-15T08:30:00.000Z",
-        })),
-        error: null,
-        hasLoaded: true,
+        }))),
         hasMore: true,
-        isLoading: false,
         isLoadingMore: false,
-        refresh: vi.fn().mockResolvedValue(undefined),
         loadMore,
       },
       icon: {
-        assets: [{
+        readState: createSettingsReadState([{
           id: "asset-icon",
           url: "/api/app/assets/asset-icon",
           kind: "icon",
@@ -61,13 +59,9 @@ describe("SettingsScreen uploaded icon management", () => {
           mimeType: "image/svg+xml",
           sizeBytes: 1024,
           updated: "2026-06-15T09:30:00.000Z",
-        }],
-        error: null,
-        hasLoaded: true,
+        }]),
         hasMore: false,
-        isLoading: false,
         isLoadingMore: false,
-        refresh: vi.fn().mockResolvedValue(undefined),
         loadMore: vi.fn().mockResolvedValue(undefined),
       },
       deleteAsset,
@@ -78,8 +72,8 @@ describe("SettingsScreen uploaded icon management", () => {
     const section = document.getElementById("settings-uploaded-icons");
     expect(section).not.toBeNull();
     expect(within(section as HTMLElement).getByText("上传图标")).toBeInTheDocument();
-    expect(within(section as HTMLElement).getByText("已加载 5 个上传图标 · 订阅 Logo 4 · 支付方式 1")).toBeInTheDocument();
-    expect(within(section as HTMLElement).getByRole("button", { name: "刷新" })).toBeInTheDocument();
+    expect(within(section as HTMLElement).getByText("订阅 Logo 4 · 支付方式 1")).toBeInTheDocument();
+    expect(within(section as HTMLElement).queryByRole("button", { name: "刷新" })).not.toBeInTheDocument();
     expect(within(section as HTMLElement).getByRole("button", { name: "管理上传图标" })).toBeInTheDocument();
     expect(within(section as HTMLElement).queryByText("logo-1.png")).not.toBeInTheDocument();
     expect(within(section as HTMLElement).queryByText("logo-2.png")).not.toBeInTheDocument();
@@ -116,18 +110,14 @@ describe("SettingsScreen uploaded icon management", () => {
     const deleteAsset = vi.fn().mockResolvedValue(false);
     mocks.useUploadedAssetsManager.mockReturnValue(createUploadedAssetsManagerState({
       logo: {
-        assets: [{
+        readState: createSettingsReadState([{
           id: "asset-used",
           url: "/api/app/assets/asset-used",
           kind: "logo",
           originalName: "used.png",
-        }],
-        error: null,
-        hasLoaded: true,
+        }]),
         hasMore: false,
-        isLoading: false,
         isLoadingMore: false,
-        refresh: vi.fn().mockResolvedValue(undefined),
         loadMore: vi.fn().mockResolvedValue(undefined),
       },
       deleteError: {
@@ -158,18 +148,14 @@ describe("SettingsScreen uploaded icon management", () => {
     const deleteAsset = vi.fn().mockResolvedValue(false);
     mocks.useUploadedAssetsManager.mockReturnValue(createUploadedAssetsManagerState({
       icon: {
-        assets: [{
+        readState: createSettingsReadState([{
           id: "asset-payment",
           url: "/api/app/assets/asset-payment",
           kind: "icon",
           originalName: "card.svg",
-        }],
-        error: null,
-        hasLoaded: true,
+        }]),
         hasMore: false,
-        isLoading: false,
         isLoadingMore: false,
-        refresh: vi.fn().mockResolvedValue(undefined),
         loadMore: vi.fn().mockResolvedValue(undefined),
       },
       deleteError: {
@@ -193,5 +179,57 @@ describe("SettingsScreen uploaded icon management", () => {
 
     expect(deleteAsset).toHaveBeenCalledWith(expect.objectContaining({ id: "asset-payment" }));
     expect(screen.getByRole("alertdialog", { name: "删除上传图标？" })).toBeInTheDocument();
+  });
+
+  it("does not show an empty Logo state when the first asset read fails", async () => {
+    const user = userEvent.setup();
+    const retry = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    mocks.useUploadedAssetsManager.mockReturnValue(createUploadedAssetsManagerState({
+      logo: {
+        readState: createSettingsReadState<UploadedAsset[]>(undefined, {
+          error: new Error("asset list unavailable"),
+          retry,
+        }),
+      },
+    }));
+
+    renderSettingsScreen();
+
+    const section = document.getElementById("settings-uploaded-icons") as HTMLElement;
+    expect(within(section).getByText("状态未知")).toBeInTheDocument();
+    expect(within(section).queryByText(/订阅 Logo 0/)).not.toBeInTheDocument();
+
+    await user.click(within(section).getByRole("button", { name: "管理上传图标" }));
+    const manager = await screen.findByRole("dialog", { name: "管理上传图标" });
+    expect(within(manager).getByText("加载失败")).toBeInTheDocument();
+    expect(within(manager).queryByText("还没有上传过订阅 Logo")).not.toBeInTheDocument();
+
+    await user.click(within(manager).getByRole("button", { name: "重试" }));
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps cached uploaded assets visible when refresh fails", async () => {
+    const user = userEvent.setup();
+    mocks.useUploadedAssetsManager.mockReturnValue(createUploadedAssetsManagerState({
+      logo: {
+        readState: createSettingsReadState<UploadedAsset[]>([{
+          id: "asset-cached",
+          url: "/api/app/assets/asset-cached",
+          kind: "logo",
+          originalName: "cached.png",
+        }], { error: new Error("refresh failed") }),
+      },
+    }));
+
+    renderSettingsScreen();
+
+    const section = document.getElementById("settings-uploaded-icons") as HTMLElement;
+    expect(within(section).getByText("订阅 Logo 1 · 支付方式 0 · 未更新")).toBeInTheDocument();
+
+    await user.click(within(section).getByRole("button", { name: "管理上传图标" }));
+    const manager = await screen.findByRole("dialog", { name: "管理上传图标" });
+    expect(within(manager).getByText("未更新")).toBeInTheDocument();
+    expect(within(manager).getByText("cached.png")).toBeInTheDocument();
+    expect(within(manager).queryByText("还没有上传过订阅 Logo")).not.toBeInTheDocument();
   });
 });

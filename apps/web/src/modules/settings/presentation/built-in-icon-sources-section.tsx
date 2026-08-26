@@ -3,42 +3,25 @@ import { AlertCircle, AppWindow, Check, Clock3, Image as ImageIcon, RefreshCw, S
 import { Button } from '@/components/ui/button';
 import { RawErrorResponseDialog } from '@/components/raw-error-response-dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
+import { Dialog, DialogTrigger } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { TruncatedTooltipText } from '@/components/ui/truncated-tooltip-text';
 import { BUILT_IN_ICON_PROVIDERS, type BuiltInIconProvider } from '@renewlet/shared/built-in-icons';
 import { APP_STORE_STOREFRONTS, type AppStoreStorefront } from '@renewlet/shared/online-icon-sources';
 import type { AppSettings } from '@/types/subscription';
-import type { BuiltInIconIndexProviderStatus, BuiltInIconIndexStatus, BuiltInIconProviderVersion, BuiltInIconRefreshJob } from '@/lib/api/schemas/media';
-import type { RawErrorResponseDetails } from '@/lib/raw-error-response';
+import type { BuiltInIconIndexProviderStatus, BuiltInIconProviderVersion, BuiltInIconRefreshJob } from '@/lib/api/schemas/media';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { MessageKey, MessageParams } from '@/i18n/messages';
 import { getSettingsSectionClassName } from './settings-layout';
 import { CheckboxSettingRow } from './settings-shared-controls';
+import type { SettingsBuiltInIconIndexController } from '../application/use-built-in-icon-index-controller';
+import { ManagerDataBoundary } from './manager-data-boundary';
+import { SettingsManagerDialogFrame } from './settings-manager-dialog-frame';
+import { SettingsSectionHeader } from './settings-section-header';
 
-interface BuiltInIconIndexController {
-  canManage: boolean;
-  status: BuiltInIconIndexStatus | undefined;
-  isLoading: boolean;
-  checkingProviders: BuiltInIconProvider[];
-  refreshingProvider: BuiltInIconProvider | null;
-  errorDetails: RawErrorResponseDetails | null;
-  errorDetailsOpen: boolean;
-  setErrorDetailsOpen: (open: boolean) => void;
-  checkAllProviders: () => Promise<void>;
-  checkProvider: (provider: BuiltInIconProvider) => Promise<void>;
-  refreshProvider: (provider: BuiltInIconProvider) => Promise<void>;
-}
+type BuiltInIconIndexController = SettingsBuiltInIconIndexController;
 
 interface BuiltInIconSourcesSectionProps {
   id?: string;
@@ -75,13 +58,10 @@ export function BuiltInIconSourcesSection({ id, className, sources, onChange, on
   const { t } = useI18n();
   const [dialogOpen, setDialogOpen] = useState(false);
   const enabledCount = BUILT_IN_ICON_PROVIDERS.filter((provider) => sources[provider].enabled).length;
-  const variantsEnabledCount = BUILT_IN_ICON_PROVIDERS.filter((provider) => sources[provider].enabled && sources[provider].variantsEnabled).length;
-  const onlineEnabledCount = onlineSources.appStore.enabled ? 1 : 0;
-  const enabledSourceNames = BUILT_IN_ICON_PROVIDERS
-    .filter((provider) => sources[provider].enabled)
-    .map((provider) => t(`settings.builtInIconSourceShort.${provider}`))
-    .join(" / ");
-  const providerStatusById = useMemo(() => new Map(iconIndex?.status?.providers.map((item) => [item.provider, item])), [iconIndex?.status]);
+  const providerStatusById = useMemo(
+    () => new Map(iconIndex?.status.data?.providers.map((item) => [item.provider, item])),
+    [iconIndex?.status.data?.providers],
+  );
   const handleDialogOpenChange = (open: boolean) => {
     setDialogOpen(open);
     if (open && iconIndex?.canManage) {
@@ -136,26 +116,18 @@ export function BuiltInIconSourcesSection({ id, className, sources, onChange, on
 
   return (
     <section id={id} className={getSettingsSectionClassName(className)}>
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 gap-3">
-          <ImageIcon className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-          <div className="min-w-0">
-            <h2 className="text-lg font-semibold text-foreground">{t("settings.builtInIconSources")}</h2>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("settings.builtInIconSourcesHelp")}</p>
-            <p className="mt-2 text-xs font-medium text-foreground">
-              {t("settings.builtInIconSourcesSummary", {
-                enabled: enabledCount,
-                variants: variantsEnabledCount,
-                total: BUILT_IN_ICON_PROVIDERS.length,
-              })}
-            </p>
-            <p className="mt-1 truncate text-xs text-muted-foreground">{enabledSourceNames}</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {t("settings.onlineIconSourcesSummary", { enabled: onlineEnabledCount, total: 1 })}
-            </p>
-          </div>
-        </div>
-
+      <SettingsSectionHeader
+        icon={<ImageIcon className="mt-0.5 h-5 w-5 shrink-0 text-primary" />}
+        title={t("settings.builtInIconSources")}
+        help={t("settings.builtInIconSourcesHelp")}
+        summary={t("settings.iconSourcesSummary", {
+          enabled: enabledCount,
+          total: BUILT_IN_ICON_PROVIDERS.length,
+          online: onlineSources.appStore.enabled
+            ? t("settings.onlineIconSourceEnabled")
+            : t("settings.onlineIconSourceDisabled"),
+        })}
+        action={(
         <Dialog open={dialogOpen} onOpenChange={handleDialogOpenChange}>
           <DialogTrigger asChild>
             <Button type="button" variant="outline" className="w-full shrink-0 gap-2 sm:w-auto">
@@ -163,18 +135,21 @@ export function BuiltInIconSourcesSection({ id, className, sources, onChange, on
               {t("settings.builtInIconSourcesConfigure")}
             </Button>
           </DialogTrigger>
-          <DialogContent dismissMode="explicit" className="flex min-h-0 max-w-3xl flex-col gap-0 overflow-hidden border-border bg-card p-0">
-            <DialogHeader className="border-b border-border px-4 py-5 pr-12 text-left sm:px-6 sm:pr-14">
-              <DialogTitle className="flex items-center gap-2">
-                <ImageIcon className="h-5 w-5 text-primary" />
-                {t("settings.builtInIconSourcesDialogTitle")}
-              </DialogTitle>
-              <DialogDescription className="text-left">
-                {t("settings.builtInIconSourcesDialogDescription")}
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
+          <SettingsManagerDialogFrame
+            icon={<ImageIcon className="h-5 w-5 text-primary" />}
+            title={t("settings.builtInIconSourcesDialogTitle")}
+            description={t("settings.builtInIconSourcesDialogDescription")}
+            footer={(
+              <>
+                <p className="text-left text-xs leading-5 text-muted-foreground sm:mr-auto">
+                  {t("settings.builtInIconSourcesPendingHint")}
+                </p>
+                <Button type="button" onClick={() => setDialogOpen(false)} className="w-full sm:w-auto">
+                  {t("settings.builtInIconSourcesDialogDone")}
+                </Button>
+              </>
+            )}
+          >
               <div className="grid gap-6">
                 <div className="grid gap-3">
                   <div className="grid gap-1">
@@ -210,19 +185,10 @@ export function BuiltInIconSourcesSection({ id, className, sources, onChange, on
                   />
                 </div>
               </div>
-            </div>
-
-            <DialogFooter className="border-t border-border px-4 py-4 sm:px-6">
-              <p className="text-left text-xs leading-5 text-muted-foreground sm:mr-auto">
-                {t("settings.builtInIconSourcesPendingHint")}
-              </p>
-              <Button type="button" onClick={() => setDialogOpen(false)} className="w-full sm:w-auto">
-                {t("settings.builtInIconSourcesDialogDone")}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
+          </SettingsManagerDialogFrame>
         </Dialog>
-      </div>
+        )}
+      />
 
       {iconIndex?.canManage ? (
         <RawErrorResponseDialog
@@ -429,7 +395,7 @@ function BuiltInIconProviderStatusPopover({ provider, status, iconIndex, t }: Bu
   const jobStatus = status?.job?.status;
   const jobRefreshing = jobStatus === "queued" || jobStatus === "running";
   const refreshing = iconIndex.refreshingProvider === provider || jobRefreshing || Boolean(status?.refreshing);
-  const busy = iconIndex.isLoading || checking || refreshing;
+  const busy = iconIndex.status.isInitialLoading || iconIndex.status.isRefreshing || checking || refreshing;
   const providerName = t(`settings.builtInIconSource.${provider}`);
   const statusView = getBuiltInIconProviderStatusView({ checking, iconIndex, refreshing, status, t });
   // 详情只展示仍在进行的后台任务；历史 succeeded/failed job 不参与主状态，避免旧失败盖住“有更新/已最新”。
@@ -446,7 +412,7 @@ function BuiltInIconProviderStatusPopover({ provider, status, iconIndex, t }: Bu
         <button
           type="button"
           className={cn(
-            "inline-flex h-7 max-w-[7.5rem] items-center gap-1.5 overflow-hidden rounded-lg border px-2.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+            "inline-flex h-7 max-w-30 items-center gap-1.5 overflow-hidden rounded-lg border px-2.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
             statusView.className,
           )}
           aria-label={t("settings.builtInIconIndexOpenStatus", {
@@ -494,40 +460,42 @@ function BuiltInIconProviderStatusPopover({ provider, status, iconIndex, t }: Bu
         </div>
 
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
-          {status ? (
-            <BuiltInIconProviderInfoList
-              items={[
-                {
-                  label: t("settings.builtInIconIndexIconCountLabel"),
-                  value: t("settings.builtInIconIndexProviderIconCount", { count: formatNumber(status.iconCount) }),
-                },
-                {
-                  label: t("settings.builtInIconIndexCurrentVersionLabel"),
-                  value: formatProviderVersion(status.current, t, formatDateTime),
-                },
-                {
-                  label: t("settings.builtInIconIndexLatestVersionLabel"),
-                  value: status.latest ? formatProviderVersion(status.latest, t, formatDateTime) : t("settings.builtInIconIndexVersionUnchecked"),
-                },
-                {
-                  label: t("settings.builtInIconIndexCheckedAt"),
-                  value: formatProviderTimestamp(status.checkedAt, t("settings.builtInIconIndexTimestampUnchecked"), formatDateTime),
-                },
-                {
-                  label: t("settings.builtInIconIndexRefreshedAt"),
-                  value: formatProviderTimestamp(status.refreshedAt, t("settings.builtInIconIndexTimestampUnrefreshed"), formatDateTime),
-                },
-                ...(visibleJob ? [{
-                  label: t("settings.builtInIconIndexJobStatusLabel"),
-                  value: formatRefreshJob(visibleJob, t, formatDateTime),
-                }] : []),
-              ]}
-            />
-          ) : (
-            <p className="rounded-md border border-border bg-background/40 px-3 py-2 text-xs leading-5 text-muted-foreground">
-              {iconIndex.isLoading ? t("settings.builtInIconIndexLoading") : t("settings.builtInIconIndexUnavailable")}
-            </p>
-          )}
+          <ManagerDataBoundary state={iconIndex.status}>
+            {status ? (
+              <BuiltInIconProviderInfoList
+                items={[
+                  {
+                    label: t("settings.builtInIconIndexIconCountLabel"),
+                    value: t("settings.builtInIconIndexProviderIconCount", { count: formatNumber(status.iconCount) }),
+                  },
+                  {
+                    label: t("settings.builtInIconIndexCurrentVersionLabel"),
+                    value: formatProviderVersion(status.current, t, formatDateTime),
+                  },
+                  {
+                    label: t("settings.builtInIconIndexLatestVersionLabel"),
+                    value: status.latest ? formatProviderVersion(status.latest, t, formatDateTime) : t("settings.builtInIconIndexVersionUnchecked"),
+                  },
+                  {
+                    label: t("settings.builtInIconIndexCheckedAt"),
+                    value: formatProviderTimestamp(status.checkedAt, t("settings.builtInIconIndexTimestampUnchecked"), formatDateTime),
+                  },
+                  {
+                    label: t("settings.builtInIconIndexRefreshedAt"),
+                    value: formatProviderTimestamp(status.refreshedAt, t("settings.builtInIconIndexTimestampUnrefreshed"), formatDateTime),
+                  },
+                  ...(visibleJob ? [{
+                    label: t("settings.builtInIconIndexJobStatusLabel"),
+                    value: formatRefreshJob(visibleJob, t, formatDateTime),
+                  }] : []),
+                ]}
+              />
+            ) : (
+              <p className="rounded-md border border-border bg-background/40 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                {t("settings.builtInIconIndexUnavailable")}
+              </p>
+            )}
+          </ManagerDataBoundary>
 
           {checkFailureMessage ? (
             <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs leading-5 text-destructive" role="alert">
@@ -580,11 +548,18 @@ function getBuiltInIconProviderStatusView({
       className: "border-primary/30 bg-primary/10 text-primary hover:bg-primary/15",
     };
   }
-  if (iconIndex.isLoading) {
+  if (iconIndex.status.isInitialLoading) {
     return {
       kind: "loading",
       label: t("settings.builtInIconIndexBadge.loading"),
       className: "border-border bg-secondary/60 text-muted-foreground hover:bg-secondary hover:text-foreground",
+    };
+  }
+  if (iconIndex.status.error && !iconIndex.status.hasData) {
+    return {
+      kind: "error",
+      label: t("settings.builtInIconIndexBadge.failed"),
+      className: "border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/15",
     };
   }
   // 主 badge 只表达当前可操作状态；已有 latest/current 时，非阻塞 lastError 只能进详情，不覆盖更新判断。

@@ -1,8 +1,9 @@
 // 移动端设置/订阅弹窗测试覆盖 visualViewport、软键盘和 Radix 动画交界；这些问题只有真实浏览器布局能暴露。
 import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "./support/test";
-import { expectNoHorizontalOverflow } from "./support/layout";
-import { gotoSettingsAfterHydration } from "./support/settings";
+import { expectFormFieldRowStacked, expectNoHorizontalOverflow } from "./support/layout";
+import { gotoSettingsAfterHydration, gotoSettingsSectionAfterHydration } from "./support/settings";
+import { expectSideDrawerExitLifecycle } from "./support/side-drawer";
 import {
   createSubscription,
   openAddSubscriptionDialog,
@@ -11,6 +12,35 @@ import {
 } from "./support/subscriptions";
 
 const VIEWPORT_SYNC_SETTLE_MS = 540;
+
+test("mobile passkey fields keep DOM order without horizontal overflow", async ({ page }) => {
+  await gotoSettingsAfterHydration(page);
+  await page.getByRole("button", { name: "管理通行密钥" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "管理通行密钥" });
+  const row = dialog.getByLabel("通行密钥名称").locator('xpath=ancestor::*[@data-slot="form-field-row"][1]');
+  await expect(row).toHaveAttribute("data-align-at", "md");
+  await expect(row).toHaveAttribute("data-tracks", "3");
+  await expectFormFieldRowStacked(row, "mobile passkey registration");
+  await expectNoHorizontalOverflow(page, "mobile passkey manager");
+});
+
+test("mobile settings navigation completes the left-side exit lifecycle", async ({ page }) => {
+  await gotoSettingsSectionAfterHydration(page, "settings-display");
+
+  const trigger = page.getByTestId("settings-mobile-page-header")
+    .getByRole("button", { name: "打开设置目录" });
+  await trigger.click();
+  const panel = page.getByTestId("settings-section-nav-drawer");
+  await expect(panel).toBeVisible();
+
+  await expectSideDrawerExitLifecycle(
+    page,
+    panel,
+    () => panel.getByRole("button", { name: "关闭" }).click(),
+  );
+  await expect(trigger).toBeFocused();
+});
 
 async function setVisualViewportVars(page: Page, height: number, offsetTop = 0) {
   // 先驱动 visualViewport 同步器，再固定本轮测试变量；恢复阶段不能继承上一轮键盘高度。
@@ -207,7 +237,7 @@ async function expectSubscriptionDialogAdaptsToKeyboardViewport(
 
 test("mobile currency manager keeps footer visible after keyboard viewport changes", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 640 });
-  await gotoSettingsAfterHydration(page);
+  await gotoSettingsSectionAfterHydration(page, "settings-data-config");
 
   const trigger = page.getByRole("button", { name: /货币管理/ });
   await trigger.scrollIntoViewIfNeeded();
@@ -288,7 +318,7 @@ test("mobile currency manager keeps footer visible after keyboard viewport chang
 
 test("compact wide currency manager keeps header and footer fixed with only the list scrolling", async ({ page }) => {
   await page.setViewportSize({ width: 796, height: 1448 });
-  await gotoSettingsAfterHydration(page);
+  await gotoSettingsSectionAfterHydration(page, "settings-data-config");
 
   const trigger = page.getByRole("button", { name: /货币管理/ });
   await trigger.scrollIntoViewIfNeeded();

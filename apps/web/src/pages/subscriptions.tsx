@@ -15,24 +15,31 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Header } from '@/components/header';
 import { BackToTopFloatButton } from '@/components/back-to-top-float-button';
-import { SubscriptionCard, type SubscriptionCardLookup } from '@/components/subscription-card';
+import { SubscriptionGrid } from '@/components/subscription-grid';
 import { SubscriptionDetailDialog } from '@/components/subscription-detail-dialog';
+import { AddToCalendarDialog } from '@/components/add-to-calendar-dialog';
 import { subscriptionFilterLayout } from '@/components/subscription-filter-layout';
 import { AddSubscriptionDialog } from '@/components/add-subscription-dialog';
 import { EditSubscriptionDialog } from '@/components/edit-subscription-dialog';
-import { RenewSubscriptionDialog } from '@/components/renew-subscription-dialog';
+import { DeferredRenewSubscriptionDialog } from '@/components/renew-subscription-dialog-loader';
 import { SubscriptionDialog } from '@/components/subscription-dialog';
-import { ImportDataDialog } from '@/components/import-data-dialog';
-import { AIRecognizeSubscriptionDialog } from '@/components/ai-recognize-subscription-dialog';
+import {
+  DeferredImportDataDialog,
+  preloadImportDataDialog,
+} from '@/components/import-data-dialog-loader';
+import {
+  DeferredAIRecognizeSubscriptionDialog,
+  preloadAIRecognizeSubscriptionDialog,
+} from '@/components/ai-recognize-subscription-dialog-loader';
 import { SubscriptionsPageSkeleton } from '@/components/loading-skeleton';
 import { SubscriptionCategoryFilter } from '@/components/subscription-category-filter';
 import { SubscriptionFilterFeedback } from '@/components/subscription-filter-feedback';
-import { VirtualizedList } from '@/components/ui/virtualized-list';
+import { QueryErrorState } from '@/components/query-error-state';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import type { Subscription, SubscriptionStatus } from '@/types/subscription';
+import type { Subscription, SubscriptionCollectionItem, SubscriptionStatus } from '@/types/subscription';
 import { BILLING_CYCLES, CYCLE_LABELS, DEFAULT_NOTIFICATION_REMINDER_DAYS, DEFAULT_SETTINGS } from '@/types/subscription';
 import { Search, Plus, Grid, List as ListIcon, Download, Upload, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -42,8 +49,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useInfiniteSubscriptions, useSubscriptions } from '@/hooks/use-subscriptions';
-import { useCustomConfig } from '@/contexts/CustomConfigContext';
+import {
+  useInfiniteSubscriptions,
+  useSubscriptionFacets,
+  useSubscriptionIndex,
+} from '@/hooks/use-subscriptions';
+import { useCustomConfigState } from '@/contexts/CustomConfigContext';
 import { useSettingsEnvelope } from '@/hooks/use-settings';
 import { useSubscriptionCrud } from '@/modules/subscriptions/application/use-subscription-crud';
 import { useSubscriptionExport } from '@/modules/subscriptions/application/use-subscription-export';
@@ -55,6 +66,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import type { MessageKey } from '@/i18n/messages';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { useSubscriptionDetailDialog } from '@/hooks/use-subscription-detail-dialog';
+import { useSubscriptionCalendarDialog } from '@/hooks/use-subscription-calendar-dialog';
 import { useManagedCurrencyOptions } from '@/hooks/use-managed-currency-options';
 import { todayDateOnlyInTimeZone } from '@/lib/time/date-only';
 import {
@@ -66,12 +78,7 @@ import {
 } from '@/components/subscription-advanced-filter';
 
 /** 空订阅数组：用于在数据未加载完成时提供稳定引用，避免 useMemo 依赖抖动。 */
-const EMPTY_SUBSCRIPTIONS: Subscription[] = [];
-// 虚拟列表按“行”估算高度；网格模式一行可能包含 2-3 张卡片，估算值要覆盖最高卡片避免滚动跳动。
-const SUBSCRIPTION_GRID_ROW_GAP = 16;
-const SUBSCRIPTION_GRID_ROW_ESTIMATE = 220;
-const SUBSCRIPTION_LIST_ROW_ESTIMATE = 174;
-
+const EMPTY_SUBSCRIPTIONS: SubscriptionCollectionItem[] = [];
 const SORT_OPTION_LABEL_KEYS: Record<SubscriptionSortOption, MessageKey> = {
   default: "subscriptions.sort.default",
   renewal_asc: "subscriptions.sort.renewalAsc",
@@ -91,122 +98,18 @@ const RENEWAL_FILTER_LABEL_KEYS: Record<SubscriptionRenewalFilter, MessageKey> =
   "one-time": "subscriptions.renewalFilter.oneTime",
 };
 
-function getRootScrollElement() {
-  return typeof document === "undefined" ? null : document.getElementById("root");
-}
-
-function getSubscriptionColumnCount(viewMode: "grid" | "list", isTwoColumnGrid: boolean, isThreeColumnGrid: boolean) {
-  if (viewMode === "list") return 1;
-  if (isThreeColumnGrid) return 3;
-  if (isTwoColumnGrid) return 2;
-  return 1;
-}
-
-function chunkSubscriptions(subscriptions: Subscription[], columnCount: number) {
-  const rows: Subscription[][] = [];
-  for (let index = 0; index < subscriptions.length; index += columnCount) {
-    rows.push(subscriptions.slice(index, index + columnCount));
-  }
-  return rows;
-}
-
-type SubscriptionGridProps = {
-  subscriptions: Subscription[];
-  viewMode: "grid" | "list";
-  timeZone: string;
-  inheritedReminderDays: number;
-  currencyConvert: (amount: number | string, fromCurrency: string, toCurrency: string) => number;
-  currencyRatesReady: boolean;
-  priceReferenceCurrency: string | null;
-  categoryByValue: SubscriptionCardLookup;
-  paymentMethodByValue: SubscriptionCardLookup;
-  onEdit: (id: string) => void;
-  onDelete: (id: string) => void;
-  onClone: (id: string) => void;
-  onTogglePinned: (id: string) => void;
-  onTogglePublicHidden: (id: string) => void;
-  onRenew: (id: string) => void;
-  onViewDetails: (id: string) => void;
-};
-
-function SubscriptionGrid({
-  subscriptions,
-  viewMode,
-  timeZone,
-  inheritedReminderDays,
-  currencyConvert,
-  currencyRatesReady,
-  priceReferenceCurrency,
-  categoryByValue,
-  paymentMethodByValue,
-  onEdit,
-  onDelete,
-  onClone,
-  onTogglePinned,
-  onTogglePublicHidden,
-  onRenew,
-  onViewDetails,
-}: SubscriptionGridProps) {
-  const isTwoColumnGrid = useMediaQuery("(min-width: 640px)");
-  const isThreeColumnGrid = useMediaQuery("(min-width: 1024px)");
-  const columnCount = getSubscriptionColumnCount(viewMode, isTwoColumnGrid, isThreeColumnGrid);
-  const rows = useMemo(() => chunkSubscriptions(subscriptions, columnCount), [columnCount, subscriptions]);
-
-  // 分页列表从首屏起固定使用虚拟化，避免“加载更多”时切换 DOM/Virtualizer 模型导致浏览器滚动锚点漂移。
-  return (
-    <VirtualizedList
-      count={rows.length}
-      estimateSize={() => viewMode === "grid" ? SUBSCRIPTION_GRID_ROW_ESTIMATE : SUBSCRIPTION_LIST_ROW_ESTIMATE}
-      gap={SUBSCRIPTION_GRID_ROW_GAP}
-      getItemKey={(rowIndex) => rows[rowIndex]?.map((subscription) => subscription.id).join("|") ?? rowIndex}
-      getScrollElement={getRootScrollElement}
-      itemClassName={cn(
-        "grid items-stretch gap-4",
-        viewMode === "grid" ? "sm:grid-cols-2 lg:grid-cols-3" : "grid-cols-1",
-      )}
-      testId="virtualized-subscription-list"
-      renderItem={(rowIndex) => {
-        const row = rows[rowIndex];
-        if (!row) return null;
-
-        return row.map((sub) => (
-          <div key={sub.id} className="h-full">
-            <SubscriptionCard
-              subscription={sub}
-              viewMode={viewMode}
-              timeZone={timeZone}
-              inheritedReminderDays={inheritedReminderDays}
-              currencyConvert={currencyConvert}
-              currencyRatesReady={currencyRatesReady}
-              priceReferenceCurrency={priceReferenceCurrency}
-              categoryByValue={categoryByValue}
-              paymentMethodByValue={paymentMethodByValue}
-              onEdit={onEdit}
-              onDelete={onDelete}
-              onClone={onClone}
-              onTogglePinned={onTogglePinned}
-              onTogglePublicHidden={onTogglePublicHidden}
-              onRenew={onRenew}
-              onViewDetails={onViewDetails}
-            />
-          </div>
-        ));
-      }}
-    />
-  );
-}
-
 /** 订阅列表页组件。 */
 const Subscriptions = () => {
   const subscriptionsQuery = useInfiniteSubscriptions();
   const subscriptions = subscriptionsQuery.subscriptions ?? EMPTY_SUBSCRIPTIONS;
+  const facetsQuery = useSubscriptionFacets();
   const { fetchNextPage } = subscriptionsQuery;
   const settingsQuery = useSettingsEnvelope();
   const timeZone = settingsQuery.data?.settings.timezone ?? "UTC";
   const defaultCurrency = settingsQuery.data?.settings.defaultCurrency ?? "CNY";
   const exchangeRateProvider = settingsQuery.data?.settings.exchangeRateProvider;
   const inheritedReminderDays = settingsQuery.data?.settings.notificationReminderDays ?? DEFAULT_NOTIFICATION_REMINDER_DAYS;
-  const { config } = useCustomConfig();
+  const { config } = useCustomConfigState();
   const categoryByValue = useMemo(() => new Map(config.categories.map((category) => [category.value, category])), [config.categories]);
   const paymentMethodByValue = useMemo(() => new Map(config.paymentMethods.map((method) => [method.value, method])), [config.paymentMethods]);
   const { t, label, locale } = useI18n();
@@ -248,8 +151,8 @@ const Subscriptions = () => {
     setAdvancedFilters,
     allTags,
     filteredSubscriptions: localFilteredSubscriptions,
-    filterSubscriptionsForDisplay,
     sortSubscriptionsForDisplay,
+    selectSubscriptionsForExport,
     subscriptionListFilters,
     hasActiveFilters,
     hasActiveControls,
@@ -257,33 +160,41 @@ const Subscriptions = () => {
     clearSelectedCategories,
     toggleTag,
     clearFilters,
-  } = useSubscriptionFilters(subscriptions, { defaultCurrency, convert, locale, timeZone });
-  const aggregateSubscriptionsQuery = useSubscriptions({
-    filters: subscriptionListFilters,
-    enabled: hasActiveControls,
+  } = useSubscriptionFilters(subscriptions, {
+    defaultCurrency,
+    convert,
+    locale,
+    timeZone,
+    availableTags: facetsQuery.data?.tags ?? [],
   });
-  const aggregateSubscriptions = aggregateSubscriptionsQuery.data ?? EMPTY_SUBSCRIPTIONS;
-  const displaySourceSubscriptions = hasActiveControls ? aggregateSubscriptions : subscriptions;
-  // API 是全库筛选真相源；展示前只复核基础条件以收窄异常响应或测试 mock，不恢复旧的“已加载数据筛选”口径。
+  const indexQuery = useSubscriptionIndex(subscriptionListFilters, hasActiveControls);
+  const indexedSubscriptions = indexQuery.data?.subscriptions ?? EMPTY_SUBSCRIPTIONS;
+  const displaySourceSubscriptions = hasActiveControls ? indexedSubscriptions : subscriptions;
+  // index 已经是全库筛选真相源；客户端只应用用户选择的排序，不再读取轻量 DTO 中不存在的详情字段。
   const filteredSubscriptions = useMemo(
-    () => (
-      hasActiveControls
-        ? sortSubscriptionsForDisplay(filterSubscriptionsForDisplay(displaySourceSubscriptions))
-        : localFilteredSubscriptions
-    ),
-    [displaySourceSubscriptions, filterSubscriptionsForDisplay, hasActiveControls, localFilteredSubscriptions, sortSubscriptionsForDisplay],
+    () => hasActiveControls ? sortSubscriptionsForDisplay(displaySourceSubscriptions) : localFilteredSubscriptions,
+    [displaySourceSubscriptions, hasActiveControls, localFilteredSubscriptions, sortSubscriptionsForDisplay],
   );
-  const isDisplayPending = hasActiveControls && aggregateSubscriptionsQuery.isPending;
+  const isDisplayPending = hasActiveControls && indexQuery.isPending;
+  const displayError = hasActiveControls ? indexQuery.error : subscriptionsQuery.error;
+  const retryDisplayQuery = hasActiveControls ? indexQuery.refetch : subscriptionsQuery.refetch;
   const {
     editingSubscription,
+    editingCollectionItem,
     editDialogOpen,
     cloningSubscription,
+    cloningCollectionItem,
     cloneDialogOpen,
     renewingSubscription,
+    renewingCollectionItem,
     renewDialogOpen,
+    editDetailPending,
+    cloneDetailPending,
+    renewDetailPending,
     renewError,
     renewSubmitting,
     renewRestoreFocusRef,
+    handlePrefetchSubscription,
     handleAddSubscription,
     handleDeleteSubscription,
     handleCloneSubscription,
@@ -300,15 +211,18 @@ const Subscriptions = () => {
   } = useSubscriptionCrud(displaySourceSubscriptions);
   const settings = settingsQuery.data?.settings ?? DEFAULT_SETTINGS;
   const priceReferenceCurrency = resolveSubscriptionPriceReferenceCurrency(settings);
-  const { exportToJSON, exportToJSONWithSecrets, exportToCSV } =
-    useSubscriptionExport(filteredSubscriptions, displaySourceSubscriptions, config, settings, locale, timeZone, convert);
+  const { exportToJSON, exportToJSONWithSecrets, exportToCSV, exporting } =
+    useSubscriptionExport(config, settings, locale, selectSubscriptionsForExport, timeZone, convert);
   const today = useMemo(() => todayDateOnlyInTimeZone(new Date(), timeZone), [timeZone]);
   const {
     detailDialogOpen,
     selectedDetailSubscription,
+    selectedDetailCollectionItem,
+    detailPending,
     handleViewDetails,
     handleDetailDialogOpenChange,
   } = useSubscriptionDetailDialog(displaySourceSubscriptions);
+  const calendarDialog = useSubscriptionCalendarDialog(displaySourceSubscriptions);
   const selectedStatus = config.statuses.find((status) => status.value === statusFilter);
   const statusFilterLabel = statusFilter === "all"
     ? t("subscriptions.allStatuses")
@@ -337,6 +251,9 @@ const Subscriptions = () => {
           variant="secondary"
           size="icon"
           onClick={() => setAIRecognitionDialogOpen(true)}
+          onFocus={preloadAIRecognizeSubscriptionDialog}
+          onPointerEnter={preloadAIRecognizeSubscriptionDialog}
+          onTouchStart={preloadAIRecognizeSubscriptionDialog}
           className="h-12 w-12 shrink-0 text-primary sm:h-10 sm:w-10"
           aria-label={t("subscriptions.aiRecognizeAdd")}
         >
@@ -387,13 +304,13 @@ const Subscriptions = () => {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={exportToJSON}>
+                <DropdownMenuItem onClick={exportToJSON} disabled={exporting}>
                   {t("subscriptions.exportJson")}
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={exportToJSONWithSecrets}>
+                <DropdownMenuItem onClick={exportToJSONWithSecrets} disabled={exporting}>
                   {t("subscriptions.exportJsonWithSecrets")}
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={exportToCSV}>
+                <DropdownMenuItem onClick={exportToCSV} disabled={exporting}>
                   {t("subscriptions.exportCsv")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -402,6 +319,9 @@ const Subscriptions = () => {
               type="button"
               variant="outline"
               onClick={() => setImportDialogOpen(true)}
+              onFocus={preloadImportDataDialog}
+              onPointerEnter={preloadImportDataDialog}
+              onTouchStart={preloadImportDataDialog}
               className="gap-2 border-border"
               aria-label={t("subscriptions.importData")}
             >
@@ -639,7 +559,9 @@ const Subscriptions = () => {
           )}
         </div>
 
-        {isDisplayPending ? (
+        {displayError ? (
+          <QueryErrorState error={displayError} onRetry={retryDisplayQuery} />
+        ) : isDisplayPending ? (
           <div className="flex items-center justify-center rounded-xl border border-dashed border-border bg-card/50 py-16 text-sm text-muted-foreground">
             {t("common.loading")}
           </div>
@@ -648,11 +570,17 @@ const Subscriptions = () => {
             <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-secondary">
               <Search className="h-8 w-8 text-muted-foreground" />
             </div>
-            <h3 className="mb-2 text-lg font-medium text-foreground">{t("subscriptions.emptyTitle")}</h3>
+            <h3 className="mb-2 text-lg font-medium text-foreground">
+              {hasActiveFilters ? t("subscriptions.emptyFilteredTitle") : t("subscriptions.emptyNoDataTitle")}
+            </h3>
             <p className="mb-6 text-sm text-muted-foreground">
               {hasActiveFilters ? t("subscriptions.emptyFiltered") : t("subscriptions.emptyNoData")}
             </p>
-            {!hasActiveFilters && (
+            {hasActiveFilters ? (
+              <Button type="button" variant="outline" className="gap-2 border-border" onClick={clearFilters}>
+                {t("subscriptions.clearFilters")}
+              </Button>
+            ) : (
               <AddSubscriptionDialog 
                 onAdd={handleAddSubscription}
                 availableTags={allTags}
@@ -684,6 +612,8 @@ const Subscriptions = () => {
               onTogglePublicHidden={handleTogglePublicHiddenSubscription}
               onRenew={handleRenewSubscription}
               onViewDetails={handleViewDetails}
+              onAddToCalendar={calendarDialog.show}
+              onPrefetchDetails={handlePrefetchSubscription}
             />
             {!hasActiveControls && subscriptionsQuery.hasNextPage && (
               <div className="mt-6 flex justify-center [overflow-anchor:none]" data-testid="subscriptions-load-more-row">
@@ -706,10 +636,12 @@ const Subscriptions = () => {
 
       <EditSubscriptionDialog
         subscription={editingSubscription}
+        loadingPreview={editingCollectionItem}
         open={editDialogOpen}
         onOpenChange={handleEditDialogOpenChange}
         onSave={handleSaveSubscription}
         availableTags={allTags}
+        loading={editDetailPending}
       />
       <SubscriptionDialog
         mode="create"
@@ -717,10 +649,13 @@ const Subscriptions = () => {
         onOpenChange={handleCloneDialogOpenChange}
         onSubmit={handleSaveClonedSubscription}
         initialSubscription={cloningSubscription}
+        loadingPreview={cloningCollectionItem}
         availableTags={allTags}
+        loading={cloneDetailPending}
       />
-      <RenewSubscriptionDialog
+      <DeferredRenewSubscriptionDialog
         subscription={renewingSubscription}
+        loadingPreview={renewingCollectionItem}
         open={renewDialogOpen}
         today={today}
         submitting={renewSubmitting}
@@ -728,34 +663,42 @@ const Subscriptions = () => {
         restoreFocusRef={renewRestoreFocusRef}
         onOpenChange={handleRenewDialogOpenChange}
         onSubmit={handleSubmitRenewSubscription}
+        loading={renewDetailPending}
       />
       <SubscriptionDetailDialog
         open={detailDialogOpen}
         onOpenChange={handleDetailDialogOpenChange}
         subscription={selectedDetailSubscription}
+        loadingPreview={selectedDetailCollectionItem}
         onEditSubscription={handleEditFromDetail}
         onRenewSubscription={handleRenewSubscription}
         today={today}
         currencyConvert={convert}
         currencyRatesReady={currencyRatesReady}
         priceReferenceCurrency={priceReferenceCurrency}
+        loading={detailPending}
       />
-      <ImportDataDialog
+      <AddToCalendarDialog
+        open={calendarDialog.open}
+        onOpenChange={calendarDialog.onOpenChange}
+        subscription={calendarDialog.subscription}
+        loadingPreview={calendarDialog.collectionItem}
+        loading={calendarDialog.pending}
+      />
+      <DeferredImportDataDialog
         open={importDialogOpen}
         onOpenChange={setImportDialogOpen}
         settings={settings}
         config={config}
       />
-      {aiRecognitionDialogOpen ? (
-        <AIRecognizeSubscriptionDialog
-          open={aiRecognitionDialogOpen}
-          onOpenChange={setAIRecognitionDialogOpen}
-          settings={settings}
-          apiKeyConfigured={settingsQuery.data?.secretStatus["aiRecognition.apiKey"].configured ?? false}
-          config={config}
-          availableTags={allTags}
-        />
-      ) : null}
+      <DeferredAIRecognizeSubscriptionDialog
+        open={aiRecognitionDialogOpen}
+        onOpenChange={setAIRecognitionDialogOpen}
+        settings={settings}
+        apiKeyConfigured={settingsQuery.data?.secretStatus["aiRecognition.apiKey"].configured ?? false}
+        config={config}
+        availableTags={allTags}
+      />
     </div>
   );
 };

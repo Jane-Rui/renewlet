@@ -18,7 +18,7 @@ func TestStaticContentSecurityPolicyUsesExternalProtocol(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	httpPolicy := staticContentSecurityPolicy(httpRequest)
+	httpPolicy := staticContentSecurityPolicy(httpRequest, customHeadHTMLConfig{})
 	if !strings.Contains(httpPolicy, "img-src 'self' data: blob: http: https:") {
 		t.Fatalf("expected HTTP policy to allow http images, got %q", httpPolicy)
 	}
@@ -31,7 +31,7 @@ func TestStaticContentSecurityPolicyUsesExternalProtocol(t *testing.T) {
 		t.Fatal(err)
 	}
 	httpsRequest.Header.Set("X-Forwarded-Proto", "https")
-	httpsPolicy := staticContentSecurityPolicy(httpsRequest)
+	httpsPolicy := staticContentSecurityPolicy(httpsRequest, customHeadHTMLConfig{})
 	if !strings.Contains(httpsPolicy, "img-src 'self' data: blob: https:") {
 		t.Fatalf("expected HTTPS policy to allow only https images, got %q", httpsPolicy)
 	}
@@ -126,10 +126,12 @@ func TestStaticFallbackSharesMuxWithProductAPIFallbacks(t *testing.T) {
 		t.Fatal(err)
 	}
 	registerRoutes(app, router)
-	registerStaticFallback(router, fstest.MapFS{
+	if err := registerStaticFallback(router, fstest.MapFS{
 		"index.html":    {Data: []byte("<!doctype html><html><body>renewlet-spa</body></html>")},
 		"assets/app.js": {Data: []byte("console.log('renewlet')")},
-	})
+	}, customHeadHTMLConfig{}); err != nil {
+		t.Fatal(err)
+	}
 	// 组合测试锁住启动期真实 route 形状，避免 SPA fallback 再次与产品 API wildcard 在 ServeMux 注册阶段冲突。
 	mux, err := router.BuildMux()
 	if err != nil {

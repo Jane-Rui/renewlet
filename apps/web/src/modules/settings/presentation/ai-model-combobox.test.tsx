@@ -241,7 +241,7 @@ describe("AIModelCombobox", () => {
     expect(trigger).toHaveClass("w-full");
 
     await user.click(trigger);
-    expect(screen.getByTestId("ai-model-combobox-popover")).toHaveClass("w-[var(--radix-popover-trigger-width)]");
+    expect(screen.getByTestId("ai-model-combobox-popover")).toHaveClass("w-(--radix-popover-trigger-width)");
   });
 
   it("locks page scrolling while the model list popover is open", async () => {

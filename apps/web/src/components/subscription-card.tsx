@@ -17,12 +17,12 @@ import {
   DISABLED_REMINDER_DAYS,
   INHERIT_REMINDER_DAYS,
   CYCLE_LABELS,
-  type Subscription,
+  type SubscriptionCollectionItem,
 } from '@/types/subscription';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { colorWithAlpha } from '@/lib/color';
-import { Calendar, MoreHorizontal, CalendarClock, Bell, CreditCard, CalendarPlus, Copy, Eye, EyeOff, Pencil, Pin, PinOff, RotateCw, Trash2 } from 'lucide-react';
+import { Calendar, MoreHorizontal, CalendarClock, Bell, CreditCard, CalendarPlus, Copy, Eye, EyeOff, Gauge, Pencil, Pin, PinOff, RotateCw, Trash2 } from 'lucide-react';
 import {
   daysBetweenDateOnly,
   todayDateOnlyInTimeZone,
@@ -36,6 +36,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
+import { preloadRenewSubscriptionDialog } from '@/components/renew-subscription-dialog-loader';
 import { AuthorizedImage } from '@/components/authorized-image';
 import { TruncatedTooltipText } from '@/components/ui/truncated-tooltip-text';
 import {
@@ -50,10 +51,16 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useI18n } from '@/i18n/I18nProvider';
 import { localizedLabel } from '@/i18n/locales';
-import { AddToCalendarDialog } from '@/components/add-to-calendar-dialog';
 import { SubscriptionLogo } from '@/components/subscription-logo';
 import { SubscriptionStatusBadge } from '@/components/subscription-status-badge';
-import { formatBillingCycleLabel, isOneTimeBuyout, isOneTimeFixedTerm } from '@/lib/subscription-billing';
+import { formatCompactCurrencyAmount } from '@/lib/currency';
+import {
+  formatBillingCycleLabel,
+  isOneTimeBuyout,
+  isOneTimeFixedTerm,
+  toDailyAmountFromMonthly,
+  toSubscriptionMonthlyAmount,
+} from '@/lib/subscription-billing';
 import {
   getSubscriptionPriceReference,
   type SubscriptionCurrencyConverter,
@@ -65,7 +72,7 @@ export type SubscriptionCardLookup = ReadonlyMap<string, ConfigItem>;
 
 interface SubscriptionCardProps {
   /** 订阅数据（前端 domain 类型）。 */
-  subscription: Subscription;
+  subscription: SubscriptionCollectionItem;
   /** 展示模式：grid（卡片）/ list（列表行）。 */
   viewMode?: 'grid' | 'list';
   /** 编辑动作只传 id，页面控制器再从当前缓存快照取完整对象，避免卡片持有编辑弹窗状态。 */
@@ -82,6 +89,10 @@ interface SubscriptionCardProps {
   onRenew?: (id: string) => void;
   /** 卡片主体 primary action：打开只读详情；菜单内动作保持独立。 */
   onViewDetails?: (id: string) => void;
+  /** 日历弹层需要完整 detail DTO，由页面级控制器按 intent 读取。 */
+  onAddToCalendar?: (id: string) => void;
+  /** 指针或键盘意图出现时预取完整详情，冷点击仍由 detail query 接管。 */
+  onPrefetchDetails?: (id: string) => void;
   /** 用户 IANA 时区，用于续费/试用提示窗口。 */
   timeZone: string;
   /** 分类配置查找表由页面级容器构建，避免虚拟列表 item 重复订阅全局配置。 */
@@ -109,6 +120,7 @@ type SubscriptionCardMetaItem = {
   icon: ReactNode;
   text: string;
   tone: SubscriptionCardMetaTone;
+  tabular?: boolean;
   truncate?: boolean;
 };
 
@@ -122,7 +134,11 @@ function SubscriptionCardMetaToken({ item }: { item: SubscriptionCardMetaItem })
   return (
     <div
       data-testid={`subscription-card-meta-${item.key}`}
-      className={cn("inline-flex min-w-0 max-w-full items-center gap-1.5 whitespace-nowrap text-xs", metaToneClassNames[item.tone])}
+      className={cn(
+        "inline-flex min-w-0 max-w-full items-center gap-1.5 whitespace-nowrap text-xs",
+        item.tabular && "tabular-nums",
+        metaToneClassNames[item.tone],
+      )}
     >
       {item.icon}
       <span className={cn(item.truncate ? "block max-w-24 truncate sm:max-w-32" : "whitespace-nowrap")}>{item.text}</span>
@@ -161,6 +177,8 @@ function SubscriptionCardComponent({
   onTogglePublicHidden,
   onRenew,
   onViewDetails,
+  onAddToCalendar,
+  onPrefetchDetails,
   timeZone,
   categoryByValue,
   paymentMethodByValue,
@@ -180,13 +198,15 @@ function SubscriptionCardComponent({
   };
 
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [showAddToCalendarDialog, setShowAddToCalendarDialog] = useState(false);
   const today = todayDateOnlyInTimeZone(new Date(), timeZone);
   const daysUntilRenewal = daysBetweenDateOnly(today, subscription.nextBillingDate);
   const daysUntilTrialEnd = subscription.trialEndDate ? daysBetweenDateOnly(today, subscription.trialEndDate) : null;
   const isOneTime = subscription.billingCycle === "one-time";
   const isBuyout = isOneTimeBuyout(subscription);
   const isFixedTermOneTime = isOneTimeFixedTerm(subscription);
+  const dailyAmount = isBuyout
+    ? null
+    : toDailyAmountFromMonthly(toSubscriptionMonthlyAmount(subscription.price, subscription));
   const hasCalendarEvent = !isBuyout;
   const canManualRenew = Boolean(onRenew) && isManualRenewEligible(subscription);
   const billingCycleLabel = formatBillingCycleLabel(subscription, locale);
@@ -270,6 +290,17 @@ function SubscriptionCardComponent({
           tone: "muted" as const,
         }]
       : []),
+    ...(dailyAmount !== null
+      ? [{
+          key: "daily-average",
+          icon: <Gauge className="h-3.5 w-3.5 shrink-0" />,
+          text: t("subscription.card.dailyAverage", {
+            amount: formatCompactCurrencyAmount(dailyAmount, subscription.currency, locale),
+          }),
+          tone: "muted" as const,
+          tabular: true,
+        }]
+      : []),
     ...(paymentMethodLabel
       ? [{
           key: "payment-method",
@@ -314,6 +345,8 @@ function SubscriptionCardComponent({
     <>
     <div
       data-testid="subscription-card"
+      onPointerEnter={() => onPrefetchDetails?.(subscription.id)}
+      onFocusCapture={() => onPrefetchDetails?.(subscription.id)}
       className={cn(
         "group relative h-full overflow-hidden rounded-xl border border-border bg-card p-5 shadow-card transition-all duration-300 hover:bg-card-hover",
         onViewDetails && "cursor-pointer",
@@ -350,7 +383,7 @@ function SubscriptionCardComponent({
               />
             </div>
 
-            <div className="min-w-0 max-w-[8.75rem] shrink-0 text-right sm:max-w-[10rem]">
+            <div className="min-w-0 max-w-35 shrink-0 text-right sm:max-w-40">
               <p className="truncate text-xl font-bold text-foreground">
                 {formatCurrency(subscription.price, subscription.currency)}
               </p>
@@ -386,14 +419,20 @@ function SubscriptionCardComponent({
                     {t("subscription.copy")}
                   </DropdownMenuItem>
                 ) : null}
-                {hasCalendarEvent ? (
-                  <DropdownMenuItem className={CARD_ACTION_MENU_ITEM_CLASSNAME} onClick={() => setShowAddToCalendarDialog(true)}>
+                {hasCalendarEvent && onAddToCalendar ? (
+                  <DropdownMenuItem className={CARD_ACTION_MENU_ITEM_CLASSNAME} onClick={() => onAddToCalendar?.(subscription.id)}>
                     <CalendarPlus className="h-4 w-4 shrink-0 text-muted-foreground" />
                     {t("subscription.addToCalendar")}
                   </DropdownMenuItem>
                 ) : null}
                 {canManualRenew ? (
-                  <DropdownMenuItem className={CARD_ACTION_MENU_ITEM_CLASSNAME} onClick={() => onRenew?.(subscription.id)}>
+                  <DropdownMenuItem
+                    className={CARD_ACTION_MENU_ITEM_CLASSNAME}
+                    onPointerEnter={preloadRenewSubscriptionDialog}
+                    onFocus={preloadRenewSubscriptionDialog}
+                    onTouchStart={preloadRenewSubscriptionDialog}
+                    onClick={() => onRenew?.(subscription.id)}
+                  >
                     <RotateCw className="h-4 w-4 shrink-0 text-muted-foreground" />
                     {t("subscription.renew")}
                   </DropdownMenuItem>
@@ -495,13 +534,6 @@ function SubscriptionCardComponent({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
-    {showAddToCalendarDialog && (
-      <AddToCalendarDialog
-        open={showAddToCalendarDialog}
-        onOpenChange={setShowAddToCalendarDialog}
-        subscription={subscription}
-      />
-    )}
     </>
   );
 }
@@ -523,6 +555,8 @@ function areSubscriptionCardPropsEqual(prev: SubscriptionCardProps, next: Subscr
     prev.onTogglePinned === next.onTogglePinned &&
     prev.onTogglePublicHidden === next.onTogglePublicHidden &&
     prev.onRenew === next.onRenew &&
+    prev.onAddToCalendar === next.onAddToCalendar &&
+    prev.onPrefetchDetails === next.onPrefetchDetails &&
     prev.onViewDetails === next.onViewDetails
   );
 }

@@ -1,7 +1,11 @@
 import { z } from "zod";
 import { persistedSettingsBackupSchema } from "./settings";
 import { customConfigSchema } from "./custom-config";
-import { apiSubscriptionSchema, subscriptionCreateBodySchema } from "./subscriptions";
+import {
+  createApiSubscriptionSchema,
+  logoReferenceSchema,
+  subscriptionCreateBodySchema,
+} from "./subscriptions";
 import { apiSuccessResponseSchema } from "./api";
 import { exchangeRateSnapshotV1Schema } from "./exchange-rates";
 
@@ -130,10 +134,9 @@ const exportAssetLogoPathSchema = z
   .max(2048)
   .refine((value) => /^assets\/[^/][A-Za-z0-9._/-]*$/.test(value) && !value.includes(".."), "Invalid export asset path");
 
-const renewletExportSubscriptionSchema = apiSubscriptionSchema.safeExtend({
-  // 普通订阅 API 不接受 ZIP 内路径；export v1 只在备份包内允许 assets/...，导入时会先上传再改写成私有资产代理 URL。
-  logo: apiSubscriptionSchema.shape.logo.or(exportAssetLogoPathSchema).optional(),
-}).strict();
+const renewletExportSubscriptionSchema = createApiSubscriptionSchema(
+  logoReferenceSchema.or(exportAssetLogoPathSchema),
+);
 
 export const renewletExportV1Schema = z.object({
   kind: z.literal("renewlet-export"),

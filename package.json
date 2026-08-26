@@ -2,7 +2,7 @@
   "name": "renewlet",
   "private": true,
   "license": "MIT",
-  "version": "0.3.1",
+  "version": "0.3.22",
   "packageManager": "pnpm@11.20.0",
   "engines": {
     "node": ">=24.19.0 <25 || >=26.5.0 <27"
@@ -38,6 +38,7 @@
     "sync:static": "mkdir -p apps/docker-server/internal/static/public && find apps/docker-server/internal/static/public -mindepth 1 ! -name .gitkeep -delete && cp -R apps/web/dist/. apps/docker-server/internal/static/public/",
     "sync:media-resolver-config": "node scripts/sync-media-resolver-config.mjs",
     "check:media-resolver-config": "node scripts/sync-media-resolver-config.mjs --check",
+    "check:i18n": "pnpm --filter @renewlet/client i18n:check",
     "sync:ai-recognition-prompt": "node scripts/sync-ai-recognition-prompt.mjs",
     "check:ai-recognition-prompt": "node scripts/sync-ai-recognition-prompt.mjs --check",
     "generate:built-in-config-labels": "node scripts/generate-built-in-config-labels.mjs",
@@ -57,7 +58,7 @@
     "check:website": "pnpm --filter @renewlet/website lint && pnpm --filter @renewlet/website test && pnpm --filter @renewlet/website build",
     "release": "node scripts/release.mjs",
     "check:release": "node --test scripts/release.test.mjs",
-    "check:cloudflare": "pnpm check:media-resolver-config && pnpm check:ai-recognition-prompt && pnpm check:built-in-config-labels && pnpm check:server-i18n && pnpm check:worker-types && pnpm typecheck:scripts && pnpm --filter @renewlet/shared typecheck && pnpm --filter @renewlet/cloudflare typecheck && pnpm --filter @renewlet/cloudflare test:run && VITE_RENEWLET_RUNTIME=cloudflare pnpm --filter @renewlet/client typecheck && pnpm --filter @renewlet/client typecheck:all",
+    "check:cloudflare": "pnpm check:media-resolver-config && pnpm check:ai-recognition-prompt && pnpm check:built-in-config-labels && pnpm check:server-i18n && pnpm check:i18n && pnpm check:worker-types && pnpm typecheck:scripts && pnpm --filter @renewlet/shared typecheck && pnpm --filter @renewlet/cloudflare typecheck && pnpm --filter @renewlet/cloudflare test:run && VITE_RENEWLET_RUNTIME=cloudflare pnpm --filter @renewlet/client typecheck && pnpm --filter @renewlet/client typecheck:all",
     "check:file-lines": "node scripts/check-file-lines.mjs",
     "cloudflare:config:ci": "node scripts/generate-cloudflare-wrangler-config.mjs",
     "cloudflare:queues:ensure": "node scripts/ensure-cloudflare-queues.mjs",
@@ -82,7 +83,7 @@
     "test:e2e:debug": "pnpm typecheck:e2e && playwright test --debug",
     "test:e2e:report": "playwright show-report",
     "test:e2e:cloudflare:report": "playwright show-report playwright-report/cloudflare-check",
-    "test:all": "pnpm check:file-lines && pnpm check:deploy && pnpm check:public-api-docs && pnpm typecheck:all && pnpm test:unit && pnpm test:perf && pnpm test:e2e",
+    "test:all": "pnpm check:file-lines && pnpm check:deploy && pnpm check:public-api-docs && pnpm check:i18n && pnpm typecheck:all && pnpm test:unit && pnpm test:perf && pnpm test:e2e",
     "typecheck": "pnpm typecheck:all",
     "typecheck:all": "pnpm typecheck:scripts && pnpm --filter @renewlet/shared typecheck && pnpm --filter @renewlet/cloudflare typecheck && pnpm --filter @renewlet/client typecheck:all && pnpm --filter @renewlet/website typecheck && pnpm --filter @renewlet/server typecheck && pnpm typecheck:e2e",
     "typecheck:scripts": "tsc --noEmit --project tsconfig.json",
@@ -90,14 +91,14 @@
     "update:built-in-icons-index": "node scripts/update-built-in-icons-index.mjs"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20260811.1",
+    "@cloudflare/workers-types": "^5.20260820.1",
     "@lingui/format-po": "6.6.0",
     "@playwright/test": "^1.62.1",
     "@redocly/cli": "2.45.0",
     "@types/node": "24.13.3",
     "tsx": "4.23.9",
     "typescript": "6.0.3",
-    "wrangler": "^4.123.0",
+    "wrangler": "^4.125.0",
     "zod": "4.4.3"
   }
 }

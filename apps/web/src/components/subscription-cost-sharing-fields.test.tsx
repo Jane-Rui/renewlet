@@ -146,6 +146,15 @@ describe("Subscription cost sharing fields", () => {
 
     const manager = screen.getByTestId("cost-sharing-members-view");
     expect(manager.querySelector('input[type="date"]')).toBeNull();
+    const memberName = within(manager).getAllByLabelText("成员名称")[0]!;
+    const memberNote = within(manager).getAllByLabelText("成员备注")[0]!;
+    const memberRow = memberName.closest('[data-slot="form-field-row"]');
+    expect(memberRow).toHaveAttribute("data-align-at", "md");
+    expect(memberRow).toHaveAttribute("data-tracks", "2");
+    expect(memberNote.closest('[data-slot="form-field"]')).toBe(memberName.closest('[data-slot="form-field"]'));
+    expect(memberRow?.querySelector('[data-slot="form-field-row-action"]')).toContainElement(
+      within(memberRow as HTMLElement).getByRole("button", { name: "删除" }),
+    );
     const joinedDateButtons = within(manager).getAllByRole("button", { name: /上车日期/ });
     expect(joinedDateButtons).toHaveLength(2);
     expect(joinedDateButtons[0]).toHaveTextContent("2026年1月1日");

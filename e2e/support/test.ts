@@ -56,9 +56,12 @@ export async function installE2EPageGuards(page: Page): Promise<{ close(): Promi
   page.on("pageerror", recordPageError);
   return {
     async close() {
+      // 诊断监听必须覆盖 page.close；提前 unroute 会让在途汇率请求落回真实网络，并把 teardown warning 留在守卫之外。
+      if (!page.isClosed()) {
+        await page.close();
+      }
       page.off("console", recordConsoleMessage);
       page.off("pageerror", recordPageError);
-      await page.unroute(FRANKFURTER_ROUTE, fulfillFrankfurter);
       expect(diagnostics, "unexpected browser console warnings or errors").toEqual([]);
     },
   };

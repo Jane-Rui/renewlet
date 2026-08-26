@@ -2,7 +2,7 @@
  * 订阅表单本地状态类型。
  *
  * 架构位置：表单组件使用字符串状态适配输入控件，提交边界再转换为
- * `SubscriptionDraft/Subscription` 领域模型。
+ * `SubscriptionFormSubmission` 写入命令。
  *
  * 注意： 这里允许的空字符串是 UI 中间态；不要把该类型直接传给 API 写入层。
  */

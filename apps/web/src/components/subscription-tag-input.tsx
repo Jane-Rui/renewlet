@@ -88,7 +88,7 @@ export function SubscriptionTagInput({
   const inputSizerClassName = cn(
     "inline-grid max-w-full",
     // 空光标没有真实文本撑宽；压到 1px 避免 flex 换行用 input 默认 intrinsic width 误判。
-    hasTags ? (inputValue ? "min-w-[1ch] flex-none" : "min-w-px w-px flex-none") : "min-w-[8rem] flex-1",
+    hasTags ? (inputValue ? "min-w-[1ch] flex-none" : "min-w-px w-px flex-none") : "min-w-32 flex-1",
   );
   const inputClassName =
     "col-start-1 row-start-1 h-7 w-full min-w-0 bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50";
@@ -256,7 +256,7 @@ export function SubscriptionTagInput({
                 variant="outline"
                 className="max-w-full shrink-0 gap-1 border-border bg-background/60 px-2 py-1 text-foreground"
               >
-                <span className="max-w-[12rem] truncate">{tag}</span>
+                <span className="max-w-48 truncate">{tag}</span>
                 <button
                   type="button"
                   className="rounded-full text-muted-foreground transition-colors hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
@@ -321,7 +321,7 @@ export function SubscriptionTagInput({
           onInteractOutside={(event) => {
             if (isInsideTagComposite(event.target)) event.preventDefault();
           }}
-          className="w-[var(--radix-popover-trigger-width)] overflow-hidden border-border bg-popover p-0 text-popover-foreground"
+          className="w-(--radix-popover-trigger-width) overflow-hidden border-border bg-popover p-0 text-popover-foreground"
         >
           <div id={listboxId} role="listbox" className="max-h-64 overflow-y-auto p-1">
             {options.length === 0 ? (

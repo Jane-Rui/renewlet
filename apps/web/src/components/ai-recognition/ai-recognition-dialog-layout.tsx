@@ -319,7 +319,7 @@ function CompactSummaryLine({ label, value }: { label: string; value: string }) 
   return (
     <div className="flex min-w-0 max-w-full items-center gap-1.5">
       <dt className="shrink-0 text-muted-foreground">{label}</dt>
-      <dd className="min-w-0 max-w-[9rem] truncate font-medium text-foreground" title={value}>{value}</dd>
+      <dd className="min-w-0 max-w-36 truncate font-medium text-foreground" title={value}>{value}</dd>
     </div>
   );
 }

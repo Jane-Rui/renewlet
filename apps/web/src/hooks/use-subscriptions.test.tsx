@@ -4,55 +4,40 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { assertDateOnly } from "@/lib/time/date-only";
-import type { ApiSubscription } from "@/lib/api/schemas/subscriptions";
+import {
+  apiSubscriptionCollectionItemSchema,
+  apiSubscriptionSchema,
+  subscriptionCreateBodySchema,
+  subscriptionUpdateBodySchema,
+  type ApiSubscription,
+  type ApiSubscriptionCollectionItem,
+} from "@/lib/api/schemas/subscriptions";
 import type {
-  RecurringCycleSubscription,
-  RepeatReminderInterval,
-  RepeatReminderWindow,
+  BillingCycle,
   Subscription,
+  SubscriptionDraft,
+  SubscriptionFormSubmission,
 } from "@/types/subscription";
+import { fromApiSubscription, toSubscriptionCreatePayload } from "@/services/subscription-service";
 import {
   useCreateSubscription,
-  useInfiniteSubscriptions,
+  useDeleteSubscription,
   usePatchSubscription,
-  useSubscriptions,
+  useSubscriptionCalendar,
+  useSubscriptionIndex,
   useUpdateSubscription,
 } from "./use-subscriptions";
+import { subscriptionQueryKeys } from "./subscription-query-cache";
 
-type RecurringSubscriptionDraft = Omit<RecurringCycleSubscription, "id">;
+type RecurringSubscriptionDraft = Extract<
+  SubscriptionDraft,
+  { billingCycle: Exclude<BillingCycle, "custom" | "one-time"> }
+>;
 
-type SubscriptionWritePayload = {
-  name: string;
-  logo: string | null;
-  price: string;
-  currency: string;
-  billingCycle: Subscription["billingCycle"];
-  customDays: number | null;
-  customCycleUnit: Subscription["customCycleUnit"] | null;
-  oneTimeTermCount: number | null;
-  oneTimeTermUnit: Subscription["oneTimeTermUnit"] | null;
-  category: string;
-  status: Subscription["status"];
-  pinned: boolean;
-  publicHidden: boolean;
-  paymentMethod: string | null;
-  startDate: string | null;
-  nextBillingDate: string;
-  autoRenew: boolean;
-  autoCalculateNextBillingDate: boolean;
-  trialEndDate: string | null;
-  website: string | null;
-  notes: string | null;
-  tags: string[];
-  reminderDays: number;
-  repeatReminderEnabled: boolean;
-  repeatReminderInterval: RepeatReminderInterval;
-  repeatReminderWindow: RepeatReminderWindow;
-  extra: Record<string, unknown>;
-};
+type ApiFetchMock = (url: string, schema: unknown, init?: RequestInit) => Promise<unknown>;
 
 const mocks = vi.hoisted(() => ({
-  apiFetch: vi.fn(),
+  apiFetch: vi.fn<ApiFetchMock>(),
   getCurrentUserId: vi.fn<() => string | null>(),
 }));
 
@@ -81,69 +66,68 @@ function createWrapper() {
   };
 }
 
-function apiSubscriptionFromPayload(id: string, payload: SubscriptionWritePayload): ApiSubscription {
-  return {
+function apiSubscriptionFromPayload(id: string, payload: unknown): ApiSubscription {
+  const body = subscriptionCreateBodySchema.parse(payload);
+  return apiSubscriptionSchema.parse({
     id,
-    name: payload.name,
-    ...(payload.logo !== null ? { logo: payload.logo } : {}),
-    price: payload.price,
-    currency: payload.currency,
-    billingCycle: payload.billingCycle,
-    ...(payload.billingCycle === "custom" && payload.customDays !== null ? { customDays: payload.customDays } : {}),
-    ...(payload.billingCycle === "custom" && payload.customCycleUnit !== null ? { customCycleUnit: payload.customCycleUnit } : {}),
-    ...(payload.billingCycle === "one-time" && payload.oneTimeTermCount !== null ? { oneTimeTermCount: payload.oneTimeTermCount } : {}),
-    ...(payload.billingCycle === "one-time" && payload.oneTimeTermUnit !== null ? { oneTimeTermUnit: payload.oneTimeTermUnit } : {}),
-    category: payload.category,
-    status: payload.status,
-    pinned: payload.pinned,
-    publicHidden: payload.publicHidden,
-    ...(payload.paymentMethod !== null ? { paymentMethod: payload.paymentMethod } : {}),
-    startDate: payload.startDate,
-    nextBillingDate: payload.nextBillingDate,
-    autoRenew: payload.autoRenew,
-    autoCalculateNextBillingDate: payload.autoCalculateNextBillingDate,
-    ...(payload.trialEndDate !== null ? { trialEndDate: payload.trialEndDate } : {}),
-    ...(payload.website !== null ? { website: payload.website } : {}),
-    ...(payload.notes !== null ? { notes: payload.notes } : {}),
-    tags: payload.tags,
-    reminderDays: payload.reminderDays,
-    repeatReminderEnabled: payload.repeatReminderEnabled,
-    repeatReminderInterval: payload.repeatReminderInterval,
-    repeatReminderWindow: payload.repeatReminderWindow,
-    extra: payload.extra,
-  };
+    name: body.name,
+    ...(body.logo ? { logo: body.logo } : {}),
+    price: body.price,
+    currency: body.currency,
+    billingCycle: body.billingCycle,
+    ...(body.billingCycle === "custom" && body.customDays !== null && body.customDays !== undefined
+      ? { customDays: body.customDays, customCycleUnit: body.customCycleUnit }
+      : {}),
+    ...(body.billingCycle === "one-time" && body.oneTimeTermCount !== null && body.oneTimeTermCount !== undefined
+      ? { oneTimeTermCount: body.oneTimeTermCount, oneTimeTermUnit: body.oneTimeTermUnit }
+      : {}),
+    category: body.category,
+    status: body.status,
+    pinned: body.pinned,
+    publicHidden: body.publicHidden,
+    ...(body.paymentMethod ? { paymentMethod: body.paymentMethod } : {}),
+    startDate: body.startDate,
+    nextBillingDate: body.nextBillingDate,
+    autoRenew: body.autoRenew,
+    autoCalculateNextBillingDate: body.autoCalculateNextBillingDate,
+    ...(body.trialEndDate ? { trialEndDate: body.trialEndDate } : {}),
+    ...(body.website ? { website: body.website } : {}),
+    ...(body.notes ? { notes: body.notes } : {}),
+    tags: body.tags ?? [],
+    reminderDays: body.reminderDays,
+    repeatReminderEnabled: body.repeatReminderEnabled,
+    repeatReminderInterval: body.repeatReminderInterval,
+    repeatReminderWindow: body.repeatReminderWindow,
+    extra: body.extra ?? {},
+  });
 }
 
 function apiSubscriptionFromDraft(id: string, draft: RecurringSubscriptionDraft): ApiSubscription {
-  return apiSubscriptionFromPayload(id, {
-    name: draft.name,
-    logo: draft.logo ?? null,
-    price: draft.price,
-    currency: draft.currency,
-    billingCycle: draft.billingCycle,
-    customDays: draft.customDays ?? null,
-    customCycleUnit: draft.customCycleUnit ?? null,
-    oneTimeTermCount: draft.oneTimeTermCount ?? null,
-    oneTimeTermUnit: draft.oneTimeTermUnit ?? null,
-    category: draft.category,
-    status: draft.status,
-    pinned: draft.pinned,
-    publicHidden: draft.publicHidden,
-    paymentMethod: draft.paymentMethod ?? null,
-    startDate: draft.startDate,
-    nextBillingDate: draft.nextBillingDate,
-    autoRenew: draft.autoRenew,
-    autoCalculateNextBillingDate: draft.autoCalculateNextBillingDate,
-    trialEndDate: draft.trialEndDate ?? null,
-    website: draft.website ?? null,
-    notes: draft.notes ?? null,
-    tags: draft.tags,
-    reminderDays: draft.reminderDays,
-    repeatReminderEnabled: draft.repeatReminderEnabled,
-    repeatReminderInterval: draft.repeatReminderInterval,
-    repeatReminderWindow: draft.repeatReminderWindow,
-    extra: draft.extra ?? {},
-  });
+  return apiSubscriptionFromPayload(id, toSubscriptionCreatePayload(draft));
+}
+
+function subscriptionFromDraft(id: string, draft: RecurringSubscriptionDraft): Subscription {
+  return fromApiSubscription(apiSubscriptionFromDraft(id, draft));
+}
+
+function apiCollectionItemFromDraft(
+  id: string,
+  draft: RecurringSubscriptionDraft,
+): ApiSubscriptionCollectionItem {
+  const subscription = apiSubscriptionFromDraft(id, draft);
+  const {
+    website: _website,
+    notes: _notes,
+    tags: _tags,
+    repeatReminderEnabled: _repeatReminderEnabled,
+    repeatReminderInterval: _repeatReminderInterval,
+    repeatReminderWindow: _repeatReminderWindow,
+    extra: _extra,
+    createdAt: _createdAt,
+    updatedAt: _updatedAt,
+    ...collectionItem
+  } = subscription;
+  return apiSubscriptionCollectionItemSchema.parse(collectionItem);
 }
 
 function subscriptionDraft(overrides: Partial<RecurringSubscriptionDraft> = {}): RecurringSubscriptionDraft {
@@ -153,8 +137,6 @@ function subscriptionDraft(overrides: Partial<RecurringSubscriptionDraft> = {}):
     price: "15",
     currency: "USD",
     billingCycle: "monthly",
-    customDays: undefined,
-    customCycleUnit: undefined,
     category: "productivity",
     status: "active",
     pinned: false,
@@ -164,7 +146,6 @@ function subscriptionDraft(overrides: Partial<RecurringSubscriptionDraft> = {}):
     nextBillingDate: assertDateOnly("2026-06-14"),
     autoRenew: false,
     autoCalculateNextBillingDate: true,
-    trialEndDate: undefined,
     website: undefined,
     notes: undefined,
     tags: [],
@@ -177,9 +158,17 @@ function subscriptionDraft(overrides: Partial<RecurringSubscriptionDraft> = {}):
   };
 }
 
-function parseRequestBody(callIndex: number): SubscriptionWritePayload {
-  const init = mocks.apiFetch.mock.calls[callIndex]?.[2] as RequestInit | undefined;
-  return JSON.parse(String(init?.body)) as SubscriptionWritePayload;
+function formSubmission(draft: RecurringSubscriptionDraft): SubscriptionFormSubmission {
+  const {
+    pinned: _pinned,
+    extra: _extra,
+    ...submission
+  } = draft;
+  return submission;
+}
+
+function requestBody(callIndex: number): unknown {
+  return JSON.parse(String(mocks.apiFetch.mock.calls[callIndex]?.[2]?.body));
 }
 
 describe("use-subscriptions mutations", () => {
@@ -192,7 +181,7 @@ describe("use-subscriptions mutations", () => {
       if (!init?.body) {
         return { subscription: apiSubscriptionFromDraft(id, subscriptionDraft()) };
       }
-      const payload = JSON.parse(String(init.body)) as SubscriptionWritePayload;
+      const payload: unknown = JSON.parse(String(init.body));
       return { subscription: apiSubscriptionFromPayload(id, payload) };
     });
   });
@@ -207,7 +196,8 @@ describe("use-subscriptions mutations", () => {
 
     expect(mocks.apiFetch.mock.calls[0]?.[0]).toBe("/api/app/subscriptions");
     expect(mocks.apiFetch.mock.calls[0]?.[2]).toMatchObject({ method: "POST" });
-    expect(parseRequestBody(0)).toMatchObject({
+    const payload = subscriptionCreateBodySchema.parse(requestBody(0));
+    expect(payload).toMatchObject({
       name: "Aws",
       tags: [],
       repeatReminderEnabled: false,
@@ -215,7 +205,8 @@ describe("use-subscriptions mutations", () => {
       repeatReminderWindow: "72h",
       autoRenew: false,
     });
-    expect(parseRequestBody(0)).not.toHaveProperty("user");
+    expect(payload).not.toHaveProperty("user");
+    expect(payload).not.toHaveProperty("trialEndDate");
   });
 
   it("sends nullable start dates for manual recurring creates", async () => {
@@ -230,7 +221,7 @@ describe("use-subscriptions mutations", () => {
       await result.current.mutateAsync(draft);
     });
 
-    expect(parseRequestBody(0)).toMatchObject({
+    expect(subscriptionCreateBodySchema.parse(requestBody(0))).toMatchObject({
       startDate: null,
       nextBillingDate: "2026-08-01",
       autoCalculateNextBillingDate: false,
@@ -239,21 +230,26 @@ describe("use-subscriptions mutations", () => {
 
   it("keeps tags as an empty array when updating a subscription through the product API", async () => {
     const { result } = renderHook(() => useUpdateSubscription(), { wrapper: createWrapper() });
-    const subscription: Subscription = { id: "sub-1", ...subscriptionDraft({ tags: [] }) };
+    const draft = subscriptionDraft({ tags: [] });
+    const subscription = subscriptionFromDraft("sub-1", draft);
 
     await act(async () => {
-      await result.current.mutateAsync(subscription);
+      await result.current.mutateAsync({ id: subscription.id, changes: formSubmission(draft) });
     });
 
     expect(mocks.apiFetch.mock.calls[0]?.[0]).toBe("/api/app/subscriptions/sub-1");
     expect(mocks.apiFetch.mock.calls[0]?.[2]).toMatchObject({ method: "PATCH" });
-    expect(parseRequestBody(0)).toMatchObject({
+    const payload = subscriptionUpdateBodySchema.parse(requestBody(0));
+    expect(payload).toMatchObject({
       name: "Aws",
       tags: [],
       repeatReminderEnabled: false,
       repeatReminderInterval: "1h",
       repeatReminderWindow: "72h",
     });
+    expect(payload).not.toHaveProperty("pinned");
+    expect(payload).not.toHaveProperty("extra");
+    expect(payload).not.toHaveProperty("trialEndDate");
   });
 
   it("sends only quick-action fields through the patch mutation", async () => {
@@ -266,64 +262,167 @@ describe("use-subscriptions mutations", () => {
       await result.current.mutateAsync({ id: "sub-1", patch: { pinned: true } });
     });
 
-    const init = mocks.apiFetch.mock.calls[0]?.[2] as RequestInit | undefined;
-    const payload = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    const init = mocks.apiFetch.mock.calls[0]?.[2];
+    const payload = subscriptionUpdateBodySchema.parse(requestBody(0));
     expect(mocks.apiFetch.mock.calls[0]?.[0]).toBe("/api/app/subscriptions/sub-1");
     expect(init).toMatchObject({ method: "PATCH" });
     expect(payload).toEqual({ pinned: true });
     expect(payload).not.toHaveProperty("name");
     expect(payload).not.toHaveProperty("nextBillingDate");
   });
+
+  it("writes mutation results to detail cache and invalidates only collection derivations", async () => {
+    const updated = apiSubscriptionFromDraft("sub-1", subscriptionDraft({ name: "Updated" }));
+    mocks.apiFetch.mockResolvedValueOnce({ subscription: updated });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(() => useUpdateSubscription(), { wrapper });
+    const updatedDraft = subscriptionDraft({ name: "Updated" });
+    const updatedSubscription = subscriptionFromDraft("sub-1", updatedDraft);
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        id: updatedSubscription.id,
+        changes: formSubmission(updatedDraft),
+      });
+    });
+
+    expect(queryClient.getQueryData<Subscription>(subscriptionQueryKeys.detail("sub-1"))?.name).toBe("Updated");
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: subscriptionQueryKeys.collections });
+    expect(invalidate).not.toHaveBeenCalledWith({ queryKey: subscriptionQueryKeys.details });
+  });
+
+  it("removes a deleted detail cache entry before invalidating collections", async () => {
+    mocks.apiFetch.mockResolvedValueOnce({});
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    queryClient.setQueryData(
+      subscriptionQueryKeys.detail("sub-1"),
+      subscriptionFromDraft("sub-1", subscriptionDraft()),
+    );
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(() => useDeleteSubscription(), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync("sub-1");
+    });
+
+    expect(queryClient.getQueryData(subscriptionQueryKeys.detail("sub-1"))).toBeUndefined();
+  });
 });
 
-describe("use-subscriptions pagination", () => {
+describe("use-subscriptions collection queries", () => {
   beforeEach(() => {
     mocks.apiFetch.mockReset();
     mocks.getCurrentUserId.mockReset();
     mocks.getCurrentUserId.mockReturnValue("user-1");
   });
 
-  it("reuses loaded infinite pages for aggregate consumers without a second request", async () => {
-    const first = apiSubscriptionFromDraft("sub-1", subscriptionDraft({ name: "First" }));
-    const second = apiSubscriptionFromDraft("sub-2", subscriptionDraft({ name: "Second" }));
-    mocks.apiFetch
-      .mockResolvedValueOnce({ subscriptions: [first], nextCursor: "cursor-2", total: 2 })
-      .mockResolvedValueOnce({ subscriptions: [second], nextCursor: null, total: 2 })
-      .mockResolvedValueOnce({ subscriptions: [first, second], nextCursor: null, total: 2 });
-
-    const wrapper = createWrapper();
-    const infinite = renderHook(() => useInfiniteSubscriptions(), { wrapper });
-    await waitFor(() => expect(infinite.result.current.subscriptions.map((item) => item.name)).toEqual(["First"]));
-
-    await act(async () => {
-      await infinite.result.current.fetchNextPage();
-    });
-    await waitFor(() => expect(infinite.result.current.subscriptions.map((item) => item.name)).toEqual(["First", "Second"]));
-
-    const aggregate = renderHook(() => useSubscriptions(), { wrapper });
-    await waitFor(() => expect(aggregate.result.current.data?.map((item) => item.name)).toEqual(["First", "Second"]));
-    expect(Array.isArray(aggregate.result.current.data)).toBe(true);
-    expect(mocks.apiFetch).toHaveBeenCalledTimes(2);
-  });
-
-  it("loads aggregate pages sequentially into the same infinite cache until the cursor ends", async () => {
-    mocks.apiFetch.mockImplementation(async () => {
-      const page = mocks.apiFetch.mock.calls.length;
-      return {
-        subscriptions: [apiSubscriptionFromDraft(`sub-${page}`, subscriptionDraft({ name: `Sub ${page}` }))],
-        nextCursor: page < 3 ? `cursor-${page + 1}` : null,
-        total: 3,
-      };
-    });
+  it("loads a 1000-row search index with one request and no pagination waterfall", async () => {
+    const subscriptions = Array.from({ length: 1000 }, (_, index) =>
+      apiCollectionItemFromDraft(`sub-${index}`, subscriptionDraft({ name: `Layout ${index}` })));
+    mocks.apiFetch.mockResolvedValue({ subscriptions, total: subscriptions.length });
 
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const wrapper = ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     );
-    const { result } = renderHook(() => useSubscriptions(), { wrapper });
+    const { result } = renderHook(() => useSubscriptionIndex({ q: "layout" }), { wrapper });
 
-    await waitFor(() => expect(result.current.data).toHaveLength(3));
-    expect(mocks.apiFetch).toHaveBeenCalledTimes(3);
-    expect(queryClient.getQueryCache().findAll({ queryKey: ["subscriptions", "collection"] })).toHaveLength(1);
+    await waitFor(() => expect(result.current.data?.subscriptions).toHaveLength(1000));
+    expect(mocks.apiFetch).toHaveBeenCalledTimes(1);
+    expect(mocks.apiFetch.mock.calls[0]?.[0]).toBe("/api/app/subscriptions/index?q=layout");
+    expect(queryClient.getQueryCache().findAll({
+      queryKey: ["subscriptions", "collections", "index"],
+    })).toHaveLength(1);
+  });
+
+  it("keeps the last calendar result while newer ranges load and cancels superseded requests", async () => {
+    type CalendarResponse = { subscriptions: ApiSubscriptionCollectionItem[] };
+    let resolveJune: ((value: CalendarResponse) => void) | undefined;
+    let resolveJuly: ((value: CalendarResponse) => void) | undefined;
+    let juneSignal: AbortSignal | undefined;
+    const mayItem = apiCollectionItemFromDraft(
+      "may",
+      subscriptionDraft({ nextBillingDate: assertDateOnly("2026-05-14") }),
+    );
+    const juneItem = apiCollectionItemFromDraft(
+      "june",
+      subscriptionDraft({ nextBillingDate: assertDateOnly("2026-06-14") }),
+    );
+    const julyItem = apiCollectionItemFromDraft(
+      "july",
+      subscriptionDraft({ nextBillingDate: assertDateOnly("2026-07-14") }),
+    );
+
+    mocks.apiFetch.mockImplementation((url: string, _schema: unknown, init?: RequestInit) => {
+      if (url.includes("from=2026-05-01")) return Promise.resolve({ subscriptions: [mayItem] });
+      if (url.includes("from=2026-06-01")) {
+        juneSignal = init?.signal ?? undefined;
+        return new Promise((resolve) => {
+          resolveJune = resolve;
+        });
+      }
+      return new Promise((resolve) => {
+        resolveJuly = resolve;
+      });
+    });
+
+    const { result, rerender } = renderHook(
+      ({ from, to }: { from: string; to: string }) =>
+        useSubscriptionCalendar(assertDateOnly(from), assertDateOnly(to)),
+      {
+        initialProps: { from: "2026-05-01", to: "2026-05-31" },
+        wrapper: createWrapper(),
+      },
+    );
+
+    expect(result.current.isPending).toBe(true);
+    await waitFor(() => expect(result.current.data?.[0]?.id).toBe("may"));
+
+    rerender({ from: "2026-06-01", to: "2026-06-30" });
+    await waitFor(() => expect(result.current.isPlaceholderData).toBe(true));
+    expect(result.current.isPending).toBe(false);
+    expect(result.current.isFetching).toBe(true);
+    expect(result.current.data?.[0]?.id).toBe("may");
+
+    rerender({ from: "2026-07-01", to: "2026-07-31" });
+    await waitFor(() => expect(juneSignal?.aborted).toBe(true));
+    await waitFor(() => expect(resolveJuly).toBeTypeOf("function"));
+    expect(result.current.data?.[0]?.id).toBe("may");
+
+    await act(async () => {
+      resolveJune?.({ subscriptions: [juneItem] });
+      resolveJuly?.({ subscriptions: [julyItem] });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(result.current.data?.[0]?.id).toBe("july"));
+    expect(result.current.isPlaceholderData).toBe(false);
+    expect(result.current.isFetching).toBe(false);
+  });
+
+  it("aborts an in-flight index request when its last observer unmounts", async () => {
+    let requestSignal: AbortSignal | undefined;
+    mocks.apiFetch.mockImplementation((_url: string, _schema: unknown, init?: RequestInit) => {
+      requestSignal = init?.signal ?? undefined;
+      return new Promise(() => undefined);
+    });
+
+    const { unmount } = renderHook(() => useSubscriptionIndex({ q: "stale" }), {
+      wrapper: createWrapper(),
+    });
+    await waitFor(() => expect(requestSignal).toBeInstanceOf(AbortSignal));
+    unmount();
+
+    expect(requestSignal?.aborted).toBe(true);
   });
 });

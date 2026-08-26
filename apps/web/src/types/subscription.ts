@@ -37,10 +37,10 @@ import {
   type RepeatReminderWindow as SharedRepeatReminderWindow,
   type SubscriptionStatus as SharedSubscriptionStatus,
 } from "@renewlet/shared/runtime";
-import type { ApiSubscription } from "@renewlet/shared/schemas/subscriptions";
+import type { ApiSubscription, ApiSubscriptionCollectionItem } from "@renewlet/shared/schemas/subscriptions";
 
 export { DEFAULT_NOTIFICATION_REMINDER_DAYS, DISABLED_REMINDER_DAYS, INHERIT_REMINDER_DAYS, MAX_REMINDER_DAYS };
-export type { ApiSubscription };
+export type { ApiSubscription, ApiSubscriptionCollectionItem };
 
 export const SUBSCRIPTION_STATUSES = SHARED_SUBSCRIPTION_STATUSES;
 /** 订阅状态（影响展示、统计与提醒逻辑）。 */
@@ -51,7 +51,6 @@ export const BILLING_CYCLES = SHARED_BILLING_CYCLES;
 export type BillingCycle = SharedBillingCycle;
 
 export const CUSTOM_CYCLE_UNITS = SHARED_CUSTOM_CYCLE_UNITS;
-/** 自定义扣费周期单位；仅 billingCycle=custom 时有效，旧记录缺省按 day 解释。 */
 export type CustomCycleUnit = SharedCustomCycleUnit;
 
 export const CATEGORIES = [
@@ -156,89 +155,74 @@ export const MAX_SUBSCRIPTION_TAG_LENGTH = 40;
 export const WEBHOOK_HEADERS_PLACEHOLDER = '{"Authorization": "Bearer your-token", "Content-Type": "application/json"}';
 export const WEBHOOK_PAYLOAD_PLACEHOLDER = '{"title": "{title}", "content": "{content}", "timestamp": "{timestamp}"}';
 
-interface SubscriptionBase {
-  /** 订阅 ID（客户端使用字符串；数据库中为 UUID）。 */
-  id: string;
-  /** 订阅名称。 */
-  name: string;
-  /** Logo（可选）。 */
-  logo: string | undefined;
-  /** 单次扣费金额；API/storage 使用 canonical decimal string，展示前再按需要转 number。 */
-  price: string;
-  /** 货币代码（如：CNY、USD）。 */
-  currency: string;
-  /** 分类。 */
-  category: Category;
-  /** 状态。 */
-  status: SubscriptionStatus;
-  /** 是否置顶显示；列表排序会先按置顶分组，再应用用户选择的排序条件。 */
-  pinned: boolean;
-  /** publicHidden=false 是公开展示页启用后的默认可见语义；隐藏必须由用户逐条显式选择。 */
-  publicHidden: boolean;
-  /** 支付方式（可选）。 */
-  paymentMethod: PaymentMethod | undefined;
-  /** 下次扣费日期（用于提醒与日历）。 */
-  nextBillingDate: DateOnly;
-  /** 到期后是否由后台自动推进下一期；one-time 写入层必须强制为 false。 */
-  autoRenew: boolean;
-  /** 是否自动根据开始日期和扣费周期计算下次扣费日期。 */
-  autoCalculateNextBillingDate: boolean;
-  /** 开始日期；周期订阅可为空，one-time 与自动计算仍由写入契约要求非空。 */
-  startDate: DateOnly | null;
-  /** 试用结束日期（仅试用状态可选）。 */
-  trialEndDate: DateOnly | undefined;
-  /** 官网地址（可选）。 */
-  website: string | undefined;
-  /** 备注（可选）。 */
-  notes: string | undefined;
-  /** 标签。 */
-  tags: string[];
-  /** 提前多少天提醒；-2 表示不提醒，-1 表示继承设置页的全局提醒提前时间。 */
-  reminderDays: number;
-  /** 是否为该订阅启用重复提醒。 */
-  repeatReminderEnabled: boolean;
-  /** 重复提醒间隔。 */
-  repeatReminderInterval: RepeatReminderInterval;
-  /** 重复提醒窗口。 */
-  repeatReminderWindow: RepeatReminderWindow;
-  /** 每条订阅独立的家庭共享/分摊配置。 */
-  costSharing?: CostSharing | undefined;
-  /** 非展示元数据；导入幂等键等跨运行面状态保存在这里。 */
-  extra?: Record<string, unknown> | undefined;
-}
-
 export type { CostSharing, CostSharingMember, CostSharingSplitMode } from '@renewlet/shared/cost-sharing';
 
-export interface CustomCycleSubscription extends SubscriptionBase {
-  /** 自定义周期必须携带数量和单位；统计折算和自动续费日期计算都依赖这个不变量。 */
-  billingCycle: "custom";
-  customDays: number;
-  customCycleUnit: CustomCycleUnit;
-  oneTimeTermCount?: undefined;
-  oneTimeTermUnit?: undefined;
-}
+type SubscriptionCollectionDomainFields = {
+  logo: string | undefined;
+  category: Category;
+  paymentMethod: PaymentMethod | undefined;
+  startDate: DateOnly | null;
+  nextBillingDate: DateOnly;
+  trialEndDate: DateOnly | undefined;
+};
 
-export interface RecurringCycleSubscription extends SubscriptionBase {
-  /** 固定周期不携带自定义数量/单位，避免历史 custom 脏值影响金额折算。 */
-  billingCycle: Exclude<BillingCycle, "custom" | "one-time">;
-  customDays: undefined;
-  customCycleUnit: undefined;
-  oneTimeTermCount?: undefined;
-  oneTimeTermUnit?: undefined;
-}
+type SubscriptionCollectionItemFromApi<T> =
+  T extends ApiSubscriptionCollectionItem
+    ? Omit<T, keyof SubscriptionCollectionDomainFields> & SubscriptionCollectionDomainFields
+    : never;
 
-export interface OneTimeSubscription extends SubscriptionBase {
-  /** one-time 无服务期表示买断；有服务期时按整段权益期做月均摊销和到期提醒。 */
-  billingCycle: "one-time";
-  customDays: undefined;
-  customCycleUnit: undefined;
-  oneTimeTermCount?: number | undefined;
-  oneTimeTermUnit?: CustomCycleUnit | undefined;
-}
+export type SubscriptionCollectionItem = SubscriptionCollectionItemFromApi<ApiSubscriptionCollectionItem>;
+export type RecurringCycleSubscriptionCollectionItem = Extract<
+  SubscriptionCollectionItem,
+  { billingCycle: Exclude<BillingCycle, "custom" | "one-time"> }
+>;
+export type CustomCycleSubscriptionCollectionItem = Extract<SubscriptionCollectionItem, { billingCycle: "custom" }>;
+export type OneTimeSubscriptionCollectionItem = Extract<SubscriptionCollectionItem, { billingCycle: "one-time" }>;
+export type OneTimeFixedTermSubscriptionCollectionItem = Extract<
+  OneTimeSubscriptionCollectionItem,
+  { oneTimeTermCount: number; oneTimeTermUnit: CustomCycleUnit }
+>;
+export type OneTimeBuyoutSubscriptionCollectionItem = Exclude<
+  OneTimeSubscriptionCollectionItem,
+  OneTimeFixedTermSubscriptionCollectionItem
+>;
 
+type SubscriptionDetailDomainFields = {
+  website: string | undefined;
+  notes: string | undefined;
+  tags: string[];
+  extra: Record<string, unknown>;
+};
+
+type SubscriptionFromApi<T extends ApiSubscription> = T extends ApiSubscription
+  ? Omit<
+      SubscriptionCollectionItemFromApi<T>,
+      keyof SubscriptionDetailDomainFields | "createdAt" | "updatedAt"
+    > & SubscriptionDetailDomainFields
+  : never;
+
+export type Subscription = SubscriptionFromApi<ApiSubscription>;
+export type RecurringCycleSubscription = Extract<
+  Subscription,
+  { billingCycle: Exclude<BillingCycle, "custom" | "one-time"> }
+>;
+export type CustomCycleSubscription = Extract<Subscription, { billingCycle: "custom" }>;
+export type OneTimeSubscription = Extract<Subscription, { billingCycle: "one-time" }>;
+export type OneTimeFixedTermSubscription = Extract<
+  OneTimeSubscription,
+  { oneTimeTermCount: number; oneTimeTermUnit: CustomCycleUnit }
+>;
+export type OneTimeBuyoutSubscription = Exclude<OneTimeSubscription, OneTimeFixedTermSubscription>;
 export type FixedCycleSubscription = RecurringCycleSubscription | OneTimeSubscription;
-export type Subscription = CustomCycleSubscription | RecurringCycleSubscription | OneTimeSubscription;
-export type SubscriptionDraft = Omit<CustomCycleSubscription, "id"> | Omit<RecurringCycleSubscription, "id"> | Omit<OneTimeSubscription, "id">;
+
+type SubscriptionFormSubmissionFrom<T extends Subscription> = T extends Subscription
+  ? Omit<T, "id" | "pinned" | "extra" | "trialEndDate">
+  : never;
+export type SubscriptionFormSubmission = SubscriptionFormSubmissionFrom<Subscription>;
+type SubscriptionDraftFrom<T extends SubscriptionFormSubmission> = T extends SubscriptionFormSubmission
+  ? T & { pinned: boolean; extra?: Record<string, unknown> }
+  : never;
+export type SubscriptionDraft = SubscriptionDraftFrom<SubscriptionFormSubmission>;
 
 export interface SubscriptionStats {
   /** 按月折算的总支出（基于订阅周期换算）。 */

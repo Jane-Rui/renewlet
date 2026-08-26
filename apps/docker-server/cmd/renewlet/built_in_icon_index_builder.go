@@ -23,18 +23,6 @@ type builtInIconProviderSourceRef struct {
 	CDNBase  string
 }
 
-func buildRemoteBuiltInIconIndex(ctx context.Context) ([]builtInIcon, error) {
-	providerIndexes := map[string][]builtInIcon{}
-	for _, provider := range []string{"thesvg", "selfhst", "dashboardIcons"} {
-		icons, err := buildRemoteBuiltInIconProviderIndex(ctx, provider, nil)
-		if err != nil {
-			return nil, err
-		}
-		providerIndexes[provider] = icons
-	}
-	return mergeBuiltInIconProviderIndexes(providerIndexes)
-}
-
 func buildRemoteBuiltInIconProviderIndex(ctx context.Context, provider string, sourceRef *builtInIconProviderSourceRef) ([]builtInIcon, error) {
 	var icons []builtInIcon
 	var err error

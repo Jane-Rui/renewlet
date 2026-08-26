@@ -560,7 +560,8 @@ func systemUpdateFailureCode(err error) string {
 	switch {
 	case errors.Is(err, errSystemUpdateNoUpdate):
 		return "SYSTEM_UPDATE_NO_UPDATE"
-	case errors.Is(err, context.DeadlineExceeded):
+	// 下载无进展由上游错误包装记录，不一定保留 context.DeadlineExceeded；两条路径必须收敛到同一稳定错误码。
+	case errors.Is(err, context.DeadlineExceeded), upstreamOperationTimedOut(err):
 		return "SYSTEM_UPDATE_TIMEOUT"
 	case errors.Is(err, context.Canceled):
 		return "SYSTEM_UPDATE_INTERRUPTED"
@@ -574,10 +575,16 @@ func systemUpdateFailureMessage(locale appLocale, err error) string {
 }
 
 func systemUpdateFailureMessageForCode(locale appLocale, code string) string {
-	if code == "SYSTEM_UPDATE_NO_UPDATE" {
+	switch code {
+	case "SYSTEM_UPDATE_NO_UPDATE":
 		return serverText(locale, "system.alreadyLatest")
+	case "SYSTEM_UPDATE_TIMEOUT":
+		return serverText(locale, "system.updateTimedOut")
+	case "SYSTEM_UPDATE_INTERRUPTED":
+		return serverText(locale, "system.updateInterrupted")
+	default:
+		return serverText(locale, "system.updateFailed")
 	}
-	return serverText(locale, "system.updateFailed")
 }
 
 func operationTargetVersion(operation *systemUpdateOperationDTO) string {

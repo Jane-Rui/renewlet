@@ -288,10 +288,7 @@ describe("useSettingsFormController", () => {
     expect(mocks.refreshRates).toHaveBeenCalledWith("exchange-api");
     expect(result.current.settings.exchangeRateProvider).toBe("exchange-api");
     expect(result.current.hasUnsavedChanges).toBe(false);
-    expect(mocks.toast).toHaveBeenCalledWith({
-      title: "设置已保存",
-      description: "所有更改已同步。",
-    });
+    expect(mocks.toast.success).toHaveBeenCalledWith("设置已保存");
   });
 
   it("saves settings appearance changes and clears the dedicated pending draft", async () => {
@@ -332,11 +329,7 @@ describe("useSettingsFormController", () => {
 
     const command = mocks.updateSettingsMutateAsync.mock.calls.at(0)?.at(0);
     expect(command?.patch.locale).toBe(nextLocale);
-    expect(mocks.setLocale).toHaveBeenLastCalledWith(nextLocale, {
-      persist: false,
-      markAsSaved: true,
-      rememberPreference: true,
-    });
+    expect(mocks.commitLocale).toHaveBeenLastCalledWith(nextLocale);
   });
 
   it("keeps the draft dirty and shows the server restart hint when saving the provider hits PocketBase 400", async () => {
@@ -362,10 +355,8 @@ describe("useSettingsFormController", () => {
     expect(mocks.refreshRates).not.toHaveBeenCalled();
     expect(result.current.settings.exchangeRateProvider).toBe("exchange-api");
     expect(result.current.hasUnsavedChanges).toBe(true);
-    expect(mocks.toast).toHaveBeenCalledWith({
-      title: "保存失败",
+    expect(mocks.toast.error).toHaveBeenCalledWith("保存失败", {
       description: "无法保存汇率来源。服务端可能还没更新或重启，请重启后端服务后再试。",
-      variant: "destructive",
     });
   });
 
@@ -388,10 +379,7 @@ describe("useSettingsFormController", () => {
     expect(result.current.settings.locale).toBe(BASE_SETTINGS.locale);
     expect(result.current.hasUnsavedChanges).toBe(false);
     expect(mocks.setTheme).toHaveBeenLastCalledWith(BASE_SETTINGS.themeMode, { localOverride: false });
-    expect(mocks.setLocale).toHaveBeenLastCalledWith(BASE_SETTINGS.locale, {
-      persist: false,
-      markAsSaved: true,
-    });
+    expect(mocks.syncRemoteLocale).toHaveBeenLastCalledWith(BASE_SETTINGS.locale);
     expect(localStorage.getItem(SETTINGS_APPEARANCE_PENDING_STORAGE_KEY)).toBeNull();
     expect(localStorage.getItem(SETTINGS_THEME_MODE_STORAGE_KEY)).toBeNull();
   });
@@ -444,10 +432,8 @@ describe("useSettingsFormController", () => {
       await result.current.handleSaveChanges();
     });
 
-    expect(mocks.toast).toHaveBeenCalledWith({
-      title: "保存失败",
+    expect(mocks.toast.error).toHaveBeenCalledWith("保存失败", {
       description: "请至少启用一个内置图标来源",
-      variant: "destructive",
     });
   });
 

@@ -85,10 +85,6 @@ vi.mock("@/hooks/use-uploaded-logo-assets", () => ({
   }),
 }));
 
-vi.mock("@/components/image-crop-dialog", () => ({
-  ImageCropDialog: () => null,
-}));
-
 function expectMediaCandidateRequest(name: string, website?: string) {
   const call = mocks.apiFetch.mock.calls.find(([url]) => url === "/api/app/media/candidates");
   expect(call?.[0]).toBe("/api/app/media/candidates");

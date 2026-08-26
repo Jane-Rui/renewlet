@@ -85,7 +85,7 @@ describe("ConfigManagerDialog", () => {
     for (const value of expectedValues) {
       expect(within(dialog).getByText(value)).toBeInTheDocument();
     }
-    expect(dialog.querySelector('[class*="min-h-[240px]"]')).toBeNull();
+    expect(dialog.querySelector('[class~="min-h-60"]')).toBeNull();
   });
 
   it("uses the visible description as the dialog accessible description", async () => {
@@ -135,9 +135,12 @@ describe("ConfigManagerDialog", () => {
     expect(screen.getByRole("dialog", { name: "分类管理" })).toBeInTheDocument();
 
     fireEvent.focusIn(document.body);
-    expect(screen.getByRole("dialog", { name: "分类管理" })).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog", { name: "分类管理" });
+    const closeButton = dialog.querySelector<HTMLButtonElement>("[data-dialog-close]");
+    expect(closeButton).toHaveAccessibleName("关闭");
+    if (!closeButton) throw new Error("Expected the dialog close button");
 
-    await user.click(screen.getByRole("button", { name: "Close" }));
+    await user.click(closeButton);
     await waitFor(() => {
       expect(screen.queryByRole("dialog", { name: "分类管理" })).not.toBeInTheDocument();
     });
@@ -247,16 +250,15 @@ describe("ConfigManagerDialog", () => {
 
     await user.click(screen.getByRole("button", { name: /货币管理/ }));
     const dialog = screen.getByRole("dialog", { name: "货币管理" });
-    const header = dialog.querySelector("[data-config-manager-header]");
-    const searchRow = within(dialog).getByPlaceholderText("搜索货币、代码或符号...").closest("div");
+    const header = dialog.querySelector("[data-settings-manager-header]");
+    const controls = dialog.querySelector("[data-config-manager-controls]");
     const scrollRegion = dialog.querySelector("[data-config-manager-scroll]");
     const list = dialog.querySelector("[data-config-manager-list]");
-    const footer = dialog.querySelector("[data-config-manager-footer]");
+    const footer = dialog.querySelector("[data-settings-manager-footer]");
 
-    expect(dialog).toHaveClass("h5-dialog-frame", "h5-config-manager-dialog-panel");
-    expect(dialog).not.toHaveClass("h-fit");
+    expect(dialog).toHaveClass("max-w-3xl", "overflow-hidden", "p-0");
     expect(header).toHaveClass("shrink-0");
-    expect(searchRow).toHaveClass("shrink-0");
+    expect(controls).toHaveClass("shrink-0");
     expect(scrollRegion).toHaveClass("min-h-0", "overflow-y-auto");
     expect(scrollRegion).not.toHaveClass("grid");
     expect(scrollRegion).not.toHaveClass("flex");
@@ -325,5 +327,29 @@ describe("ConfigManagerDialog", () => {
     expect(usdRow).not.toHaveClass("opacity-50");
     expect(within(usdRow).getByText("$ 美元 (USD)")).not.toHaveClass("text-muted-foreground");
     expect(within(usdRow).getByRole("switch")).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("names row actions by object and restores focus after confirming deletion", async () => {
+    const user = userEvent.setup();
+    const onUpdate = vi.fn();
+    render(
+      <TooltipProvider delayDuration={0}>
+        <ConfigManagerDialog title="分类管理" items={dialogCases[0]?.items ?? []} onUpdate={onUpdate} showColor />
+      </TooltipProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: /分类管理/ }));
+    const dialog = screen.getByRole("dialog", { name: "分类管理" });
+    expect(within(dialog).getByRole("button", { name: "拖动「工作」排序" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "编辑「工作」" })).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "删除「工作」" }));
+
+    const confirmation = screen.getByRole("alertdialog", { name: "删除「工作」？" });
+    expect(within(confirmation).getByText("已有订阅数据会保留；该选项将不再可选，并可能影响展示或筛选。")).toBeInTheDocument();
+    await user.click(within(confirmation).getByRole("button", { name: /删除/ }));
+
+    expect(onUpdate).toHaveBeenCalled();
+    const footerButton = dialog.querySelector<HTMLButtonElement>("[data-settings-manager-footer] button");
+    expect(footerButton).toHaveFocus();
   });
 });

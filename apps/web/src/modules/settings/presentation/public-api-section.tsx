@@ -3,15 +3,8 @@ import { Clipboard, KeyRound, Plus, SlidersHorizontal, Trash2, X } from "lucide-
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog } from "@/components/ui/dialog";
+import { FormField, FormFieldRow, FormFieldRowAction } from "@/components/ui/form-field";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,6 +20,9 @@ import type { ApiToken } from "@/lib/api/schemas/public-api";
 import type { SettingsPublicApiController } from "../application/use-public-api-settings-controller";
 import { LoadingButtonContent } from "./settings-shared-controls";
 import { getSettingsSectionClassName } from "./settings-layout";
+import { ManagerDataBoundary } from "./manager-data-boundary";
+import { SettingsManagerDialogFrame } from "./settings-manager-dialog-frame";
+import { SettingsSectionHeader } from "./settings-section-header";
 
 interface PublicApiSectionProps {
   id?: string;
@@ -40,8 +36,17 @@ export function PublicApiSection({ id, className, controller }: PublicApiSection
   const [name, setName] = useState("");
   const [tokenToDelete, setTokenToDelete] = useState<ApiToken | null>(null);
   const plainTokenInputRef = useRef<HTMLInputElement>(null);
-  const busy = controller.isLoading || controller.isCreating || controller.deletingTokenId !== null;
-  const tokenCount = controller.tokens.length;
+  const tokenNameInputRef = useRef<HTMLInputElement>(null);
+  const busy = controller.isCreating || controller.deletingTokenId !== null;
+  const tokens = controller.tokens.data ?? [];
+  const tokenCount = tokens.length;
+  const tokenSummary = controller.tokens.isInitialLoading
+    ? t("settings.publicApiTokensLoading")
+    : !controller.tokens.hasData && controller.tokens.error
+      ? t("settings.publicApiTokensLoadFailed")
+      : controller.tokens.error
+        ? t("settings.publicApiSummaryStale", { count: tokenCount })
+        : t("settings.publicApiTokenCount", { count: tokenCount });
 
   const handleCreate = async () => {
     const trimmed = name.trim();
@@ -60,46 +65,33 @@ export function PublicApiSection({ id, className, controller }: PublicApiSection
 
   return (
     <section id={id} className={getSettingsSectionClassName(className)}>
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex min-w-0 items-start gap-3">
-          <KeyRound className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-          <div className="min-w-0">
-            <h2 className="text-lg font-semibold text-foreground">{t("settings.publicApi")}</h2>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("settings.publicApiHelp")}</p>
-            <p className="mt-2 text-xs font-medium text-foreground">
-              {controller.isLoading
-                ? t("settings.publicApiTokensLoading")
-                : t("settings.publicApiSummary", { count: tokenCount })}
-            </p>
-            {controller.createdPlainToken ? (
-              <p className="mt-1 text-xs font-medium text-primary">{t("settings.publicApiPendingPlainToken")}</p>
-            ) : null}
-          </div>
-        </div>
-        <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
-          <Badge variant={tokenCount > 0 ? "default" : "secondary"} className="w-fit">
-            {t("settings.publicApiTokenCount", { count: tokenCount })}
-          </Badge>
+      <SettingsSectionHeader
+        icon={<KeyRound className="mt-0.5 h-5 w-5 shrink-0 text-primary" />}
+        title={t("settings.publicApi")}
+        help={t("settings.publicApiHelp")}
+        summary={tokenSummary}
+        status={controller.createdPlainToken ? (
+          <Badge variant="default" className="w-fit">{t("settings.publicApiPendingPlainToken")}</Badge>
+        ) : undefined}
+        action={(
           <Button type="button" variant="outline" size="sm" className="w-full gap-2 border-border sm:w-auto" onClick={() => setDialogOpen(true)}>
             <SlidersHorizontal className="h-4 w-4" />
             {t("settings.publicApiManage")}
           </Button>
-        </div>
-      </div>
+        )}
+      />
 
       <Dialog open={dialogOpen} onOpenChange={handleDialogOpenChange}>
-        <DialogContent dismissMode="explicit" className="flex h-[min(calc(var(--app-viewport-height)-2rem),44rem)] min-h-0 max-w-3xl flex-col gap-0 overflow-hidden border-border bg-card p-0">
-          <DialogHeader className="border-b border-border px-4 py-5 pr-12 text-left sm:px-6 sm:pr-14">
-            <DialogTitle className="flex items-center gap-2">
-              <KeyRound className="h-5 w-5 text-primary" />
-              {t("settings.publicApiDialogTitle")}
-            </DialogTitle>
-            <DialogDescription className="text-left">
-              {t("settings.publicApiDialogDescription")}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
+        <SettingsManagerDialogFrame
+          icon={<KeyRound className="h-5 w-5 text-primary" />}
+          title={t("settings.publicApiDialogTitle")}
+          description={t("settings.publicApiDialogDescription")}
+          footer={(
+            <Button type="button" onClick={() => setDialogOpen(false)} className="w-full sm:w-auto">
+              {t("settings.publicApiDialogDone")}
+            </Button>
+          )}
+        >
             <div className="grid gap-5">
               {controller.createdPlainToken ? (
                 <div className="grid gap-3 rounded-md border border-primary/40 bg-primary/5 p-3">
@@ -129,18 +121,31 @@ export function PublicApiSection({ id, className, controller }: PublicApiSection
                 </div>
               ) : null}
 
-              <div className="grid gap-2">
-                <Label htmlFor="public-api-token-name">{t("settings.publicApiCreateName")}</Label>
-                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-                  <Input
-                    id="public-api-token-name"
-                    value={name}
-                    onChange={(event) => setName(event.target.value)}
-                    placeholder={t("settings.publicApiCreateNamePlaceholder")}
-                    maxLength={80}
-                    disabled={busy}
-                    className="border-border bg-secondary"
-                  />
+              <FormFieldRow
+                alignAt="sm"
+                rowClassName="sm:grid-cols-[minmax(0,1fr)_auto]"
+              >
+                <FormField
+                  id="public-api-token-name"
+                  label={t("settings.publicApiCreateName")}
+                  description={t("settings.publicApiCreateHelp")}
+                  descriptionClassName="leading-5"
+                >
+                  {({ id, describedBy }) => (
+                    <Input
+                      ref={tokenNameInputRef}
+                      id={id}
+                      value={name}
+                      onChange={(event) => setName(event.target.value)}
+                      placeholder={t("settings.publicApiCreateNamePlaceholder")}
+                      maxLength={80}
+                      disabled={busy}
+                      className="border-border bg-secondary"
+                      aria-describedby={describedBy}
+                    />
+                  )}
+                </FormField>
+                <FormFieldRowAction>
                   <Button
                     type="button"
                     onClick={() => {
@@ -148,25 +153,23 @@ export function PublicApiSection({ id, className, controller }: PublicApiSection
                     }}
                     disabled={busy || name.trim().length === 0}
                     aria-busy={controller.isCreating ? true : undefined}
-                    className="justify-center gap-2"
+                    className="w-full justify-center gap-2 sm:w-auto"
                   >
                     <LoadingButtonContent loading={controller.isCreating} loadingLabel={t("common.saving")}>
                       <Plus className="h-4 w-4" />
                       {t("settings.publicApiCreate")}
                     </LoadingButtonContent>
                   </Button>
-                </div>
-                <p className="text-xs leading-5 text-muted-foreground">{t("settings.publicApiCreateHelp")}</p>
-              </div>
+                </FormFieldRowAction>
+              </FormFieldRow>
 
               <div className="grid gap-3 border-t border-border pt-4">
-                {controller.isLoading ? (
-                  <p className="text-sm text-muted-foreground">{t("settings.publicApiTokensLoading")}</p>
-                ) : controller.tokens.length === 0 ? (
-                  <p className="text-sm leading-6 text-muted-foreground">{t("settings.publicApiTokensEmpty")}</p>
-                ) : (
-                  <div className="grid gap-2" role="list" aria-label={t("settings.publicApiTokens")}>
-                    {controller.tokens.map((token) => (
+                <ManagerDataBoundary state={controller.tokens}>
+                  {tokens.length === 0 ? (
+                    <p className="text-sm leading-6 text-muted-foreground">{t("settings.publicApiTokensEmpty")}</p>
+                  ) : (
+                    <div className="grid gap-2" role="list" aria-label={t("settings.publicApiTokens")}>
+                    {tokens.map((token) => (
                       <div key={token.id} role="listitem" className="grid gap-3 rounded-md border border-border p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
                         <div className="min-w-0">
                           <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -186,6 +189,7 @@ export function PublicApiSection({ id, className, controller }: PublicApiSection
                           onClick={() => setTokenToDelete(token)}
                           disabled={busy}
                           aria-busy={controller.deletingTokenId === token.id ? true : undefined}
+                          aria-label={t("settings.publicApiDeleteNamed", { name: token.name })}
                           className="justify-center gap-2 text-destructive hover:text-destructive"
                         >
                           <LoadingButtonContent loading={controller.deletingTokenId === token.id} loadingLabel={t("common.saving")}>
@@ -196,38 +200,45 @@ export function PublicApiSection({ id, className, controller }: PublicApiSection
                       </div>
                     ))}
                   </div>
-                )}
+                  )}
+                </ManagerDataBoundary>
               </div>
             </div>
-          </div>
-
-          <DialogFooter className="border-t border-border px-4 py-4 sm:px-6">
-            <p className="text-left text-xs leading-5 text-muted-foreground sm:mr-auto">
-              {t("settings.publicApiManageHint")}
-            </p>
-            <Button type="button" onClick={() => setDialogOpen(false)} className="w-full sm:w-auto">
-              {t("settings.publicApiDialogDone")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
+        </SettingsManagerDialogFrame>
       </Dialog>
 
-      <AlertDialog open={Boolean(tokenToDelete)} onOpenChange={(open) => !open && setTokenToDelete(null)}>
-        <AlertDialogContent>
+      <AlertDialog
+        open={Boolean(tokenToDelete)}
+        onOpenChange={(open) => {
+          if (!open && controller.deletingTokenId === null) setTokenToDelete(null);
+        }}
+      >
+        <AlertDialogContent
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            tokenNameInputRef.current?.focus();
+          }}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>{t("settings.publicApiDeleteTitle")}</AlertDialogTitle>
             <AlertDialogDescription>{t("settings.publicApiDeleteDescription", { name: tokenToDelete?.name ?? "" })}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogCancel disabled={controller.deletingTokenId !== null}>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => {
+              disabled={controller.deletingTokenId !== null}
+              aria-busy={controller.deletingTokenId !== null ? true : undefined}
+              onClick={(event) => {
+                event.preventDefault();
                 if (!tokenToDelete) return;
-                void controller.deleteToken(tokenToDelete.id);
-                setTokenToDelete(null);
+                void controller.deleteToken(tokenToDelete.id).then((deleted) => {
+                  if (deleted) setTokenToDelete(null);
+                });
               }}
             >
-              {t("settings.publicApiDelete")}
+              <LoadingButtonContent loading={controller.deletingTokenId !== null} loadingLabel={t("common.saving")}>
+                {t("settings.publicApiDelete")}
+              </LoadingButtonContent>
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

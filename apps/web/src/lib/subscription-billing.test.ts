@@ -19,13 +19,13 @@ describe("subscription-billing", () => {
     expect(calculateNextBillingDate(startDate, "quarterly")).toBe("2026-08-15");
     expect(calculateNextBillingDate(startDate, "semi-annual")).toBe("2026-11-15");
     expect(calculateNextBillingDate(startDate, "annual")).toBe("2027-05-15");
-    expect(calculateNextBillingDate(startDate, "custom", 45)).toBe("2026-06-29");
+    expect(calculateNextBillingDate(startDate, "custom", 45, undefined, "day")).toBe("2026-06-29");
     expect(calculateNextBillingDate(startDate, "custom", 2, undefined, "week")).toBe("2026-05-29");
     expect(calculateNextBillingDate(startDate, "custom", 3, undefined, "year")).toBe("2029-05-15");
   });
 
-  it("uses 30 days for custom cycle previews when custom days are empty", () => {
-    expect(calculateNextBillingDate(assertDateOnly("2026-05-15"), "custom")).toBe("2026-06-14");
+  it("rejects incomplete custom cycles instead of inventing a default period", () => {
+    expect(() => calculateNextBillingDate(assertDateOnly("2026-05-15"), "custom")).toThrow("SUBSCRIPTION_CUSTOM_CYCLE_INVALID");
   });
 
   it("follows Temporal date-only semantics for month-end and leap-year boundaries", () => {

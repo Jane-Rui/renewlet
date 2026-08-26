@@ -6,10 +6,10 @@ import { normalizeCustomConfig } from "@/modules/custom-config/domain/normalize-
 
 /** 用户自定义配置统一走产品 API；不要恢复 Docker 下的 PocketBase collection 双路径。 */
 export const customConfigService = {
-  async get(): Promise<CustomConfig | null> {
+  async get(signal: AbortSignal): Promise<CustomConfig | null> {
     const userId = getCurrentUserId();
     if (!userId) return null;
-    const data = await apiFetch("/api/app/custom-config", customConfigResponseSchema);
+    const data = await apiFetch("/api/app/custom-config", customConfigResponseSchema, { signal });
     return normalizeCustomConfig(data.config);
   },
 

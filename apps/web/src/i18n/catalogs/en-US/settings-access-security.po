@@ -34,27 +34,27 @@ msgid "settings.turnstileSiteKey"
 msgstr "Site key"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-access-security.ts:38
+#: src/i18n/descriptors/settings-access-security.ts:36
 msgid "settings.turnstileSecretClearedDescription"
 msgstr "Turnstile verification has been turned off. Save a new Secret key before enabling it again."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-access-security.ts:37
+#: src/i18n/descriptors/settings-access-security.ts:35
 msgid "settings.turnstileSecretCleared"
 msgstr "Turnstile secret cleared"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-access-security.ts:34
+#: src/i18n/descriptors/settings-access-security.ts:32
 msgid "settings.turnstileSaveFailed"
 msgstr "Failed to save Turnstile configuration"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-access-security.ts:32
+#: src/i18n/descriptors/settings-access-security.ts:31
 msgid "settings.turnstileSaved"
 msgstr "Turnstile configuration saved"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-access-security.ts:27
+#: src/i18n/descriptors/settings-access-security.ts:26
 msgid "settings.turnstileTestFailed"
 msgstr "Turnstile configuration test failed"
 
@@ -84,7 +84,7 @@ msgid "settings.turnstileSecretHelp"
 msgstr "Stored only on the server for Cloudflare Siteverify."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-access-security.ts:36
+#: src/i18n/descriptors/settings-access-security.ts:34
 msgid "settings.turnstileIncomplete"
 msgstr "Site key and Secret key are both required to enable Turnstile."
 
@@ -114,22 +114,17 @@ msgid "settings.turnstileSecretConfiguredPlaceholder"
 msgstr "Saved; leave blank to keep it unchanged"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-access-security.ts:29
+#: src/i18n/descriptors/settings-access-security.ts:28
 msgid "settings.turnstileDiscard"
 msgstr "Discard changes"
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/settings-access-security.ts:33
-msgid "settings.turnstileSavedDescription"
-msgstr "The new Turnstile configuration will be used for future email/password logins."
-
-#. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-access-security.ts:35
 msgid "settings.turnstileSaveFailedDescription"
 msgstr "Unable to save Turnstile configuration. Try again later."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-access-security.ts:28
+#: src/i18n/descriptors/settings-access-security.ts:27
 msgid "settings.turnstileTestFailedDescription"
 msgstr "Unable to complete the Turnstile configuration test. Check the Site key and Secret key and try again."
 
@@ -149,12 +144,12 @@ msgid "settings.turnstileTesting"
 msgstr "Testing..."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-access-security.ts:31
+#: src/i18n/descriptors/settings-access-security.ts:30
 msgid "settings.turnstileClearing"
 msgstr "Clearing..."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-access-security.ts:30
+#: src/i18n/descriptors/settings-access-security.ts:29
 msgid "settings.turnstileClearSecret"
 msgstr "Clear key"
 
@@ -182,8 +177,3 @@ msgstr "Access security"
 #: src/i18n/descriptors/settings-access-security.ts:14
 msgid "settings.turnstileSecretPlaceholder"
 msgstr "Enter the Cloudflare Turnstile Secret key"
-
-#. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-access-security.ts:26
-msgid "settings.turnstileTestPassedDescription"
-msgstr "This Site key and Secret key passed Siteverify validation."

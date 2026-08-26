@@ -4,15 +4,15 @@ import {
   useInstallTelegramBotCommands,
   useTelegramBotCommands,
 } from "@/hooks/use-telegram-bot-commands";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "@/components/ui/sonner";
 import { useI18n } from "@/i18n/I18nProvider";
 import { getDisplayErrorMessage } from "@/lib/display-error";
 import type { TelegramBotCommandsResponse } from "@/lib/api/schemas/telegram-bot";
 import type { AppSettings } from "@/types/subscription";
+import { toSettingsReadState, type SettingsReadState } from "./settings-read-state";
 
 export interface SettingsTelegramBotCommandsController {
-  data: TelegramBotCommandsResponse | undefined;
-  isLoading: boolean;
+  readState: SettingsReadState<TelegramBotCommandsResponse>;
   isInstalling: boolean;
   isDeleting: boolean;
   installDisabledReason: string | null;
@@ -34,7 +34,6 @@ export function useTelegramBotCommandsController({
   externalIntegrationsDisabled: boolean;
 }): SettingsTelegramBotCommandsController {
   const { t } = useI18n();
-  const { toast } = useToast();
   const commands = useTelegramBotCommands();
   const installMutation = useInstallTelegramBotCommands();
   const deleteMutation = useDeleteTelegramBotCommands();
@@ -70,39 +69,28 @@ export function useTelegramBotCommandsController({
     if (installDisabledReason || isInstalling) return;
     try {
       await installMutation.mutateAsync();
-      toast({
-        title: t("settings.telegramBotCommandsInstalled"),
-        description: t("settings.telegramBotCommandsInstalledDescription"),
-      });
+      toast.success(t("settings.telegramBotCommandsInstalled"));
     } catch (error) {
-      toast({
-        title: t("settings.telegramBotCommandsInstallFailed"),
+      toast.error(t("settings.telegramBotCommandsInstallFailed"), {
         description: getDisplayErrorMessage(error, t("settings.telegramBotCommandsInstallFailedDescription")),
-        variant: "destructive",
       });
     }
-  }, [installDisabledReason, installMutation, isInstalling, t, toast]);
+  }, [installDisabledReason, installMutation, isInstalling, t]);
 
   const deleteCommands = useCallback(async () => {
     if (deleteDisabledReason) return;
     try {
       await deleteMutation.mutateAsync();
-      toast({
-        title: t("settings.telegramBotCommandsDeleted"),
-        description: t("settings.telegramBotCommandsDeletedDescription"),
-      });
+      toast.success(t("settings.telegramBotCommandsDeleted"));
     } catch (error) {
-      toast({
-        title: t("settings.telegramBotCommandsDeleteFailed"),
+      toast.error(t("settings.telegramBotCommandsDeleteFailed"), {
         description: getDisplayErrorMessage(error, t("settings.telegramBotCommandsDeleteFailedDescription")),
-        variant: "destructive",
       });
     }
-  }, [deleteDisabledReason, deleteMutation, t, toast]);
+  }, [deleteDisabledReason, deleteMutation, t]);
 
   return {
-    data: commands.data,
-    isLoading: commands.isLoading,
+    readState: toSettingsReadState(commands),
     isInstalling,
     isDeleting: deleteMutation.isPending,
     installDisabledReason,

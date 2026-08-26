@@ -55,6 +55,7 @@ describe("use-telegram-bot-commands", () => {
     renderHook(() => useTelegramBotCommands(), { wrapper: createWrapper(queryClient) });
 
     await waitFor(() => expect(telegramBotService.getCommands).toHaveBeenCalledTimes(1));
+    expect(telegramBotService.getCommands).toHaveBeenCalledWith(expect.any(AbortSignal));
 
     const query = queryClient.getQueryCache().find({ queryKey: QUERY_KEY });
     expect(query?.options).toMatchObject({

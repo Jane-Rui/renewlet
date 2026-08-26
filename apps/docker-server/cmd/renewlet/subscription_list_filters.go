@@ -4,6 +4,7 @@ package main
 // cursor 只裁当前页，total 始终来自同一完整过滤集，避免滚动后总数递减或筛选口径漂移。
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -48,23 +49,54 @@ type subscriptionListPage struct {
 }
 
 func parseSubscriptionListQuery(values url.Values) (subscriptionListQuery, error) {
-	limit, err := parsePositiveQueryInt(values.Get("limit"), subscriptionListDefaultLimit, 1, subscriptionListMaxLimit)
+	return parseSubscriptionCollectionQuery(values, true)
+}
+
+func parseSubscriptionIndexQuery(values url.Values) (subscriptionListQuery, error) {
+	return parseSubscriptionCollectionQuery(values, false)
+}
+
+func parseSubscriptionCollectionQuery(values url.Values, paginated bool) (subscriptionListQuery, error) {
+	for key := range values {
+		if isSubscriptionCollectionFilterKey(key) || paginated && (key == "limit" || key == "cursor") {
+			continue
+		}
+		return subscriptionListQuery{}, fmt.Errorf("unsupported subscription query parameter %q", key)
+	}
+	limit := subscriptionListDefaultLimit
+	var err error
+	if paginated {
+		if rawLimits, ok := values["limit"]; ok && (len(rawLimits) != 1 || strings.TrimSpace(rawLimits[0]) == "") {
+			return subscriptionListQuery{}, errors.New("invalid limit query value")
+		}
+		limit, err = parsePositiveQueryInt(values.Get("limit"), subscriptionListDefaultLimit, 1, subscriptionListMaxLimit)
+	}
 	if err != nil {
 		return subscriptionListQuery{}, err
 	}
 	query := subscriptionListQuery{Limit: limit}
-	if rawCursor := strings.TrimSpace(values.Get("cursor")); rawCursor != "" {
+	if paginated {
+		rawCursors, hasCursor := values["cursor"]
+		if !hasCursor {
+			return parseSubscriptionCollectionFilters(values, query)
+		}
+		if len(rawCursors) != 1 || strings.TrimSpace(rawCursors[0]) == "" {
+			return subscriptionListQuery{}, errors.New("invalid cursor query value")
+		}
+		rawCursor := strings.TrimSpace(rawCursors[0])
 		cursor, err := parseSubscriptionCursorPayload(rawCursor)
 		if err != nil {
 			return subscriptionListQuery{}, err
 		}
 		query.Cursor = &cursor
 	}
-	if search := strings.TrimSpace(values.Get("q")); search != "" {
-		if len(search) > subscriptionListSearchMaxLength {
-			return subscriptionListQuery{}, errors.New("invalid search query")
-		}
-		query.Search = search
+	return parseSubscriptionCollectionFilters(values, query)
+}
+
+func parseSubscriptionCollectionFilters(values url.Values, query subscriptionListQuery) (subscriptionListQuery, error) {
+	var err error
+	if query.Search, err = parseSubscriptionListSingle(values, "q", subscriptionListSearchMaxLength, nil); err != nil {
+		return subscriptionListQuery{}, err
 	}
 	if query.Categories, err = parseSubscriptionListStrings(values["category"], 50, 80, nil); err != nil {
 		return subscriptionListQuery{}, err
@@ -111,6 +143,16 @@ func parseSubscriptionListQuery(values url.Values) (subscriptionListQuery, error
 	return query, nil
 }
 
+func isSubscriptionCollectionFilterKey(key string) bool {
+	switch key {
+	case "q", "category", "tag", "billingCycle", "paymentMethod", "currency", "status", "renewal",
+		"nextBillingFrom", "nextBillingTo", "pinned", "publicHidden", "reminderMode", "repeatReminder":
+		return true
+	default:
+		return false
+	}
+}
+
 func listSubscriptionRecordsForQuery(app core.App, userID string, query subscriptionListQuery, today string) (subscriptionListPage, error) {
 	// 该入口的查询预算固定为一次投影页查询和一次批量事实回表；禁止恢复逐 ID PocketBase 查询。
 	pageIDs, total, err := projectedSubscriptionPageIDs(app, userID, query, today)
@@ -128,6 +170,30 @@ func listSubscriptionRecordsForQuery(app core.App, userID string, query subscrip
 		nextCursor = &cursor
 	}
 	return subscriptionListPage{Rows: rows, NextCursor: nextCursor, Total: total}, nil
+}
+
+func boundedSubscriptionRecordsForQuery(
+	app core.App,
+	userID string,
+	query subscriptionListQuery,
+	today string,
+	limit int,
+) (subscriptionListPage, bool, error) {
+	query.Cursor = nil
+	query.Limit = limit
+	pageIDs, total, err := projectedSubscriptionPageIDs(app, userID, query, today)
+	if err != nil {
+		return subscriptionListPage{}, false, err
+	}
+	// 超限只需要投影总数即可判定，不能先把 5001 条完整 PocketBase 记录搬进内存再丢弃。
+	if total > int64(limit) {
+		return subscriptionListPage{Total: total}, true, nil
+	}
+	rows, err := getSubscriptionRecordsByIDs(app, userID, pageIDs)
+	if err != nil {
+		return subscriptionListPage{}, false, err
+	}
+	return subscriptionListPage{Rows: rows, Total: total}, false, nil
 }
 
 func projectedSubscriptionPageIDs(app core.App, userID string, query subscriptionListQuery, today string) ([]string, int64, error) {
@@ -334,21 +400,15 @@ func subscriptionProjectionIDs(rows []subscriptionListIndexRow) []string {
 }
 
 func subscriptionRecordStringSlice(record *core.Record, name string) []string {
-	value := jsonValueForResponse(record.Get(name), []string{})
-	switch typed := value.(type) {
-	case []string:
-		return typed
-	case []interface{}:
-		out := make([]string, 0, len(typed))
-		for _, item := range typed {
-			if text, ok := item.(string); ok {
-				out = append(out, text)
-			}
-		}
-		return out
-	default:
+	data, err := jsonBytesFromValue(record.Get(name))
+	if err != nil || len(data) == 0 {
 		return []string{}
 	}
+	var values []string
+	if err := json.Unmarshal(data, &values); err != nil || values == nil {
+		return []string{}
+	}
+	return values
 }
 
 func parseSubscriptionListStrings(values []string, maxItems int, maxLength int, validate func(string) bool) ([]string, error) {

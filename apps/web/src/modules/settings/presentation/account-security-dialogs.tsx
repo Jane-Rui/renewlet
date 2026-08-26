@@ -1,10 +1,8 @@
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -14,12 +12,17 @@ import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
 import { useI18n } from "@/i18n/I18nProvider";
+import { useDeferredDialogInitialFocus } from "@/hooks/use-deferred-dialog-initial-focus";
 import { getDisplayErrorMessage } from "@/lib/display-error";
 import { mfaService } from "@/services/mfa-service";
 import { MFA_STATUS_QUERY_KEY } from "./account-security-query-keys";
-import type { AccountSecurityDialogState } from "./account-security-dialog-state";
+import {
+  accountSecurityDialogCopyKeys,
+  isAuthenticatorDialogState,
+  type AccountSecurityDialogState,
+} from "./account-security-dialog-state";
 
-interface AccountSecurityDialogsProps {
+export interface AccountSecurityDialogsProps {
   state: AccountSecurityDialogState;
   onStateChange: (state: AccountSecurityDialogState) => void;
 }
@@ -28,21 +31,25 @@ interface AccountSecurityDialogsProps {
  * 身份验证器弹窗只承载 TOTP setup、恢复码和关闭/重建流程。
  * Passkey 管理不挂载在这里，避免“添加通行密钥”误复用关闭身份验证器的密码确认状态。
  */
-export function AccountSecurityDialogs({ state, onStateChange }: AccountSecurityDialogsProps) {
+export function AccountSecurityDialogContent({ state, onStateChange }: AccountSecurityDialogsProps) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const [setupCode, setSetupCode] = useState("");
   const [setupPassword, setSetupPassword] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
+  const setupCodeRef = useRef<HTMLInputElement>(null);
+  const currentPasswordRef = useRef<HTMLInputElement>(null);
+  const recoveryCodesActionRef = useRef<HTMLButtonElement>(null);
 
-  const resetDialogFields = () => {
-    setSetupCode("");
-    setSetupPassword("");
-    setCurrentPassword("");
-  };
+  const resolveInitialFocus = useCallback(() => {
+    if (state.type === "mfa_setup") return setupCodeRef.current;
+    if (state.type === "mfa_password") return currentPasswordRef.current;
+    if (state.type === "recovery_codes") return recoveryCodesActionRef.current;
+    return null;
+  }, [state.type]);
+  useDeferredDialogInitialFocus(true, state.type !== "none", state.type, resolveInitialFocus);
 
   const closeDialog = () => {
-    resetDialogFields();
     onStateChange({ type: "none" });
   };
 
@@ -102,113 +109,104 @@ export function AccountSecurityDialogs({ state, onStateChange }: AccountSecurity
     },
   });
 
-  if (state.type === "none") return null;
+  if (!isAuthenticatorDialogState(state)) return null;
+  const copy = accountSecurityDialogCopyKeys(state);
 
   if (state.type === "mfa_setup") {
     return (
-      <Dialog open onOpenChange={(open) => {
-        if (!open) closeDialog();
-      }}>
-        <DialogContent closeLabel={t("common.close")} dismissMode="explicit">
-          <DialogHeader>
-            <DialogTitle>{t("settings.mfaSetupTitle")}</DialogTitle>
-            <DialogDescription>{t("settings.mfaSetupDescription")}</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4">
-            <div className="mx-auto rounded-md border border-border bg-white p-3">
-              <QRCodeSVG value={state.setup.otpauthUrl} size={164} />
-            </div>
-            <div className="grid gap-1">
-              <span className="text-xs font-medium text-muted-foreground">{t("settings.mfaManualSecret")}</span>
-              <code className="break-all rounded-md bg-secondary px-3 py-2 text-xs text-foreground">
-                {state.setup.secret}
-              </code>
-            </div>
-            <FormField id="mfa-setup-code" label={t("settings.mfaSetupCode")}>
-              {({ id }) => (
-                <Input
-                  id={id}
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  value={setupCode}
-                  onChange={(event) => setSetupCode(event.target.value)}
-                  placeholder={t("auth.mfaCodePlaceholder")}
-                />
-              )}
-            </FormField>
-            <FormField id="mfa-setup-password" label={t("settings.currentPassword")}>
-              {({ id }) => (
-                <Input
-                  id={id}
-                  type="password"
-                  autoComplete="current-password"
-                  value={setupPassword}
-                  onChange={(event) => setSetupPassword(event.target.value)}
-                  placeholder={t("settings.currentPasswordPlaceholder")}
-                />
-              )}
-            </FormField>
+      <>
+        <DialogHeader>
+          <DialogTitle>{t(copy.title)}</DialogTitle>
+          <DialogDescription>{t(copy.description)}</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4">
+          <div className="mx-auto rounded-md border border-border bg-white p-3">
+            <QRCodeSVG value={state.setup.otpauthUrl} size={164} />
           </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={closeDialog}>
-              {t("common.cancel")}
-            </Button>
-            <Button
-              type="button"
-              disabled={enableTotpMutation.isPending || !/^\d{6}$/.test(setupCode.trim()) || !setupPassword}
-              onClick={() => enableTotpMutation.mutate()}
-            >
-              {enableTotpMutation.isPending ? t("common.saving") : t("settings.mfaConfirmEnable")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    );
-  }
-
-  if (state.type === "mfa_password") {
-    return (
-      <Dialog open onOpenChange={(open) => {
-        if (!open) closeDialog();
-      }}>
-        <DialogContent closeLabel={t("common.close")} dismissMode="explicit">
-          <DialogHeader>
-            <DialogTitle>
-              {state.action === "disable" ? t("settings.mfaDisableTitle") : t("settings.mfaRegenerateTitle")}
-            </DialogTitle>
-            <DialogDescription>
-              {state.action === "disable" ? t("settings.mfaDisableDescription") : t("settings.mfaRegenerateDescription")}
-            </DialogDescription>
-          </DialogHeader>
-          <FormField id="mfa-current-password" label={t("settings.currentPassword")}>
+          <div className="grid gap-1">
+            <span className="text-xs font-medium text-muted-foreground">{t("settings.mfaManualSecret")}</span>
+            <code className="break-all rounded-md bg-secondary px-3 py-2 text-xs text-foreground">
+              {state.setup.secret}
+            </code>
+          </div>
+          <FormField id="mfa-setup-code" label={t("settings.mfaSetupCode")}>
+            {({ id }) => (
+              <Input
+                ref={setupCodeRef}
+                id={id}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                value={setupCode}
+                onChange={(event) => setSetupCode(event.target.value)}
+                placeholder={t("auth.mfaCodePlaceholder")}
+              />
+            )}
+          </FormField>
+          <FormField id="mfa-setup-password" label={t("settings.currentPassword")}>
             {({ id }) => (
               <Input
                 id={id}
                 type="password"
                 autoComplete="current-password"
-                value={currentPassword}
-                onChange={(event) => setCurrentPassword(event.target.value)}
+                value={setupPassword}
+                onChange={(event) => setSetupPassword(event.target.value)}
                 placeholder={t("settings.currentPasswordPlaceholder")}
               />
             )}
           </FormField>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={closeDialog}>
-              {t("common.cancel")}
-            </Button>
-            <Button
-              type="button"
-              variant={state.action === "disable" ? "destructive" : "default"}
-              disabled={passwordMutation.isPending || !currentPassword}
-              onClick={() => passwordMutation.mutate()}
-            >
-              {passwordMutation.isPending ? t("common.saving") : (
-                state.action === "disable" ? t("settings.mfaDisable") : t("settings.mfaRegenerateRecovery")
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={closeDialog}>
+            {t("common.cancel")}
+          </Button>
+          <Button
+            type="button"
+            disabled={enableTotpMutation.isPending || !/^\d{6}$/.test(setupCode.trim()) || !setupPassword}
+            onClick={() => enableTotpMutation.mutate()}
+          >
+            {enableTotpMutation.isPending ? t("common.saving") : t("settings.mfaConfirmEnable")}
+          </Button>
+        </DialogFooter>
+      </>
+    );
+  }
+
+  if (state.type === "mfa_password") {
+    return (
+      <>
+        <DialogHeader>
+          <DialogTitle>{t(copy.title)}</DialogTitle>
+          <DialogDescription>{t(copy.description)}</DialogDescription>
+        </DialogHeader>
+        <FormField id="mfa-current-password" label={t("settings.currentPassword")}>
+          {({ id }) => (
+            <Input
+              ref={currentPasswordRef}
+              id={id}
+              type="password"
+              autoComplete="current-password"
+              value={currentPassword}
+              onChange={(event) => setCurrentPassword(event.target.value)}
+              placeholder={t("settings.currentPasswordPlaceholder")}
+            />
+          )}
+        </FormField>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={closeDialog}>
+            {t("common.cancel")}
+          </Button>
+          <Button
+            type="button"
+            variant={state.action === "disable" ? "destructive" : "default"}
+            disabled={passwordMutation.isPending || !currentPassword}
+            onClick={() => passwordMutation.mutate()}
+          >
+            {passwordMutation.isPending ? t("common.saving") : (
+              state.action === "disable" ? t("settings.mfaDisable") : t("settings.mfaRegenerateRecovery")
+            )}
+          </Button>
+        </DialogFooter>
+      </>
     );
   }
 
@@ -225,29 +223,25 @@ export function AccountSecurityDialogs({ state, onStateChange }: AccountSecurity
     };
 
     return (
-      <Dialog open onOpenChange={(open) => {
-        if (!open) closeDialog();
-      }}>
-        <DialogContent closeLabel={t("common.close")} dismissMode="explicit">
-          <DialogHeader>
-            <DialogTitle>{t("settings.mfaRecoveryCodesTitle")}</DialogTitle>
-            <DialogDescription>{t("settings.mfaRecoveryCodesDescription")}</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-2 rounded-md border border-border bg-secondary/30 p-3">
-            {state.codes.map((code) => (
-              <code key={code} className="text-sm font-medium text-foreground">{code}</code>
-            ))}
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={copyRecoveryCodes}>
-              {t("settings.mfaCopyRecovery")}
-            </Button>
-            <Button type="button" onClick={closeDialog}>
-              {t("common.close")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <>
+        <DialogHeader>
+          <DialogTitle>{t(copy.title)}</DialogTitle>
+          <DialogDescription>{t(copy.description)}</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-2 rounded-md border border-border bg-secondary/30 p-3">
+          {state.codes.map((code) => (
+            <code key={code} className="text-sm font-medium text-foreground">{code}</code>
+          ))}
+        </div>
+        <DialogFooter>
+          <Button ref={recoveryCodesActionRef} type="button" variant="outline" onClick={copyRecoveryCodes}>
+            {t("settings.mfaCopyRecovery")}
+          </Button>
+          <Button type="button" onClick={closeDialog}>
+            {t("common.close")}
+          </Button>
+        </DialogFooter>
+      </>
     );
   }
 

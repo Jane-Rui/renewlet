@@ -7,7 +7,7 @@ const PUBLIC_API_TOKENS_QUERY_KEY = ["public-api-tokens"] as const;
 export function usePublicApiTokens() {
   return useQuery({
     queryKey: PUBLIC_API_TOKENS_QUERY_KEY,
-    queryFn: () => publicApiService.listTokens(),
+    queryFn: ({ signal }) => publicApiService.listTokens(signal),
   });
 }
 

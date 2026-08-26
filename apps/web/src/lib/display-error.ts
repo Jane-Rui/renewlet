@@ -12,6 +12,7 @@ import { translate, type MessageKey } from "@/i18n/messages";
 export const genericLoginErrorMessage = translate(getApiLocale(), "error.loginGeneric");
 
 const ERROR_CODE_MESSAGES: Record<string, MessageKey> = {
+  SUBSCRIPTION_COLLECTION_LIMIT_EXCEEDED: "error.code.SUBSCRIPTION_COLLECTION_LIMIT_EXCEEDED",
   SUBSCRIPTION_NAME_REQUIRED: "error.code.SUBSCRIPTION_NAME_REQUIRED",
   SUBSCRIPTION_NAME_TOO_LONG: "error.code.SUBSCRIPTION_NAME_TOO_LONG",
   CURRENCY_CODE_INVALID: "error.code.CURRENCY_CODE_INVALID",

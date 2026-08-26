@@ -14,7 +14,7 @@ import { apiFetch } from "@/lib/api-client";
 import { okResponseSchema } from "@/lib/api/schemas/common";
 import { getDisplayErrorMessage } from "@/lib/display-error";
 import { reportClientError } from "@/lib/report-client-error";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "@/components/ui/sonner";
 import { useDeferredDialogCleanup } from "@/hooks/use-deferred-dialog-cleanup";
 import { useI18n } from "@/i18n/I18nProvider";
 
@@ -34,7 +34,6 @@ export interface PasswordChangeController {
 
 /** 管理“修改密码”弹窗状态和提交流程。 */
 export function usePasswordChange(): PasswordChangeController {
-  const { toast } = useToast();
   const { t } = useI18n();
   const [passwordDialogOpen, setPasswordDialogOpenState] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
@@ -66,19 +65,19 @@ export function usePasswordChange(): PasswordChangeController {
   const updatePassword = useCallback(async () => {
     // 这里的校验是 UX 优化，不替代服务端 schema 和认证层校验。
     if (!currentPassword.trim()) {
-      toast({ title: t("passwordReset.currentRequired"), variant: "destructive" });
+      toast.error(t("passwordReset.currentRequired"));
       return;
     }
     if (!newPassword.trim()) {
-      toast({ title: t("passwordReset.passwordRequired"), variant: "destructive" });
+      toast.error(t("passwordReset.passwordRequired"));
       return;
     }
     if (newPassword.length < 8) {
-      toast({ title: t("passwordReset.passwordMinShort"), variant: "destructive" });
+      toast.error(t("passwordReset.passwordMinShort"));
       return;
     }
     if (newPassword !== confirmPassword) {
-      toast({ title: t("passwordReset.passwordMismatch"), variant: "destructive" });
+      toast.error(t("passwordReset.passwordMismatch"));
       return;
     }
 
@@ -88,20 +87,18 @@ export function usePasswordChange(): PasswordChangeController {
         method: "PUT",
         body: JSON.stringify({ currentPassword, newPassword }),
       });
-      toast({ title: t("passwordReset.passwordUpdated"), description: t("passwordReset.useNewNextLogin") });
+      toast.success(t("passwordReset.passwordUpdatedWithNextLogin"));
       setPasswordDialogOpenState(false);
       schedulePasswordCleanup();
     } catch (e: unknown) {
       reportClientError(e, { source: "settings.password-change" });
-      toast({
-        title: t("passwordReset.changeFailed"),
+      toast.error(t("passwordReset.changeFailed"), {
         description: getDisplayErrorMessage(e, t("passwordReset.changeFailedDescription")),
-        variant: "destructive",
       });
     } finally {
       setIsUpdatingPassword(false);
     }
-  }, [confirmPassword, currentPassword, newPassword, schedulePasswordCleanup, t, toast]);
+  }, [confirmPassword, currentPassword, newPassword, schedulePasswordCleanup, t]);
 
   return {
     passwordDialogOpen,

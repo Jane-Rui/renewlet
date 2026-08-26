@@ -123,7 +123,7 @@ export function calculateNextBillingDate(
   cycle: BillingCycle,
   customDays?: number | null | undefined,
   referenceDate?: string | null | undefined,
-  customCycleUnit: CustomCycleUnit = "day",
+  customCycleUnit?: CustomCycleUnit | null | undefined,
 ): DateOnly {
   const anchor = assertDateOnly(startDate);
   if (cycle === "one-time") return anchor;
@@ -148,11 +148,10 @@ export function addBillingCycles(
   cycle: BillingCycle,
   cycleCount: number,
   customDays?: number | null | undefined,
-  customCycleUnit: CustomCycleUnit = "day",
+  customCycleUnit?: CustomCycleUnit | null | undefined,
 ): DateOnly {
   const start = toPlainDate(date);
   const count = Math.max(1, Math.trunc(cycleCount));
-  const customCount = Math.max(1, Math.trunc(customDays ?? 30)) * count;
   switch (cycle) {
     case "weekly":
       return fromPlainDate(start.add({ weeks: count }));
@@ -164,8 +163,10 @@ export function addBillingCycles(
       return fromPlainDate(start.add({ months: 6 * count }));
     case "annual":
       return fromPlainDate(start.add({ years: count }));
-    case "custom":
-      return addCustomBillingCycles(start, customCount, customCycleUnit);
+    case "custom": {
+      const custom = requireCustomBillingCycle(customDays, customCycleUnit);
+      return addCustomBillingCycles(start, custom.count * count, custom.unit);
+    }
     case "one-time":
       return fromPlainDate(start);
   }
@@ -180,7 +181,7 @@ function firstCycleDateAfter(
   const initialCycles = initialCycleCount(anchor, input, threshold, strict);
   let cycleCount = Math.max(1, initialCycles);
   for (let attempts = 0; attempts < MAX_ADVANCE_CYCLES; attempts += 1) {
-    const candidate = addBillingCycles(anchor, input.billingCycle, cycleCount, input.customDays, input.customCycleUnit ?? "day");
+    const candidate = addBillingCycles(anchor, input.billingCycle, cycleCount, input.customDays, input.customCycleUnit);
     const comparison = compareDateOnly(candidate, threshold);
     if (strict ? comparison > 0 : comparison >= 0) return candidate;
     cycleCount += 1;
@@ -206,10 +207,21 @@ function initialCycleCount(
 function exactDayStep(input: Pick<AdvanceBillingDateInput, "billingCycle" | "customDays" | "customCycleUnit">): number | null {
   if (input.billingCycle === "weekly") return 7;
   if (input.billingCycle !== "custom") return null;
-  const count = Math.max(1, Math.trunc(input.customDays ?? 30));
-  if ((input.customCycleUnit ?? "day") === "day") return count;
-  if (input.customCycleUnit === "week") return count * 7;
+  const custom = requireCustomBillingCycle(input.customDays, input.customCycleUnit);
+  if (custom.unit === "day") return custom.count;
+  if (custom.unit === "week") return custom.count * 7;
   return null;
+}
+
+/** custom 周期在迁移后的所有运行面都必须显式携带正整数数量与单位。 */
+export function requireCustomBillingCycle(
+  customDays: number | null | undefined,
+  customCycleUnit: CustomCycleUnit | null | undefined,
+): { count: number; unit: CustomCycleUnit } {
+  if (typeof customDays !== "number" || !Number.isInteger(customDays) || customDays <= 0 || !customCycleUnit) {
+    throw new Error("SUBSCRIPTION_CUSTOM_CYCLE_INVALID");
+  }
+  return { count: customDays, unit: customCycleUnit };
 }
 
 function addCustomBillingCycles(

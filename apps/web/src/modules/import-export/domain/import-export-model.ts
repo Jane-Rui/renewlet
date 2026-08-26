@@ -35,8 +35,8 @@ export interface ImportAssetRef {
   kind: ImportAssetKind;
   filename: string;
   blob?: Blob;
-  zipEntryName?: string;
-  sourceFile?: File;
+  buffer?: ArrayBuffer;
+  mimeType?: string;
   previewUrl?: string;
 }
 
@@ -87,7 +87,6 @@ export const IMPORT_MESSAGE_CODES = {
   unrecognizedFile: "IMPORT_ERROR_UNRECOGNIZED_FILE",
   wallosTableTooLarge: "IMPORT_ERROR_WALLOS_TABLE_TOO_LARGE",
   workerParseFailed: "IMPORT_ERROR_WORKER_PARSE_FAILED",
-  workerUnsupported: "IMPORT_ERROR_WORKER_UNSUPPORTED",
   aiWebsiteSuggested: "IMPORT_WARNING_AI_WEBSITE_SUGGESTED",
 } as const;
 
@@ -154,7 +153,7 @@ export function sanitizeSettingsForExport(settings: AppSettings, includeSecrets:
  */
 export function subscriptionToImportSubscription(subscription: Subscription, sourceId = subscription.id): ImportSubscription {
   const extra = {
-    ...(subscription.extra ?? {}),
+    ...subscription.extra,
     import: { source: "renewlet" as const, sourceId, confidence: "high" as const },
   };
   return {
@@ -195,17 +194,12 @@ export function subscriptionToImportSubscription(subscription: Subscription, sou
  * 这里保留原始 status/extra，和 CSV 的“有效状态”报表口径分开，保证备份可用于未来迁移。
  */
 export function subscriptionToExportRow(subscription: Subscription): RenewletExportSubscription {
-  return {
+  const common = {
     id: subscription.id,
     name: subscription.name,
     ...(subscription.logo ? { logo: subscription.logo } : {}),
     price: subscription.price,
     currency: subscription.currency,
-    billingCycle: subscription.billingCycle,
-    ...(subscription.billingCycle === "custom" ? { customDays: subscription.customDays, customCycleUnit: subscription.customCycleUnit } : {}),
-    ...(subscription.billingCycle === "one-time" && subscription.oneTimeTermCount && subscription.oneTimeTermUnit
-      ? { oneTimeTermCount: subscription.oneTimeTermCount, oneTimeTermUnit: subscription.oneTimeTermUnit }
-      : {}),
     category: subscription.category,
     status: subscription.status,
     pinned: subscription.pinned,
@@ -224,8 +218,31 @@ export function subscriptionToExportRow(subscription: Subscription): RenewletExp
     repeatReminderInterval: subscription.repeatReminderInterval,
     repeatReminderWindow: subscription.repeatReminderWindow,
     ...(subscription.costSharing ? { costSharing: subscription.costSharing } : {}),
-    extra: subscription.extra ?? {},
+    extra: subscription.extra,
   };
+
+  if (subscription.billingCycle === "custom") {
+    return {
+      ...common,
+      billingCycle: "custom",
+      customDays: subscription.customDays,
+      customCycleUnit: subscription.customCycleUnit,
+    };
+  }
+
+  if (subscription.billingCycle === "one-time") {
+    if (typeof subscription.oneTimeTermCount === "number" && subscription.oneTimeTermUnit) {
+      return {
+        ...common,
+        billingCycle: "one-time",
+        oneTimeTermCount: subscription.oneTimeTermCount,
+        oneTimeTermUnit: subscription.oneTimeTermUnit,
+      };
+    }
+    return { ...common, billingCycle: "one-time" };
+  }
+
+  return { ...common, billingCycle: subscription.billingCycle };
 }
 
 /** cloneImportPayload 深拷贝导入 payload，供预览交互在不污染原始解析结果的情况下重算。 */

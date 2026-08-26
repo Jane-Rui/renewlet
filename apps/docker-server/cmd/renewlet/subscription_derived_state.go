@@ -365,6 +365,12 @@ func applySubscriptionDerivedMutation(app core.App, mutation subscriptionDerived
 	afterUser := subscriptionRecordOwner(mutation.After)
 	// 先清 before 的行级派生值，再写 after，最后应用 aggregate delta；调用方必须把整个序列包在事实写事务内。
 	if mutation.Before != nil {
+		if mutation.After == nil {
+			// D1 由外键级联撤销 Feed；PocketBase 的 subscriptionId 只是文本，bearer 密钥必须在事实删除事务内显式收敛。
+			if err := deleteSubscriptionCalendarFeeds(app, beforeUser, mutation.Before.Id); err != nil {
+				return err
+			}
+		}
 		if _, err := app.DB().NewQuery("DELETE FROM subscription_tags WHERE user_id = {:user} AND subscription_id = {:id}").
 			Bind(dbx.Params{"user": beforeUser, "id": mutation.Before.Id}).Execute(); err != nil {
 			return err

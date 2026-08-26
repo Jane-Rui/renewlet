@@ -1,26 +1,25 @@
 import { useCallback, useState } from "react";
 import { useCreatePublicApiToken, useDeletePublicApiToken, usePublicApiTokens } from "@/hooks/use-public-api-tokens";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "@/components/ui/sonner";
 import { useI18n } from "@/i18n/I18nProvider";
 import { getDisplayErrorMessage } from "@/lib/display-error";
 import { copyTextToClipboard, type ClipboardCopyTarget } from "@/shared/browser/clipboard";
 import type { ApiToken } from "@/lib/api/schemas/public-api";
+import { toSettingsReadState, type SettingsReadState } from "./settings-read-state";
 
 export interface SettingsPublicApiController {
-  tokens: ApiToken[];
+  tokens: SettingsReadState<ApiToken[]>;
   createdPlainToken: string | null;
-  isLoading: boolean;
   isCreating: boolean;
   deletingTokenId: string | null;
   createToken: (name: string) => Promise<boolean>;
   copyPlainToken: (target?: ClipboardCopyTarget | null) => Promise<void>;
   dismissPlainToken: () => void;
-  deleteToken: (id: string) => Promise<void>;
+  deleteToken: (id: string) => Promise<boolean>;
 }
 
 export function usePublicApiSettingsController(): SettingsPublicApiController {
   const { t } = useI18n();
-  const { toast } = useToast();
   const tokensQuery = usePublicApiTokens();
   const createTokenMutation = useCreatePublicApiToken();
   const deleteTokenMutation = useDeletePublicApiToken();
@@ -31,58 +30,44 @@ export function usePublicApiSettingsController(): SettingsPublicApiController {
       const response = await createTokenMutation.mutateAsync(name);
       // plainToken 是一次性明文，离开这一段 UI 后只能重新创建；不要写入 settings 草稿或持久缓存。
       setCreatedPlainToken(response.plainToken);
-      toast({
-        title: t("settings.publicApiCreated"),
-        description: t("settings.publicApiCreatedDescription"),
-      });
+      toast.success(t("settings.publicApiCreated"));
       return true;
     } catch (error) {
-      toast({
-        title: t("settings.publicApiCreateFailed"),
+      toast.error(t("settings.publicApiCreateFailed"), {
         description: getDisplayErrorMessage(error, t("settings.publicApiCreateFailedDescription")),
-        variant: "destructive",
       });
       return false;
     }
-  }, [createTokenMutation, t, toast]);
+  }, [createTokenMutation, t]);
 
   const copyPlainToken = useCallback(async (target?: ClipboardCopyTarget | null) => {
     if (!createdPlainToken) return;
     const copyResult = await copyTextToClipboard(createdPlainToken, { target });
     if (copyResult.ok) {
-      toast({
-        title: t("settings.publicApiTokenCopied"),
-        description: t("settings.publicApiTokenCopiedDescription"),
-      });
+      toast.success(t("settings.publicApiTokenCopied"));
       return;
     }
-    toast({
-      title: t("settings.publicApiCopyFailed"),
+    toast.error(t("settings.publicApiCopyFailed"), {
       description: t("settings.publicApiCopyFailedDescription"),
-      variant: "destructive",
     });
-  }, [createdPlainToken, t, toast]);
+  }, [createdPlainToken, t]);
 
   const deleteToken = useCallback(async (id: string) => {
     try {
       await deleteTokenMutation.mutateAsync(id);
-      toast({
-        title: t("settings.publicApiDeleted"),
-        description: t("settings.publicApiDeletedDescription"),
-      });
+      toast.success(t("settings.publicApiDeleted"));
+      return true;
     } catch (error) {
-      toast({
-        title: t("settings.publicApiDeleteFailed"),
+      toast.error(t("settings.publicApiDeleteFailed"), {
         description: getDisplayErrorMessage(error, t("settings.publicApiDeleteFailedDescription")),
-        variant: "destructive",
       });
+      return false;
     }
-  }, [deleteTokenMutation, t, toast]);
+  }, [deleteTokenMutation, t]);
 
   return {
-    tokens: tokensQuery.data ?? [],
+    tokens: toSettingsReadState(tokensQuery),
     createdPlainToken,
-    isLoading: tokensQuery.isLoading,
     isCreating: createTokenMutation.isPending,
     deletingTokenId: deleteTokenMutation.isPending ? deleteTokenMutation.variables ?? null : null,
     createToken,

@@ -322,8 +322,9 @@ describe("SubscriptionAdvancedFilter", () => {
     installPointerMocks();
     const user = userEvent.setup();
     const onChange = renderFilter("desktopSidePanel");
+    const trigger = within(screen.getByTestId("desktop-advanced-filter")).getByRole("button");
 
-    await user.click(within(screen.getByTestId("desktop-advanced-filter")).getByRole("button"));
+    await user.click(trigger);
     const panel = screen.getByTestId("desktop-advanced-filter-panel");
     await user.click(within(panel).getByTestId("advanced-payment-method-entry"));
     const dialog = screen.getByTestId("advanced-payment-method-dialog");
@@ -334,6 +335,39 @@ describe("SubscriptionAdvancedFilter", () => {
     await user.click(within(panel).getByRole("button", { name: /Close|关闭/ }));
 
     expect(onChange).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByTestId("desktop-advanced-filter-panel")).not.toBeInTheDocument());
+    expect(trigger).toHaveFocus();
+  });
+
+  it.each(["Escape", "overlay"] as const)("discards desktop drafts when closed through %s", async (closeMethod) => {
+    installPointerMocks();
+    const user = userEvent.setup();
+    const onChange = renderFilter("desktopSidePanel");
+    const trigger = within(screen.getByTestId("desktop-advanced-filter")).getByRole("button");
+
+    await user.click(trigger);
+    const panel = screen.getByTestId("desktop-advanced-filter-panel");
+    await user.click(within(panel).getByTestId("advanced-payment-method-entry"));
+    const dialog = screen.getByTestId("advanced-payment-method-dialog");
+    const paymentOptions = within(dialog).getByTestId("advanced-payment-method-picker-all-options");
+    await user.click(within(paymentOptions).getByRole("checkbox", { name: "PayPal" }));
+    await user.click(within(dialog).getByRole("button", { name: /Done|完成/ }));
+
+    if (closeMethod === "Escape") {
+      await user.keyboard("{Escape}");
+    } else {
+      const overlay = document.querySelector<HTMLElement>("[data-side-drawer-overlay]");
+      if (!overlay) throw new Error("Side drawer overlay was not rendered");
+      await user.click(overlay);
+    }
+
+    await waitFor(() => expect(screen.queryByTestId("desktop-advanced-filter-panel")).not.toBeInTheDocument());
+    expect(onChange).not.toHaveBeenCalled();
+    expect(trigger).toHaveFocus();
+
+    await user.click(trigger);
+    expect(within(screen.getByTestId("desktop-advanced-filter-panel")).getByTestId("advanced-payment-method-entry"))
+      .toHaveTextContent(/Any|不限/);
   });
 
   it("uses calendar buttons for next billing date filters and applies them through the side panel", async () => {

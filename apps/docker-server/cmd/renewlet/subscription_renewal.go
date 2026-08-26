@@ -172,29 +172,21 @@ func exactDayStep(input subscriptionRenewalInput) int {
 	if input.BillingCycle != "custom" {
 		return 0
 	}
-	count := maxInt(1, input.CustomDays)
-	switch normalizeCustomCycleUnit(input.CustomCycleUnit) {
+	if input.CustomDays <= 0 {
+		return 0
+	}
+	switch strings.TrimSpace(input.CustomCycleUnit) {
 	case "day":
-		return count
+		return input.CustomDays
 	case "week":
-		return count * 7
+		return input.CustomDays * 7
 	default:
 		return 0
 	}
 }
 
-func normalizeCustomCycleUnit(value string) string {
-	switch strings.TrimSpace(value) {
-	case "week", "month", "year":
-		return strings.TrimSpace(value)
-	default:
-		return "day"
-	}
-}
-
 func addBillingCyclesDate(anchor time.Time, cycle string, cycleCount int, customDays int, customCycleUnit string) (time.Time, error) {
 	count := maxInt(1, cycleCount)
-	customCount := maxInt(1, customDays)
 	switch cycle {
 	case "weekly":
 		return anchor.AddDate(0, 0, 7*count), nil
@@ -207,7 +199,10 @@ func addBillingCyclesDate(anchor time.Time, cycle string, cycleCount int, custom
 	case "annual":
 		return addDateClamped(anchor, count, 0), nil
 	case "custom":
-		return addCustomBillingCyclesDate(anchor, customCount*count, customCycleUnit), nil
+		if customDays <= 0 || !isValidCustomCycleUnit(strings.TrimSpace(customCycleUnit)) {
+			return time.Time{}, errors.New("SUBSCRIPTION_RENEWAL_CUSTOM_CYCLE_INVALID")
+		}
+		return addCustomBillingCyclesDate(anchor, customDays*count, customCycleUnit)
 	case "one-time":
 		return anchor, nil
 	default:
@@ -215,16 +210,18 @@ func addBillingCyclesDate(anchor time.Time, cycle string, cycleCount int, custom
 	}
 }
 
-func addCustomBillingCyclesDate(anchor time.Time, count int, unit string) time.Time {
-	switch normalizeCustomCycleUnit(unit) {
+func addCustomBillingCyclesDate(anchor time.Time, count int, unit string) (time.Time, error) {
+	switch strings.TrimSpace(unit) {
+	case "day":
+		return anchor.AddDate(0, 0, count), nil
 	case "week":
-		return anchor.AddDate(0, 0, 7*count)
+		return anchor.AddDate(0, 0, 7*count), nil
 	case "month":
-		return addDateClamped(anchor, 0, count)
+		return addDateClamped(anchor, 0, count), nil
 	case "year":
-		return addDateClamped(anchor, count, 0)
+		return addDateClamped(anchor, count, 0), nil
 	default:
-		return anchor.AddDate(0, 0, count)
+		return time.Time{}, errors.New("SUBSCRIPTION_RENEWAL_CUSTOM_CYCLE_INVALID")
 	}
 }
 

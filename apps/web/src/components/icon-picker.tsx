@@ -12,8 +12,8 @@
  * 否则配置可能保存临时 data URL 或失效图片。
  */
 
-import { lazy, Suspense } from 'react';
 import { Button } from '@/components/ui/button';
+import { DeferredImageCropDialog, preloadImageCropDialog } from '@/components/image-crop-dialog-loader';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Upload, Search, X, Loader2, Image as ImageIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -28,19 +28,6 @@ import { useI18n } from '@/i18n/I18nProvider';
 export type { UploadStatus };
 
 const SEARCH_POPOVER_CLOSE_RESET_DELAY_MS = 200;
-
-const loadImageCropDialog = () => import('@/components/image-crop-dialog');
-const LazyImageCropDialog = lazy(() =>
-  loadImageCropDialog().then((mod) => ({ default: mod.ImageCropDialog })),
-);
-
-function CropDialogFallback() {
-  return <div className="fixed inset-0 z-50 bg-background/80" aria-hidden="true" />;
-}
-
-const preloadImageCropDialog = () => {
-  void loadImageCropDialog();
-};
 
 interface IconPickerProps {
   /** 当前选中的图标 URL/dataURL（可选）。 */
@@ -123,6 +110,7 @@ export function IconPicker({
             onClick={() => fileInputRef.current?.click()}
             onFocus={preloadImageCropDialog}
             onPointerEnter={preloadImageCropDialog}
+            onTouchStart={preloadImageCropDialog}
           >
             {displayedIcon ? (
               <div className="relative z-10 h-full w-full p-1">
@@ -171,6 +159,7 @@ export function IconPicker({
               onClick={() => fileInputRef.current?.click()}
               onFocus={preloadImageCropDialog}
               onPointerEnter={preloadImageCropDialog}
+              onTouchStart={preloadImageCropDialog}
             >
               {uploadStatus === "uploading" ? (
                 <Loader2 className="w-3 h-3 animate-spin" />
@@ -231,19 +220,15 @@ export function IconPicker({
         </div>
       </div>
 
-      {cropDialogOpen ? (
-        <Suspense fallback={<CropDialogFallback />}>
-          <LazyImageCropDialog
-            open={cropDialogOpen}
-            onOpenChange={setCropDialogOpen}
-            imageSrc={uploadedImage}
-            onCropComplete={handleCropComplete}
-            aspectRatio={1}
-            // Icon 在 UI 中展示尺寸很小，限制最大导出尺寸可避免生成超大图片导致上传失败
-            maxOutputSize={256}
-          />
-        </Suspense>
-      ) : null}
+      <DeferredImageCropDialog
+        open={cropDialogOpen}
+        onOpenChange={setCropDialogOpen}
+        imageSrc={uploadedImage}
+        onCropComplete={handleCropComplete}
+        aspectRatio={1}
+        // Icon 在 UI 中展示尺寸很小，限制最大导出尺寸可避免生成超大图片导致上传失败
+        maxOutputSize={256}
+      />
     </>
   );
 }

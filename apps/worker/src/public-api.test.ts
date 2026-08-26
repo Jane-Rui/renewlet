@@ -2,6 +2,14 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createDefaultAppSettings } from "@renewlet/shared/settings-defaults";
+import {
+  apiTokenCreatePayloadSchema,
+  publicApiDuePayloadSchema,
+  publicApiMePayloadSchema,
+  publicApiStatusPayloadSchema,
+  publicApiSubscriptionPayloadSchema,
+  publicApiSubscriptionsListPayloadSchema,
+} from "@renewlet/shared/schemas/public-api";
 import { describe, expect, it, vi } from "vitest";
 import { readSuccessData } from "./api-test-helpers";
 import { countSubscriptionStatuses } from "./subscription-derived-state";
@@ -349,7 +357,7 @@ describe("Cloudflare Public API", () => {
     }), env);
     expect(createResponse.status).toBe(201);
     expect(createResponse.headers.get("cache-control")).toBe("no-store");
-    const created = await readSuccessData<{ token: { id: string; tokenPrefix: string }; plainToken: string }>(createResponse);
+    const created = apiTokenCreatePayloadSchema.parse(await readSuccessData<unknown>(createResponse));
     expect(created.plainToken).toBe(PLAIN_TOKEN);
     expect(created.token.tokenPrefix).toBe(PLAIN_TOKEN.slice(0, 12));
     expect(env.__state.apiTokens).toHaveLength(1);
@@ -371,34 +379,38 @@ describe("Cloudflare Public API", () => {
     expect(meResponse.status).toBe(200);
     expect(meResponse.headers.get("cache-control")).toBe("no-store");
     expect(env.__state.apiTokens[0]?.last_used_at).toBeTruthy();
-    expect(await readSuccessData<{ scopes: string[] }>(meResponse)).toEqual({ scopes: ["read"] });
+    expect(publicApiMePayloadSchema.parse(await readSuccessData<unknown>(meResponse))).toEqual({ scopes: ["read"] });
 
     const subscriptionsResponse = await publicApiSubscriptions(publicRequest("/api/public/v1/subscriptions?limit=1"), env);
-    const subscriptionsBody = await readSuccessData<{ subscriptions: Array<Record<string, unknown>>; nextCursor: string | null; total: number }>(subscriptionsResponse);
+    const subscriptionsBody = publicApiSubscriptionsListPayloadSchema.parse(await readSuccessData<unknown>(subscriptionsResponse));
     expect(subscriptionsBody.total).toBe(3);
     expect(subscriptionsBody.subscriptions).toHaveLength(1);
     expect(subscriptionsBody.nextCursor).toEqual(expect.any(String));
     expect(subscriptionsBody.subscriptions[0]).not.toHaveProperty("user");
 
     const allSubscriptionsResponse = await publicApiSubscriptions(publicRequest("/api/public/v1/subscriptions?limit=3"), env);
-    const allSubscriptionsBody = await readSuccessData<{ subscriptions: Array<Record<string, unknown>> }>(allSubscriptionsResponse);
-    expect(allSubscriptionsBody.subscriptions.find((item) => item["id"] === "sub_renewal")).toMatchObject({ startDate: null });
+    const allSubscriptionsBody = publicApiSubscriptionsListPayloadSchema.parse(await readSuccessData<unknown>(allSubscriptionsResponse));
+    expect(allSubscriptionsBody.subscriptions.find((item) => item.id === "sub_renewal")).toMatchObject({ startDate: null });
+    expect(allSubscriptionsBody.subscriptions.find((item) => item.id === "sub_expiry")).toMatchObject({
+      autoCalculateNextBillingDate: true,
+    });
+    expect(allSubscriptionsBody.subscriptions.find((item) => item.id === "sub_renewal")).toMatchObject({ extra: {} });
 
     const detailResponse = await publicApiSubscription(publicRequest("/api/public/v1/subscriptions/sub_renewal"), env, "sub_renewal");
-    expect(await readSuccessData<{ subscription: Record<string, unknown> }>(detailResponse)).toMatchObject({
+    expect(publicApiSubscriptionPayloadSchema.parse(await readSuccessData<unknown>(detailResponse))).toMatchObject({
       subscription: { id: "sub_renewal", name: "Renewal Plan", startDate: null },
     });
     await expect(publicApiSubscription(publicRequest("/api/public/v1/subscriptions/sub_other"), env, "sub_other"))
       .rejects.toMatchObject({ status: 404 });
 
     const statusResponse = await publicApiStatus(publicRequest("/api/public/v1/status"), env);
-    expect(await readSuccessData<Record<string, unknown>>(statusResponse)).toMatchObject({
+    expect(publicApiStatusPayloadSchema.parse(await readSuccessData<unknown>(statusResponse))).toMatchObject({
       total: 3,
       byStatus: { active: 2, trial: 1, expired: 0, paused: 0, cancelled: 0 },
     });
 
     const dueResponse = await publicApiDue(publicRequest("/api/public/v1/due?days=30"), env);
-    const dueBody = await readSuccessData<{ items: Array<{ dueType: string; subscription: { id: string; startDate: string | null } }> }>(dueResponse);
+    const dueBody = publicApiDuePayloadSchema.parse(await readSuccessData<unknown>(dueResponse));
     expect(dueBody.items.map((item) => [item.subscription.id, item.dueType])).toEqual(expect.arrayContaining([
       ["sub_renewal", "renewal"],
       ["sub_trial", "trial"],

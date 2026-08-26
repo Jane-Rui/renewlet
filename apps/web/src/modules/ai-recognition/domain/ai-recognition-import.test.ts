@@ -76,6 +76,26 @@ describe("AI recognition import mapping", () => {
     expect(prepared.assets).toEqual([]);
   });
 
+  it("keeps the immutable AI trial date outside the editable form state", () => {
+    const subscription = buildPreparedImportFromAIDrafts([item(draft({
+      status: "trial",
+      trialEndDate: "2026-06-10",
+    }))], context).payload.subscriptions[0];
+
+    expect(subscription?.trialEndDate).toBe("2026-06-10");
+  });
+
+  it("clears an AI trial date when the editable status is no longer trial", () => {
+    const subscription = buildPreparedImportFromAIDrafts([item(draft({
+      status: "trial",
+      trialEndDate: "2026-06-10",
+    }), {
+      status: "active",
+    })], context).payload.subscriptions[0];
+
+    expect(subscription?.trialEndDate).toBeNull();
+  });
+
   it("carries equal and custom family-sharing members into preview", () => {
     const equal = buildPreparedImportFromAIDrafts([item(draft(), {
       costSharing: {

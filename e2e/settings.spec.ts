@@ -1,19 +1,59 @@
 import { expect, test } from "./support/test";
 import {
   captureLayoutSnapshot,
+  expectFormFieldRowAlignment,
   expectLabelControlGap,
   expectRootScrollContainer,
   expectStableLayout,
 } from "./support/layout";
 import {
+  deferAdvancedSettingsModule,
+  expectSettingsSectionAtScrollAnchor,
   fillChangedTestPhone,
   getSettingsDiscardButton,
   getSettingsSaveButton,
   gotoSettingsAfterHydration,
+  gotoSettingsSectionAfterHydration,
 } from "./support/settings";
 
-test("settings save, language switch, and floating layer layout stability", async ({ page }) => {
+test("desktop passkey fields and add action share stable form tracks", async ({ page }) => {
   await gotoSettingsAfterHydration(page);
+  await page.getByRole("button", { name: "管理通行密钥" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "管理通行密钥" });
+  const nameInput = dialog.getByLabel("通行密钥名称");
+  const row = nameInput.locator('xpath=ancestor::*[@data-slot="form-field-row"][1]');
+  await expect(row).toHaveAttribute("data-align-at", "md");
+  await expect(row).toHaveAttribute("data-tracks", "3");
+  await expectFormFieldRowAlignment(row, "desktop passkey registration", { action: true });
+});
+
+test("settings directory waits for deferred content before scrolling to calendar feed", async ({ page }) => {
+  const advancedModule = await deferAdvancedSettingsModule(page);
+  await gotoSettingsAfterHydration(page);
+  const desktopNav = page.getByTestId("settings-section-nav-desktop");
+  const calendarLink = desktopNav.getByRole("link", { name: "日历订阅" });
+  const calendarSection = page.locator("#settings-calendar-feed");
+
+  await calendarLink.click();
+  await advancedModule.waitForRequest();
+
+  await expect(page).toHaveURL(/#settings-calendar-feed$/);
+  await expect(calendarLink).toHaveAttribute("aria-current", "location");
+  await expect(calendarSection).toHaveAttribute("aria-busy", "true");
+  await expect(calendarSection).not.toBeInViewport();
+
+  advancedModule.release();
+
+  await expect(calendarSection).not.toHaveAttribute("aria-busy", "true");
+  await expect(calendarSection).toBeInViewport();
+  await expectSettingsSectionAtScrollAnchor(calendarSection);
+  await expect(page).toHaveURL(/#settings-calendar-feed$/);
+  await expect(calendarLink).toHaveAttribute("aria-current", "location");
+});
+
+test("settings save, language switch, and floating layer layout stability", async ({ page }) => {
+  await gotoSettingsSectionAfterHydration(page, "settings-notifications");
   await expect(page.getByRole("heading", { name: "系统配置" })).toBeVisible();
   await expectLabelControlGap(page.getByLabel("月度预算金额", { exact: true }), "settings monthly budget");
   await expectLabelControlGap(page.getByLabel("第三方 API 测试号码", { exact: true }), "settings test phone");

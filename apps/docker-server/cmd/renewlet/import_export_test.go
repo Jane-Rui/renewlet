@@ -489,10 +489,6 @@ func importRequestBodyWithSkipIndexes(conflictMode string, skipIndexes []int, pr
 	return importRequestBodyWithOptions(conflictMode, "wallos", "1:42", "high", skipIndexes, prices...)
 }
 
-func importRequestBodyWithBillingCycle(conflictMode string, billingCycle string, customDays *int, autoCalculate bool, prices ...int) string {
-	return importRequestBodyWithBillingCycleUnit(conflictMode, billingCycle, customDays, nil, autoCalculate, prices...)
-}
-
 func importRequestBodyWithBillingCycleUnit(conflictMode string, billingCycle string, customDays *int, customCycleUnit *string, autoCalculate bool, prices ...int) string {
 	body := importRequestBodyWithOptions(conflictMode, "wallos", "1:42", "high", nil, prices...)
 	var decoded map[string]interface{}

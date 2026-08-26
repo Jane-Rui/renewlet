@@ -1,152 +1,190 @@
-/**
- * 订阅 CRUD application hook。
- *
- * 架构位置：
- * - React Query hooks 负责远端写入和缓存失效。
- * - 这里只管理页面层的编辑弹窗上下文，避免列表页重复处理编辑态。
- */
-import { useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
+  prefetchSubscriptionDetail,
   useCreateSubscription,
   useDeleteSubscription,
   usePatchSubscription,
   useRenewSubscription,
+  useSubscriptionDetail,
   useUpdateSubscription,
 } from "@/hooks/use-subscriptions";
 import { useDeferredDialogCleanup } from "@/hooks/use-deferred-dialog-cleanup";
+import { useDialogSessionSnapshot } from "@/hooks/use-dialog-session-snapshot";
+import {
+  createSubscriptionDialogTarget,
+  type SubscriptionDialogTarget,
+} from "@/hooks/subscription-dialog-target";
 import { buildClonedSubscriptionDraft } from "@/modules/subscriptions/domain/subscription-clone";
-import type { Subscription, SubscriptionDraft } from "@/types/subscription";
+import type {
+  SubscriptionCollectionItem,
+  SubscriptionFormSubmission,
+} from "@/types/subscription";
 import type { SubscriptionRenewBody } from "@renewlet/shared/schemas/subscriptions";
 
-/** 订阅 CRUD 的页面级交互控制器。 */
-export function useSubscriptionCrud(subscriptions: readonly Subscription[]) {
-  const createSubscription = useCreateSubscription();
-  const updateSubscription = useUpdateSubscription();
-  const patchSubscription = usePatchSubscription();
-  const renewSubscription = useRenewSubscription();
-  const deleteSubscription = useDeleteSubscription();
-  const [editingSubscription, setEditingSubscription] = useState<Subscription | null>(null);
+/** CRUD 控制器只保存会话目标与列表快照；完整对象始终来自唯一的详情查询缓存。 */
+export function useSubscriptionCrud(subscriptions: readonly SubscriptionCollectionItem[]) {
+  const queryClient = useQueryClient();
+  const { mutate: createSubscription } = useCreateSubscription();
+  const { mutate: updateSubscription } = useUpdateSubscription();
+  const { mutate: patchSubscription } = usePatchSubscription();
+  const {
+    mutateAsync: renewSubscription,
+    error: renewError,
+    isPending: renewSubmitting,
+  } = useRenewSubscription();
+  const { mutate: deleteSubscription } = useDeleteSubscription();
+  const [editingTarget, setEditingTarget] = useState<SubscriptionDialogTarget | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [cloningSubscription, setCloningSubscription] = useState<Subscription | null>(null);
+  const [cloningTarget, setCloningTarget] = useState<SubscriptionDialogTarget | null>(null);
   const [cloneDialogOpen, setCloneDialogOpen] = useState(false);
-  const [renewingSubscription, setRenewingSubscription] = useState<Subscription | null>(null);
+  const [renewingTarget, setRenewingTarget] = useState<SubscriptionDialogTarget | null>(null);
   const [renewDialogOpen, setRenewDialogOpen] = useState(false);
+  const editingSubscriptionId = editingTarget?.id ?? null;
+  const cloningSubscriptionId = cloningTarget?.id ?? null;
+  const renewingSubscriptionId = renewingTarget?.id ?? null;
+  const editingQuery = useSubscriptionDetail(editingSubscriptionId, editDialogOpen);
+  const cloningQuery = useSubscriptionDetail(cloningSubscriptionId, cloneDialogOpen);
+  const renewingQuery = useSubscriptionDetail(renewingSubscriptionId, renewDialogOpen);
+  const currentEditDialogSession = useMemo(() => ({
+    subscription: editingQuery.data ?? null,
+    collectionItem: editingTarget?.collectionItem ?? null,
+    pending: editingQuery.isPending,
+  }), [editingQuery.data, editingQuery.isPending, editingTarget?.collectionItem]);
+  const currentCloneDialogSession = useMemo(() => ({
+    subscription: cloningQuery.data ?? null,
+    collectionItem: cloningTarget?.collectionItem ?? null,
+    pending: cloningQuery.isPending,
+  }), [cloningQuery.data, cloningQuery.isPending, cloningTarget?.collectionItem]);
+  const currentRenewDialogSession = useMemo(() => ({
+    subscription: renewingQuery.data ?? null,
+    collectionItem: renewingTarget?.collectionItem ?? null,
+    pending: renewingQuery.isPending,
+    error: renewError ?? renewingQuery.error,
+    submitting: renewSubmitting,
+  }), [renewError, renewSubmitting, renewingQuery.data, renewingQuery.error, renewingQuery.isPending, renewingTarget?.collectionItem]);
+  const editDialogSession = useDialogSessionSnapshot(editDialogOpen, editingSubscriptionId, currentEditDialogSession);
+  const cloneDialogSession = useDialogSessionSnapshot(cloneDialogOpen, cloningSubscriptionId, currentCloneDialogSession);
+  const renewDialogSession = useDialogSessionSnapshot(renewDialogOpen, renewingSubscriptionId, currentRenewDialogSession);
   const renewRestoreFocusRef = useRef<HTMLElement | null>(null);
   const { scheduleCleanup: scheduleEditCleanup, cancelCleanup: cancelEditCleanup } = useDeferredDialogCleanup(() => {
-    // 关闭动画结束后再丢弃编辑对象，避免表单内容在 Dialog fade-out 中瞬间回到空态。
-    setEditingSubscription(null);
+    // 关闭动画结束后再丢弃 id，避免 detail cache 在 fade-out 中解除绑定导致内容闪空。
+    setEditingTarget(null);
   });
   const { scheduleCleanup: scheduleCloneCleanup, cancelCleanup: cancelCloneCleanup } = useDeferredDialogCleanup(() => {
-    // 克隆弹窗 fade-out 期间保留源订阅快照，避免标题、Logo 和表单值在动画中闪空。
-    setCloningSubscription(null);
+    setCloningTarget(null);
   });
   const { scheduleCleanup: scheduleRenewCleanup, cancelCleanup: cancelRenewCleanup } = useDeferredDialogCleanup(() => {
-    // 续订失败要保留本地表单；只有弹窗真正关闭后才清掉被续订的订阅快照。
-    setRenewingSubscription(null);
+    setRenewingTarget(null);
   });
 
-  const handleAddSubscription = (newSubscription: SubscriptionDraft) => {
-    createSubscription.mutate(newSubscription);
-  };
+  const handlePrefetchSubscription = useCallback((id: string) => {
+    void prefetchSubscriptionDetail(queryClient, id);
+  }, [queryClient]);
 
-  const handleDeleteSubscription = (id: string) => {
-    deleteSubscription.mutate(id);
-  };
+  const handleAddSubscription = useCallback((submission: SubscriptionFormSubmission) => {
+    createSubscription({ ...submission, pinned: false });
+  }, [createSubscription]);
 
-  const handleTogglePinnedSubscription = (id: string) => {
+  const handleDeleteSubscription = useCallback((id: string) => {
+    deleteSubscription(id);
+  }, [deleteSubscription]);
+
+  const handleTogglePinnedSubscription = useCallback((id: string) => {
     const subscription = subscriptions.find((item) => item.id === id);
     if (!subscription) return;
     // 快捷菜单只表达单字段意图，不能把列表旧快照当完整 PATCH 覆盖并发编辑。
-    patchSubscription.mutate({ id, patch: { pinned: !subscription.pinned } });
-  };
+    patchSubscription({ id, patch: { pinned: !subscription.pinned } });
+  }, [patchSubscription, subscriptions]);
 
-  const handleTogglePublicHiddenSubscription = (id: string) => {
+  const handleTogglePublicHiddenSubscription = useCallback((id: string) => {
     const subscription = subscriptions.find((item) => item.id === id);
     if (!subscription) return;
-    patchSubscription.mutate({ id, patch: { publicHidden: !subscription.publicHidden } });
-  };
+    patchSubscription({ id, patch: { publicHidden: !subscription.publicHidden } });
+  }, [patchSubscription, subscriptions]);
 
-  const handleRenewSubscription = (id: string) => {
-    const subscription = subscriptions.find((item) => item.id === id);
-    if (!subscription) return;
-    // 续订入口可能来自菜单或详情按钮；记录真实触发元素，让 Dialog 关闭后按 a11y 约定返焦。
-    renewRestoreFocusRef.current = typeof document !== "undefined" && document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const handleRenewSubscription = useCallback((id: string) => {
+    renewRestoreFocusRef.current = typeof document !== "undefined" && document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
     cancelRenewCleanup();
-    setRenewingSubscription(subscription);
+    setRenewingTarget(createSubscriptionDialogTarget(subscriptions, id));
     setRenewDialogOpen(true);
-  };
+  }, [cancelRenewCleanup, subscriptions]);
 
-  const handleEditSubscription = (id: string) => {
-    // 编辑弹窗使用当前列表快照，避免额外请求；列表缓存由 mutations 成功后统一刷新。
-    const subscription = subscriptions.find((item) => item.id === id);
-    if (!subscription) return;
+  const handleEditSubscription = useCallback((id: string) => {
     cancelEditCleanup();
-    setEditingSubscription(subscription);
+    setEditingTarget(createSubscriptionDialogTarget(subscriptions, id));
     setEditDialogOpen(true);
-  };
+  }, [cancelEditCleanup, subscriptions]);
 
-  const handleCloneSubscription = (id: string) => {
-    const subscription = subscriptions.find((item) => item.id === id);
-    if (!subscription) return;
+  const handleCloneSubscription = useCallback((id: string) => {
     cancelCloneCleanup();
-    setCloningSubscription(subscription);
+    setCloningTarget(createSubscriptionDialogTarget(subscriptions, id));
     setCloneDialogOpen(true);
-  };
+  }, [cancelCloneCleanup, subscriptions]);
 
-  const handleSaveSubscription = (updatedSubscription: Subscription) => {
-    updateSubscription.mutate(updatedSubscription);
-  };
+  const handleSaveSubscription = useCallback((changes: SubscriptionFormSubmission) => {
+    if (!editingSubscriptionId) return;
+    updateSubscription({ id: editingSubscriptionId, changes });
+  }, [editingSubscriptionId, updateSubscription]);
 
-  const handleSaveClonedSubscription = (draft: SubscriptionDraft) => {
-    if (!cloningSubscription) return;
-    createSubscription.mutate(buildClonedSubscriptionDraft(cloningSubscription, draft));
-  };
+  const handleSaveClonedSubscription = useCallback((submission: SubscriptionFormSubmission) => {
+    if (!cloningQuery.data) return;
+    createSubscription(buildClonedSubscriptionDraft(cloningQuery.data, submission));
+  }, [cloningQuery.data, createSubscription]);
 
-  const handleSubmitRenewSubscription = async (payload: SubscriptionRenewBody) => {
-    if (!renewingSubscription) return;
-    await renewSubscription.mutateAsync({ id: renewingSubscription.id, payload });
+  const handleSubmitRenewSubscription = useCallback(async (payload: SubscriptionRenewBody) => {
+    if (!renewingSubscriptionId) return;
+    await renewSubscription({ id: renewingSubscriptionId, payload });
     setRenewDialogOpen(false);
     scheduleRenewCleanup();
-  };
+  }, [renewSubscription, renewingSubscriptionId, scheduleRenewCleanup]);
 
-  const handleEditDialogOpenChange = (nextOpen: boolean) => {
+  const handleEditDialogOpenChange = useCallback((nextOpen: boolean) => {
     setEditDialogOpen(nextOpen);
     if (nextOpen) {
-      // 用户在关闭动画未结束时重新打开同一弹窗时，要保留当前编辑上下文。
       cancelEditCleanup();
       return;
     }
     scheduleEditCleanup();
-  };
+  }, [cancelEditCleanup, scheduleEditCleanup]);
 
-  const handleCloneDialogOpenChange = (nextOpen: boolean) => {
+  const handleCloneDialogOpenChange = useCallback((nextOpen: boolean) => {
     setCloneDialogOpen(nextOpen);
     if (nextOpen) {
       cancelCloneCleanup();
       return;
     }
     scheduleCloneCleanup();
-  };
+  }, [cancelCloneCleanup, scheduleCloneCleanup]);
 
-  const handleRenewDialogOpenChange = (nextOpen: boolean) => {
+  const handleRenewDialogOpenChange = useCallback((nextOpen: boolean) => {
     setRenewDialogOpen(nextOpen);
     if (nextOpen) {
       cancelRenewCleanup();
       return;
     }
     scheduleRenewCleanup();
-  };
+  }, [cancelRenewCleanup, scheduleRenewCleanup]);
 
   return {
-    editingSubscription,
+    editingSubscription: editDialogSession.subscription,
+    editingCollectionItem: editDialogSession.collectionItem,
     editDialogOpen,
-    cloningSubscription,
+    editDetailPending: editDialogSession.pending,
+    cloningSubscription: cloneDialogSession.subscription,
+    cloningCollectionItem: cloneDialogSession.collectionItem,
     cloneDialogOpen,
-    renewingSubscription,
+    cloneDetailPending: cloneDialogSession.pending,
+    renewingSubscription: renewDialogSession.subscription,
+    renewingCollectionItem: renewDialogSession.collectionItem,
     renewDialogOpen,
-    renewError: renewSubscription.error,
-    renewSubmitting: renewSubscription.isPending,
+    renewDetailPending: renewDialogSession.pending,
+    renewError: renewDialogSession.error,
+    renewSubmitting: renewDialogSession.submitting,
     renewRestoreFocusRef,
+    handlePrefetchSubscription,
     handleAddSubscription,
     handleDeleteSubscription,
     handleTogglePinnedSubscription,

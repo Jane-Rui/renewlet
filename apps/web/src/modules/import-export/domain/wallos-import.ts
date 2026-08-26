@@ -1,6 +1,5 @@
 import { importPayloadSchema, renewletExportV1Schema, type ImportPayload, type ImportPreviewItem } from "@renewlet/shared/schemas/import-export";
-import type JSZip from "jszip";
-import { MAX_IMAGE_BYTES } from "@/lib/upload-constraints";
+import { runWorkerJob } from "@/lib/workers/run-worker-job";
 import type { ImportBuildBaseContext } from "./wallos-import-mapping";
 import {
   buildFromRenewletExport,
@@ -22,12 +21,7 @@ import {
   type PreparedImport,
 } from "./import-export-model";
 import { assetService } from "@/services/asset-service";
-import {
-  assertZipEntryWithinLimit,
-  inspectZipCentralDirectory,
-  MAX_IMPORT_ZIP_ENTRIES,
-  type ZipCentralDirectory,
-} from "./zip-central-directory";
+import type { WallosImportWorkerPayload, WallosImportWorkerResult } from "./wallos-import-worker-contract";
 
 type ImportSubscription = ImportPayload["subscriptions"][number];
 
@@ -36,18 +30,6 @@ export interface ResolvedImportAssets {
   uploadedLogoCount: number;
   uploadedIconCount: number;
 }
-
-type WorkerResponse =
-  | { id: number; ok: true; prepared: PreparedImport }
-  | { id: number; ok: false; error: string };
-
-interface CachedImportZip {
-  zip: JSZip;
-  directory: ZipCentralDirectory;
-}
-
-const ZIP_CACHE = new WeakMap<File, Promise<CachedImportZip>>();
-let workerRequestId = 0;
 
 /**
  * parseImportFile 将用户选择的 Renewlet/Wallos 文件转换为待预览导入模型。
@@ -63,13 +45,14 @@ export async function parseImportFile(
   context: ImportBuildBaseContext,
   wallosUserId?: string,
   maxFileBytes = MAX_IMPORT_FILE_BYTES,
+  signal?: AbortSignal,
 ): Promise<PreparedImport> {
   if (file.size > maxFileBytes) throw new Error(IMPORT_MESSAGE_CODES.fileTooLarge);
   const buffer = await file.arrayBuffer();
+  if (signal?.aborted) throw new DOMException("Import parsing cancelled", "AbortError");
   const bytes = new Uint8Array(buffer);
   if (isZipBytes(bytes) || isSqliteBytes(bytes)) {
-    const prepared = await parseHeavyFileInWorker(buffer, context, wallosUserId, maxFileBytes);
-    return attachSourceFile(prepared, file);
+    return await parseHeavyFileInWorker(buffer, context, wallosUserId, maxFileBytes, signal);
   }
   return parseJsonText(new TextDecoder().decode(bytes), context);
 }
@@ -182,21 +165,12 @@ export function updatePreparedSubscriptionLogos(
 }
 
 /**
- * loadImportAssetBlob 从导入文件中延迟读取待上传私有资产。
- *
- * ZIP 解压结果按 File 弱缓存，避免用户批量导入 Logo/Icon 时为每个引用重复解析同一个备份包。
+ * ZIP/SQLite Worker 已在返回前提取全部被引用资产；主线程只从已转移的 buffer 构造上传 Blob。
  */
 export async function loadImportAssetBlob(asset: ImportAssetRef): Promise<Blob> {
   if (asset.blob) return asset.blob;
-  if (!asset.sourceFile || !asset.zipEntryName) throw new Error("Import asset is not available.");
-  const archive = await getZip(asset.sourceFile);
-  const metadata = archive.directory.byName.get(asset.zipEntryName);
-  const entry = archive.zip.file(asset.zipEntryName);
-  if (!entry || !metadata) throw new Error("Import asset entry is missing.");
-  assertZipEntryWithinLimit(metadata, MAX_IMAGE_BYTES);
-  const blob = await entry.async("blob");
-  if (blob.size > MAX_IMAGE_BYTES) throw new Error("Import asset exceeds the upload limit.");
-  return blob;
+  if (!asset.buffer || !asset.mimeType) throw new Error("Import asset is not available.");
+  return new Blob([asset.buffer], { type: asset.mimeType });
 }
 
 /**
@@ -247,38 +221,15 @@ async function parseHeavyFileInWorker(
   context: ImportBuildBaseContext,
   wallosUserId?: string,
   maxFileBytes = MAX_IMPORT_FILE_BYTES,
+  signal?: AbortSignal,
 ): Promise<PreparedImport> {
-  if (typeof Worker === "undefined") {
-    throw new Error(IMPORT_MESSAGE_CODES.workerUnsupported);
-  }
-  const id = workerRequestId + 1;
-  workerRequestId = id;
-  const worker = new Worker(new URL("./wallos-import-worker.ts", import.meta.url), { type: "module" });
-  try {
-    return await new Promise<PreparedImport>((resolve, reject) => {
-      worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
-        const response = event.data;
-        if (response.id !== id) return;
-        if (response.ok) {
-          resolve(response.prepared);
-        } else {
-          reject(new Error(response.error));
-        }
-      };
-      worker.onerror = () => reject(new Error(IMPORT_MESSAGE_CODES.workerParseFailed));
-      // ZIP/SQLite 只在用户显式选择文件后传入 Worker；不从后端代取 Wallos URL，避免 SSRF/CORS 差异。
-      worker.postMessage({ id, buffer, context, maxFileBytes, ...(wallosUserId ? { wallosUserId } : {}) }, [buffer]);
-    });
-  } finally {
-    worker.terminate();
-  }
-}
-
-function attachSourceFile(prepared: PreparedImport, sourceFile: File): PreparedImport {
-  return {
-    ...prepared,
-    assets: prepared.assets.map((asset) => asset.zipEntryName ? { ...asset, sourceFile } : asset),
-  };
+  // ZIP/SQLite 只在用户显式选择文件后转移给 Worker；buffer 发出后主线程不再拥有其内容。
+  return await runWorkerJob<WallosImportWorkerPayload, WallosImportWorkerResult>({
+    createWorker: () => new Worker(new URL("./wallos-import-worker.ts", import.meta.url), { type: "module" }),
+    payload: { buffer, context, maxFileBytes, ...(wallosUserId ? { wallosUserId } : {}) },
+    transfer: [buffer],
+    ...(signal ? { signal } : {}),
+  });
 }
 
 function buildPayloadWithLogoOverrides(payload: ImportPayload, logoOverrides: ReadonlyMap<number, string | null>): ImportPayload {
@@ -311,19 +262,6 @@ function buildPayloadWithAssetOverrides(
 function optionalRows(value: unknown): WallosTableRow[] {
   if (!Array.isArray(value)) return [];
   return value.filter((row): row is WallosTableRow => Boolean(row) && typeof row === "object" && !Array.isArray(row));
-}
-
-async function getZip(file: File): Promise<CachedImportZip> {
-  const cached = ZIP_CACHE.get(file);
-  if (cached) return cached;
-  const promise = Promise.all([file.arrayBuffer(), import("jszip")]).then(async ([buffer, { default: JSZipCtor }]) => {
-    const bytes = new Uint8Array(buffer);
-    const directory = inspectZipCentralDirectory(bytes, MAX_IMPORT_ZIP_ENTRIES);
-    const zip = await JSZipCtor.loadAsync(bytes, { checkCRC32: false });
-    return { zip, directory };
-  });
-  ZIP_CACHE.set(file, promise);
-  return await promise;
 }
 
 async function runWithConcurrency<T>(

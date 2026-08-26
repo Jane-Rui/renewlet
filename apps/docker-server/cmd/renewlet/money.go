@@ -91,14 +91,6 @@ func canonicalMoneyFromFloat(value float64) (string, error) {
 	return canonicalMoneyString(strconv.FormatFloat(value, 'f', moneyDecimalScale, 64))
 }
 
-func canonicalMoneyFromFloatMust(value float64) string {
-	amount, err := canonicalMoneyFromFloat(value)
-	if err != nil {
-		return "0"
-	}
-	return amount
-}
-
 func canonicalMoneyFromNumberString(value string) (string, error) {
 	parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
 	if err != nil {

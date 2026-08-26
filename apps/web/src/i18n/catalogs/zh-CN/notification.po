@@ -294,7 +294,7 @@ msgid "notification.historyEmpty"
 msgstr "到达通知时间后，这里会显示调度记录。"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:146
+#: src/i18n/descriptors/notification.ts:148
 msgid "notification.refresh"
 msgstr "刷新"
 
@@ -304,12 +304,12 @@ msgid "media.loadMoreUploadedLogo"
 msgstr "加载更多"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:148
+#: src/i18n/descriptors/notification.ts:150
 msgid "notification.loadMore"
 msgstr "加载更多"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:147
+#: src/i18n/descriptors/notification.ts:149
 msgid "notification.historyLoadFailed"
 msgstr "加载通知历史失败，请稍后重试。"
 
@@ -329,11 +329,6 @@ msgid "notification.upcomingTab"
 msgstr "即将提醒"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:142
-msgid "notification.historyDescription"
-msgstr "即将提醒按当前设置实时推导，发送历史保留当时执行快照。"
-
-#. js-lingui-explicit-id
 #: src/i18n/descriptors/notification.ts:98
 msgid "notification.content.renewalBlock"
 msgstr "即将续费："
@@ -344,9 +339,14 @@ msgid "notification.status.sending"
 msgstr "发送中"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/notification.ts:145
+#: src/i18n/descriptors/notification.ts:146
 msgid "notification.historyTab"
 msgstr "发送历史"
+
+#. js-lingui-explicit-id
+#: src/i18n/descriptors/notification.ts:147
+msgid "notification.executionSnapshotsDescription"
+msgstr "发送历史保留每次执行时的设置与结果快照。"
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/notification.ts:97
@@ -444,6 +444,11 @@ msgid "notification.status.sent"
 msgstr "成功"
 
 #. js-lingui-explicit-id
+#: src/i18n/descriptors/notification.ts:145
+msgid "notification.upcomingDescription"
+msgstr "按当前通知设置实时推导未来 30 天的提醒。"
+
+#. js-lingui-explicit-id
 #: src/i18n/descriptors/notification.ts:107
 msgid "notification.content.beforeDays"
 msgstr "提前 {days} 天提醒"
@@ -524,6 +529,11 @@ msgid "notification.viewScheduleHistory"
 msgstr "查看调度与历史"
 
 #. js-lingui-explicit-id
+#: src/i18n/descriptors/notification.ts:142
+msgid "notification.historyDescription"
+msgstr "查看通知调度与发送记录。"
+
+#. js-lingui-explicit-id
 #: src/i18n/descriptors/notification.ts:17
 msgid "media.loadingUploadedLogo"
 msgstr "正在加载已上传 Logo..."
@@ -560,8 +570,8 @@ msgstr "测试通知发送失败"
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/notification.ts:95
-msgid "notification.testSuccess"
-msgstr "测试通知发送成功"
+msgid "notification.testSuccessForChannel"
+msgstr "测试通知发送成功 · {channel}"
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/notification.ts:60

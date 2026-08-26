@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuthSecuritySettings, useTestAuthSecurityTurnstile, useUpdateAuthSecuritySettings } from "@/hooks/use-auth-security";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "@/components/ui/sonner";
 import { getDisplayErrorMessage } from "@/lib/display-error";
 import { useI18n } from "@/i18n/I18nProvider";
+import type { AuthSecuritySettings } from "@/lib/api/schemas/admin";
+import { toSettingsReadState, type SettingsReadState } from "./settings-read-state";
 
 export interface AuthSecurityTurnstileDraft {
   enabled: boolean;
@@ -13,7 +15,7 @@ export interface AuthSecurityTurnstileDraft {
 export interface SettingsAuthSecurityController {
   canManage: boolean;
   disabled: boolean;
-  isLoading: boolean;
+  readState: SettingsReadState<AuthSecuritySettings>;
   isSaving: boolean;
   isClearingSecret: boolean;
   isTesting: boolean;
@@ -53,7 +55,6 @@ interface TurnstileTestSnapshot {
  */
 export function useAuthSecuritySettingsController(canManage: boolean, disabled: boolean): SettingsAuthSecurityController {
   const { t } = useI18n();
-  const { toast } = useToast();
   const query = useAuthSecuritySettings(canManage);
   const update = useUpdateAuthSecuritySettings();
   const testTurnstile = useTestAuthSecurityTurnstile();
@@ -136,11 +137,7 @@ export function useAuthSecuritySettingsController(canManage: boolean, disabled: 
     const siteKey = draft.siteKey.trim();
     const secret = draft.secret.trim();
     if (draft.enabled && (!siteKey || (!secretConfigured && !secret))) {
-      toast({
-        title: t("settings.turnstileSaveFailed"),
-        description: t("settings.turnstileIncomplete"),
-        variant: "destructive",
-      });
+      toast.error(t("settings.turnstileSaveFailed"), { description: t("settings.turnstileIncomplete") });
       return;
     }
     try {
@@ -161,18 +158,13 @@ export function useAuthSecuritySettingsController(canManage: boolean, disabled: 
       setSavedDraft(nextDraft);
       setSecretConfigured(response.turnstile.secretConfigured);
       resetTurnstileTest();
-      toast({
-        title: t("settings.turnstileSaved"),
-        description: t("settings.turnstileSavedDescription"),
-      });
+      toast.success(t("settings.turnstileSaved"));
     } catch (error) {
-      toast({
-        title: t("settings.turnstileSaveFailed"),
+      toast.error(t("settings.turnstileSaveFailed"), {
         description: getDisplayErrorMessage(error, t("settings.turnstileSaveFailedDescription")),
-        variant: "destructive",
       });
     }
-  }, [canManage, disabled, draft.enabled, draft.secret, draft.siteKey, resetTurnstileTest, secretConfigured, t, toast, update]);
+  }, [canManage, disabled, draft.enabled, draft.secret, draft.siteKey, resetTurnstileTest, secretConfigured, t, update]);
 
   const clearSecret = useCallback(async () => {
     if (!canManage || disabled || update.isPending || !secretConfigured) return;
@@ -195,31 +187,22 @@ export function useAuthSecuritySettingsController(canManage: boolean, disabled: 
       setSavedDraft(nextDraft);
       setSecretConfigured(response.turnstile.secretConfigured);
       resetTurnstileTest();
-      toast({
-        title: t("settings.turnstileSecretCleared"),
-        description: t("settings.turnstileSecretClearedDescription"),
-      });
+      toast.success(t("settings.turnstileSecretCleared"));
     } catch (error) {
-      toast({
-        title: t("settings.turnstileSaveFailed"),
+      toast.error(t("settings.turnstileSaveFailed"), {
         description: getDisplayErrorMessage(error, t("settings.turnstileSaveFailedDescription")),
-        variant: "destructive",
       });
     } finally {
       setClearingSecret(false);
     }
-  }, [canManage, disabled, draft.siteKey, resetTurnstileTest, secretConfigured, t, toast, update]);
+  }, [canManage, disabled, draft.siteKey, resetTurnstileTest, secretConfigured, t, update]);
 
   const startTest = useCallback(() => {
     if (!canManage || disabled || update.isPending || testTurnstile.isPending) return;
     const siteKey = draft.siteKey.trim();
     const secret = draft.secret.trim();
     if (!siteKey || (!secret && !secretConfigured)) {
-      toast({
-        title: t("settings.turnstileTestFailed"),
-        description: t("settings.turnstileIncomplete"),
-        variant: "destructive",
-      });
+      toast.error(t("settings.turnstileTestFailed"), { description: t("settings.turnstileIncomplete") });
       return;
     }
     // 测试使用当前页面草稿：secret 非空就试新值，留空才让后端回退已保存 secret。
@@ -228,7 +211,7 @@ export function useAuthSecuritySettingsController(canManage: boolean, disabled: 
     setTestError(undefined);
     setTestState("challenge");
     setTestResetSignal((value) => value + 1);
-  }, [canManage, disabled, draft.secret, draft.siteKey, secretConfigured, t, testTurnstile.isPending, toast, update.isPending]);
+  }, [canManage, disabled, draft.secret, draft.siteKey, secretConfigured, t, testTurnstile.isPending, update.isPending]);
 
   const handleTestDialogOpenChange = useCallback((open: boolean) => {
     // Radix 会把 close/open 都回调到这里；打开挑战只能走 startTest，确保先完成本地凭据校验和快照。
@@ -249,10 +232,7 @@ export function useAuthSecuritySettingsController(canManage: boolean, disabled: 
       },
     }).then(() => {
       if (testSessionRef.current !== testSession) return;
-      toast({
-        title: t("settings.turnstileTestPassed"),
-        description: t("settings.turnstileTestPassedDescription"),
-      });
+      toast.success(t("settings.turnstileTestPassed"));
       resetTurnstileTest();
     }).catch((error: unknown) => {
       // 弹窗关闭或字段变更会丢弃测试会话；迟到的 Siteverify 结果不能重新打开旧挑战。
@@ -262,18 +242,14 @@ export function useAuthSecuritySettingsController(canManage: boolean, disabled: 
       setTestState("challenge");
       // Siteverify 会消费 token；失败后必须重置当前 widget，等待 Cloudflare 生成新 token。
       setTestResetSignal((value) => value + 1);
-      toast({
-        title: t("settings.turnstileTestFailed"),
-        description,
-        variant: "destructive",
-      });
+      toast.error(t("settings.turnstileTestFailed"), { description });
     });
-  }, [resetTurnstileTest, t, testSnapshot, testState, testTurnstile, toast]);
+  }, [resetTurnstileTest, t, testSnapshot, testState, testTurnstile]);
 
   return {
     canManage,
     disabled,
-    isLoading: query.isLoading,
+    readState: toSettingsReadState(query),
     isSaving: update.isPending && !clearingSecret,
     isClearingSecret: clearingSecret,
     isTesting: testState === "verifying" || testTurnstile.isPending,

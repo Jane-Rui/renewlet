@@ -5,7 +5,7 @@ import { Drawer } from "vaul";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-// 底部抽屉统一承载 h5-drawer-panel 高度链、safe-area 底部预算和 40px 关闭触控目标，业务 Drawer 不再复制 H5 平台约束。
+// 底部抽屉统一承载 h5-drawer-panel 高度链、safe-area 底部预算和 44px 关闭触控目标，业务 Drawer 不再复制 H5 平台约束。
 const DEFAULT_MOBILE_DRAWER_BODY_CLASSNAME =
   "min-h-0 flex-1 overflow-y-auto px-5 pb-[calc(1rem+env(safe-area-inset-bottom))]";
 

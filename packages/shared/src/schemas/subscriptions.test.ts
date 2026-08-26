@@ -1,9 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  SUBSCRIPTION_INDEX_LIMIT,
   SUBSCRIPTION_PAYMENT_METHOD_NONE,
+  apiSubscriptionCollectionItemSchema,
   apiSubscriptionSchema,
   subscriptionCreateBodySchema,
   subscriptionRenewBodySchema,
+  subscriptionsAnalyticsPayloadSchema,
+  subscriptionsCalendarPayloadSchema,
+  subscriptionsCalendarQuerySchema,
+  subscriptionsExportPayloadSchema,
+  subscriptionsIndexPayloadSchema,
+  subscriptionsIndexQuerySchema,
   subscriptionsListQuerySchema,
 } from "./subscriptions";
 
@@ -53,6 +61,24 @@ const recurringResponse = {
   repeatReminderEnabled: recurringBody.repeatReminderEnabled,
   repeatReminderInterval: recurringBody.repeatReminderInterval,
   repeatReminderWindow: recurringBody.repeatReminderWindow,
+  extra: {},
+};
+
+const recurringCollectionItem = {
+  id: recurringResponse.id,
+  name: recurringResponse.name,
+  price: recurringResponse.price,
+  currency: recurringResponse.currency,
+  billingCycle: recurringResponse.billingCycle,
+  category: recurringResponse.category,
+  status: recurringResponse.status,
+  pinned: recurringResponse.pinned,
+  publicHidden: recurringResponse.publicHidden,
+  startDate: recurringResponse.startDate,
+  nextBillingDate: recurringResponse.nextBillingDate,
+  autoRenew: recurringResponse.autoRenew,
+  autoCalculateNextBillingDate: recurringResponse.autoCalculateNextBillingDate,
+  reminderDays: recurringResponse.reminderDays,
 };
 
 describe("subscription start date contract", () => {
@@ -360,5 +386,128 @@ describe("subscriptions list query contract", () => {
       nextBillingFrom: "2026-12-31",
       nextBillingTo: "2026-01-01",
     }).success).toBe(false);
+  });
+});
+
+describe("subscription collection read contract", () => {
+  it("keeps collection items strict and separate from complete subscriptions", () => {
+    expect(apiSubscriptionCollectionItemSchema.parse(recurringCollectionItem)).toEqual(recurringCollectionItem);
+    expect(apiSubscriptionCollectionItemSchema.safeParse({
+      ...recurringCollectionItem,
+      website: "https://music.example.com",
+    }).success).toBe(false);
+    expect(subscriptionsExportPayloadSchema.safeParse({ subscriptions: [recurringCollectionItem] }).success).toBe(false);
+    expect(subscriptionsExportPayloadSchema.safeParse({ subscriptions: [recurringResponse] }).success).toBe(true);
+  });
+
+  it("requires cycle-specific collection fields without accepting padded shapes", () => {
+    expect(apiSubscriptionCollectionItemSchema.safeParse({
+      ...recurringCollectionItem,
+      billingCycle: "custom",
+      customDays: 30,
+      customCycleUnit: "day",
+    }).success).toBe(true);
+    expect(apiSubscriptionCollectionItemSchema.safeParse({
+      ...recurringCollectionItem,
+      billingCycle: "custom",
+      customDays: 30,
+    }).success).toBe(false);
+    expect(apiSubscriptionCollectionItemSchema.safeParse({
+      ...recurringCollectionItem,
+      customDays: 30,
+      customCycleUnit: "day",
+    }).success).toBe(false);
+  });
+
+  it("models recurring, custom, one-time buyout, and one-time fixed-term branches explicitly", () => {
+    expect(apiSubscriptionCollectionItemSchema.safeParse(recurringCollectionItem).success).toBe(true);
+    expect(apiSubscriptionCollectionItemSchema.safeParse({
+      ...recurringCollectionItem,
+      billingCycle: "custom",
+      customDays: 30,
+      customCycleUnit: "day",
+    }).success).toBe(true);
+    expect(apiSubscriptionCollectionItemSchema.safeParse({
+      ...recurringCollectionItem,
+      billingCycle: "one-time",
+      startDate: "2026-01-01",
+      nextBillingDate: "2026-01-01",
+      autoRenew: false,
+      autoCalculateNextBillingDate: false,
+    }).success).toBe(true);
+    expect(apiSubscriptionCollectionItemSchema.safeParse({
+      ...recurringCollectionItem,
+      billingCycle: "one-time",
+      startDate: "2026-01-01",
+      nextBillingDate: "2026-04-01",
+      autoRenew: false,
+      autoCalculateNextBillingDate: false,
+      oneTimeTermCount: 3,
+      oneTimeTermUnit: "month",
+    }).success).toBe(true);
+    expect(apiSubscriptionCollectionItemSchema.safeParse({
+      ...recurringCollectionItem,
+      billingCycle: "one-time",
+      startDate: "2026-01-01",
+      nextBillingDate: "2026-04-01",
+      autoRenew: false,
+      autoCalculateNextBillingDate: false,
+      oneTimeTermCount: 3,
+    }).success).toBe(false);
+  });
+
+  it("keeps normal API logos separate from ZIP-internal asset paths", () => {
+    expect(apiSubscriptionSchema.safeParse({
+      ...recurringResponse,
+      logo: "https://cdn.example.com/logo.svg",
+    }).success).toBe(true);
+    expect(apiSubscriptionSchema.safeParse({
+      ...recurringResponse,
+      logo: "assets/logo.svg",
+    }).success).toBe(false);
+  });
+
+  it("accepts exactly 5000 collection items and rejects 5001", () => {
+    const subscriptions = Array.from({ length: SUBSCRIPTION_INDEX_LIMIT }, (_, index) => ({
+      ...recurringCollectionItem,
+      id: `sub_${index}`,
+    }));
+    const overLimit = [...subscriptions, { ...recurringCollectionItem, id: "sub_over_limit" }];
+
+    expect(subscriptionsIndexPayloadSchema.safeParse({
+      subscriptions,
+      total: SUBSCRIPTION_INDEX_LIMIT,
+    }).success).toBe(true);
+    expect(subscriptionsIndexPayloadSchema.safeParse({
+      subscriptions: overLimit,
+      total: SUBSCRIPTION_INDEX_LIMIT + 1,
+    }).success).toBe(false);
+    expect(subscriptionsAnalyticsPayloadSchema.safeParse({ subscriptions: overLimit }).success).toBe(false);
+    expect(subscriptionsCalendarPayloadSchema.safeParse({ subscriptions: overLimit }).success).toBe(false);
+  });
+
+  it("keeps index filters pagination-free and validates calendar ranges", () => {
+    expect(subscriptionsIndexQuerySchema.safeParse({ q: "music", category: ["entertainment"] }).success).toBe(true);
+    expect(subscriptionsIndexQuerySchema.safeParse({ limit: 50 }).success).toBe(false);
+    expect(subscriptionsIndexQuerySchema.safeParse({ cursor: "cursor" }).success).toBe(false);
+    expect(subscriptionsCalendarQuerySchema.safeParse({ from: "2026-07-01", to: "2026-07-31" }).success).toBe(true);
+    expect(subscriptionsCalendarQuerySchema.safeParse({ from: "2026-08-01", to: "2026-07-31" }).success).toBe(false);
+  });
+});
+
+describe("subscription custom cycle write contract", () => {
+  it("requires an explicit positive count and unit", () => {
+    expect(subscriptionCreateBodySchema.safeParse({
+      ...recurringBody,
+      billingCycle: "custom",
+      customDays: 45,
+      customCycleUnit: null,
+    }).success).toBe(false);
+    expect(subscriptionCreateBodySchema.safeParse({
+      ...recurringBody,
+      billingCycle: "custom",
+      customDays: 45,
+      customCycleUnit: "day",
+    }).success).toBe(true);
   });
 });

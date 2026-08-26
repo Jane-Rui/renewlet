@@ -17,10 +17,16 @@ import {
  * preview 和 apply 都由后端重新计算冲突；前端分块只解决请求体/事务上限，不改变幂等语义。
  */
 export const importExportService = {
-  async preview(payload: ImportPayload, conflictMode: ImportConflictMode, skipIndexes: readonly number[] = []): Promise<ImportPreviewResponse> {
+  async preview(
+    payload: ImportPayload,
+    conflictMode: ImportConflictMode,
+    signal: AbortSignal,
+    skipIndexes: readonly number[] = [],
+  ): Promise<ImportPreviewResponse> {
     return await apiFetch("/api/app/import/preview", importPreviewResponseSchema, {
       method: "POST",
       body: JSON.stringify({ payload, conflictMode, skipIndexes }),
+      signal,
     });
   },
 

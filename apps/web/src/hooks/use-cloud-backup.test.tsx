@@ -19,7 +19,7 @@ type SnapshotQueryTestProps = {
 };
 
 const mocks = vi.hoisted(() => ({
-  listSnapshots: vi.fn<(provider: "webdav" | "s3") => Promise<CloudBackupSnapshot[]>>(),
+  listSnapshots: vi.fn<(provider: "webdav" | "s3", signal?: AbortSignal) => Promise<CloudBackupSnapshot[]>>(),
   createSnapshot: vi.fn<(payload: CloudBackupCreateSnapshotRequest) => Promise<CloudBackupSnapshot[]>>(),
   deleteSnapshot: vi.fn<(snapshot: CloudBackupSnapshot) => Promise<void>>(),
 }));
@@ -77,7 +77,7 @@ describe("useCloudBackupSnapshots", () => {
     const first = renderHook(() => useCloudBackupSnapshots({ provider: "webdav", configUpdatedAt: "v1", locale: "zh-CN" }), { wrapper });
     await waitFor(() => expect(first.result.current.data).toHaveLength(1));
     expect(mocks.listSnapshots).toHaveBeenCalledTimes(1);
-    expect(mocks.listSnapshots).toHaveBeenLastCalledWith("webdav");
+    expect(mocks.listSnapshots).toHaveBeenLastCalledWith("webdav", expect.any(AbortSignal));
 
     first.unmount();
     const second = renderHook(() => useCloudBackupSnapshots({ provider: "webdav", configUpdatedAt: "v1", locale: "zh-CN" }), { wrapper });

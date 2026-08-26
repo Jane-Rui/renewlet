@@ -127,6 +127,44 @@ describe("public status schemas", () => {
     })).success).toBe(false);
   });
 
+  it("rejects incomplete or unrelated cycle-specific fields", () => {
+    const publicResponse = (subscription: Record<string, unknown>) => success({
+      page: {
+        title: "Renewlet",
+        showPrices: true,
+        currency: "USD",
+        generatedAt: "2026-06-07T00:00:00.000Z",
+        truncated: false,
+      },
+      subscriptions: [{
+        name: "Custom Plan",
+        category: { value: "streaming", label: "Streaming" },
+        status: "active",
+        startDate: "2026-01-01",
+        nextBillingDate: "2026-07-01",
+        updatedAt: "2026-06-07T00:00:00.000Z",
+        price: "12",
+        currency: "USD",
+        ...subscription,
+      }],
+    });
+
+    expect(publicStatusResponseSchema.safeParse(publicResponse({
+      billingCycle: "custom",
+      customDays: 3,
+    })).success).toBe(false);
+    expect(publicStatusResponseSchema.safeParse(publicResponse({
+      billingCycle: "monthly",
+      customDays: 3,
+      customCycleUnit: "month",
+    })).success).toBe(false);
+    expect(publicStatusResponseSchema.safeParse(publicResponse({
+      billingCycle: "custom",
+      customDays: 3,
+      customCycleUnit: "month",
+    })).success).toBe(true);
+  });
+
   it("accepts inherited or explicit public status currency settings", () => {
     expect(appSettingsSchema.pick({ publicStatusCurrency: true }).parse({ publicStatusCurrency: "inherit" }).publicStatusCurrency).toBe("inherit");
     expect(appSettingsSchema.pick({ publicStatusCurrency: true }).parse({ publicStatusCurrency: "USD" }).publicStatusCurrency).toBe("USD");

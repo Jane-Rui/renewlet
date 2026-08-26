@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type Ref, type RefObject } from "react";
 import { DateOnlyPickerField } from "@/components/date-only-picker-field";
 import { FieldError } from "@/components/ui/field-error";
+import { FormField, FormFieldRow, FormFieldRowAction } from "@/components/ui/form-field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -133,23 +134,24 @@ export function CostSharingFields({
 
       {enabled && costSharing ? (
         <>
-          <div className="grid gap-3 sm:grid-cols-[minmax(0,16rem)_auto] sm:items-end sm:justify-between">
-            <div className="grid gap-2">
-              <Label htmlFor={id("costSharingSplitMode")}>{t("subscription.costSharing.splitMode")}</Label>
-              <Select value={costSharing.splitMode} onValueChange={(value) => setCostSharing(update, { ...costSharing, splitMode: value as CostSharing["splitMode"] }, t)}>
-                <SelectTrigger id={id("costSharingSplitMode")} className="border-border bg-secondary">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="equal">{t("subscription.costSharing.equal")}</SelectItem>
-                  <SelectItem value="custom">{t("subscription.costSharing.custom")}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-2 sm:items-end">
-              <span className="text-xs text-muted-foreground">
-                {t("subscription.costSharing.memberCount", { count: summary.memberCount })}
-              </span>
+          <FormFieldRow
+            alignAt="sm"
+            rowClassName="sm:grid-cols-[minmax(0,16rem)_auto] sm:justify-between"
+          >
+            <FormField id={id("costSharingSplitMode")} label={t("subscription.costSharing.splitMode")}>
+              {({ id: fieldId }) => (
+                <Select value={costSharing.splitMode} onValueChange={(value) => setCostSharing(update, { ...costSharing, splitMode: value as CostSharing["splitMode"] }, t)}>
+                  <SelectTrigger id={fieldId} className="border-border bg-secondary">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="equal">{t("subscription.costSharing.equal")}</SelectItem>
+                    <SelectItem value="custom">{t("subscription.costSharing.custom")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            </FormField>
+            <FormFieldRowAction controlClassName="flex-col gap-2 sm:justify-self-end">
               <Button
                 ref={manageMembersButtonRef}
                 type="button"
@@ -162,8 +164,11 @@ export function CostSharingFields({
                 <Users className="h-4 w-4" />
                 {t("subscription.costSharing.manageMembers")}
               </Button>
-            </div>
-          </div>
+              <span className="text-xs text-muted-foreground">
+                {t("subscription.costSharing.memberCount", { count: summary.memberCount })}
+              </span>
+            </FormFieldRowAction>
+          </FormFieldRow>
 
           <CostSharingSummaryGrid
             memberTotal={summary.memberTotal}
@@ -421,34 +426,41 @@ export function CostSharingMemberManagerView({
         <div className="grid gap-2.5">
           {members.map((member, index) => {
             return (
-              <div
+              <FormFieldRow
                 key={member.id}
-                className="grid min-w-0 gap-3 rounded-lg border border-border bg-secondary/30 p-3 sm:grid-cols-[minmax(11rem,1fr)_minmax(9rem,10rem)_minmax(12rem,14rem)_2.25rem] sm:items-end"
+                alignAt="md"
+                className="min-w-0 rounded-lg border border-border bg-secondary/30 p-3"
+                rowClassName="md:grid-cols-[minmax(11rem,1fr)_minmax(9rem,10rem)_minmax(12rem,14rem)_2.25rem]"
               >
-                <div className="grid min-w-0 gap-1.5">
-                  <Label htmlFor={id(`costSharingMemberName-${member.id}`)} className="text-xs text-muted-foreground">
-                    {t("subscription.costSharing.memberName")}
-                  </Label>
-                  <Input
-                    ref={index === 0 ? initialMemberNameInputRef : undefined}
-                    id={id(`costSharingMemberName-${member.id}`)}
-                    value={member.name}
-                    onChange={(event) => updateMember(member.id, { name: event.target.value })}
-                    aria-label={t("subscription.costSharing.memberName")}
-                    className="h-9 border-border bg-secondary font-medium"
-                  />
-                  <Label htmlFor={id(`costSharingMemberNote-${member.id}`)} className="sr-only">
-                    {t("subscription.costSharing.memberNote")}
-                  </Label>
-                  <Input
-                    id={id(`costSharingMemberNote-${member.id}`)}
-                    value={member.note ?? ""}
-                    onChange={(event) => updateMember(member.id, { note: event.target.value })}
-                    aria-label={t("subscription.costSharing.memberNote")}
-                    placeholder={t("subscription.costSharing.memberNotePlaceholder")}
-                    className="h-8 border-border bg-secondary text-sm text-muted-foreground placeholder:text-muted-foreground/70"
-                  />
-                </div>
+                <FormField
+                  id={id(`costSharingMemberName-${member.id}`)}
+                  label={t("subscription.costSharing.memberName")}
+                  labelClassName="text-xs text-muted-foreground"
+                >
+                  {({ id: fieldId }) => (
+                    <div className="grid min-w-0 gap-1.5">
+                      <Input
+                        ref={index === 0 ? initialMemberNameInputRef : undefined}
+                        id={fieldId}
+                        value={member.name}
+                        onChange={(event) => updateMember(member.id, { name: event.target.value })}
+                        aria-label={t("subscription.costSharing.memberName")}
+                        className="h-9 border-border bg-secondary font-medium"
+                      />
+                      <Label htmlFor={id(`costSharingMemberNote-${member.id}`)} className="sr-only">
+                        {t("subscription.costSharing.memberNote")}
+                      </Label>
+                      <Input
+                        id={id(`costSharingMemberNote-${member.id}`)}
+                        value={member.note ?? ""}
+                        onChange={(event) => updateMember(member.id, { note: event.target.value })}
+                        aria-label={t("subscription.costSharing.memberNote")}
+                        placeholder={t("subscription.costSharing.memberNotePlaceholder")}
+                        className="h-8 border-border bg-secondary text-sm text-muted-foreground placeholder:text-muted-foreground/70"
+                      />
+                    </div>
+                  )}
+                </FormField>
                 <MemberJoinedDateField
                   id={id}
                   member={member}
@@ -463,70 +475,89 @@ export function CostSharingMemberManagerView({
                   defaultMonth={member.joinedDate ?? joinedDateRange.minDate ?? joinedDateRange.maxDate ?? undefined}
                 />
                 {costSharing.splitMode === "custom" ? (
-                  <div className="grid min-w-0 gap-1.5">
-                    <Label htmlFor={id(`costSharingMemberAmount-${member.id}`)} className="text-xs text-muted-foreground">
-                      {t("subscription.costSharing.customAmount")}
-                    </Label>
-                    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_5.5rem] gap-1.5">
-                      <NumericInput
-                        id={id(`costSharingMemberAmount-${member.id}`)}
-                        name={id(`costSharingMemberAmount-${member.id}`)}
-                        allowNegative={false}
-                        allowedDecimalSeparators={[".", "。"]}
-                        inputMode="decimal"
-                        placeholder="0.00"
-                        prefix={getCurrencyAmountPrefix(member.currency ?? formData.currency, locale)}
-                        value={member.customAmount?.toString() ?? ""}
-                        onRawValueChange={(value) => updateMember(member.id, { customAmount: value.trim() === "" ? undefined : parseMoneyInput(value) ?? undefined })}
-                        className="h-9 min-w-0 border-border bg-secondary px-2 font-semibold sm:text-right"
-                        aria-label={t("subscription.costSharing.customAmount")}
-                      />
-                      <MemberCurrencySelect
-                        value={member.currency ?? formData.currency}
-                        onValueChange={(value) => updateMember(member.id, { currency: value })}
-                        options={currencyOptions}
-                        ariaLabel={t("subscription.costSharing.memberCurrency")}
-                        placeholder={t("subscription.placeholder.currency")}
-                        searchPlaceholder={t("subscription.search.currency")}
-                        emptyMessage={t("subscription.empty.currency")}
-                      />
-                    </div>
-                  </div>
+                  <FormField
+                    id={id(`costSharingMemberAmount-${member.id}`)}
+                    label={t("subscription.costSharing.customAmount")}
+                    labelClassName="text-xs text-muted-foreground"
+                  >
+                    {({ id: fieldId }) => (
+                      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_5.5rem] gap-1.5">
+                        <NumericInput
+                          id={fieldId}
+                          name={id(`costSharingMemberAmount-${member.id}`)}
+                          allowNegative={false}
+                          allowedDecimalSeparators={[".", "。"]}
+                          inputMode="decimal"
+                          placeholder="0.00"
+                          prefix={getCurrencyAmountPrefix(member.currency ?? formData.currency, locale)}
+                          value={member.customAmount?.toString() ?? ""}
+                          onRawValueChange={(value) => updateMember(member.id, { customAmount: value.trim() === "" ? undefined : parseMoneyInput(value) ?? undefined })}
+                          className="h-9 min-w-0 border-border bg-secondary px-2 font-semibold sm:text-right"
+                          aria-label={t("subscription.costSharing.customAmount")}
+                        />
+                        <MemberCurrencySelect
+                          value={member.currency ?? formData.currency}
+                          onValueChange={(value) => updateMember(member.id, { currency: value })}
+                          options={currencyOptions}
+                          ariaLabel={t("subscription.costSharing.memberCurrency")}
+                          placeholder={t("subscription.placeholder.currency")}
+                          searchPlaceholder={t("subscription.search.currency")}
+                          emptyMessage={t("subscription.empty.currency")}
+                        />
+                      </div>
+                    )}
+                  </FormField>
                 ) : (
-                  <div className="grid min-w-0 gap-1.5">
-                    <Label className="text-xs text-muted-foreground">
-                      {t("subscription.costSharing.customAmount")}
-                    </Label>
-                    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_5.5rem] gap-1.5">
-                      <span className="flex min-h-9 min-w-0 items-center justify-end rounded-md bg-secondary px-2.5 py-2 text-right text-sm font-semibold leading-5 tabular-nums text-foreground">
-                        <span className="max-w-full break-all">
-                          {formatCurrencySymbolAmount(memberShareInCurrency(member), member.currency ?? formData.currency, locale)}
-                        </span>
+                  <FormField
+                    id={id(`costSharingMemberAmount-${member.id}`)}
+                    labelSlot={(
+                      <span
+                        id={id(`costSharingMemberAmount-${member.id}-label`)}
+                        className="text-xs text-muted-foreground"
+                      >
+                        {t("subscription.costSharing.customAmount")}
                       </span>
-                      <MemberCurrencySelect
-                        value={member.currency ?? formData.currency}
-                        onValueChange={(value) => updateMember(member.id, { currency: value })}
-                        options={currencyOptions}
-                        ariaLabel={t("subscription.costSharing.memberCurrency")}
-                        placeholder={t("subscription.placeholder.currency")}
-                        searchPlaceholder={t("subscription.search.currency")}
-                        emptyMessage={t("subscription.empty.currency")}
-                      />
-                    </div>
-                  </div>
+                    )}
+                  >
+                    {({ id: fieldId }) => (
+                      <div
+                        id={fieldId}
+                        role="group"
+                        aria-labelledby={id(`costSharingMemberAmount-${member.id}-label`)}
+                        className="grid min-w-0 grid-cols-[minmax(0,1fr)_5.5rem] gap-1.5"
+                      >
+                        <span className="flex min-h-9 min-w-0 items-center justify-end rounded-md bg-secondary px-2.5 py-2 text-right text-sm font-semibold leading-5 tabular-nums text-foreground">
+                          <span className="max-w-full break-all">
+                            {formatCurrencySymbolAmount(memberShareInCurrency(member), member.currency ?? formData.currency, locale)}
+                          </span>
+                        </span>
+                        <MemberCurrencySelect
+                          value={member.currency ?? formData.currency}
+                          onValueChange={(value) => updateMember(member.id, { currency: value })}
+                          options={currencyOptions}
+                          ariaLabel={t("subscription.costSharing.memberCurrency")}
+                          placeholder={t("subscription.placeholder.currency")}
+                          searchPlaceholder={t("subscription.search.currency")}
+                          emptyMessage={t("subscription.empty.currency")}
+                        />
+                      </div>
+                    )}
+                  </FormField>
                 )}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9 justify-self-end text-destructive hover:bg-destructive/10 hover:text-destructive sm:self-end"
-                  onClick={() => removeMember(member.id)}
-                  disabled={members.length <= 1}
-                  aria-label={t("common.delete")}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
+                <FormFieldRowAction controlClassName="justify-self-end">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => removeMember(member.id)}
+                    disabled={members.length <= 1}
+                    aria-label={t("common.delete")}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </FormFieldRowAction>
+              </FormFieldRow>
             );
           })}
         </div>
@@ -649,25 +680,30 @@ function MemberJoinedDateField({
   const valueId = id(`costSharingMemberJoinedDate-${member.id}-value`);
 
   return (
-    <div className="grid min-w-0 gap-1.5">
-      <Label id={labelId} htmlFor={fieldId} className="text-xs text-muted-foreground">
-        {label}
-      </Label>
-      <DateOnlyPickerField
-        id={fieldId}
-        labelId={labelId}
-        valueId={valueId}
-        value={value}
-        onChange={onChange}
-        placeholder={placeholder}
-        invalid={invalid}
-        describedBy={describedBy}
-        minDate={minDate}
-        maxDate={maxDate}
-        defaultMonth={defaultMonth}
-        buttonClassName="h-9 text-sm"
-      />
-    </div>
+    <FormField
+      id={fieldId}
+      label={label}
+      labelId={labelId}
+      labelClassName="text-xs text-muted-foreground"
+      describedBy={describedBy}
+    >
+      {({ id: resolvedId, describedBy: resolvedDescribedBy }) => (
+        <DateOnlyPickerField
+          id={resolvedId}
+          labelId={labelId}
+          valueId={valueId}
+          value={value}
+          onChange={onChange}
+          placeholder={placeholder}
+          invalid={invalid}
+          describedBy={resolvedDescribedBy}
+          minDate={minDate}
+          maxDate={maxDate}
+          defaultMonth={defaultMonth}
+          buttonClassName="h-9 text-sm"
+        />
+      )}
+    </FormField>
   );
 }
 

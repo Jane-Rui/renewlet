@@ -6,47 +6,22 @@
  */
 import { setupI18n, type I18n, type Messages } from "@lingui/core";
 import type { Locale } from "@/i18n/locales";
-import { DEFAULT_LOCALE } from "@/i18n/locales";
-import {
-  getStaticCatalog,
-  STATIC_CATALOGS,
-  translateStaticMessage,
-  type MessageKey,
-  type MessageParams,
-} from "@/i18n/static-catalogs";
+import type { MessageKey } from "@/i18n/catalog-keys";
 
-export type { MessageKey, MessageParams } from "@/i18n/static-catalogs";
+export type { MessageKey } from "@/i18n/catalog-keys";
+export type MessageParams = Record<string, string | number | boolean | null | undefined>;
 
 type CatalogModule = {
   messages: Messages;
 };
 
-type DomainCatalogModules = Record<string, CatalogModule>;
-
-function mergeDomainCatalogs(modules: DomainCatalogModules): Messages {
-  const messages: Messages = {};
-  for (const module of Object.values(modules)) {
-    for (const [key, value] of Object.entries(module.messages)) {
-      messages[key] = value;
-    }
-  }
-  return messages;
-}
-
-const zhCNCatalogs = import.meta.glob<CatalogModule>("./catalogs/zh-CN/*.po", {
-  eager: true,
-});
-const enUSCatalogs = import.meta.glob<CatalogModule>("./catalogs/en-US/*.po", {
-  eager: true,
-});
-
 const catalogLoaders = {
-  "zh-CN": async () => ({ messages: mergeDomainCatalogs(zhCNCatalogs) }),
-  "en-US": async () => ({ messages: mergeDomainCatalogs(enUSCatalogs) }),
+  "zh-CN": () => import("@/i18n/catalog-loaders/zh-CN"),
+  "en-US": () => import("@/i18n/catalog-loaders/en-US"),
 } satisfies Record<Locale, () => Promise<CatalogModule>>;
 
-const defaultMessages = getStaticCatalog(DEFAULT_LOCALE);
-const loadedCatalogs = new Map<Locale, Messages>([[DEFAULT_LOCALE, defaultMessages]]);
+const loadedCatalogs = new Map<Locale, Messages>();
+const loadingCatalogs = new Map<Locale, Promise<Messages>>();
 const localeI18nCache = new Map<Locale, I18n>();
 
 function createMissingHandler(locale: string, id: string) {
@@ -64,35 +39,42 @@ function createLocaleI18n(locale: Locale, messages: Messages) {
   });
 }
 
-localeI18nCache.set(DEFAULT_LOCALE, createLocaleI18n(DEFAULT_LOCALE, defaultMessages));
-
 export const linguiI18n = setupI18n({
-  locale: DEFAULT_LOCALE,
-  messages: { [DEFAULT_LOCALE]: defaultMessages },
   missing: createMissingHandler,
 });
-
-export function isLocaleCatalogLoaded(locale: Locale) {
-  return loadedCatalogs.has(locale);
-}
 
 export async function loadLocaleCatalog(locale: Locale): Promise<Messages> {
   const loaded = loadedCatalogs.get(locale);
   if (loaded) return loaded;
+  const loading = loadingCatalogs.get(locale);
+  if (loading) return loading;
   // 生产构建必须消费 Vite Lingui 插件预编译后的 `.po` catalog；不要恢复 raw TS catalog 或 runtime compiler。
-  const module = await catalogLoaders[locale]();
-  loadedCatalogs.set(locale, module.messages);
-  localeI18nCache.set(locale, createLocaleI18n(locale, module.messages));
-  return module.messages;
+  const promise = catalogLoaders[locale]()
+    .then((module) => {
+      loadedCatalogs.set(locale, module.messages);
+      localeI18nCache.set(locale, createLocaleI18n(locale, module.messages));
+      return module.messages;
+    })
+    .finally(() => {
+      // in-flight map 只负责并发去重；失败任务必须释放，后续显式切换才能重新加载 catalog。
+      if (loadingCatalogs.get(locale) === promise) {
+        loadingCatalogs.delete(locale);
+      }
+    });
+  loadingCatalogs.set(locale, promise);
+  return promise;
 }
 
-export async function activateLinguiLocale(locale: Locale) {
-  const messages = await loadLocaleCatalog(locale);
+export function activateLoadedLocale(locale: Locale, messages: Messages): void {
   // 只激活当前 UI locale；同步 translate 使用独立实例，避免后台格式化偷偷切换全局 React 语言。
   linguiI18n.loadAndActivate({ locale, messages });
 }
 
+export async function loadAndActivateLocale(locale: Locale): Promise<void> {
+  activateLoadedLocale(locale, await loadLocaleCatalog(locale));
+}
+
 export function translate(locale: Locale, key: MessageKey, params: MessageParams = {}): string {
   const instance = localeI18nCache.get(locale);
-  return instance ? instance._(key, params) : translateStaticMessage(locale, key, params);
+  return instance ? instance._(key, params) : key;
 }

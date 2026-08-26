@@ -80,34 +80,34 @@ export function SubscriptionFormDateFields({ id, formData, update, errors }: Sub
       </div>
 
       <FormFieldRow
-        rowClassName={cn("items-start", !isOneTimeBuyout && "sm:grid-cols-2")}
+        alignAt="sm"
+        rowClassName={cn(!isOneTimeBuyout && "sm:grid-cols-2")}
+        errors={[
+          { id: startDateErrorId, message: startDateHasError ? errors.dates : undefined },
+          { id: nextBillingDateErrorId, message: nextBillingDateHasError ? errors.dates : undefined },
+        ]}
       >
         <FormField
           id={startDateId}
           label={startDateLabel}
           labelId={startDateLabelId}
-          describedBy={isOneTimeBuyout ? startDateHelpId : undefined}
+          description={isOneTimeBuyout ? t("subscription.oneTimeBuyoutDateHelp") : undefined}
+          descriptionId={startDateHelpId}
           error={startDateHasError ? errors.dates : undefined}
           errorId={startDateErrorId}
+          renderError={false}
         >
           {(field) => (
-            <>
-              <DateOnlyPickerField
-                id={field.id}
-                labelId={startDateLabelId}
-                valueId={startDateValueId}
-                value={formData.startDate}
-                onChange={(value) => update("startDate", value)}
-                placeholder={t("subscription.placeholder.date")}
-                invalid={field.invalid}
-                describedBy={field.describedBy}
-              />
-              {isOneTimeBuyout ? (
-                <p id={startDateHelpId} className="text-xs text-muted-foreground">
-                  {t("subscription.oneTimeBuyoutDateHelp")}
-                </p>
-              ) : null}
-            </>
+            <DateOnlyPickerField
+              id={field.id}
+              labelId={startDateLabelId}
+              valueId={startDateValueId}
+              value={formData.startDate}
+              onChange={(value) => update("startDate", value)}
+              placeholder={t("subscription.placeholder.date")}
+              invalid={field.invalid}
+              describedBy={field.describedBy}
+            />
           )}
         </FormField>
 
@@ -116,31 +116,26 @@ export function SubscriptionFormDateFields({ id, formData, update, errors }: Sub
             id={nextBillingDateId}
             label={nextBillingDateLabel}
             labelId={nextBillingDateLabelId}
-            describedBy={nextBillingDateHelp ? nextBillingDateHelpId : undefined}
+            description={nextBillingDateHelp}
+            descriptionId={nextBillingDateHelpId}
             error={nextBillingDateHasError ? errors.dates : undefined}
             errorId={nextBillingDateErrorId}
+            renderError={false}
           >
             {(field) => (
-              <>
-                <DateOnlyPickerField
-                  id={field.id}
-                  labelId={nextBillingDateLabelId}
-                  valueId={nextBillingDateValueId}
-                  value={formData.nextBillingDate}
-                  onChange={(value) => update("nextBillingDate", value)}
-                  placeholder={t("subscription.placeholder.date")}
-                  invalid={field.invalid}
-                  describedBy={field.describedBy}
-                  disabled={isNextBillingDateDisabled}
-                  {...(formData.startDate ? { minDate: formData.startDate } : {})}
-                  {...(nextBillingDateCalendarMonth ? { defaultMonth: nextBillingDateCalendarMonth } : {})}
-                />
-                {nextBillingDateHelp ? (
-                  <p id={nextBillingDateHelpId} className="text-xs text-muted-foreground">
-                    {nextBillingDateHelp}
-                  </p>
-                ) : null}
-              </>
+              <DateOnlyPickerField
+                id={field.id}
+                labelId={nextBillingDateLabelId}
+                valueId={nextBillingDateValueId}
+                value={formData.nextBillingDate}
+                onChange={(value) => update("nextBillingDate", value)}
+                placeholder={t("subscription.placeholder.date")}
+                invalid={field.invalid}
+                describedBy={field.describedBy}
+                disabled={isNextBillingDateDisabled}
+                {...(formData.startDate ? { minDate: formData.startDate } : {})}
+                {...(nextBillingDateCalendarMonth ? { defaultMonth: nextBillingDateCalendarMonth } : {})}
+              />
             )}
           </FormField>
         ) : null}

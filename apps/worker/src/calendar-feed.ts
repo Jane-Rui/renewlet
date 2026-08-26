@@ -6,10 +6,14 @@
 import {
   calendarFeedCreateRequestSchema,
   calendarFeedCreatePayloadSchema,
+  calendarFeedRotateRequestSchema,
   calendarFeedStatusPayloadSchema,
+  subscriptionCalendarFeedListPayloadSchema,
+  subscriptionCalendarFeedListQuerySchema,
 } from "@renewlet/shared/schemas/calendar-feed";
 import { buildRenewalCalendarIcs } from "@renewlet/shared/ics";
 import { buildRenewalCalendarEvent, type RenewalCalendarEvent, type RenewalCalendarSubscription } from "@renewlet/shared/calendar-events";
+import { requireCustomBillingCycle } from "@renewlet/shared/subscription-renewal";
 import { effectiveReminderDays, isDisabledReminderDays, isValidDateOnly, type BillingCycle } from "@renewlet/shared/runtime";
 import { customConfigSchema, type ApiCustomConfig } from "@renewlet/shared/schemas/custom-config";
 import type { ApiAppSettings } from "@renewlet/shared/schemas/settings";
@@ -41,13 +45,26 @@ interface CalendarFeedLabelResolver {
 
 type CalendarFeedBuiltInLabelKeyResolver = (value: string) => Parameters<typeof serverText>[1] | undefined;
 
+interface SubscriptionCalendarFeedListRow {
+  id: string;
+  user_id: string;
+  subscription_id: string | null;
+  token: string;
+  created_at: string;
+  updated_at: string;
+  subscription_name: string | null;
+  subscription_status: string | null;
+  subscription_next_billing_date: string | null;
+  total: number;
+}
+
 /** 读取全局续费日历 feed 状态；只返回 URL 展示态，不把 token 拆成独立字段。 */
 export async function readCalendarFeed(request: Request, env: Env): Promise<Response> {
   const locale = requestLocale(request);
   const auth = await requireAuth(request, env);
   await ensureCalendarFeedSchema(env, locale);
   const row = await getCalendarFeed(env, auth.user.id, "all", null);
-  return successJson(calendarFeedStatusPayloadSchema.parse({ calendarFeed: calendarFeedStatus(row, request) }));
+  return calendarFeedSuccessJson(calendarFeedStatusPayloadSchema.parse({ calendarFeed: calendarFeedStatus(row, request) }));
 }
 
 /** 创建或复用全局 feed；请求体必须为空对象，token 始终由服务端生成。 */
@@ -62,7 +79,7 @@ export async function createCalendarFeed(request: Request, env: Env): Promise<Re
     subscriptionId: null,
     userId: auth.user.id,
   });
-  return successJson(calendarFeedCreatePayloadSchema.parse({
+  return calendarFeedSuccessJson(calendarFeedCreatePayloadSchema.parse({
     calendarFeed: {
       ...calendarFeedStatus(row, request),
       enabled: true,
@@ -74,8 +91,13 @@ export async function deleteCalendarFeed(request: Request, env: Env): Promise<Re
   const locale = requestLocale(request);
   const auth = await requireAuth(request, env);
   await ensureCalendarFeedSchema(env, locale);
-  await env.DB.prepare("DELETE FROM calendar_feeds WHERE user_id = ? AND scope = 'all'").bind(auth.user.id).run();
-  return ok();
+  const deleted = await env.DB.prepare(`
+    DELETE FROM calendar_feeds
+    WHERE user_id = ? AND scope = 'all'
+    RETURNING id
+  `).bind(auth.user.id).first<{ id: string }>();
+  if (!deleted) throw new HttpError(404, serverText(locale, "calendarFeed.notFound"), "NOT_FOUND");
+  return calendarFeedOk();
 }
 
 export async function readSubscriptionCalendarFeed(request: Request, env: Env, subscriptionId: string): Promise<Response> {
@@ -86,7 +108,7 @@ export async function readSubscriptionCalendarFeed(request: Request, env: Env, s
   if (!subscription) throw new HttpError(404, serverText(locale, "subscription.notFound"), "NOT_FOUND");
   if (isOneTimeBuyout(toCalendarSubscription(subscription))) throw new HttpError(404, serverText(locale, "subscription.notFound"), "NOT_FOUND");
   const row = await getCalendarFeed(env, auth.user.id, "subscription", subscriptionId);
-  return successJson(calendarFeedStatusPayloadSchema.parse({ calendarFeed: calendarFeedStatus(row, request) }));
+  return calendarFeedSuccessJson(calendarFeedStatusPayloadSchema.parse({ calendarFeed: calendarFeedStatus(row, request) }));
 }
 
 /** 创建单订阅 feed 前先确认订阅属于当前用户，避免用 feed URL 探测他人订阅 ID。 */
@@ -104,7 +126,7 @@ export async function createSubscriptionCalendarFeed(request: Request, env: Env,
     subscriptionId,
     userId: auth.user.id,
   });
-  return successJson(calendarFeedCreatePayloadSchema.parse({
+  return calendarFeedSuccessJson(calendarFeedCreatePayloadSchema.parse({
     calendarFeed: {
       ...calendarFeedStatus(row, request),
       enabled: true,
@@ -118,10 +140,122 @@ export async function deleteSubscriptionCalendarFeed(request: Request, env: Env,
   await ensureCalendarFeedSchema(env, locale);
   const subscription = await getSubscription(env, auth.user.id, subscriptionId);
   if (!subscription) throw new HttpError(404, serverText(locale, "subscription.notFound"), "NOT_FOUND");
-  await env.DB.prepare("DELETE FROM calendar_feeds WHERE user_id = ? AND scope = 'subscription' AND subscription_id = ?")
+  const deleted = await env.DB.prepare(`
+    DELETE FROM calendar_feeds
+    WHERE user_id = ? AND scope = 'subscription' AND subscription_id = ?
+    RETURNING id
+  `)
     .bind(auth.user.id, subscriptionId)
-    .run();
-  return ok();
+    .first<{ id: string }>();
+  if (!deleted) throw new HttpError(404, serverText(locale, "calendarFeed.notFound"), "NOT_FOUND");
+  return calendarFeedOk();
+}
+
+export async function listSubscriptionCalendarFeeds(request: Request, env: Env): Promise<Response> {
+  const locale = requestLocale(request);
+  const auth = await requireAuth(request, env);
+  await ensureCalendarFeedSchema(env, locale);
+  const query = parseSubscriptionCalendarFeedListQuery(request);
+  // 单订阅 Feed 与订阅窄投影在一条 owner-scoped 查询中分页；禁止在列表映射阶段逐项回读 subscriptions。
+  const result = await env.DB.prepare(`
+    WITH owned AS (
+      SELECT
+        feed.id,
+        feed.user_id,
+        feed.subscription_id,
+        feed.token,
+        feed.created_at,
+        feed.updated_at,
+        subscription.name AS subscription_name,
+        subscription.status AS subscription_status,
+        subscription.next_billing_date AS subscription_next_billing_date
+      FROM calendar_feeds AS feed
+      JOIN subscriptions AS subscription
+        ON subscription.id = feed.subscription_id
+        AND subscription.user_id = feed.user_id
+      WHERE feed.user_id = ? AND feed.scope = 'subscription'
+    ), page AS (
+      SELECT * FROM owned
+      ORDER BY updated_at DESC, id DESC
+      LIMIT ? OFFSET ?
+    )
+    SELECT
+      COALESCE(page.id, '') AS id,
+      COALESCE(page.user_id, '') AS user_id,
+      page.subscription_id,
+      COALESCE(page.token, '') AS token,
+      COALESCE(page.created_at, '') AS created_at,
+      COALESCE(page.updated_at, '') AS updated_at,
+      page.subscription_name,
+      page.subscription_status,
+      page.subscription_next_billing_date,
+      counts.total AS total
+    FROM (SELECT COUNT(*) AS total FROM owned) AS counts
+    LEFT JOIN page ON 1 = 1
+    ORDER BY page.updated_at DESC, page.id DESC
+  `).bind(auth.user.id, query.limit, query.offset).all<SubscriptionCalendarFeedListRow>();
+  const total = result.results[0]?.total ?? 0;
+  const items = result.results.filter((row) => row.id !== "").map((row) => ({
+    id: row.id,
+    feedUrl: calendarFeedUrl(request, row.token),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    subscription: {
+      id: row.subscription_id ?? "",
+      name: row.subscription_name ?? "",
+      status: row.subscription_status ?? "",
+      nextBillingDate: row.subscription_next_billing_date ?? "",
+    },
+  }));
+  return calendarFeedSuccessJson(subscriptionCalendarFeedListPayloadSchema.parse({
+    calendarFeeds: {
+      items,
+      limit: query.limit,
+      offset: query.offset,
+      total,
+      hasMore: query.offset + items.length < total,
+    },
+  }));
+}
+
+export async function rotateCalendarFeed(request: Request, env: Env): Promise<Response> {
+  const locale = requestLocale(request);
+  const auth = await requireAuth(request, env);
+  await readJson(request, calendarFeedRotateRequestSchema, locale);
+  await ensureCalendarFeedSchema(env, locale);
+  const existing = await getCalendarFeed(env, auth.user.id, "all", null);
+  if (!existing) throw new HttpError(404, serverText(locale, "calendarFeed.notFound"), "NOT_FOUND");
+  return await rotateCalendarFeedRow(request, env, existing);
+}
+
+export async function rotateSubscriptionCalendarFeed(request: Request, env: Env, subscriptionId: string): Promise<Response> {
+  const locale = requestLocale(request);
+  const auth = await requireAuth(request, env);
+  await readJson(request, calendarFeedRotateRequestSchema, locale);
+  await ensureCalendarFeedSchema(env, locale);
+  const subscription = await getSubscription(env, auth.user.id, subscriptionId);
+  if (!subscription || isOneTimeBuyout(toCalendarSubscription(subscription))) {
+    throw new HttpError(404, serverText(locale, "subscription.notFound"), "NOT_FOUND");
+  }
+  const existing = await getCalendarFeed(env, auth.user.id, "subscription", subscriptionId);
+  if (!existing) throw new HttpError(404, serverText(locale, "calendarFeed.notFound"), "NOT_FOUND");
+  return await rotateCalendarFeedRow(request, env, existing);
+}
+
+async function rotateCalendarFeedRow(request: Request, env: Env, existing: CalendarFeedRow): Promise<Response> {
+  const token = randomToken();
+  const updatedAt = nowIso();
+  // 单条 UPDATE 同时失效旧 token 并返回新记录；不能先 DELETE 再 INSERT，失败时旧 URL 必须继续有效。
+  const rotated = await env.DB.prepare(`
+    UPDATE calendar_feeds
+    SET token = ?, updated_at = ?
+    WHERE id = ? AND user_id = ?
+    RETURNING id, user_id, scope, subscription_id, token, created_at, updated_at
+  `).bind(token, updatedAt, existing.id, existing.user_id).first<CalendarFeedRow>();
+  if (!rotated) throw new HttpError(404, serverText(requestLocale(request), "calendarFeed.notFound"), "NOT_FOUND");
+  return calendarFeedSuccessJson(calendarFeedCreatePayloadSchema.parse({
+    calendarFeed: { ...calendarFeedStatus(rotated, request), enabled: true },
+  }));
 }
 
 export async function downloadSubscriptionCalendarIcs(request: Request, env: Env, subscriptionId: string): Promise<Response> {
@@ -327,6 +461,7 @@ async function createCalendarFeedIndexes(env: Env): Promise<void> {
   await env.DB.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_feeds_user_all_unique ON calendar_feeds (user_id) WHERE scope = 'all'").run();
   await env.DB.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_feeds_token ON calendar_feeds (token)").run();
   await env.DB.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_feeds_user_subscription_unique ON calendar_feeds (user_id, subscription_id) WHERE scope = 'subscription'").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_calendar_feeds_user_scope_updated_id ON calendar_feeds (user_id, scope, updated_at DESC, id DESC)").run();
 }
 
 async function insertCalendarFeed(env: Env, input: {
@@ -393,6 +528,31 @@ function calendarFeedUrl(request: Request, token: string): string {
   return `${requestOrigin(request)}/calendar/renewals.ics?token=${encodeURIComponent(token)}`;
 }
 
+function parseSubscriptionCalendarFeedListQuery(request: Request) {
+  const params = new URL(request.url).searchParams;
+  for (const key of params.keys()) {
+    if ((key !== "limit" && key !== "offset") || params.getAll(key).length !== 1 || !params.get(key)?.trim()) {
+      throw new HttpError(400, serverText(requestLocale(request), "common.invalidRequestParameters"), "INVALID_PAYLOAD");
+    }
+  }
+  const result = subscriptionCalendarFeedListQuerySchema.safeParse(Object.fromEntries(params));
+  if (!result.success) {
+    throw new HttpError(400, serverText(requestLocale(request), "common.invalidRequestParameters"), "INVALID_PAYLOAD", result.error.flatten());
+  }
+  return result.data;
+}
+
+function calendarFeedSuccessJson(value: unknown): Response {
+  // 登录态响应含可复制 bearer URL 或改变其有效性，不能让浏览器/代理缓存撤销前的 token。
+  return successJson(value, { headers: { "cache-control": "no-store" } });
+}
+
+function calendarFeedOk(): Response {
+  const response = ok();
+  response.headers.set("cache-control", "no-store");
+  return response;
+}
+
 function calendarEvents(
   subscriptions: CalendarSubscription[],
   settings: ApiAppSettings,
@@ -453,12 +613,15 @@ function calendarEvent(
 
 function billingCycleLabel(subscription: CalendarSubscription, locale: ApiAppSettings["locale"]): string {
   if (subscription.billingCycle === "custom") {
-    const unit = isCustomCycleUnit(subscription.customCycleUnit) ? subscription.customCycleUnit : "day";
-    const unitKey = `calendarFeed.customCycleUnit.${unit}` as const;
+    const custom = requireCustomBillingCycle(
+      subscription.customDays,
+      isCustomCycleUnit(subscription.customCycleUnit) ? subscription.customCycleUnit : undefined,
+    );
+    const unitKey = `calendarFeed.customCycleUnit.${custom.unit}` as const;
     const unitLabel = serverText(locale, unitKey);
     return serverFormat(locale, "calendarFeed.billingCycle.customValue", {
-      count: subscription.customDays ?? 1,
-      unit: unitLabel === unitKey ? unit : unitLabel,
+      count: custom.count,
+      unit: unitLabel === unitKey ? custom.unit : unitLabel,
     });
   }
   const cycle = subscription.billingCycle;

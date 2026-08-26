@@ -81,7 +81,7 @@ export function AIRecognitionStreamPanel({
     <aside
       data-testid="ai-recognition-stream-panel"
       className={cn(
-        "max-h-full w-full min-w-0 max-w-[28rem] overflow-y-auto rounded-lg border border-border bg-card/95 p-3 shadow-lg shadow-black/10",
+        "max-h-full w-full min-w-0 max-w-md overflow-y-auto rounded-lg border border-border bg-card/95 p-3 shadow-lg shadow-black/10",
         mobile ? "space-y-2" : "space-y-3",
       )}
       role="status"

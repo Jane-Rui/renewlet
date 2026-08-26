@@ -71,7 +71,7 @@ http://localhost:3000/setup
 生产环境固定到稳定版本：
 
 ```bash
-sed -i.bak 's#RENEWLET_IMAGE=.*#RENEWLET_IMAGE="zhiyingzzhou/renewlet:0.3.1"#' .env
+sed -i.bak 's#RENEWLET_IMAGE=.*#RENEWLET_IMAGE="zhiyingzzhou/renewlet:0.3.22"#' .env
 docker compose pull
 docker compose up -d
 ```
@@ -79,7 +79,7 @@ docker compose up -d
 如果 Docker Hub 拉取不可用，改用 GHCR：
 
 ```env
-RENEWLET_IMAGE="ghcr.io/zhiyingzzhou/renewlet:0.3.1"
+RENEWLET_IMAGE="ghcr.io/zhiyingzzhou/renewlet:0.3.22"
 ```
 
 ## Cloudflare Workers
@@ -109,7 +109,7 @@ tar -czf renewlet-backup-$(date +%F).tgz .env docker-compose.yml data
 使用 Docker Compose 升级：
 
 ```bash
-sed -i.bak 's#RENEWLET_IMAGE=.*#RENEWLET_IMAGE="zhiyingzzhou/renewlet:0.3.1"#' .env
+sed -i.bak 's#RENEWLET_IMAGE=.*#RENEWLET_IMAGE="zhiyingzzhou/renewlet:0.3.22"#' .env
 docker compose pull
 docker compose up -d
 docker compose logs -f
@@ -135,7 +135,7 @@ docker compose down
 | `PB_ENCRYPTION_KEY` | PocketBase 敏感设置加密密钥，部署后不要随意更换。 |
 | `CRON_SECRET` | 外部 Cron 调用 `/api/cron/notifications` 时使用的 Bearer 密钥。 |
 | `RENEWLET_DEMO_MODE` | Docker Demo Mode 开关，默认 `false`。 |
-| `RENEWLET_CUSTOM_HEAD_SCRIPT` | 可选部署者自备外链 `<script>` 注入。默认留空；只建议使用可信自托管 HTTPS 脚本，因为它会运行在 Renewlet 页面内。 |
+| `RENEWLET_CUSTOM_HEAD_HTML` | 可选部署者可信的原始 `<head>` HTML 片段，UTF-8 最大 64 KiB，默认留空。 |
 | `NOTIFICATION_SCHEDULER_ENABLED` | 内置通知调度器开关，默认 `true`。 |
 | `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` | 可选 Docker/Go 上游 HTTP 代理；也支持小写变量名。 |
 
@@ -159,19 +159,27 @@ docker compose up -d --force-recreate
 
 Go 同时支持小写变量名 `http_proxy`、`https_proxy` 和 `no_proxy`。
 
-### 自定义 Head 脚本
+### 自定义 Head HTML
 
-Renewlet 默认不注入任何外部脚本。配置 `RENEWLET_CUSTOM_HEAD_SCRIPT` 后，Renewlet 会向 SPA `<head>` 注入一个部署者自备的外部 `<script>` 标签：
+Renewlet 默认不注入自定义 HTML。`RENEWLET_CUSTOM_HEAD_HTML` 接受由部署者信任的 SPA `<head>` 原始 HTML 片段，可包含多个 `script`、`style`、`link`、`meta`、`noscript`、`template`、`title`、`base`、注释和空白，支持内联脚本、外链脚本及动态创建资源的脚本。变量按 UTF-8 计最大 64 KiB。
+
+Docker Compose 的 `.env` 支持跨多行的单引号值。以下是使用占位 project id 的 Microsoft Clarity 官方 loader 完整示例：
 
 ```env
-RENEWLET_CUSTOM_HEAD_SCRIPT='<script defer src="https://cdn.example.com/widget.js" data-host-url="https://api.example.com/widget"></script>'
+RENEWLET_CUSTOM_HEAD_HTML='<script type="text/javascript">
+    (function(c,l,a,r,i,t,y){
+        c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
+        t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
+        y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
+    })(window, document, "clarity", "script", "your-project-id");
+</script>'
 ```
 
-Renewlet 只接受单个带 `src`、无内联内容的外链 script。脚本 origin 会自动加入 `script-src` 和 `connect-src`；如果提供 `data-host-url`，该 origin 也会加入 `connect-src`。
+变量值必须是原始 HTML。不要粘贴 `[https://www.clarity.ms/tag/](https://www.clarity.ms/tag/)` 这种 Markdown 链接、`\<script>` 这种反斜杠转义标签，也不要带上编辑器生成的 `&#x20;` 实体；这些内容都不是供应商原始 HTML 片段。
 
-请把这个配置视为高信任部署边界。注入脚本和 Renewlet 运行在同一个浏览器页面中。它读不到 HttpOnly session cookie，但同源脚本仍可读取 CSRF cookie，并以当前浏览器 session 发起带凭据请求。优先使用你完全控制的自托管 HTTPS 脚本；不需要时保持 `RENEWLET_CUSTOM_HEAD_SCRIPT` 为空。
+请把这个配置视为可信代码部署边界。片段拥有与 Renewlet 自带代码相同的同源能力：可读取页面数据和非 HttpOnly 存储、观察用户交互，并以当前浏览器 session 发起带凭据请求。变量为空时 Renewlet 保持严格资源 CSP；启用后会主动切换为结构性 CSP，仅保留 `object-src`、`base-uri`、`frame-ancestors` 和 `form-action` 限制，不设置 fetch directives，从而避免内联代码以及动态加载的脚本、XHR、图片和 frame 被不完整的域名猜测阻断。
 
-Docker/Go 部署在运行时注入，修改环境变量后只需重启 Renewlet。Cloudflare Static Assets 在构建时读取该变量并注入，修改后需要重新构建和部署。
+实例运营者负责审查片段、披露统计或会话录屏的数据收集、发布适用的隐私政策并提供法律要求的 consent signal。Renewlet 不内置 Clarity 专用集成或 CMP。Docker/Go 会在进程启动时校验并冻结配置，修改后需要重启 Renewlet；Cloudflare Static Assets 在构建时读取，修改后必须重新构建和部署。
 
 ## 截图
 

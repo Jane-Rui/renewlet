@@ -17,8 +17,9 @@
  * 注意： 外层表单必须关注 uploadStatus，上传中不允许保存订阅，避免临时预览值被持久化。
  */
 
-import { lazy, Suspense, useState } from 'react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { DeferredImageCropDialog, preloadImageCropDialog } from '@/components/image-crop-dialog-loader';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Upload, Search, X, Loader2, Image as ImageIcon, Images, RefreshCw, Link } from 'lucide-react';
@@ -38,19 +39,6 @@ import { useI18n } from '@/i18n/I18nProvider';
 export type { UploadStatus };
 
 const SEARCH_POPOVER_CLOSE_RESET_DELAY_MS = 200;
-
-const loadImageCropDialog = () => import('@/components/image-crop-dialog');
-const LazyImageCropDialog = lazy(() =>
-  loadImageCropDialog().then((mod) => ({ default: mod.ImageCropDialog })),
-);
-
-function CropDialogFallback() {
-  return <div className="fixed inset-0 z-50 bg-background/80" aria-hidden="true" />;
-}
-
-const preloadImageCropDialog = () => {
-  void loadImageCropDialog();
-};
 
 interface LogoPickerProps {
   /** 当前 logo（私有资产路径或 http(s) 外链）。 */
@@ -150,6 +138,7 @@ export function LogoPicker({
             onClick={() => fileInputRef.current?.click()}
             onFocus={preloadImageCropDialog}
             onPointerEnter={preloadImageCropDialog}
+            onTouchStart={preloadImageCropDialog}
           >
             {displayedLogo ? (
               <div className="relative z-10 h-full w-full p-1">
@@ -197,6 +186,7 @@ export function LogoPicker({
             onClick={() => fileInputRef.current?.click()}
             onFocus={preloadImageCropDialog}
             onPointerEnter={preloadImageCropDialog}
+            onTouchStart={preloadImageCropDialog}
           >
             {uploadStatus === "uploading" ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -213,7 +203,7 @@ export function LogoPicker({
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="h-8 w-fit max-w-full shrink-0 gap-1.5 overflow-hidden border-border px-3 text-xs"
+                  className="h-8 w-fit max-w-full shrink-0 gap-1.5 border-border px-3 text-xs"
                 >
                   <Images className="w-3.5 h-3.5" />
                   <span className="min-w-0 truncate">{t("media.uploaded")}</span>
@@ -342,7 +332,7 @@ export function LogoPicker({
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="h-8 w-fit max-w-full shrink-0 gap-1.5 overflow-hidden border-border px-3 text-xs"
+                  className="h-8 w-fit max-w-full shrink-0 gap-1.5 border-border px-3 text-xs"
                 >
                   <Search className="w-3.5 h-3.5" />
                   <span className="min-w-0 truncate">{t("media.search")}</span>
@@ -385,7 +375,7 @@ export function LogoPicker({
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="h-8 w-fit max-w-full shrink-0 gap-1.5 overflow-hidden border-border px-3 text-xs"
+                  className="h-8 w-fit max-w-full shrink-0 gap-1.5 border-border px-3 text-xs"
                 >
                   <Link className="w-3.5 h-3.5" />
                   <span className="min-w-0 truncate">{t("media.link")}</span>
@@ -431,20 +421,15 @@ export function LogoPicker({
       </div>
     </div>
 
-    {/* 图片裁剪弹窗 */}
-    {cropDialogOpen ? (
-      <Suspense fallback={<CropDialogFallback />}>
-        <LazyImageCropDialog
-          open={cropDialogOpen}
-          onOpenChange={setCropDialogOpen}
-          imageSrc={uploadedImage}
-          onCropComplete={handleCropComplete}
-          aspectRatio={1}
-          // Logo 在 UI 中展示尺寸很小，限制最大导出尺寸可避免生成超大图片导致上传失败
-          maxOutputSize={256}
-        />
-      </Suspense>
-    ) : null}
+    <DeferredImageCropDialog
+      open={cropDialogOpen}
+      onOpenChange={setCropDialogOpen}
+      imageSrc={uploadedImage}
+      onCropComplete={handleCropComplete}
+      aspectRatio={1}
+      // Logo 在 UI 中展示尺寸很小，限制最大导出尺寸可避免生成超大图片导致上传失败
+      maxOutputSize={256}
+    />
     </>
   );
 }

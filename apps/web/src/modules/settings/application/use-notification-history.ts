@@ -22,6 +22,7 @@ import {
   type NotificationOverviewResponse,
 } from "@/lib/api/schemas/notifications";
 import { notificationService } from "@/services/notification-service";
+import { toSettingsReadState, type SettingsReadState } from "./settings-read-state";
 
 export type {
   NotificationJobResult,
@@ -29,10 +30,6 @@ export type {
   NotificationHistoryStatusFilter,
   UpcomingNotificationBatch,
 } from "@/lib/api/schemas/notifications";
-
-export type NotificationHistoryResponse = NotificationOverviewResponse & {
-  history: NotificationHistoryPage;
-};
 
 const HISTORY_PAGE_SIZE = 20;
 
@@ -55,39 +52,37 @@ export function useNotificationHistory() {
       lastPage.hasMore ? lastPage.offset + lastPage.limit : undefined,
   });
 
-  const data = useMemo<NotificationHistoryResponse | undefined>(() => {
-    const overview = overviewQuery.data;
+  const historyData = useMemo<NotificationHistoryPage | undefined>(() => {
     const pages = historyQuery.data?.pages;
     const first = pages?.[0];
-    if (!overview || !first) return undefined;
+    if (!first) return undefined;
 
     const latest = pages?.[pages.length - 1] ?? first;
     const jobs = historyQuery.isPlaceholderData ? [] : (pages?.flatMap((page) => page.jobs) ?? []);
 
     return {
-      ...overview,
-      history: {
-        ...first,
-        jobs,
-        status,
-        limit: jobs.length,
-        offset: 0,
-        hasMore: historyQuery.isPlaceholderData ? false : latest.hasMore,
-      },
+      ...first,
+      jobs,
+      status,
+      limit: jobs.length,
+      offset: 0,
+      hasMore: historyQuery.isPlaceholderData ? false : latest.hasMore,
     };
-  }, [historyQuery.data?.pages, historyQuery.isPlaceholderData, overviewQuery.data, status]);
+  }, [historyQuery.data?.pages, historyQuery.isPlaceholderData, status]);
+
+  const overview = toSettingsReadState(overviewQuery);
+  const history = {
+    ...toSettingsReadState(historyQuery),
+    data: historyData,
+    hasData: historyData !== undefined,
+    isInitialLoading: (historyQuery.isPending || historyQuery.isPlaceholderData)
+      && historyQuery.isFetching
+      && historyData === undefined,
+  } satisfies SettingsReadState<NotificationHistoryPage>;
 
   return {
-    ...historyQuery,
-    data,
-    error: overviewQuery.error ?? historyQuery.error,
-    isError: overviewQuery.isError || historyQuery.isError,
-    isFetching: overviewQuery.isFetching || historyQuery.isFetching,
-    isLoading: overviewQuery.isLoading || historyQuery.isLoading || historyQuery.isPlaceholderData,
-    refetch: async () => {
-      const [overview, history] = await Promise.all([overviewQuery.refetch(), historyQuery.refetch()]);
-      return history.data ?? overview.data;
-    },
+    overview,
+    history,
     historyStatus: status,
     setStatus,
     limit: HISTORY_PAGE_SIZE,
@@ -96,3 +91,5 @@ export function useNotificationHistory() {
     },
   };
 }
+
+export type SettingsNotificationHistoryController = ReturnType<typeof useNotificationHistory>;

@@ -1,19 +1,19 @@
 import { effectiveReminderDays } from "@renewlet/shared/runtime";
 import { daysBetweenDateOnly, todayDateOnlyInTimeZone } from "@/lib/time/date-only";
-import type { Subscription } from "@/types/subscription";
+import type { SubscriptionCollectionItem } from "@/types/subscription";
 import { isEffectivelyActiveSubscription } from "./subscription-status";
 
 export type UpcomingReminderKind = "renewal" | "expiry";
 
 export interface UpcomingReminderItem {
-  subscription: Subscription;
+  subscription: SubscriptionCollectionItem;
   kind: UpcomingReminderKind;
   daysUntil: number;
   reminderDays: number;
 }
 
 interface BuildUpcomingReminderItemsInput {
-  subscriptions: readonly Subscription[];
+  subscriptions: readonly SubscriptionCollectionItem[];
   notificationReminderDays: number;
   now?: Date;
   timeZone?: string;

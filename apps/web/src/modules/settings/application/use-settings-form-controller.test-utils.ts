@@ -15,6 +15,7 @@ import {
   SETTINGS_THEME_MODE_STORAGE_KEY,
 } from "@/lib/theme-storage";
 import { useSettingsFormController } from "./use-settings-form-controller";
+import type { SettingsNotificationHistoryController } from "./use-notification-history";
 
 export const BASE_SETTINGS: AppSettings = {
   ...DEFAULT_SETTINGS,
@@ -22,6 +23,7 @@ export const BASE_SETTINGS: AppSettings = {
 };
 
 type SettingsMutationCommand = { patch: AppSettings; secretUpdates: SettingsSecretUpdates };
+type AppToast = (typeof import("@/components/ui/sonner"))["toast"];
 
 function providerStatusFixtures(counts: Record<BuiltInIconProvider, number>) {
   return BUILT_IN_ICON_PROVIDERS.map((provider) => ({
@@ -46,7 +48,10 @@ function providerStatusFixtures(counts: Record<BuiltInIconProvider, number>) {
 }
 
 const mocks = vi.hoisted(() => ({
-  toast: vi.fn(),
+  toast: {
+    success: vi.fn<AppToast["success"]>(),
+    error: vi.fn<AppToast["error"]>(),
+  },
   updateSettingsMutateAsync: vi.fn<(command: SettingsMutationCommand) => Promise<unknown>>(),
   refreshRates: vi.fn(),
   remoteSettings: undefined as unknown,
@@ -56,12 +61,10 @@ const mocks = vi.hoisted(() => ({
   setTheme: vi.fn(),
   clearThemeModeOverride: vi.fn(),
   theme: "dark",
-  setLocale: vi.fn(),
+  commitLocale: vi.fn(),
+  syncRemoteLocale: vi.fn(),
   testConnection: vi.fn(),
-  refetchNotificationHistory: vi.fn(),
-  calendarFeedStatus: { data: { enabled: false, feedUrl: undefined as string | undefined }, isLoading: false },
-  createCalendarFeedMutateAsync: vi.fn(),
-  deleteCalendarFeedMutateAsync: vi.fn(),
+  refetchNotificationHistory: vi.fn<() => Promise<void>>(),
   publicStatusPageStatus: { data: { enabled: false, pageUrl: undefined as string | undefined, showPrices: false }, isLoading: false },
   createPublicStatusPageMutateAsync: vi.fn(),
   updatePublicStatusPageMutateAsync: vi.fn(),
@@ -103,10 +106,8 @@ function settingsMutationResult(command: SettingsMutationCommand) {
   return { settings: command.patch, secretStatus };
 }
 
-vi.mock("@/hooks/use-toast", () => ({
-  useToast: () => ({
-    toast: mocks.toast,
-  }),
+vi.mock("@/components/ui/sonner", () => ({
+  toast: mocks.toast,
 }));
 
 vi.mock("@/hooks/use-settings", () => ({
@@ -153,8 +154,8 @@ vi.mock("@/hooks/use-report-exchange-rates", () => ({
 }));
 
 vi.mock("@/hooks/use-subscriptions", () => ({
-  useSubscriptions: () => ({
-    data: [],
+  useSubscriptionFacets: () => ({
+    data: { total: 0, categoryCounts: {}, tags: [], visibleCount: 0, hiddenCount: 0 },
     isPending: false,
     status: "success",
   }),
@@ -162,18 +163,6 @@ vi.mock("@/hooks/use-subscriptions", () => ({
 
 vi.mock("@/hooks/use-password-reset-availability", () => ({
   usePasswordResetAvailability: () => true,
-}));
-
-vi.mock("@/hooks/use-calendar-feed", () => ({
-  useCalendarFeedStatus: () => mocks.calendarFeedStatus,
-  useCreateCalendarFeed: () => ({
-    mutateAsync: mocks.createCalendarFeedMutateAsync,
-    isPending: false,
-  }),
-  useDeleteCalendarFeed: () => ({
-    mutateAsync: mocks.deleteCalendarFeedMutateAsync,
-    isPending: false,
-  }),
 }));
 
 vi.mock("@/hooks/use-public-status-page", () => ({
@@ -226,10 +215,8 @@ vi.mock("@/lib/theme-provider", () => ({
 }));
 
 vi.mock("@/contexts/CustomConfigContext", () => ({
-  useCustomConfig: () => ({
-    config: mocks.customConfig,
-    saveConfig: mocks.saveConfig,
-  }),
+  useCustomConfigState: () => ({ config: mocks.customConfig }),
+  useCustomConfigActions: () => ({ saveConfig: mocks.saveConfig }),
 }));
 
 vi.mock("@/services/runtime", () => ({
@@ -241,7 +228,6 @@ vi.mock("@/services/runtime", () => ({
 vi.mock("@/i18n/I18nProvider", () => {
   const messages: Record<string, string | ((params: Record<string, string | number>) => string)> = {
     "settings.saved": "设置已保存",
-    "settings.savedDescription": "所有更改已同步。",
     "settings.saveFailed": "保存失败",
     "settings.saveFailedDescription": "无法保存设置，请稍后重试",
     "settings.appSettingsScope": "应用设置",
@@ -249,49 +235,24 @@ vi.mock("@/i18n/I18nProvider", () => {
     "settings.exchangeRateProviderSaveFailed": "无法保存汇率来源，请稍后重试",
     "settings.exchangeRateProviderServerOutdated": "无法保存汇率来源。服务端可能还没更新或重启，请重启后端服务后再试。",
     "settings.partialSaveFailedDescription": ({ scope }) => `以下内容未保存：${scope}。请检查后重试。`,
-    "settings.calendarFeedGenerated": "日历订阅已生成",
-    "settings.calendarFeedGeneratedDescription": "你可以随时回到这里复制 URL 或唤起系统日历订阅。",
-    "settings.calendarFeedRegenerated": "日历订阅已重新生成",
-    "settings.calendarFeedRegeneratedDescription": "旧 URL 已失效，请把新 URL 添加到你的日历应用。",
-    "settings.calendarFeedCopied": "URL 已复制",
-    "settings.calendarFeedCopiedDescription": "现在可以在日历应用中添加订阅日历。",
-    "settings.calendarFeedCopyFailed": "复制失败",
-    "settings.calendarFeedCopyFailedDescription": "当前一键复制不可用，请手动选择并复制 URL。",
-    "settings.calendarFeedOpenSystemAttempted": "已尝试唤起系统日历",
-    "settings.calendarFeedOpenSystemAttemptedDescription": "如果系统日历拒绝此 URL，请复制 URL 后在日历 App 中手动添加订阅。",
-    "settings.calendarFeedOpenSystemFailed": "系统日历订阅打开失败",
-    "settings.calendarFeedOpenSystemFailedDescription": "订阅 URL 当前没有返回可用的 ICS 内容；请复制 URL 手动添加订阅。",
-    "settings.calendarFeedFailed": "日历订阅操作失败",
-    "settings.calendarFeedFailedDescription": "无法生成日历订阅，请稍后重试。",
-    "settings.calendarFeedRevoked": "日历订阅已撤销",
-    "settings.calendarFeedRevokedDescription": "旧 URL 已失效，日历客户端后续刷新将无法再读取。",
-    "settings.calendarFeedRevokeFailedDescription": "无法撤销日历订阅，请稍后重试。",
     "settings.publicStatusGenerated": "公开展示已生成",
-    "settings.publicStatusGeneratedDescription": "你可以复制链接，或先按订阅逐条隐藏不想公开的项目。",
     "settings.publicStatusCopied": "URL 已复制",
-    "settings.publicStatusCopiedDescription": "现在可以分享这个私密公开链接。",
     "settings.publicStatusCopyFailed": "复制失败",
     "settings.publicStatusCopyFailedDescription": "当前一键复制不可用，请手动选择并复制 URL。",
     "settings.publicStatusRegenerated": "公开展示已重新生成",
-    "settings.publicStatusRegeneratedDescription": "旧 URL 已失效，请使用新的公开展示链接。",
     "settings.publicStatusRevoked": "公开展示已撤销",
-    "settings.publicStatusRevokedDescription": "旧 URL 已失效，后续访问会得到 404。",
-    "settings.publicStatusUpdated": "公开展示已更新",
     "settings.publicStatusPricesEnabled": "公开页会显示价格和币种。",
     "settings.publicStatusFailed": "公开展示操作失败",
     "settings.publicStatusFailedDescription": "无法生成公开展示链接，请稍后重试。",
     "settings.publicStatusRevokeFailedDescription": "无法撤销公开展示，请稍后重试。",
     "settings.publicStatusUpdateFailedDescription": "无法更新公开展示设置，请稍后重试。",
     "settings.publicApiCreated": "API Token 已创建",
-    "settings.publicApiCreatedDescription": "明文 token 只显示一次，请复制到需要调用 Public API 的客户端。",
     "settings.publicApiCreateFailed": "API Token 创建失败",
     "settings.publicApiCreateFailedDescription": "无法创建 API Token，请稍后重试。",
     "settings.publicApiTokenCopied": "Token 已复制",
-    "settings.publicApiTokenCopiedDescription": "可以把它用于只读集成或自动化工具。",
     "settings.publicApiCopyFailed": "复制失败",
     "settings.publicApiCopyFailedDescription": "当前一键复制不可用，请手动选择并复制 token。",
     "settings.publicApiDeleted": "API Token 已删除",
-    "settings.publicApiDeletedDescription": "旧 token 已失效，后续 Public API 请求会被拒绝。",
     "settings.publicApiDeleteFailed": "API Token 删除失败",
     "settings.publicApiDeleteFailedDescription": "无法删除 API Token，请稍后重试。",
     "settings.telegramBotCommandsConfigMissing": "请先填写并保存 Bot Token 和 Chat ID。",
@@ -301,17 +262,13 @@ vi.mock("@/i18n/I18nProvider", () => {
     "settings.telegramBotCommandsInstalling": "安装中...",
     "settings.telegramBotCommandsDeleting": "删除中...",
     "settings.telegramBotCommandsInstalled": "Telegram 查询命令已安装",
-    "settings.telegramBotCommandsInstalledDescription": "你可以在目标 Telegram 聊天的命令菜单中查询 Renewlet 订阅摘要。",
     "settings.telegramBotCommandsInstallFailed": "Telegram 查询命令安装失败",
     "settings.telegramBotCommandsInstallFailedDescription": "无法安装 Telegram Bot 查询命令，请检查 Bot Token、Chat ID 和 HTTPS 外部访问地址。",
     "settings.telegramBotCommandsDeleted": "Telegram 查询命令已删除",
-    "settings.telegramBotCommandsDeletedDescription": "Telegram 菜单命令已删除，需要时可以重新安装。",
     "settings.telegramBotCommandsDeleteFailed": "Telegram 查询命令删除失败",
     "settings.telegramBotCommandsDeleteFailedDescription": "无法删除 Telegram Bot 查询命令，请稍后重试。",
-    "settings.builtInIconIndexRefreshSuccess": "图标索引已更新",
-    "settings.builtInIconIndexRefreshSuccessDescription": ({ source, count }) => `${source} 已更新，${count} 个图标可用于 Logo 和图标搜索。`,
-    "settings.builtInIconIndexRefreshQueued": "图标索引更新已排队",
-    "settings.builtInIconIndexRefreshQueuedDescription": ({ source }) => `${source} 会在后台更新；完成或失败后状态会自动停止轮询。`,
+    "settings.builtInIconIndexUpdated": ({ source, count }) => `${source} 已更新，${count} 个图标可用于 Logo 和图标搜索。`,
+    "settings.builtInIconIndexUpdateQueued": ({ source }) => `${source} 会在后台更新；完成或失败后状态会自动停止轮询。`,
     "settings.builtInIconIndexRefreshFailed": "图标索引更新失败",
     "settings.builtInIconIndexRefreshFailedDescription": ({ source }) => `无法更新 ${source}，请稍后重试。`,
     "settings.builtInIconSourceShort.thesvg": "TheSVG",
@@ -326,7 +283,8 @@ vi.mock("@/i18n/I18nProvider", () => {
         const message = messages[key];
         return typeof message === "function" ? message(params) : message ?? key;
       },
-      setLocale: mocks.setLocale,
+      commitLocale: mocks.commitLocale,
+      syncRemoteLocale: mocks.syncRemoteLocale,
     }),
   };
 });
@@ -359,15 +317,27 @@ vi.mock("./use-password-change", () => ({
 }));
 
 vi.mock("./use-notification-history", () => ({
-  useNotificationHistory: () => ({
-    data: undefined,
-    isLoading: false,
-    isFetching: false,
-    error: null,
+  useNotificationHistory: (): SettingsNotificationHistoryController => ({
+    overview: {
+      data: undefined,
+      hasData: false,
+      error: null,
+      isInitialLoading: false,
+      isRefreshing: false,
+      retry: mocks.refetchNotificationHistory,
+    },
+    history: {
+      data: undefined,
+      hasData: false,
+      error: null,
+      isInitialLoading: false,
+      isRefreshing: false,
+      retry: mocks.refetchNotificationHistory,
+    },
     historyStatus: "all",
     setStatus: vi.fn(),
+    limit: 20,
     loadMore: vi.fn(),
-    refetch: mocks.refetchNotificationHistory,
   }),
 }));
 
@@ -391,17 +361,17 @@ export function renderSettingsFormController() {
 
 export function setupSettingsFormControllerTestEnvironment() {
   beforeEach(() => {
-    mocks.toast.mockReset();
+    mocks.toast.success.mockReset();
+    mocks.toast.error.mockReset();
     mocks.updateSettingsMutateAsync.mockReset();
     mocks.refreshRates.mockReset();
     mocks.saveConfig.mockReset();
     mocks.setTheme.mockReset();
     mocks.clearThemeModeOverride.mockReset();
     mocks.theme = "dark";
-    mocks.setLocale.mockReset();
-    mocks.refetchNotificationHistory.mockReset();
-    mocks.createCalendarFeedMutateAsync.mockReset();
-    mocks.deleteCalendarFeedMutateAsync.mockReset();
+    mocks.commitLocale.mockReset();
+    mocks.syncRemoteLocale.mockReset();
+    mocks.refetchNotificationHistory.mockReset().mockResolvedValue(undefined);
     mocks.createPublicStatusPageMutateAsync.mockReset();
     mocks.updatePublicStatusPageMutateAsync.mockReset();
     mocks.deletePublicStatusPageMutateAsync.mockReset();
@@ -424,7 +394,6 @@ export function setupSettingsFormControllerTestEnvironment() {
     localStorage.removeItem(APPEARANCE_PENDING_STORAGE_KEY);
     localStorage.removeItem(SETTINGS_APPEARANCE_PENDING_STORAGE_KEY);
     localStorage.removeItem(SETTINGS_THEME_MODE_STORAGE_KEY);
-    mocks.calendarFeedStatus = { data: { enabled: false, feedUrl: undefined }, isLoading: false };
     mocks.publicStatusPageStatus = { data: { enabled: false, pageUrl: undefined, showPrices: false }, isLoading: false };
     mocks.publicApiTokens = { data: [], isLoading: false };
     mocks.telegramBotCommands = { data: undefined, isLoading: false, refetch: vi.fn().mockResolvedValue(undefined) };
@@ -461,13 +430,6 @@ export function setupSettingsFormControllerTestEnvironment() {
     mocks.testAuthSecurityTurnstileIsPending = false;
     mocks.saveConfig.mockImplementation(async (config: CustomConfig) => config);
     mocks.refreshRates.mockResolvedValue(undefined);
-    mocks.createCalendarFeedMutateAsync.mockResolvedValue({
-      enabled: true,
-      createdAt: "2026-05-29T00:00:00Z",
-      updatedAt: "2026-05-29T00:00:00Z",
-      feedUrl: "https://example.com/calendar/renewals.ics?token=secret",
-    });
-    mocks.deleteCalendarFeedMutateAsync.mockResolvedValue({});
     mocks.createPublicStatusPageMutateAsync.mockResolvedValue({
       enabled: true,
       createdAt: "2026-06-07T00:00:00Z",

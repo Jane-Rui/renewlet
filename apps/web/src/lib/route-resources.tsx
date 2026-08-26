@@ -10,7 +10,6 @@ import {
   StatisticsPageSkeleton,
   SubscriptionsPageSkeleton,
 } from "@/components/loading-skeleton";
-import { subscriptionsInfiniteQueryOptions } from "@/hooks/use-subscriptions";
 import { readProductSession } from "@/services/product-session";
 
 // 路由资源只响应 render 或链接 hover/focus/touch 意图预加载；登录后禁止空闲遍历全部私有 chunk。
@@ -19,6 +18,8 @@ import { readProductSession } from "@/services/product-session";
 type RouteModule = { default: ComponentType };
 type RouteLoader = () => Promise<RouteModule>;
 type RouteFallbackComponent = () => ReactElement;
+type RouteDataPreloadModule = { preload: (queryClient: QueryClient) => Promise<void> };
+type RouteDataLoader = () => Promise<RouteDataPreloadModule>;
 
 export type RoutePreloadMode = "none" | "intent" | "render" | "viewport";
 
@@ -26,9 +27,11 @@ interface RouteResource {
   path: string;
   load: RouteLoader;
   fallback: RouteFallbackComponent;
-  preloadData?: (queryClient: QueryClient) => Promise<void>;
+  loadData?: RouteDataLoader;
+  usesPrivateShell?: true;
 }
 
+const loadPrivateAppShell = () => import("@/components/private-app-shell");
 const loadDashboard = () => import("@/pages/dashboard");
 const loadSubscriptions = () => import("@/pages/subscriptions");
 const loadCalendar = () => import("@/pages/calendar");
@@ -43,6 +46,11 @@ const loadAdminUsers = () => import("@/pages/admin/users");
 const loadForgotPassword = () => import("@/pages/forgot-password");
 const loadResetPassword = () => import("@/pages/reset-password");
 const loadNotFound = () => import("@/pages/not-found");
+const loadPrivateShellData = () => import("@/lib/route-preloads/private-shell");
+const loadOverviewData = () => import("@/lib/route-preloads/overview");
+const loadSubscriptionsData = () => import("@/lib/route-preloads/subscriptions");
+const loadCalendarData = () => import("@/lib/route-preloads/calendar");
+const loadSettingsData = () => import("@/lib/route-preloads/settings");
 
 function DashboardRouteFallback() {
   return <DashboardPageSkeleton />;
@@ -76,64 +84,47 @@ function LightweightRouteFallback() {
   return <LightweightRouteSkeleton />;
 }
 
-async function preloadSubscriptionsInfinite(queryClient: QueryClient) {
-  await queryClient.prefetchInfiniteQuery(subscriptionsInfiniteQueryOptions());
-}
-
-async function preloadSettings(queryClient: QueryClient) {
-  const { settingsQueryOptions } = await import("@/hooks/use-settings");
-  await queryClient.prefetchQuery(settingsQueryOptions());
-}
-
-async function preloadSubscriptionsAndSettings(queryClient: QueryClient) {
-  await Promise.all([
-    preloadSubscriptionsInfinite(queryClient),
-    preloadSettings(queryClient),
-  ]);
-}
-
-async function preloadSubscriptionsPageData(queryClient: QueryClient) {
-  await Promise.all([
-    preloadSubscriptionsInfinite(queryClient),
-    preloadSettings(queryClient),
-  ]);
-}
-
 export const routeResources = {
   dashboard: {
     path: "/",
     load: loadDashboard,
     fallback: DashboardRouteFallback,
-    preloadData: preloadSubscriptionsAndSettings,
+    loadData: loadOverviewData,
+    usesPrivateShell: true,
   },
   subscriptions: {
     path: "/subscriptions",
     load: loadSubscriptions,
     fallback: SubscriptionsRouteFallback,
-    preloadData: preloadSubscriptionsPageData,
+    loadData: loadSubscriptionsData,
+    usesPrivateShell: true,
   },
   calendar: {
     path: "/calendar",
     load: loadCalendar,
     fallback: CalendarRouteFallback,
-    preloadData: preloadSubscriptionsInfinite,
+    loadData: loadCalendarData,
+    usesPrivateShell: true,
   },
   statistics: {
     path: "/statistics",
     load: loadStatistics,
     fallback: StatisticsRouteFallback,
-    preloadData: preloadSubscriptionsAndSettings,
+    loadData: loadOverviewData,
+    usesPrivateShell: true,
   },
   settings: {
     path: "/settings",
     load: loadSettings,
     fallback: SettingsRouteFallback,
-    preloadData: preloadSubscriptionsAndSettings,
+    loadData: loadSettingsData,
+    usesPrivateShell: true,
   },
   adminUsers: {
     path: "/admin/users",
     load: loadAdminUsers,
     fallback: AdminUsersRouteFallback,
+    usesPrivateShell: true,
   },
   setup: {
     path: "/setup",
@@ -221,13 +212,29 @@ function canPrefetchPrivateData() {
   return Boolean(readProductSession());
 }
 
+function loadRouteModules(resource: RouteResource): Promise<void> {
+  const shellPreload = resource.usesPrivateShell ? loadPrivateAppShell() : Promise.resolve();
+  return Promise.all([shellPreload, resource.load()]).then(() => undefined);
+}
+
 export function lazyRouteLoader(key: keyof typeof routeResources): RouteLoader {
   return routeResources[key].load;
+}
+
+export function lazyPrivateAppShellLoader(): Promise<RouteModule> {
+  return loadPrivateAppShell();
 }
 
 export function routeFallbackForPathname(pathname: string): ReactElement {
   const Fallback = routeResourceForPathname(pathname)?.fallback ?? LightweightRouteFallback;
   return <Fallback />;
+}
+
+/** 冷启动并行预取当前模块与数据；无会话时不能下载私有路由或发起私有请求。 */
+export function preloadInitialRoute(pathname: string, queryClient: QueryClient): Promise<void> {
+  const resource = routeResourceForPathname(pathname);
+  if (!resource || resource.usesPrivateShell && !canPrefetchPrivateData()) return Promise.resolve();
+  return preloadRoute(pathname, queryClient);
 }
 
 export function preloadRoute(pathname: string, queryClient?: QueryClient | null): Promise<void> {
@@ -238,12 +245,16 @@ export function preloadRoute(pathname: string, queryClient?: QueryClient | null)
   if (existing) return existing;
 
   // 同一路由的 chunk 与数据预取共享 in-flight promise，快速 hover/focus 切换不会制造重复网络请求。
-  const preload = Promise.all([
-    resource.load(),
-    queryClient && resource.preloadData && canPrefetchPrivateData()
-      ? resource.preloadData(queryClient)
-      : Promise.resolve(),
-  ]).then(() => undefined);
+  const canPreloadData = Boolean(queryClient && canPrefetchPrivateData());
+  const privateShellDataPreload = queryClient && resource.usesPrivateShell && canPreloadData
+    ? loadPrivateShellData().then(({ preload: preloadData }) => preloadData(queryClient))
+    : Promise.resolve();
+  const routeDataPreload = queryClient && resource.loadData && canPreloadData
+    ? resource.loadData().then(({ preload: preloadData }) => preloadData(queryClient))
+    : Promise.resolve();
+  // 私有壳、页面模块与 query options 必须并行预热；壳层只负责 Provider 生命周期，不能成为导航 waterfall。
+  const preload = Promise.all([loadRouteModules(resource), privateShellDataPreload, routeDataPreload])
+    .then(() => undefined);
 
   inFlightPreloads.set(resource.path, preload);
   trackPreloadPromise(preload);

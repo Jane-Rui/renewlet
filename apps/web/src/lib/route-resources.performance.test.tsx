@@ -5,11 +5,17 @@ import { preloadRoute } from "./route-resources";
 
 const mocks = vi.hoisted(() => ({
   loadedPrivateRoutes: [] as string[],
+  privateShellModuleLoads: 0,
   readProductSession: vi.fn(),
   fetchSubscriptionPage: vi.fn(async () => ({ subscriptions: [], nextCursor: null, total: 0 })),
+  fetchSubscriptionFacets: vi.fn(async () => ({ categories: [], tags: [], categoryCounts: {}, visibleCount: 0, hiddenCount: 0 })),
   fetchSettings: vi.fn(async () => ({ defaultCurrency: "CNY" })),
 }));
 
+vi.mock("@/components/private-app-shell", () => {
+  mocks.privateShellModuleLoads += 1;
+  return { default: () => null };
+});
 vi.mock("@/pages/dashboard", () => {
   mocks.loadedPrivateRoutes.push("/");
   return { default: () => null };
@@ -44,10 +50,15 @@ vi.mock("@/services/product-session", () => ({ readProductSession: mocks.readPro
 
 vi.mock("@/hooks/use-subscriptions", () => ({
   subscriptionsInfiniteQueryOptions: () => ({
-    queryKey: ["subscriptions", "collection", null],
+    queryKey: ["subscriptions", "collections", "page", {}],
     initialPageParam: null,
     queryFn: mocks.fetchSubscriptionPage,
     getNextPageParam: () => undefined,
+    staleTime: 60_000,
+  }),
+  subscriptionFacetsQueryOptions: () => ({
+    queryKey: ["subscriptions", "collections", "facets"],
+    queryFn: mocks.fetchSubscriptionFacets,
     staleTime: 60_000,
   }),
 }));
@@ -60,6 +71,7 @@ describe("authenticated route preload performance budget", () => {
   beforeEach(() => {
     mocks.loadedPrivateRoutes.length = 0;
     mocks.fetchSubscriptionPage.mockClear();
+    mocks.fetchSubscriptionFacets.mockClear();
     mocks.fetchSettings.mockClear();
     mocks.readProductSession.mockReturnValue({ user: { id: "subscription-perf-owner" } });
   });
@@ -77,10 +89,16 @@ describe("authenticated route preload performance budget", () => {
 
     await preloadRoute("/subscriptions", queryClient);
     expect(mocks.loadedPrivateRoutes).toEqual(["/subscriptions"]);
+    expect(mocks.privateShellModuleLoads).toBe(1);
     expect(mocks.fetchSubscriptionPage).toHaveBeenCalledTimes(1);
+    expect(mocks.fetchSubscriptionFacets).toHaveBeenCalledTimes(1);
     expect(mocks.fetchSettings).toHaveBeenCalledTimes(1);
-    expect(mocks.fetchSubscriptionPage.mock.calls.length + mocks.fetchSettings.mock.calls.length).toBe(budget.dataRequests);
-    expect(queryClient.getQueryCache().findAll({ queryKey: ["subscriptions", "collection"] }))
+    expect(
+      mocks.fetchSubscriptionPage.mock.calls.length
+      + mocks.fetchSubscriptionFacets.mock.calls.length
+      + mocks.fetchSettings.mock.calls.length,
+    ).toBe(budget.dataRequests);
+    expect(queryClient.getQueryCache().findAll({ queryKey: ["subscriptions", "collections"] }))
       .toHaveLength(budget.subscriptionCollectionCacheEntries);
     console.info(`[perf] web intent_preload elapsed_ms=${(performance.now() - startedAt).toFixed(2)}`);
 

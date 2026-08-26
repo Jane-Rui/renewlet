@@ -23,9 +23,10 @@ import (
 )
 
 const (
-	calendarFeedScopeAll          = "all"
-	calendarFeedScopeSubscription = "subscription"
-	calendarFeedTokenBytes        = 32
+	calendarFeedScopeAll             = "all"
+	calendarFeedScopeSubscription    = "subscription"
+	calendarFeedSubscriptionPageSize = 500
+	calendarFeedTokenBytes           = 32
 )
 
 type calendarFeedStatus struct {
@@ -93,7 +94,7 @@ func handleCalendarFeedStatus(app core.App, e *core.RequestEvent) error {
 	if err != nil {
 		return e.InternalServerError(serverText(requestLocale(e.Request), "calendarFeed.loadFailed"), err)
 	}
-	return apiSuccessJSON(e, http.StatusOK, calendarFeedStatusResponse{CalendarFeed: calendarFeedStatusFromRecord(e.Request, record)})
+	return calendarFeedSuccessJSON(e, http.StatusOK, calendarFeedStatusResponse{CalendarFeed: calendarFeedStatusFromRecord(e.Request, record)})
 }
 
 func handleCalendarFeedCreate(app core.App, e *core.RequestEvent) error {
@@ -105,25 +106,22 @@ func handleCalendarFeedCreate(app core.App, e *core.RequestEvent) error {
 	if err != nil {
 		return e.InternalServerError(serverText(locale, "calendarFeed.createFailed"), err)
 	}
-	return apiSuccessJSON(e, http.StatusOK, calendarFeedCreateResponse{CalendarFeed: calendarFeedCreateStatus{
-		Enabled:   true,
-		CreatedAt: record.GetDateTime("created").Time().UTC().Format(time.RFC3339),
-		UpdatedAt: record.GetDateTime("updated").Time().UTC().Format(time.RFC3339),
-		FeedURL:   calendarFeedURL(e.Request, record.GetString("token")),
-	}})
+	return calendarFeedSuccessJSON(e, http.StatusOK, calendarFeedCreateResponse{CalendarFeed: calendarFeedCreateStatusFromRecord(e.Request, record)})
 }
 
 func handleCalendarFeedDelete(app core.App, e *core.RequestEvent) error {
+	locale := requestLocale(e.Request)
 	record, err := findGlobalCalendarFeedForUser(app, e.Auth.Id)
 	if err != nil {
-		return e.InternalServerError(serverText(requestLocale(e.Request), "calendarFeed.revokeFailed"), err)
+		return e.InternalServerError(serverText(locale, "calendarFeed.revokeFailed"), err)
 	}
-	if record != nil {
-		if err := app.Delete(record); err != nil {
-			return e.InternalServerError(serverText(requestLocale(e.Request), "calendarFeed.revokeFailed"), err)
-		}
+	if record == nil {
+		return e.NotFoundError(serverText(locale, "calendarFeed.notFound"), nil)
 	}
-	return apiEmptySuccessJSON(e, http.StatusOK)
+	if err := app.Delete(record); err != nil {
+		return e.InternalServerError(serverText(locale, "calendarFeed.revokeFailed"), err)
+	}
+	return calendarFeedSuccessJSON(e, http.StatusOK, nil)
 }
 
 func handleSubscriptionCalendarFeedStatus(app core.App, e *core.RequestEvent) error {
@@ -137,7 +135,7 @@ func handleSubscriptionCalendarFeedStatus(app core.App, e *core.RequestEvent) er
 	if err != nil {
 		return e.InternalServerError(serverText(locale, "calendarFeed.loadFailed"), err)
 	}
-	return apiSuccessJSON(e, http.StatusOK, calendarFeedStatusResponse{CalendarFeed: calendarFeedStatusFromRecord(e.Request, record)})
+	return calendarFeedSuccessJSON(e, http.StatusOK, calendarFeedStatusResponse{CalendarFeed: calendarFeedStatusFromRecord(e.Request, record)})
 }
 
 func handleSubscriptionCalendarFeedCreate(app core.App, e *core.RequestEvent) error {
@@ -154,12 +152,7 @@ func handleSubscriptionCalendarFeedCreate(app core.App, e *core.RequestEvent) er
 	if err != nil {
 		return e.InternalServerError(serverText(locale, "calendarFeed.createFailed"), err)
 	}
-	return apiSuccessJSON(e, http.StatusOK, calendarFeedCreateResponse{CalendarFeed: calendarFeedCreateStatus{
-		Enabled:   true,
-		CreatedAt: record.GetDateTime("created").Time().UTC().Format(time.RFC3339),
-		UpdatedAt: record.GetDateTime("updated").Time().UTC().Format(time.RFC3339),
-		FeedURL:   calendarFeedURL(e.Request, record.GetString("token")),
-	}})
+	return calendarFeedSuccessJSON(e, http.StatusOK, calendarFeedCreateResponse{CalendarFeed: calendarFeedCreateStatusFromRecord(e.Request, record)})
 }
 
 func handleSubscriptionCalendarFeedDelete(app core.App, e *core.RequestEvent) error {
@@ -168,10 +161,17 @@ func handleSubscriptionCalendarFeedDelete(app core.App, e *core.RequestEvent) er
 	if _, err := findCalendarFeedSubscriptionByID(app, e.Auth.Id, subscriptionID); err != nil {
 		return e.NotFoundError(serverText(locale, "subscription.notFound"), err)
 	}
-	if err := deleteSubscriptionCalendarFeeds(app, e.Auth.Id, subscriptionID); err != nil {
+	record, err := findSubscriptionCalendarFeedForUser(app, e.Auth.Id, subscriptionID)
+	if err != nil {
 		return e.InternalServerError(serverText(locale, "calendarFeed.revokeFailed"), err)
 	}
-	return apiEmptySuccessJSON(e, http.StatusOK)
+	if record == nil {
+		return e.NotFoundError(serverText(locale, "calendarFeed.notFound"), nil)
+	}
+	if err := app.Delete(record); err != nil {
+		return e.InternalServerError(serverText(locale, "calendarFeed.revokeFailed"), err)
+	}
+	return calendarFeedSuccessJSON(e, http.StatusOK, nil)
 }
 
 func handleSubscriptionCalendarICSDownload(app core.App, e *core.RequestEvent) error {
@@ -390,27 +390,11 @@ func ensureSubscriptionCalendarFeed(app core.App, userID string, subscriptionID 
 }
 
 func deleteSubscriptionCalendarFeeds(app core.App, userID string, subscriptionID string) error {
-	for {
-		records, err := app.FindRecordsByFilter(
-			"calendar_feeds",
-			"user = {:user} && scope = {:scope} && subscriptionId = {:subscriptionId}",
-			"created",
-			notificationSubscriptionPageSize,
-			0,
-			dbx.Params{"user": userID, "scope": calendarFeedScopeSubscription, "subscriptionId": subscriptionID},
-		)
-		if err != nil {
-			return err
-		}
-		for _, record := range records {
-			if err := app.Delete(record); err != nil {
-				return err
-			}
-		}
-		if len(records) < notificationSubscriptionPageSize {
-			return nil
-		}
-	}
+	_, err := app.DB().NewQuery(`DELETE FROM calendar_feeds
+		WHERE user = {:user} AND scope = {:scope} AND subscriptionId = {:subscriptionId}`).
+		Bind(dbx.Params{"user": userID, "scope": calendarFeedScopeSubscription, "subscriptionId": subscriptionID}).
+		Execute()
+	return err
 }
 
 func calendarFeedStatusFromRecord(request *http.Request, record *core.Record) calendarFeedStatus {
@@ -439,15 +423,15 @@ func calendarFeedURL(request *http.Request, token string) string {
 
 func listCalendarFeedSubscriptions(app core.App, userID string) ([]calendarFeedSubscription, error) {
 	items := []calendarFeedSubscription{}
-	for offset := 0; ; offset += notificationSubscriptionPageSize {
-		rows, err := app.FindRecordsByFilter("subscriptions", "user = {:user}", "nextBillingDate,name", notificationSubscriptionPageSize, offset, dbx.Params{"user": userID})
+	for offset := 0; ; offset += calendarFeedSubscriptionPageSize {
+		rows, err := app.FindRecordsByFilter("subscriptions", "user = {:user}", "nextBillingDate,name", calendarFeedSubscriptionPageSize, offset, dbx.Params{"user": userID})
 		if err != nil {
 			return nil, err
 		}
 		for _, row := range rows {
 			items = append(items, calendarFeedSubscriptionFromRecord(row))
 		}
-		if len(rows) < notificationSubscriptionPageSize {
+		if len(rows) < calendarFeedSubscriptionPageSize {
 			return items, nil
 		}
 	}
@@ -707,18 +691,11 @@ func calendarFeedDescription(item calendarFeedSubscription, settings appSettings
 func calendarFeedBillingCycleLabel(item calendarFeedSubscription, locale appLocale) string {
 	if item.BillingCycle == "custom" {
 		unit := item.CustomCycleUnit
-		if !isValidCustomCycleUnit(unit) {
-			unit = "day"
-		}
 		unitLabel := serverText(locale, "calendarFeed.customCycleUnit."+unit)
 		if unitLabel == "calendarFeed.customCycleUnit."+unit {
 			unitLabel = unit
 		}
-		count := item.CustomDays
-		if count <= 0 {
-			count = 1
-		}
-		return serverFormat(locale, "calendarFeed.billingCycle.customValue", map[string]interface{}{"count": count, "unit": unitLabel})
+		return serverFormat(locale, "calendarFeed.billingCycle.customValue", map[string]interface{}{"count": item.CustomDays, "unit": unitLabel})
 	}
 	key := "calendarFeed.billingCycle." + item.BillingCycle
 	label := serverText(locale, key)
@@ -759,7 +736,7 @@ func addCalendarFeedSource(cal *ics.Calendar, sourceURL string) {
 	cal.CalendarProperties = append(cal.CalendarProperties, ics.CalendarProperty{
 		BaseProperty: ics.BaseProperty{
 			IANAToken:      "SOURCE",
-			ICalParameters: map[string][]string{"VALUE": []string{string(ics.ValueDataTypeUri)}},
+			ICalParameters: map[string][]string{"VALUE": {string(ics.ValueDataTypeUri)}},
 			Value:          sourceURL,
 		},
 	})

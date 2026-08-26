@@ -12,6 +12,7 @@ import type {
 } from "@/lib/api/schemas/media";
 import {
   createControllerState,
+  createSettingsReadState,
   mocks,
   renderSettingsScreen,
 } from "./settings-screen.test-utils";
@@ -96,6 +97,27 @@ function setElementSize(element: Element, data: { scrollWidth: number; clientWid
 }
 
 describe("SettingsScreen built-in icon index controls", () => {
+  it("does not report an unavailable icon index when the first status read fails", async () => {
+    const user = userEvent.setup();
+    const retry = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const controller = createControllerState();
+    controller.builtInIconIndex.status = createSettingsReadState<BuiltInIconIndexStatus>(undefined, {
+      error: new Error("icon index unavailable"),
+      retry,
+    });
+    mocks.useSettingsFormController.mockReturnValue(controller);
+
+    renderSettingsScreen();
+    await user.click(screen.getByRole("button", { name: "配置" }));
+    const dialog = await screen.findByRole("dialog", { name: "配置图标来源" });
+    await user.click(within(dialog).getByRole("button", { name: "查看 TheSVG 图标索引状态：检查失败" }));
+
+    expect(within(screen.getByRole("alert")).getByText("加载失败")).toBeInTheDocument();
+    expect(screen.queryByText("暂时无法读取索引状态。")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "重试" }));
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
+
   it("lets admins inspect and refresh an icon provider from a compact status badge", async () => {
     const user = userEvent.setup();
     const controller = createControllerState({

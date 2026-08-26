@@ -7,8 +7,7 @@
  * - 最多展示 5 条
  */
 
-import { Subscription } from '@/types/subscription';
-import { Clock } from 'lucide-react';
+import type { SubscriptionCollectionItem } from '@/types/subscription';
 import { cn } from '@/lib/utils';
 import { formatDateOnlyMonthDay } from '@/lib/time/date-only';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -16,7 +15,7 @@ import { buildUpcomingReminderItems } from '@/modules/subscriptions/domain/upcom
 
 interface UpcomingRenewalsProps {
   /** 订阅列表（前端 domain 类型）。 */
-  subscriptions: Subscription[];
+  subscriptions: SubscriptionCollectionItem[];
   /** 用户 IANA 时区，用于计算本地“今天”。 */
   timeZone: string;
   /** 设置页默认提前提醒天数，用于解析继承型订阅。 */
@@ -30,12 +29,7 @@ export function UpcomingRenewals({ subscriptions, timeZone, notificationReminder
 
   if (upcoming.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-8 text-center">
-        <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-success/10">
-          <Clock className="h-6 w-6 text-success" />
-        </div>
-        <p className="text-sm text-muted-foreground">{t("upcoming.noneNextTwoWeeks")}</p>
-      </div>
+      <p className="py-4 text-center text-sm leading-6 text-muted-foreground">{t("upcoming.noneNextTwoWeeks")}</p>
     );
   }
 

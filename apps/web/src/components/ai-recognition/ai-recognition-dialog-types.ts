@@ -12,7 +12,7 @@ export interface AIRecognitionImageItem {
   originalSizeBytes?: number;
   targetSizeBytes?: number;
   optimized?: boolean;
-  optimizationWarning?: "large-after-optimization" | "passthrough" | null;
+  optimizationWarning?: "large-after-optimization" | null;
 }
 
 export interface AIDraftListItem {

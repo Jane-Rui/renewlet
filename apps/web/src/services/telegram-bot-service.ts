@@ -6,8 +6,12 @@ import {
 import { okResponseSchema } from "@/lib/api/schemas/common";
 
 export const telegramBotService = {
-  async getCommands(): Promise<TelegramBotCommandsResponse> {
-    return await apiFetch("/api/app/telegram-bot/commands", telegramBotCommandsResponseSchema);
+  async getCommands(signal?: AbortSignal): Promise<TelegramBotCommandsResponse> {
+    return await apiFetch(
+      "/api/app/telegram-bot/commands",
+      telegramBotCommandsResponseSchema,
+      signal ? { signal } : undefined,
+    );
   },
 
   async installCommands(): Promise<TelegramBotCommandsResponse> {

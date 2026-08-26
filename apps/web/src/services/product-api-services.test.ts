@@ -80,7 +80,7 @@ describe("product API services", () => {
     const emptyConfig = { categories: [], statuses: [], paymentMethods: [], currencies: [] };
     mocks.apiFetch.mockResolvedValue({ config: emptyConfig });
 
-    const loadedConfig = await customConfigService.get();
+    const loadedConfig = await customConfigService.get(new AbortController().signal);
     const savedConfig = await customConfigService.save(DEFAULT_CUSTOM_CONFIG);
 
     expect(mocks.apiFetch.mock.calls[0]?.[0]).toBe("/api/app/custom-config");
@@ -114,7 +114,7 @@ describe("product API services", () => {
       .mockResolvedValueOnce({});
 
     await assetService.create(new Blob(["logo"], { type: "image/png" }), "logo", "logo.png");
-    await assetService.listLogos(1);
+    await assetService.list("logo", 1);
     await assetService.list("icon", 2);
     await assetService.delete("asset_1");
 

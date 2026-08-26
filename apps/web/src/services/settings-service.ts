@@ -57,10 +57,10 @@ function editableSettingsFromPublicView(settings: PublicAppSettings): AppSetting
 
 /** 设置服务统一调用 Renewlet 产品 API；Docker 端也不能回退到 PocketBase collection REST。 */
 export const settingsService = {
-  async get(): Promise<SettingsReadModel> {
+  async get(signal?: AbortSignal): Promise<SettingsReadModel> {
     const userId = getCurrentUserId();
     if (!userId) return { settings: DEFAULT_SETTINGS, secretStatus: EMPTY_SETTINGS_SECRET_STATUS };
-    const data = await apiFetch("/api/app/settings", settingsResponseSchema);
+    const data = await apiFetch("/api/app/settings", settingsResponseSchema, signal ? { signal } : undefined);
     return { settings: editableSettingsFromPublicView(data.settings), secretStatus: data.secretStatus };
   },
 

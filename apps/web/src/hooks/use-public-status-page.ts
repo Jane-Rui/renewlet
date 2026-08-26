@@ -13,7 +13,7 @@ const publicStatusQueryKey = (token: string) => ["public-status", token] as cons
 export function usePublicStatusPageStatus() {
   return useQuery({
     queryKey: PUBLIC_STATUS_PAGE_QUERY_KEY,
-    queryFn: () => publicStatusService.getPage(),
+    queryFn: ({ signal }) => publicStatusService.getPage(signal),
   });
 }
 
@@ -55,7 +55,7 @@ export function usePublicStatus(token: string | undefined) {
   const normalizedToken = token?.trim() ?? "";
   return useQuery({
     queryKey: publicStatusQueryKey(normalizedToken),
-    queryFn: () => publicStatusService.readPublicStatus(normalizedToken),
+    queryFn: ({ signal }) => publicStatusService.readPublicStatus(normalizedToken, signal),
     enabled: normalizedToken.length > 0,
     retry: false,
     staleTime: PUBLIC_STATUS_REFETCH_INTERVAL_MS,

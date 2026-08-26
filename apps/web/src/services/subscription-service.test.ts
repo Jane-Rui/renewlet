@@ -1,10 +1,24 @@
 // 订阅 service 测试保护产品 API DTO 进入前端 domain 前的运行时校验边界。
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ApiSubscription } from "@/lib/api/schemas/subscriptions";
-import { fromApiSubscription, subscriptionService, toSubscriptionWritePayload } from "./subscription-service";
+import {
+  subscriptionCreateBodySchema,
+  subscriptionUpdateBodySchema,
+  type ApiSubscription,
+  type ApiSubscriptionCollectionItem,
+} from "@/lib/api/schemas/subscriptions";
+import { assertDateOnly } from "@/lib/time/date-only";
+import type { BillingCycle, SubscriptionFormSubmission } from "@/types/subscription";
+import {
+  fromApiSubscription,
+  subscriptionService,
+  toSubscriptionCreatePayload,
+  toSubscriptionUpdatePayload,
+} from "./subscription-service";
+
+type ApiFetchMock = (url: string, schema: unknown, init?: RequestInit) => Promise<unknown>;
 
 const mocks = vi.hoisted(() => ({
-  apiFetch: vi.fn(),
+  apiFetch: vi.fn<ApiFetchMock>(),
   getCurrentUserId: vi.fn(() => "user_1"),
 }));
 
@@ -73,6 +87,55 @@ const apiSubscription = {
   extra: {},
 } satisfies ApiSubscription;
 
+const apiCollectionItem = {
+  id: apiSubscription.id,
+  name: apiSubscription.name,
+  price: apiSubscription.price,
+  currency: apiSubscription.currency,
+  billingCycle: apiSubscription.billingCycle,
+  category: apiSubscription.category,
+  status: apiSubscription.status,
+  pinned: apiSubscription.pinned,
+  publicHidden: apiSubscription.publicHidden,
+  startDate: apiSubscription.startDate,
+  nextBillingDate: apiSubscription.nextBillingDate,
+  autoRenew: apiSubscription.autoRenew,
+  autoCalculateNextBillingDate: apiSubscription.autoCalculateNextBillingDate,
+  reminderDays: apiSubscription.reminderDays,
+} satisfies ApiSubscriptionCollectionItem;
+
+type RecurringFormSubmission = Extract<
+  SubscriptionFormSubmission,
+  { billingCycle: Exclude<BillingCycle, "custom" | "one-time"> }
+>;
+
+function formSubmission(overrides: Partial<RecurringFormSubmission> = {}): RecurringFormSubmission {
+  return {
+    name: apiSubscription.name,
+    logo: undefined,
+    price: apiSubscription.price,
+    currency: apiSubscription.currency,
+    billingCycle: "monthly",
+    category: apiSubscription.category,
+    status: apiSubscription.status,
+    publicHidden: apiSubscription.publicHidden,
+    paymentMethod: undefined,
+    startDate: assertDateOnly(apiSubscription.startDate),
+    nextBillingDate: assertDateOnly(apiSubscription.nextBillingDate),
+    autoRenew: apiSubscription.autoRenew,
+    autoCalculateNextBillingDate: apiSubscription.autoCalculateNextBillingDate,
+    website: undefined,
+    notes: undefined,
+    tags: apiSubscription.tags,
+    reminderDays: apiSubscription.reminderDays,
+    repeatReminderEnabled: apiSubscription.repeatReminderEnabled,
+    repeatReminderInterval: apiSubscription.repeatReminderInterval,
+    repeatReminderWindow: apiSubscription.repeatReminderWindow,
+    costSharing: undefined,
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   mocks.apiFetch.mockReset();
   mocks.getCurrentUserId.mockReturnValue("user_1");
@@ -80,36 +143,23 @@ beforeEach(() => {
 
 describe("subscription service normalization", () => {
   it("rejects legacy PocketBase records at the product API boundary", () => {
-    expect(() => fromApiSubscription(legacyPocketBaseRow as unknown as typeof apiSubscription)).toThrow();
+    expect(() => fromApiSubscription(legacyPocketBaseRow)).toThrow();
   });
 
-  it("ignores custom fields on fixed product API cycles", () => {
-    const subscription = fromApiSubscription({
+  it("rejects custom fields on fixed product API cycles", () => {
+    expect(() => fromApiSubscription({
       ...apiSubscription,
       customDays: 45,
       customCycleUnit: "year",
-    });
-
-    expect(subscription).toMatchObject({
-      billingCycle: "monthly",
-      customDays: undefined,
-      customCycleUnit: undefined,
-      name: "API Subscription",
-    });
+    })).toThrow();
   });
 
-  it("defaults custom product API rows without a unit to day", () => {
-    const subscription = fromApiSubscription({
+  it("rejects incomplete custom product API rows", () => {
+    expect(() => fromApiSubscription({
       ...apiSubscription,
       billingCycle: "custom",
       customDays: 45,
-    });
-
-    expect(subscription).toMatchObject({
-      billingCycle: "custom",
-      customDays: 45,
-      customCycleUnit: "day",
-    });
+    })).toThrow();
   });
 
   it("keeps supported custom cycle units", () => {
@@ -140,10 +190,13 @@ describe("subscription service normalization", () => {
         ],
       },
     });
-    const payload = toSubscriptionWritePayload(subscription);
+    const payload = toSubscriptionUpdatePayload(formSubmission({
+      price: "100",
+      costSharing: subscription.costSharing,
+    }));
 
     expect(payload.costSharing).toEqual(subscription.costSharing);
-    expect(toSubscriptionWritePayload(fromApiSubscription(apiSubscription)).costSharing).toBeNull();
+    expect(toSubscriptionUpdatePayload(formSubmission()).costSharing).toBeNull();
   });
 
   it("parses and writes nullable start dates for manual recurring subscriptions", () => {
@@ -152,7 +205,10 @@ describe("subscription service normalization", () => {
       startDate: null,
       autoCalculateNextBillingDate: false,
     });
-    const payload = toSubscriptionWritePayload(subscription);
+    const payload = toSubscriptionUpdatePayload(formSubmission({
+      startDate: null,
+      autoCalculateNextBillingDate: false,
+    }));
 
     expect(subscription.startDate).toBeNull();
     expect(payload.startDate).toBeNull();
@@ -163,14 +219,14 @@ describe("subscription service normalization", () => {
 describe("subscription service API calls", () => {
   it("lists subscriptions through the Renewlet product API", async () => {
     mocks.apiFetch.mockResolvedValue({
-      subscriptions: [apiSubscription],
+      subscriptions: [apiCollectionItem],
       nextCursor: "next",
       total: 1,
     });
 
     const page = await subscriptionService.listPage("cursor", 25);
 
-    expect(mocks.apiFetch).toHaveBeenCalledWith("/api/app/subscriptions?limit=25&cursor=cursor", expect.anything());
+    expect(mocks.apiFetch).toHaveBeenCalledWith("/api/app/subscriptions?limit=25&cursor=cursor", expect.anything(), undefined);
     expect(page.subscriptions).toHaveLength(1);
     expect(page.nextCursor).toBe("next");
   });
@@ -202,54 +258,58 @@ describe("subscription service API calls", () => {
     expect(mocks.apiFetch).toHaveBeenCalledWith(
       "/api/app/subscriptions?limit=25&q=cursor&category=developer_tools&category=ai&tag=Team&billingCycle=monthly&paymentMethod=paypal&paymentMethod=__none&currency=USD&status=active&renewal=auto&nextBillingFrom=2999-08-01&nextBillingTo=2999-08-31&pinned=true&publicHidden=false&reminderMode=custom&repeatReminder=true",
       expect.anything(),
+      undefined,
     );
   });
 
-  it("stops aggregate listing when the backend repeats a subscription cursor", async () => {
-    const firstPageUrl = "/api/app/subscriptions?limit=50";
-    const repeatedCursorUrl = "/api/app/subscriptions?limit=50&cursor=repeat";
-    mocks.apiFetch.mockImplementation(async (input: string) => {
-      if (input === firstPageUrl) {
-        return {
-          subscriptions: [apiSubscription],
-          nextCursor: "repeat",
-          total: 2,
-        };
-      }
-      if (input === repeatedCursorUrl) {
-        return {
-          subscriptions: [{ ...apiSubscription, id: "sub_api_2", name: "Second API Subscription" }],
-          nextCursor: "repeat",
-          total: 2,
-        };
-      }
-      throw new Error(`UNEXPECTED_SUBSCRIPTION_LIST_REQUEST:${input}`);
-    });
+  it("loads the filtered index once and forwards the caller AbortSignal", async () => {
+    const controller = new AbortController();
+    mocks.apiFetch.mockResolvedValue({ subscriptions: [apiCollectionItem], total: 1 });
 
-    try {
-      await subscriptionService.list();
-      throw new Error("Expected repeated cursor guard to reject");
-    } catch (error) {
-      expect(error).toBeInstanceOf(Error);
-      expect((error as Error).message).toBe("SUBSCRIPTION_CURSOR_REPEATED");
-    }
+    const index = await subscriptionService.index({ q: "api", category: ["productivity"] }, controller.signal);
 
-    expect(mocks.apiFetch).toHaveBeenCalledTimes(2);
-    expect(mocks.apiFetch.mock.calls[0]?.[0]).toBe(firstPageUrl);
-    expect(mocks.apiFetch.mock.calls[1]?.[0]).toBe(repeatedCursorUrl);
+    expect(index.subscriptions).toHaveLength(1);
+    expect(mocks.apiFetch).toHaveBeenCalledWith(
+      "/api/app/subscriptions/index?q=api&category=productivity",
+      expect.anything(),
+      { signal: controller.signal },
+    );
   });
 
   it("creates and updates subscriptions through /api/app/subscriptions", async () => {
     mocks.apiFetch.mockResolvedValue({ subscription: apiSubscription });
     const subscription = fromApiSubscription(apiSubscription);
+    const changes = formSubmission();
 
-    await subscriptionService.create(subscription);
-    await subscriptionService.update(subscription);
+    await subscriptionService.create({ ...changes, pinned: subscription.pinned, extra: subscription.extra });
+    await subscriptionService.update(subscription.id, changes);
 
     expect(mocks.apiFetch.mock.calls[0]?.[0]).toBe("/api/app/subscriptions");
     expect(mocks.apiFetch.mock.calls[0]?.[2]).toMatchObject({ method: "POST" });
     expect(mocks.apiFetch.mock.calls[1]?.[0]).toBe("/api/app/subscriptions/sub_api");
     expect(mocks.apiFetch.mock.calls[1]?.[2]).toMatchObject({ method: "PATCH" });
+    expect(toSubscriptionCreatePayload({ ...changes, pinned: false })).not.toHaveProperty("extra");
+    const updateBody: unknown = JSON.parse(String(mocks.apiFetch.mock.calls[1]?.[2]?.body));
+    const updatePayload = subscriptionUpdateBodySchema.parse(updateBody);
+    expect(updatePayload).not.toHaveProperty("pinned");
+    expect(updatePayload).not.toHaveProperty("extra");
+    expect(updatePayload).not.toHaveProperty("trialEndDate");
+  });
+
+  it("keeps server-owned trial dates out of ordinary create and update payloads", () => {
+    const subscription = fromApiSubscription({
+      ...apiSubscription,
+      status: "trial",
+      trialEndDate: "2026-01-20",
+    });
+    const changes = formSubmission({ status: "trial" });
+
+    const createPayload = subscriptionCreateBodySchema.parse(toSubscriptionCreatePayload({ ...changes, pinned: false }));
+    const updatePayload = subscriptionUpdateBodySchema.parse(toSubscriptionUpdatePayload(changes));
+
+    expect(subscription.trialEndDate).toBe("2026-01-20");
+    expect(createPayload).not.toHaveProperty("trialEndDate");
+    expect(updatePayload).not.toHaveProperty("trialEndDate");
   });
 
   it("patches quick-action fields without sending a full subscription snapshot", async () => {
@@ -257,8 +317,9 @@ describe("subscription service API calls", () => {
 
     await subscriptionService.patch("sub_api", { pinned: true });
 
-    const init = mocks.apiFetch.mock.calls[0]?.[2] as RequestInit | undefined;
-    const payload = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    const init = mocks.apiFetch.mock.calls[0]?.[2];
+    const body: unknown = JSON.parse(String(init?.body));
+    const payload = subscriptionUpdateBodySchema.parse(body);
     expect(mocks.apiFetch.mock.calls[0]?.[0]).toBe("/api/app/subscriptions/sub_api");
     expect(init).toMatchObject({ method: "PATCH" });
     expect(payload).toEqual({ pinned: true });

@@ -59,6 +59,9 @@ func TestCalendarFeedLifecycleAndICSRoute(t *testing.T) {
 	if createRes.Code != http.StatusOK {
 		t.Fatalf("expected calendar feed create 200, got %d: %s", createRes.Code, createRes.Body.String())
 	}
+	if got := createRes.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("expected calendar feed create no-store, got %q", got)
+	}
 	createBody := decodeAPISuccessDataForTest[calendarFeedCreateResponse](t, createRes.Body.Bytes())
 	if !createBody.CalendarFeed.Enabled || createBody.CalendarFeed.FeedURL == "" {
 		t.Fatalf("unexpected create response: %#v", createBody)
@@ -71,6 +74,9 @@ func TestCalendarFeedLifecycleAndICSRoute(t *testing.T) {
 	statusRes = serveTestRequest(t, app, http.MethodGet, "/api/app/calendar-feed", "", token)
 	if statusRes.Code != http.StatusOK || !strings.Contains(statusRes.Body.String(), createBody.CalendarFeed.FeedURL) || !strings.Contains(statusRes.Body.String(), `"enabled":true`) {
 		t.Fatalf("expected enabled status with feedUrl, got %d: %s", statusRes.Code, statusRes.Body.String())
+	}
+	if got := statusRes.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("expected calendar feed status no-store, got %q", got)
 	}
 
 	icsRes := serveTestRequest(t, app, http.MethodGet, calendarFeedRequestTarget(t, createBody.CalendarFeed.FeedURL), "", "")

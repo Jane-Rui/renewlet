@@ -170,15 +170,6 @@ func parseUpstreamProxyEnvURL(value string) (*url.URL, bool) {
 	return parsed, true
 }
 
-func sendUpstreamJSON(endpoint string, payload interface{}, options upstreamHTTPRequestOptions) (*http.Response, error) {
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return nil, err
-	}
-	headers := http.Header{"Content-Type": []string{"application/json"}}
-	return sendUpstreamRequestBytes(http.MethodPost, endpoint, headers, body, options)
-}
-
 func sendUpstreamRequestBytes(method, endpoint string, headers http.Header, body []byte, options upstreamHTTPRequestOptions) (*http.Response, error) {
 	var reader io.Reader
 	if body != nil {
@@ -232,24 +223,6 @@ func (body upstreamCancelOnCloseReadCloser) Close() error {
 	err := body.ReadCloser.Close()
 	body.cancel()
 	return err
-}
-
-func requireUpstreamHTTPOK(response *http.Response, provider string, secrets []string) error {
-	if response == nil {
-		return newUpstreamOperationError(provider+" HTTP 0", createUpstreamErrorDetails(nil, provider+" HTTP 0"))
-	}
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		providerResponse, _, err := captureUpstreamProviderResponse(response, secrets)
-		if err != nil {
-			return err
-		}
-		return createUpstreamHTTPError(provider, response, providerResponse, upstreamProviderMessage(providerResponse))
-	}
-	if response.Body != nil {
-		_, _ = io.Copy(io.Discard, response.Body)
-		_ = response.Body.Close()
-	}
-	return nil
 }
 
 func upstreamTransportDiagnosticMessage(request *http.Request, options upstreamHTTPRequestOptions, err error, timeout time.Duration, timedOut bool) string {

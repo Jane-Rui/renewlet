@@ -103,7 +103,7 @@ describe("ImportPreviewList", () => {
     expect(logo).toHaveClass("subscription-logo-image", "object-contain");
     expect(logo).not.toHaveClass("media-thumbnail-image", "invert", "brightness-125", "mix-blend-screen");
     expect(logoTile).not.toHaveClass("media-thumbnail-canvas");
-    expect(logoTile).not.toHaveClass("bg-gradient-to-br");
+    expect(logoTile).not.toHaveClass("bg-linear-to-br");
   });
 
   it("passes the imported website to each row Logo editor", () => {

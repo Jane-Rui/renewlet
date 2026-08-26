@@ -6,7 +6,7 @@
  *
  * 注意： 弹窗中的金额、周期和状态标签必须继续复用 subscription domain 常量，避免日历视图口径分叉。
  */
-import type { Subscription, SubscriptionStatus } from '@/types/subscription';
+import type { SubscriptionCollectionItem, SubscriptionStatus } from '@/types/subscription';
 import { STATUS_LABELS } from '@/types/subscription';
 import { Button } from '@/components/ui/button';
 import { CalendarDays } from 'lucide-react';
@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { MobileBottomDrawerContent, MobileDrawerRoot } from '@/components/ui/mobile-drawer';
 import { Badge } from '@/components/ui/badge';
 import { TruncatedTooltipText } from '@/components/ui/truncated-tooltip-text';
-import { useCustomConfig } from '@/contexts/CustomConfigContext';
+import { useCustomConfigState } from '@/contexts/CustomConfigContext';
 import { useI18n } from '@/i18n/I18nProvider';
 import { cn } from '@/lib/utils';
 import type { DateOnly } from '@/lib/time/date-only';
@@ -33,7 +33,7 @@ const statusBadgeClassNames = {
 } satisfies Record<SubscriptionStatus, string>;
 
 interface CalendarSubscriptionLogoProps {
-  subscription: Subscription;
+  subscription: SubscriptionCollectionItem;
   categoryColor: string | undefined;
   className?: string | undefined;
 }
@@ -44,26 +44,28 @@ function CalendarSubscriptionLogo({ subscription, categoryColor, className }: Ca
 
 export interface CalendarDaySubscriptions {
   date: Date;
-  subscriptions: Subscription[];
+  subscriptions: SubscriptionCollectionItem[];
 }
 
 export interface DaySubscriptionsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   selectedDaySubs: CalendarDaySubscriptions | null;
-  onSelectSubscription: (subscription: Subscription) => void;
+  onSelectSubscription: (subscription: SubscriptionCollectionItem) => void;
+  onPrefetchSubscription: (id: string) => void;
   today: DateOnly | string;
   isMobile?: boolean | undefined;
 }
 
 interface DaySubscriptionsListProps {
-  subscriptions: Subscription[];
-  onSelectSubscription: (subscription: Subscription) => void;
+  subscriptions: SubscriptionCollectionItem[];
+  onSelectSubscription: (subscription: SubscriptionCollectionItem) => void;
+  onPrefetchSubscription: (id: string) => void;
   today: DateOnly | string;
 }
 
-function DaySubscriptionsList({ subscriptions, onSelectSubscription, today }: DaySubscriptionsListProps) {
-  const { config } = useCustomConfig();
+function DaySubscriptionsList({ subscriptions, onSelectSubscription, onPrefetchSubscription, today }: DaySubscriptionsListProps) {
+  const { config } = useCustomConfigState();
   const { locale, label, formatCurrency } = useI18n();
 
   return (
@@ -77,6 +79,8 @@ function DaySubscriptionsList({ subscriptions, onSelectSubscription, today }: Da
             key={sub.id}
             type="button"
             onClick={() => onSelectSubscription(sub)}
+            onPointerEnter={() => onPrefetchSubscription(sub.id)}
+            onFocus={() => onPrefetchSubscription(sub.id)}
             className="group flex min-w-0 w-full max-w-full items-center gap-3 rounded-lg border border-border bg-secondary/30 p-3 text-left transition-colors hover:bg-secondary/60"
             data-testid="calendar-day-subscription-item"
           >
@@ -116,6 +120,7 @@ export function DaySubscriptionsDialog({
   onOpenChange,
   selectedDaySubs,
   onSelectSubscription,
+  onPrefetchSubscription,
   today,
   isMobile = false,
 }: DaySubscriptionsDialogProps) {
@@ -145,6 +150,7 @@ export function DaySubscriptionsDialog({
                 <DaySubscriptionsList
                   subscriptions={selectedDaySubs.subscriptions}
                   onSelectSubscription={onSelectSubscription}
+                  onPrefetchSubscription={onPrefetchSubscription}
                   today={today}
                 />
               )}
@@ -174,6 +180,7 @@ export function DaySubscriptionsDialog({
             <DaySubscriptionsList
               subscriptions={selectedDaySubs.subscriptions}
               onSelectSubscription={onSelectSubscription}
+              onPrefetchSubscription={onPrefetchSubscription}
               today={today}
             />
           </div>

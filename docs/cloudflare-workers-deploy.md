@@ -244,11 +244,13 @@ pnpm exec wrangler d1 export DB --remote --config wrangler.generated.jsonc --out
 pnpm exec wrangler d1 time-travel info DB --json --config wrangler.generated.jsonc
 ```
 
-The repository migration helper applies pending migrations, runs required data backfills, and executes `PRAGMA foreign_key_check`. A failed backfill or non-empty foreign-key result stops deployment.
+The repository migration helper backs up calendar Feeds affected by `0035`, applies pending migrations, restores those Feeds exactly, rebuilds subscription collection state, and executes `PRAGMA foreign_key_check`. Any failed step preserves the recovery state and stops the new Worker deployment.
 
 ```bash
 pnpm cloudflare:migrations:apply --config wrangler.generated.jsonc
 ```
+
+Databases where an older deployment already ran `0035` automatically rebuild subscription lists, filters, analytics, tags, in-app calendars, and scheduler state. A per-subscription calendar Feed token deleted by that migration cannot be derived from subscription data. Generate a new link in Renewlet and replace the old URL in the external calendar. The all-subscriptions Feed was not affected. Preserving an old per-subscription URL is possible only when a pre-upgrade Time Travel bookmark still exists; Renewlet never runs an in-place production restore automatically.
 
 If that command fails, do not deploy the new Worker. The workflow prints a reviewed restore command but never runs it automatically because Time Travel overwrites the database in place. After checking writes made since the checkpoint, restore the pre-upgrade bookmark, or create a replacement D1 database from `renewlet-before-upgrade.sql`, reconnect the `DB` binding, and redeploy the previous Worker version. A bookmark captured after a failed migration only protects later changes and is not a substitute for the pre-upgrade bookmark.
 

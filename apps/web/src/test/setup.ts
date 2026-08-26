@@ -2,6 +2,13 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
 import { EXPLICIT_LOCALE_PREFERENCE_KEY } from "@/i18n/locales";
+import { activateLoadedLocale, loadLocaleCatalog } from "@/i18n/messages";
+
+const [zhCNMessages] = await Promise.all([
+  loadLocaleCatalog("zh-CN"),
+  loadLocaleCatalog("en-US"),
+]);
+activateLoadedLocale("zh-CN", zhCNMessages);
 
 class ResizeObserverMock {
   observe() {}

@@ -5,6 +5,7 @@ import type { LocalizedLabels } from "@/i18n/locales";
 import type { CustomConfig } from "@/types/config";
 
 interface SubscriptionPaymentMethodSelectProps {
+  id?: string | undefined;
   value: string;
   methods: CustomConfig["paymentMethods"];
   labelFor: (labels: LocalizedLabels) => string;
@@ -14,6 +15,7 @@ interface SubscriptionPaymentMethodSelectProps {
 }
 
 export function SubscriptionPaymentMethodSelect({
+  id,
   value,
   methods,
   labelFor,
@@ -23,7 +25,7 @@ export function SubscriptionPaymentMethodSelect({
 }: SubscriptionPaymentMethodSelectProps) {
   return (
     <Select value={value} onValueChange={onValueChange}>
-      <SelectTrigger className="border-border bg-secondary" tooltipContent={tooltipContent}>
+      <SelectTrigger id={id} className="border-border bg-secondary" tooltipContent={tooltipContent}>
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
       <SelectContent>

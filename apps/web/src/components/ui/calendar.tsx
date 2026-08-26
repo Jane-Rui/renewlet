@@ -132,7 +132,7 @@ function CalendarCaption({
           </Button>
         </PopoverTrigger>
         <PopoverContent
-          className="w-[260px] p-3"
+          className="w-65 p-3"
           align="center"
           mobileDetent="compact"
           mobileKind="panel"
@@ -218,7 +218,7 @@ function CalendarCaption({
           </Button>
         </PopoverTrigger>
         <PopoverContent
-          className="w-[220px] p-3"
+          className="w-55 p-3"
           align="center"
           mobileDetent="compact"
           mobileKind="panel"

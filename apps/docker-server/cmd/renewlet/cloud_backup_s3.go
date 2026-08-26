@@ -211,14 +211,6 @@ func resolveCloudBackupS3EndpointMode(settings cloudBackupS3Settings) cloudBacku
 	return cloudBackupS3ServiceEndpoint
 }
 
-func providerHostSummary(endpoint string) string {
-	parsed, err := url.Parse(endpoint)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return endpoint
-	}
-	return parsed.Scheme + "://" + parsed.Host
-}
-
 func cloudBackupS3UsePathStyle(parsed *url.URL, hostname string) bool {
 	port := parsed.Port()
 	// S3 兼容服务没有统一供应商发现协议；这里只根据客观网络形态决定 path-style，不按域名猜服务商或 bucket 绑定。

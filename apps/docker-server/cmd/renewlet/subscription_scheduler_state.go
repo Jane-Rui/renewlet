@@ -289,10 +289,6 @@ func listAutoRenewDueUserIDs(app core.App, now time.Time, limit int) ([]string, 
 	return listSchedulerDueUserIDs(app, "s.autoRenewCount > 0 AND (s.nextAutoRenewCheckAtUTC = '' OR s.nextAutoRenewCheckAtUTC <= {:now})", now, limit, "s.nextAutoRenewCheckAtUTC ASC, s.user ASC", nil)
 }
 
-func listNotificationDueUserIDs(app core.App, now time.Time, limit int) ([]string, error) {
-	return listNotificationDueUserIDsExcluding(app, now, limit, nil)
-}
-
 func listNotificationDueUserIDsExcluding(app core.App, now time.Time, limit int, excludeUserIDs map[string]struct{}) ([]string, error) {
 	filter := "(s.nextDailyNotificationDueAtUTC = '' OR s.nextDailyNotificationDueAtUTC <= {:now} OR (s.repeatReminderCount > 0 AND (s.nextRepeatNotificationDueAtUTC = '' OR s.nextRepeatNotificationDueAtUTC <= {:now})))"
 	return listSchedulerDueUserIDs(app, filter, now, limit, "s.nextDailyNotificationDueAtUTC ASC, s.nextRepeatNotificationDueAtUTC ASC, s.user ASC", excludeUserIDs)

@@ -29,7 +29,7 @@ import {
 } from "./import-export-model";
 
 export type WallosTableRow = Record<string, unknown>;
-export type ImportAssetSource = Blob | string;
+export type ImportAssetSource = Blob | { buffer: ArrayBuffer; mimeType: string };
 
 /**
  * WallosApiPayload 描述用户粘贴或合并的 Wallos API JSON。
@@ -114,8 +114,8 @@ export function buildFromRenewletExport(
       price: subscription.price,
       currency: subscription.currency,
       billingCycle: subscription.billingCycle,
-      customDays: subscription.billingCycle === "custom" ? subscription.customDays ?? 1 : null,
-      customCycleUnit: subscription.billingCycle === "custom" ? subscription.customCycleUnit ?? "day" : null,
+      customDays: subscription.billingCycle === "custom" ? subscription.customDays : null,
+      customCycleUnit: subscription.billingCycle === "custom" ? subscription.customCycleUnit : null,
       category: subscription.category,
       status: subscription.status,
       pinned: subscription.pinned,
@@ -134,7 +134,7 @@ export function buildFromRenewletExport(
       repeatReminderInterval: subscription.repeatReminderInterval,
       repeatReminderWindow: subscription.repeatReminderWindow,
       extra: {
-        ...(subscription.extra ?? {}),
+        ...subscription.extra,
         import: { source: "renewlet", sourceId: subscription.id, confidence: "high" },
       },
     };
@@ -434,15 +434,15 @@ function truncateImportNotes(value: string | undefined): string | null {
 }
 
 function makeSubscriptionLogoAssetRef(subscriptionIndex: number, filename: string, source: ImportAssetSource): ImportAssetRef {
-  return typeof source === "string"
-    ? { target: { type: "subscriptionLogo", subscriptionIndex }, kind: "logo", filename, zipEntryName: source }
-    : { target: { type: "subscriptionLogo", subscriptionIndex }, kind: "logo", filename, blob: source };
+  return source instanceof Blob
+    ? { target: { type: "subscriptionLogo", subscriptionIndex }, kind: "logo", filename, blob: source }
+    : { target: { type: "subscriptionLogo", subscriptionIndex }, kind: "logo", filename, ...source };
 }
 
 function makePaymentMethodIconAssetRef(paymentMethodIndex: number, filename: string, source: ImportAssetSource): ImportAssetRef {
-  return typeof source === "string"
-    ? { target: { type: "paymentMethodIcon", paymentMethodIndex }, kind: "icon", filename, zipEntryName: source }
-    : { target: { type: "paymentMethodIcon", paymentMethodIndex }, kind: "icon", filename, blob: source };
+  return source instanceof Blob
+    ? { target: { type: "paymentMethodIcon", paymentMethodIndex }, kind: "icon", filename, blob: source }
+    : { target: { type: "paymentMethodIcon", paymentMethodIndex }, kind: "icon", filename, ...source };
 }
 
 function isExportAssetPath(value: string | undefined): boolean {

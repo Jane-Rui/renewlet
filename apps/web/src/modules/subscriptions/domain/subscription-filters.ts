@@ -9,9 +9,16 @@ import { DEFAULT_LOCALE, type Locale } from "@/i18n/locales";
 import { toMonthlyAmount } from "@/lib/subscription-billing";
 import { assertDateOnly, compareDateOnly, type DateOnly } from "@/lib/time/date-only";
 import type { SubscriptionListFilters } from "@/services/subscription-service";
-import type { BillingCycle, Category, Subscription, SubscriptionStatus } from "@/types/subscription";
+import type {
+  BillingCycle,
+  Category,
+  Subscription,
+  SubscriptionCollectionItem,
+  SubscriptionStatus,
+} from "@/types/subscription";
 import { compareMoney } from "@renewlet/shared/money";
 import { SUBSCRIPTION_PAYMENT_METHOD_NONE } from "@renewlet/shared/schemas/subscriptions";
+import { DISABLED_REMINDER_DAYS, INHERIT_REMINDER_DAYS } from "@renewlet/shared/runtime";
 import { getEffectiveSubscriptionStatus } from "./subscription-status";
 
 export interface SubscriptionFilterState {
@@ -80,17 +87,6 @@ export interface SubscriptionSortContext {
   locale?: Locale;
 }
 
-/** 收集订阅中出现过的所有标签。 */
-export function collectSubscriptionTags(subscriptions: readonly Subscription[]): string[] {
-  const tags = new Set<string>();
-  for (const subscription of subscriptions) {
-    for (const tag of subscription.tags ?? []) {
-      tags.add(tag);
-    }
-  }
-  return Array.from(tags);
-}
-
 /** 按搜索、分类、状态和标签筛选订阅。 */
 export function filterSubscriptions(
   subscriptions: readonly Subscription[],
@@ -145,12 +141,55 @@ export function filterSubscriptions(
   });
 }
 
+function matchesOptionalValues(values: readonly string[] | undefined, actual: string): boolean {
+  return !values?.length || values.includes(actual);
+}
+
+function matchesPaymentMethod(values: readonly string[] | undefined, actual: string | undefined): boolean {
+  if (!values?.length) return true;
+  if (!actual && values.includes(SUBSCRIPTION_PAYMENT_METHOD_NONE)) return true;
+  return actual !== undefined && values.includes(actual);
+}
+
+/**
+ * 在完整导出 DTO 上重放 collection 查询语义。
+ * 列表展示仍以服务端 index 为事实源；该函数只用于显式 CSV 导出和同契约测试 fixture。
+ */
+export function filterSubscriptionsByListFilters(
+  subscriptions: readonly Subscription[],
+  filters: SubscriptionListFilters | undefined,
+  context: SubscriptionFilterContext,
+): Subscription[] {
+  const filtered = filterSubscriptions(subscriptions, {
+    searchQuery: filters?.q ?? "",
+    selectedCategories: filters?.category ?? [],
+    statusFilter: filters?.status ?? "all",
+    renewalFilter: filters?.renewal ?? "all",
+    selectedTags: filters?.tag ?? [],
+  }, context);
+
+  return filtered.filter((subscription) => {
+    if (!matchesOptionalValues(filters?.billingCycle, subscription.billingCycle)) return false;
+    if (!matchesPaymentMethod(filters?.paymentMethod, subscription.paymentMethod)) return false;
+    if (!matchesOptionalValues(filters?.currency, subscription.currency)) return false;
+    if (filters?.nextBillingFrom && subscription.nextBillingDate < filters.nextBillingFrom) return false;
+    if (filters?.nextBillingTo && subscription.nextBillingDate > filters.nextBillingTo) return false;
+    if (filters?.pinned !== undefined && subscription.pinned !== filters.pinned) return false;
+    if (filters?.publicHidden !== undefined && subscription.publicHidden !== filters.publicHidden) return false;
+    if (filters?.repeatReminder !== undefined && subscription.repeatReminderEnabled !== filters.repeatReminder) return false;
+    if (filters?.reminderMode === "disabled" && subscription.reminderDays !== DISABLED_REMINDER_DAYS) return false;
+    if (filters?.reminderMode === "inherit" && subscription.reminderDays !== INHERIT_REMINDER_DAYS) return false;
+    if (filters?.reminderMode === "custom" && subscription.reminderDays < 0) return false;
+    return true;
+  });
+}
+
 function getSortDirection(sortOption: SubscriptionSortOption): 1 | -1 {
   return sortOption.endsWith("_desc") ? -1 : 1;
 }
 
 function calculateMonthlyCost(
-  subscription: Subscription,
+  subscription: SubscriptionCollectionItem,
   defaultCurrency: string,
   convert: (amount: number | string, from: string, to: string) => number,
 ): number {
@@ -165,16 +204,16 @@ function calculateMonthlyCost(
   );
 }
 
-function comparePinnedFirst(left: Subscription, right: Subscription): number {
+function comparePinnedFirst(left: SubscriptionCollectionItem, right: SubscriptionCollectionItem): number {
   if (left.pinned === right.pinned) return 0;
   return left.pinned ? -1 : 1;
 }
 
 /** 按指定选项对订阅排序；置顶分组永远优先，相同排序值保持传入顺序，避免列表无意义跳动。 */
-export function sortSubscriptions(
-  subscriptions: readonly Subscription[],
+export function sortSubscriptions<T extends SubscriptionCollectionItem>(
+  subscriptions: readonly T[],
   { sortOption, defaultCurrency, convert, locale = DEFAULT_LOCALE }: SubscriptionSortContext,
-): Subscription[] {
+): T[] {
   if (sortOption === "default") {
     return Array.from(subscriptions).sort((left, right) => comparePinnedFirst(left, right));
   }

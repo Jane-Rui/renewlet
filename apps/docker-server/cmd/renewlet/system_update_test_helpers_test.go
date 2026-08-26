@@ -58,7 +58,7 @@ func (client *fakeSystemReleaseClient) ProbeReleaseAssets(_ context.Context, _ s
 	return nil
 }
 
-func (client *fakeSystemReleaseClient) DownloadFile(ctx context.Context, _ string, targetPath string, _ int64) (string, error) {
+func (client *fakeSystemReleaseClient) DownloadFile(ctx context.Context, _ string, targetPath string, _ int64, _ int64) (string, error) {
 	atomic.AddInt32(&client.downloadCount, 1)
 	client.recordRequest("archive")
 	select {

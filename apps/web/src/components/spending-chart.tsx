@@ -10,7 +10,7 @@
 
 import { PieChart, Pie, Cell, Tooltip } from 'recharts';
 import type { ConfigItem } from '@/types/config';
-import type { Subscription } from '@/types/subscription';
+import type { SubscriptionCollectionItem } from '@/types/subscription';
 import { RechartsFrame } from '@/components/recharts-frame';
 import { toMonthlyAmount } from '@/lib/subscription-billing';
 import { useMemo } from 'react';
@@ -18,9 +18,9 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { todayDateOnlyInTimeZone } from '@/lib/time/date-only';
 import { isEffectivelyActiveSubscription } from '@/modules/subscriptions/domain/subscription-status';
 
-interface SpendingChartProps {
+export interface SpendingChartProps {
   /** 订阅列表（前端 domain 类型）。 */
-  subscriptions: Subscription[];
+  subscriptions: SubscriptionCollectionItem[];
   categories: readonly ConfigItem[];
   defaultCurrency: string;
   timeZone: string;
@@ -132,7 +132,7 @@ export function SpendingChart({ subscriptions, categories, defaultCurrency, time
 
   if (data.length === 0) {
     return (
-      <div className="flex h-64 items-center justify-center text-muted-foreground">
+      <div className="flex min-h-20 items-center justify-center py-4 text-center text-sm text-muted-foreground">
         {t("statistics.noSubscriptionData")}
       </div>
     );

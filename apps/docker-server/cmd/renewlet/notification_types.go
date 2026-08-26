@@ -14,7 +14,6 @@ import (
 )
 
 const (
-	notificationStatusPending = "pending"
 	notificationStatusSending = "sending"
 	notificationStatusSent    = "sent"
 	notificationStatusFailed  = "failed"

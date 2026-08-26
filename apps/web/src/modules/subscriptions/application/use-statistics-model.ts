@@ -7,12 +7,12 @@
 import { useMemo } from "react";
 import type { Locale } from "@/i18n/locales";
 import type { CustomConfig } from "@/types/config";
-import type { Subscription } from "@/types/subscription";
+import type { SubscriptionCollectionItem } from "@/types/subscription";
 import { buildStatisticsModel } from "../domain/statistics-model";
 
 /** 统计页视图模型 hook。 */
 export function useStatisticsModel(
-  subscriptions: readonly Subscription[],
+  subscriptions: readonly SubscriptionCollectionItem[],
   config: CustomConfig,
   monthlyBudget: string,
   defaultCurrency: string,

@@ -21,12 +21,12 @@ const { getCatalogs } = await import(clientRequire.resolve("@lingui/cli/api"));
 
 const catalogDir = path.join(clientDir, "src/i18n/catalogs");
 const descriptorDir = path.join(clientDir, "src/i18n/descriptors");
-const catalogKeysPath = path.join(clientDir, "src/i18n/catalog-keys.ts");
 const distAssetsDir = path.join(clientDir, "dist/assets");
 const serverI18nSourceDir = path.join(rootDir, "packages/shared/data/server-i18n");
 const goServerDir = path.join(rootDir, "apps/docker-server/cmd/renewlet");
 const cloudflareSrcDir = path.join(rootDir, "apps/worker/src");
 const serverI18nGenerator = path.join(rootDir, "scripts/generate-server-i18n.mjs");
+const clientI18nGenerator = path.join(rootDir, "scripts/generate-i18n-artifacts.mjs");
 const sourceRoot = path.join(clientDir, "src");
 const locales = ["zh-CN", "en-US"];
 const sourceLocale = locales[0];
@@ -86,11 +86,6 @@ function serverPlaceholders(message) {
     names.add(match[1]);
   }
   return [...names].sort();
-}
-
-function readGeneratedMessageKeys() {
-  const source = fs.readFileSync(catalogKeysPath, "utf8");
-  return [...source.matchAll(/^\s*"([^"]+)",$/gm)].map((match) => match[1]).sort();
 }
 
 function walkFiles(dir, files = []) {
@@ -229,6 +224,13 @@ function checkServerI18nGeneratedOutputs(failures) {
   }
 }
 
+function checkClientI18nGeneratedOutputs(failures) {
+  const output = spawnSync(process.execPath, [clientI18nGenerator, "--check"], { cwd: rootDir, encoding: "utf8" });
+  if (output.status !== 0) {
+    failures.push((output.stderr || output.stdout || "client i18n generated outputs are out of sync").trim());
+  }
+}
+
 const failures = [];
 const catalogs = Object.fromEntries(locales.map((locale) => [locale, readCatalog(locale)]));
 const base = catalogs[sourceLocale];
@@ -273,11 +275,7 @@ for (const locale of locales.slice(1)) {
   }
 }
 
-const generatedKeys = readGeneratedMessageKeys();
-if (generatedKeys.join("\n") !== baseKeys.join("\n")) {
-  failures.push("src/i18n/catalog-keys.ts is out of sync with the source locale catalog. Run `pnpm --filter @renewlet/client i18n:extract`.");
-}
-
+checkClientI18nGeneratedOutputs(failures);
 checkServerI18nCatalogs(failures);
 checkServerI18nGeneratedOutputs(failures);
 

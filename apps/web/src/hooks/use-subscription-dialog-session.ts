@@ -56,7 +56,9 @@ export function useSubscriptionDialogSession({
   const [formData, setFormData] = useState<SubscriptionFormState>(() =>
     mode === "create"
       ? createCreateFormState(defaultCreateCurrency, initialSubscription)
-      : createSubscriptionFormState(),
+      : editSubscription
+        ? subscriptionToFormState(editSubscription)
+        : createSubscriptionFormState(),
   );
 
   const resetTransientState = useCallback(() => {
@@ -122,7 +124,7 @@ export function useSubscriptionDialogSession({
     open,
   ]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (mode !== "create") return;
     if (!open) return;
     if (!initialSubscription) return;
@@ -133,7 +135,7 @@ export function useSubscriptionDialogSession({
     resetTransientState();
   }, [initialSubscription, mode, open, resetTransientState]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (mode !== "edit") return;
     if (!open) return;
     if (!editSubscription) return;
@@ -225,7 +227,7 @@ function subscriptionToFormState(subscription: Subscription): SubscriptionFormSt
     currency: subscription.currency,
     billingCycle: subscription.billingCycle,
     customDays: subscription.customDays?.toString() || "",
-    customCycleUnit: subscription.customCycleUnit ?? "day",
+    customCycleUnit: subscription.billingCycle === "custom" ? subscription.customCycleUnit : "day",
     oneTimeMode: subscription.billingCycle === "one-time" && subscription.oneTimeTermCount && subscription.oneTimeTermUnit ? "term" : "buyout",
     oneTimeTermCount: subscription.billingCycle === "one-time" && subscription.oneTimeTermCount ? subscription.oneTimeTermCount.toString() : "1",
     oneTimeTermUnit: subscription.billingCycle === "one-time" ? subscription.oneTimeTermUnit ?? "month" : "month",
@@ -246,6 +248,6 @@ function subscriptionToFormState(subscription: Subscription): SubscriptionFormSt
     costSharing: subscription.costSharing,
     website: subscription.website ?? "",
     notes: subscription.notes ?? "",
-    tags: subscription.tags ?? [],
+    tags: subscription.tags,
   };
 }

@@ -1,13 +1,13 @@
 // 订阅弹窗提交测试保护上传中禁止保存、标签 pending 文本提交和一次性购买字段清理。
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { assertDateOnly } from "@/lib/time/date-only";
 import { createSubscriptionFormState } from "@/types/subscription-form";
-import { SubscriptionDialog } from "./subscription-dialog";
+import { preloadSubscriptionDialog, SubscriptionDialog } from "./subscription-dialog";
 
 vi.mock("@/contexts/CustomConfigContext", () => ({
-  useCustomConfig: () => ({
+  useCustomConfigState: () => ({
     config: {
       categories: [{ id: "productivity", value: "productivity", labels: { "zh-CN": "效率工具", "en-US": "Productivity" } }],
       statuses: [{ id: "active", value: "active", labels: { "zh-CN": "活跃", "en-US": "Active" } }],
@@ -113,6 +113,10 @@ vi.mock("@/components/subscription-form-fields", () => ({
   ),
 }));
 
+beforeAll(async () => {
+  await preloadSubscriptionDialog();
+});
+
 describe("SubscriptionDialog submit", () => {
   it("submits an empty tags array when the create form tags input is blank", () => {
     const onSubmit = vi.fn();
@@ -120,6 +124,7 @@ describe("SubscriptionDialog submit", () => {
     render(
       <TooltipProvider delayDuration={0}>
         <SubscriptionDialog
+          loadingPreview={null}
           mode="create"
           open
           onOpenChange={vi.fn()}
@@ -143,6 +148,7 @@ describe("SubscriptionDialog submit", () => {
     render(
       <TooltipProvider delayDuration={0}>
         <SubscriptionDialog
+          loadingPreview={null}
           mode="create"
           open
           onOpenChange={vi.fn()}
@@ -164,6 +170,7 @@ describe("SubscriptionDialog submit", () => {
     render(
       <TooltipProvider delayDuration={0}>
         <SubscriptionDialog
+          loadingPreview={null}
           mode="create"
           open
           onOpenChange={vi.fn()}
@@ -187,6 +194,7 @@ describe("SubscriptionDialog submit", () => {
     render(
       <TooltipProvider delayDuration={0}>
         <SubscriptionDialog
+          loadingPreview={null}
           mode="create"
           open
           onOpenChange={vi.fn()}
@@ -212,6 +220,7 @@ describe("SubscriptionDialog submit", () => {
     render(
       <TooltipProvider delayDuration={0}>
         <SubscriptionDialog
+          loadingPreview={null}
           mode="create"
           open
           onOpenChange={vi.fn()}

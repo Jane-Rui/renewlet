@@ -6,7 +6,17 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { assertDateOnly } from "@/lib/time/date-only";
 import { assertLocalTime } from "@/lib/time/local-time";
 import { NotificationHistoryPanel } from "./notification-history-panel";
-import type { NotificationHistoryResponse } from "../application/use-notification-history";
+import type {
+  NotificationHistoryResponse,
+  NotificationOverviewResponse,
+} from "@/lib/api/schemas/notifications";
+import type { SettingsNotificationHistoryController } from "../application/use-notification-history";
+import type { SettingsReadState } from "../application/settings-read-state";
+
+interface TestNotificationData {
+  overview: NotificationOverviewResponse;
+  history: NotificationHistoryResponse;
+}
 
 function setElementOverflow(element: Element) {
   Object.defineProperties(element, {
@@ -35,8 +45,8 @@ function mockCompactHistoryLayout(matches = true) {
   });
 }
 
-function createHistoryResponse(reason: string): NotificationHistoryResponse {
-  const job: NotificationHistoryResponse["history"]["jobs"][number] = {
+function createHistoryResponse(reason: string): TestNotificationData {
+  const job: NotificationHistoryResponse["jobs"][number] = {
     id: "job-1",
     scheduledLocalDate: assertDateOnly("2026-05-15"),
     scheduledLocalTime: assertLocalTime("06:33"),
@@ -92,21 +102,23 @@ function createHistoryResponse(reason: string): NotificationHistoryResponse {
   };
 
   return {
-    summary: {
-      nextCheck: {
-        scheduledLocalDate: assertDateOnly("2026-05-16"),
-        scheduledLocalTime: assertLocalTime("06:33"),
-        timeZone: "Asia/Shanghai",
-        scheduledInstantUtc: "2026-05-15T22:33:00.000Z",
+    overview: {
+      summary: {
+        nextCheck: {
+          scheduledLocalDate: assertDateOnly("2026-05-16"),
+          scheduledLocalTime: assertLocalTime("06:33"),
+          timeZone: "Asia/Shanghai",
+          scheduledInstantUtc: "2026-05-15T22:33:00.000Z",
+        },
+        nextContentBatch: null,
+        blockers: ["no_upcoming_items"],
+        enabledChannels: ["email"],
+        upcomingDays: 30,
+        latestJob: job,
+        latestFailedJob: job,
       },
-      nextContentBatch: null,
-      blockers: ["no_upcoming_items"],
-      enabledChannels: ["email"],
-      upcomingDays: 30,
-      latestJob: job,
-      latestFailedJob: job,
+      upcoming: [],
     },
-    upcoming: [],
     history: {
       jobs: [job],
       status: "all",
@@ -117,8 +129,8 @@ function createHistoryResponse(reason: string): NotificationHistoryResponse {
   };
 }
 
-function createSkippedHistoryResponse(): NotificationHistoryResponse {
-  const job: NotificationHistoryResponse["history"]["jobs"][number] = {
+function createSkippedHistoryResponse(): TestNotificationData {
+  const job: NotificationHistoryResponse["jobs"][number] = {
     id: "job-skipped",
     scheduledLocalDate: assertDateOnly("2026-05-17"),
     scheduledLocalTime: assertLocalTime("08:00"),
@@ -164,21 +176,23 @@ function createSkippedHistoryResponse(): NotificationHistoryResponse {
   };
 
   return {
-    summary: {
-      nextCheck: {
-        scheduledLocalDate: assertDateOnly("2026-05-18"),
-        scheduledLocalTime: assertLocalTime("08:00"),
-        timeZone: "UTC",
-        scheduledInstantUtc: "2026-05-18T08:00:00Z",
+    overview: {
+      summary: {
+        nextCheck: {
+          scheduledLocalDate: assertDateOnly("2026-05-18"),
+          scheduledLocalTime: assertLocalTime("08:00"),
+          timeZone: "UTC",
+          scheduledInstantUtc: "2026-05-18T08:00:00Z",
+        },
+        nextContentBatch: null,
+        blockers: ["no_enabled_channels"],
+        enabledChannels: [],
+        upcomingDays: 30,
+        latestJob: job,
+        latestFailedJob: null,
       },
-      nextContentBatch: null,
-      blockers: ["no_enabled_channels"],
-      enabledChannels: [],
-      upcomingDays: 30,
-      latestJob: job,
-      latestFailedJob: null,
+      upcoming: [],
     },
-    upcoming: [],
     history: {
       jobs: [job],
       status: "all",
@@ -189,7 +203,7 @@ function createSkippedHistoryResponse(): NotificationHistoryResponse {
   };
 }
 
-function createUpcomingBatches(count: number): NotificationHistoryResponse["upcoming"] {
+function createUpcomingBatches(count: number): NotificationOverviewResponse["upcoming"] {
   return Array.from({ length: count }, (_, index) => {
     const day = String(1 + Math.floor(index / 24)).padStart(2, "0");
     const hour = String(index % 24).padStart(2, "0");
@@ -213,23 +227,88 @@ function createUpcomingBatches(count: number): NotificationHistoryResponse["upco
   });
 }
 
+function readState<T>(data: T | undefined, overrides: Partial<SettingsReadState<T>> = {}): SettingsReadState<T> {
+  return {
+    data,
+    hasData: data !== undefined,
+    error: null,
+    isInitialLoading: false,
+    isRefreshing: false,
+    retry: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    ...overrides,
+  };
+}
+
+function createController(
+  data: TestNotificationData,
+  overrides: Partial<SettingsNotificationHistoryController> = {},
+): SettingsNotificationHistoryController {
+  return {
+    overview: readState(data.overview),
+    history: readState(data.history),
+    historyStatus: "all",
+    setStatus: vi.fn(),
+    limit: 20,
+    loadMore: vi.fn(),
+    ...overrides,
+  };
+}
+
 describe("NotificationHistoryPanel", () => {
   afterEach(() => {
     Reflect.deleteProperty(window, "matchMedia");
+  });
+
+  it("limits an initial history failure and retry to the history tab", async () => {
+    const user = userEvent.setup();
+    const data = createSkippedHistoryResponse();
+    const retry = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const controller = createController(data);
+    controller.history = readState<NotificationHistoryResponse>(undefined, {
+      error: new Error("history unavailable"),
+      retry,
+    });
+
+    render(
+      <TooltipProvider delayDuration={0}>
+        <NotificationHistoryPanel controller={controller} />
+      </TooltipProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "查看调度与历史" }));
+    expect(screen.getByText("未来 30 天没有会自动发送的提醒。")).toBeInTheDocument();
+    expect(screen.queryByText("加载失败")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "发送历史" }));
+    expect(screen.getByText("加载失败")).toBeInTheDocument();
+    expect(screen.queryByText("到达通知时间后，这里会显示调度记录。")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "重试" }));
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps cached history rows visible when refresh fails", async () => {
+    const user = userEvent.setup();
+    const data = createHistoryResponse("smtp: cached failure");
+    const controller = createController(data);
+    controller.history = readState(data.history, { error: new Error("refresh failed") });
+
+    render(
+      <TooltipProvider delayDuration={0}>
+        <NotificationHistoryPanel controller={controller} />
+      </TooltipProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "查看调度与历史" }));
+    await user.click(screen.getByRole("tab", { name: "发送历史" }));
+    expect(screen.getByText("未更新")).toBeInTheDocument();
+    expect(screen.getAllByText("smtp: cached failure").length).toBeGreaterThan(0);
   });
 
   it("shows the next check time zone as a UTC offset", () => {
     render(
       <TooltipProvider delayDuration={0}>
         <NotificationHistoryPanel
-          data={createHistoryResponse("smtp: temporary failure")}
-          isLoading={false}
-          isFetching={false}
-          error={null}
-          status="all"
-          setStatus={vi.fn()}
-          loadMore={vi.fn()}
-          refetch={vi.fn()}
+          controller={createController(createHistoryResponse("smtp: temporary failure"))}
         />
       </TooltipProvider>,
     );
@@ -248,14 +327,7 @@ describe("NotificationHistoryPanel", () => {
     render(
       <TooltipProvider delayDuration={0}>
         <NotificationHistoryPanel
-          data={createHistoryResponse(reason)}
-          isLoading={false}
-          isFetching={false}
-          error={null}
-          status="all"
-          setStatus={vi.fn()}
-          loadMore={vi.fn()}
-          refetch={vi.fn()}
+          controller={createController(createHistoryResponse(reason))}
         />
       </TooltipProvider>,
     );
@@ -291,14 +363,7 @@ describe("NotificationHistoryPanel", () => {
     render(
       <TooltipProvider delayDuration={0}>
         <NotificationHistoryPanel
-          data={createSkippedHistoryResponse()}
-          isLoading={false}
-          isFetching={false}
-          error={null}
-          status="all"
-          setStatus={vi.fn()}
-          loadMore={vi.fn()}
-          refetch={vi.fn()}
+          controller={createController(createSkippedHistoryResponse())}
         />
       </TooltipProvider>,
     );
@@ -306,7 +371,9 @@ describe("NotificationHistoryPanel", () => {
     await user.click(screen.getByRole("button", { name: "查看调度与历史" }));
 
     const dialog = screen.getByRole("dialog");
-    expect(dialog).toHaveClass("h5-dialog-frame", "flex", "min-h-0", "overflow-hidden");
+    expect(dialog).toHaveClass("flex", "min-h-0", "max-w-3xl", "overflow-hidden");
+    expect(dialog.querySelector("[data-settings-manager-header]")).toHaveClass("shrink-0");
+    expect(dialog.querySelector("[data-settings-manager-footer]")).toHaveClass("shrink-0");
     expect(screen.getByTestId("notification-history-scroll")).toHaveClass("min-h-0", "flex-1", "overflow-y-auto");
   });
 
@@ -316,14 +383,7 @@ describe("NotificationHistoryPanel", () => {
     render(
       <TooltipProvider delayDuration={0}>
         <NotificationHistoryPanel
-          data={createSkippedHistoryResponse()}
-          isLoading={false}
-          isFetching={false}
-          error={null}
-          status="all"
-          setStatus={vi.fn()}
-          loadMore={vi.fn()}
-          refetch={vi.fn()}
+          controller={createController(createSkippedHistoryResponse())}
         />
       </TooltipProvider>,
     );
@@ -345,14 +405,7 @@ describe("NotificationHistoryPanel", () => {
     render(
       <TooltipProvider delayDuration={0}>
         <NotificationHistoryPanel
-          data={createHistoryResponse(reason)}
-          isLoading={false}
-          isFetching={false}
-          error={null}
-          status="all"
-          setStatus={vi.fn()}
-          loadMore={vi.fn()}
-          refetch={vi.fn()}
+          controller={createController(createHistoryResponse(reason))}
         />
       </TooltipProvider>,
     );
@@ -375,7 +428,7 @@ describe("NotificationHistoryPanel", () => {
   it("labels upcoming repeat reminder items", async () => {
     const user = userEvent.setup();
     const data = createSkippedHistoryResponse();
-    data.upcoming = [{
+    data.overview.upcoming = [{
       scheduledLocalDate: assertDateOnly("2026-05-16"),
       scheduledLocalTime: assertLocalTime("09:00"),
       timeZone: "UTC",
@@ -400,14 +453,7 @@ describe("NotificationHistoryPanel", () => {
     render(
       <TooltipProvider delayDuration={0}>
         <NotificationHistoryPanel
-          data={data}
-          isLoading={false}
-          isFetching={false}
-          error={null}
-          status="all"
-          setStatus={vi.fn()}
-          loadMore={vi.fn()}
-          refetch={vi.fn()}
+          controller={createController(data)}
         />
       </TooltipProvider>,
     );
@@ -421,7 +467,7 @@ describe("NotificationHistoryPanel", () => {
   it("labels upcoming cost sharing collection reminder items", async () => {
     const user = userEvent.setup();
     const data = createSkippedHistoryResponse();
-    data.upcoming = [{
+    data.overview.upcoming = [{
       scheduledLocalDate: assertDateOnly("2026-05-16"),
       scheduledLocalTime: assertLocalTime("09:00"),
       timeZone: "UTC",
@@ -447,14 +493,7 @@ describe("NotificationHistoryPanel", () => {
     render(
       <TooltipProvider delayDuration={0}>
         <NotificationHistoryPanel
-          data={data}
-          isLoading={false}
-          isFetching={false}
-          error={null}
-          status="all"
-          setStatus={vi.fn()}
-          loadMore={vi.fn()}
-          refetch={vi.fn()}
+          controller={createController(data)}
         />
       </TooltipProvider>,
     );
@@ -469,19 +508,12 @@ describe("NotificationHistoryPanel", () => {
     const user = userEvent.setup();
     const setStatus = vi.fn();
     const data = createSkippedHistoryResponse();
-    data.upcoming = createUpcomingBatches(40);
+    data.overview.upcoming = createUpcomingBatches(40);
 
     render(
       <TooltipProvider delayDuration={0}>
         <NotificationHistoryPanel
-          data={data}
-          isLoading={false}
-          isFetching={false}
-          error={null}
-          status="all"
-          setStatus={setStatus}
-          loadMore={vi.fn()}
-          refetch={vi.fn()}
+          controller={createController(data, { setStatus })}
         />
       </TooltipProvider>,
     );

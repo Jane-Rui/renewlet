@@ -76,6 +76,7 @@ describe("subscription export model", () => {
       repeatReminderEnabled: false,
       repeatReminderInterval: "1h",
       repeatReminderWindow: "72h",
+      extra: {},
       costSharing: {
         enabled: true,
         splitMode: "equal",

@@ -2,7 +2,7 @@
 import type { Page } from "@playwright/test";
 import { expect, test } from "./support/test";
 import { expectOverlayLeavesTopScrim } from "./support/layout";
-import { gotoSettingsAfterHydration } from "./support/settings";
+import { gotoSettingsSectionAfterHydration } from "./support/settings";
 
 type NotificationHistorySeed = {
   count: number;
@@ -108,7 +108,7 @@ test("mobile notification history opens selected details in a bounded bottom dra
     && response.status() === 200
     && response.url().includes("/api/app/notifications/history")
   ));
-  await gotoSettingsAfterHydration(page);
+  await gotoSettingsSectionAfterHydration(page, "settings-notifications");
   await historyRead;
 
   await page.getByRole("button", { name: "查看调度与历史" }).click();

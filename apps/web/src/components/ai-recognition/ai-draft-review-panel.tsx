@@ -84,6 +84,29 @@ export function AIDraftReviewPanel({
   );
   const selectedDraftNumber = selectedDraft ? drafts.findIndex((item) => item.id === selectedDraft.id) + 1 : 0;
   const getScrollElement = useCallback(() => scrollRef.current, []);
+  const draftNumberById = useMemo(
+    () => new Map(drafts.map((item, index) => [item.id, index + 1])),
+    [drafts],
+  );
+  const getDraftKey = useCallback(
+    (index: number) => filteredDrafts[index]?.id ?? index,
+    [filteredDrafts],
+  );
+  const renderDraft = useCallback((index: number) => {
+    const item = filteredDrafts[index];
+    if (!item) return null;
+    return (
+      <DraftRow
+        item={item}
+        selected={item.id === selectedDraftId}
+        draftNumber={draftNumberById.get(item.id) ?? 0}
+        blockingIssueCount={draftBlockingIssuesById.get(item.id)?.length ?? 0}
+        priceText={formatDraftPrice(item.formData, locale, t("aiRecognition.draftUnknownValue"))}
+        cycleText={t(BILLING_CYCLE_LABEL_KEYS[item.formData.billingCycle])}
+        onSelect={() => onSelectedDraftIdChange(item.id)}
+      />
+    );
+  }, [draftBlockingIssuesById, draftNumberById, filteredDrafts, locale, onSelectedDraftIdChange, selectedDraftId, t]);
 
   useEffect(() => {
     // 筛选条件变化后要把选中项钉回可见集合，否则右侧编辑器会指向已被隐藏的草稿。
@@ -153,27 +176,13 @@ export function AIDraftReviewPanel({
             {filteredDrafts.length > 0 ? (
               <VirtualizedList
                 count={filteredDrafts.length}
-                estimateSize={() => 96}
-                getItemKey={(index) => filteredDrafts[index]?.id ?? index}
+                estimatedItemSize={96}
+                getItemKey={getDraftKey}
                 getScrollElement={getScrollElement}
                 overscan={8}
                 gap={0}
                 testId="ai-draft-virtualized-list"
-                renderItem={(index) => {
-                  const item = filteredDrafts[index];
-                  if (!item) return null;
-                  return (
-                    <DraftRow
-                      item={item}
-                      selected={item.id === selectedDraftId}
-                      draftNumber={drafts.findIndex((draftItem) => draftItem.id === item.id) + 1}
-                      blockingIssueCount={draftBlockingIssuesById.get(item.id)?.length ?? 0}
-                      priceText={formatDraftPrice(item.formData, locale, t("aiRecognition.draftUnknownValue"))}
-                      cycleText={t(BILLING_CYCLE_LABEL_KEYS[item.formData.billingCycle])}
-                      onSelect={() => onSelectedDraftIdChange(item.id)}
-                    />
-                  );
-                }}
+                renderItem={renderDraft}
               />
             ) : (
               <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">

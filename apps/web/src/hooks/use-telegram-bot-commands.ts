@@ -6,7 +6,7 @@ const TELEGRAM_BOT_COMMANDS_QUERY_KEY = ["telegram-bot-commands"] as const;
 export function useTelegramBotCommands() {
   return useQuery({
     queryKey: TELEGRAM_BOT_COMMANDS_QUERY_KEY,
-    queryFn: () => telegramBotService.getCommands(),
+    queryFn: ({ signal }) => telegramBotService.getCommands(signal),
     // 命令状态不靠窗口聚焦频繁刷新；安装/删除和保存 Telegram 凭据后会显式收敛缓存。
     staleTime: 60_000,
     refetchOnWindowFocus: false,

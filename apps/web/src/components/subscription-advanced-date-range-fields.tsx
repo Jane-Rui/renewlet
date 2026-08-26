@@ -3,7 +3,7 @@ import { Label } from "@/components/ui/label";
 import { useI18n } from "@/i18n/I18nProvider";
 import type { SubscriptionAdvancedFilterState } from "@/modules/subscriptions/domain/subscription-filters";
 
-interface SubscriptionAdvancedDateRangeFieldsProps {
+export interface SubscriptionAdvancedDateRangeFieldsProps {
   filters: SubscriptionAdvancedFilterState;
   onChange: (patch: Partial<SubscriptionAdvancedFilterState>) => void;
   mobile: boolean;

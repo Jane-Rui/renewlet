@@ -17,17 +17,10 @@
  * 注意： 不要在本组件里直接调用 API 或 toast，否则会重新把展示层和应用层耦合。
  */
 
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
+import { Dialog, DialogTrigger } from '@/components/ui/dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -44,7 +37,7 @@ import { useConfigManagerController } from '@/modules/custom-config/application/
 import { ConfigManagerSortableList } from '@/modules/custom-config/presentation/config-manager-sortable-list';
 import { useI18n } from '@/i18n/I18nProvider';
 import { rankSearchText } from '@/lib/searchable-options';
-import { cn } from '@/lib/utils';
+import { SettingsManagerDialogFrame } from '@/modules/settings/presentation/settings-manager-dialog-frame';
 
 const DEFAULT_COLORS = [
   'hsl(160 84% 45%)',
@@ -111,6 +104,7 @@ export const ConfigManagerDialog = ({
 }: ConfigManagerDialogProps) => {
   const { t, label } = useI18n();
   const [searchQuery, setSearchQuery] = useState("");
+  const deleteFocusFallbackRef = useRef<HTMLButtonElement>(null);
   // controller 统一维护编辑/新增/删除的互斥状态，presentation 只做事件转发。
   const controller = useConfigManagerController({
     items,
@@ -202,42 +196,51 @@ export const ConfigManagerDialog = ({
           <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
         </button>
       </DialogTrigger>
-      <DialogContent
-        dismissMode="explicit"
-        layout={searchable ? "frame" : "content"}
-        className={cn(
-          "sm:max-w-lg",
-          searchable
-            ? "h5-dialog-frame h5-config-manager-dialog-panel"
-            : "flex min-h-0 flex-col",
+      <SettingsManagerDialogFrame
+        icon={icon && <div className="text-primary">{icon}</div>}
+        title={title}
+        description={description ?? t("customConfig.srDescription", { title })}
+        bodyClassName="flex flex-col"
+        footer={(
+          <Button ref={deleteFocusFallbackRef} type="button" onClick={() => handleDialogOpenChange(false)} className="w-full sm:w-auto">
+            {t("common.close")}
+          </Button>
         )}
       >
-        <DialogHeader data-config-manager-header="" className="shrink-0">
-          <DialogTitle className="flex items-center gap-2">
-            {icon && <div className="text-primary">{icon}</div>}
-            {title}
-          </DialogTitle>
-          {description ? (
-            <DialogDescription>{description}</DialogDescription>
-          ) : (
-            <DialogDescription className="sr-only">
-              {t("customConfig.srDescription", { title })}
-            </DialogDescription>
-          )}
-        </DialogHeader>
-
-        {searchable && (
-          <div className="relative mt-2 shrink-0">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder={searchPlaceholder ?? t("common.searchPlaceholder")}
-              aria-label={searchPlaceholder ?? t("common.searchPlaceholder")}
-              className="border-border bg-secondary pl-9"
-            />
+        <div data-config-manager-controls="" className="grid shrink-0 gap-3">
+          <p className="min-w-0 wrap-break-word text-xs text-muted-foreground">
+            {toggleMode
+              ? t("customConfig.dragSortEnabled", { enabled: enabledCount, total: items.length })
+              : readOnly
+                ? t("customConfig.dragSortOnly")
+                : t("customConfig.dragSort")}
+          </p>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            {searchable ? (
+              <div className="relative min-w-0 flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder={searchPlaceholder ?? t("common.searchPlaceholder")}
+                  aria-label={searchPlaceholder ?? t("common.searchPlaceholder")}
+                  className="border-border bg-secondary pl-9"
+                />
+              </div>
+            ) : null}
+            {!readOnly && !toggleMode && !isAdding && items.length < maxItems ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full sm:w-auto"
+                onClick={() => setIsAdding(true)}
+              >
+                <Plus className="mr-1 h-4 w-4" />
+                {t("customConfig.addOption")}
+              </Button>
+            ) : null}
           </div>
-        )}
+        </div>
 
         <div
           data-config-manager-scroll=""
@@ -285,47 +288,31 @@ export const ConfigManagerDialog = ({
           />
         </div>
 
-        <div
-          data-config-manager-footer=""
-          className="flex shrink-0 flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between"
-        >
-          <p className="min-w-0 wrap-break-word text-xs text-muted-foreground">
-            {toggleMode
-              ? t("customConfig.dragSortEnabled", { enabled: enabledCount, total: items.length })
-              : readOnly
-                ? t("customConfig.dragSortOnly")
-                : t("customConfig.dragSort")} · {t("customConfig.totalItems", { count: items.length })}
-          </p>
-          {!readOnly && !toggleMode && !isAdding && items.length < maxItems && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full sm:w-auto"
-              onClick={() => setIsAdding(true)}
-            >
-              <Plus className="h-4 w-4 mr-1" />
-              {t("customConfig.addOption")}
-            </Button>
-          )}
-        </div>
-      </DialogContent>
+      </SettingsManagerDialogFrame>
 
-      {/* 二次确认弹窗：删除配置项 */}
       <AlertDialog
         open={deleteTarget !== null}
         onOpenChange={(nextOpen) => {
           if (!nextOpen) handleCancelDelete();
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            // 删除成功会卸载触发确认框的行，回到稳定的 Footer 操作，避免焦点落到已移除按钮。
+            deleteFocusFallbackRef.current?.focus();
+          }}
+        >
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("customConfig.confirmDeleteTitle")}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("customConfig.confirmDeleteTitle", { label: deleteTarget ? label(deleteTarget.labels) : "" })}
+            </AlertDialogTitle>
             <AlertDialogDescription>
               {(() => {
                 if (!deleteTarget) return "";
                 const reason = getDeleteReason(deleteTarget);
                 if (reason) return reason;
-                return t("customConfig.confirmDeleteDescription", { label: label(deleteTarget.labels) });
+                return t("customConfig.confirmDeleteDescription");
               })()}
             </AlertDialogDescription>
           </AlertDialogHeader>

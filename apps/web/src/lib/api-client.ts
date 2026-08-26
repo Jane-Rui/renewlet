@@ -93,8 +93,7 @@ function createAbortSignal(
     };
   }
 
-  // 将外部取消和本地超时合并成一个 signal，调用方无需关心哪个来源触发 abort。
-  // 为什么不用 AbortSignal.timeout/any：浏览器兼容性和测试环境差异会让错误分类不稳定。
+  // 首包超时必须可在响应头到达后解除，流式请求再切换到 idle watchdog；因此由本 controller 统一外部取消和两阶段超时。
   const controller = new AbortController();
   let timedOut = false;
   let timeout: ReturnType<typeof setTimeout> | null = null;

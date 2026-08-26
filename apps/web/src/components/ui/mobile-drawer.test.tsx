@@ -24,7 +24,7 @@ describe("MobileBottomDrawerContent", () => {
     expect(drawer).toHaveClass("h5-drawer-panel", "overflow-hidden", "z-50");
     expect(drawer.querySelector("[data-vaul-handle]")).not.toBeNull();
     expect(within(drawer).getByText("抽屉内容").parentElement).toHaveClass("min-h-0", "flex-1", "overflow-y-auto");
-    expect(within(drawer).getByRole("button", { name: "关闭" })).toHaveClass("h-10", "w-10");
+    expect(within(drawer).getByRole("button", { name: "关闭" })).toHaveClass("touch-target", "h-10", "w-10");
   });
 
   it("allows business drawers to own their body layout while keeping shared chrome", () => {

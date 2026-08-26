@@ -28,7 +28,7 @@ func TestSubscriptionsProductAPIDoesNotRebuildMissingListProjectionOnRead(t *tes
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected projection drift list 200, got %d: %s", res.Code, res.Body.String())
 	}
-	body := decodeAPISuccessDataForTest[subscriptionsListResponse](t, res.Body.Bytes())
+	body := decodeAPISuccessDataForTest[subscriptionCollectionListResponse](t, res.Body.Bytes())
 	if body.Total != 0 || len(body.Subscriptions) != 0 {
 		t.Fatalf("read path rebuilt a missing projection: %#v", body)
 	}
@@ -36,11 +36,11 @@ func TestSubscriptionsProductAPIDoesNotRebuildMissingListProjectionOnRead(t *tes
 		t.Fatal(err)
 	}
 	res = serveTestRequest(t, app, http.MethodGet, "/api/app/subscriptions?q=projection&limit=10", "", token)
-	body = decodeAPISuccessDataForTest[subscriptionsListResponse](t, res.Body.Bytes())
+	body = decodeAPISuccessDataForTest[subscriptionCollectionListResponse](t, res.Body.Bytes())
 	if body.Total != 1 || len(body.Subscriptions) != 1 {
 		t.Fatalf("explicit projection repair did not restore one match: %#v", body)
 	}
-	if got, _ := body.Subscriptions[0]["id"].(string); got != target.Id {
+	if got := body.Subscriptions[0].ID; got != target.Id {
 		t.Fatalf("expected rebuilt projection subscription %q, got %#v", target.Id, body.Subscriptions[0])
 	}
 }
@@ -70,7 +70,7 @@ func TestSubscriptionsProductAPIDoesNotRebuildStaleListProjectionOnRead(t *testi
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected stale projection list 200, got %d: %s", res.Code, res.Body.String())
 	}
-	body := decodeAPISuccessDataForTest[subscriptionsListResponse](t, res.Body.Bytes())
+	body := decodeAPISuccessDataForTest[subscriptionCollectionListResponse](t, res.Body.Bytes())
 	if body.Total != 0 || len(body.Subscriptions) != 0 {
 		t.Fatalf("read path rebuilt a stale projection: %#v", body)
 	}
@@ -78,11 +78,11 @@ func TestSubscriptionsProductAPIDoesNotRebuildStaleListProjectionOnRead(t *testi
 		t.Fatal(err)
 	}
 	res = serveTestRequest(t, app, http.MethodGet, "/api/app/subscriptions?q=fresh&limit=10", "", token)
-	body = decodeAPISuccessDataForTest[subscriptionsListResponse](t, res.Body.Bytes())
+	body = decodeAPISuccessDataForTest[subscriptionCollectionListResponse](t, res.Body.Bytes())
 	if body.Total != 1 || len(body.Subscriptions) != 1 {
 		t.Fatalf("explicit projection repair did not restore one match: %#v", body)
 	}
-	if got, _ := body.Subscriptions[0]["name"].(string); got != "Fresh Projection Plan" {
+	if got := body.Subscriptions[0].Name; got != "Fresh Projection Plan" {
 		t.Fatalf("expected rebuilt projection to read fresh subscription, got %#v", body.Subscriptions[0])
 	}
 }

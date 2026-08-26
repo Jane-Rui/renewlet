@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { SetStateAction } from "react";
 import { AlertTriangle, FileSearch } from "lucide-react";
 // AI 识别弹窗负责把流式事件收敛为导入草稿；只有 final 事件能进入 preview/apply 链路。
@@ -25,10 +25,10 @@ import {
 import type { AIDraftListItem, AIRecognitionInputMode } from "@/components/ai-recognition/ai-recognition-dialog-types";
 import Link from "@/components/router-link";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ImportPreviewPanel } from "@/components/import-preview-panel";
 import { useMediaQuery } from "@/hooks/use-media-query";
-import { useNestedDialogCloseGuard } from "@/hooks/use-nested-dialog-close-guard";
+import { useDeferredDialogInitialFocus } from "@/hooks/use-deferred-dialog-initial-focus";
 import { useI18n } from "@/i18n/I18nProvider";
 import { createAIErrorDetails, type AIErrorDetails } from "@/lib/ai-error-details";
 import { getDisplayErrorMessage } from "@/lib/display-error";
@@ -59,7 +59,7 @@ import { useImportPreviewApply } from "@/modules/import-export/application/use-i
 import { aiRecognitionService } from "@/services/ai-recognition-service";
 import type { SubscriptionFormState } from "@/types/subscription-form";
 
-interface AIRecognizeSubscriptionDialogProps {
+export interface AIRecognizeSubscriptionDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   settings: AppSettings;
@@ -68,24 +68,38 @@ interface AIRecognizeSubscriptionDialogProps {
   availableTags?: readonly string[];
 }
 
+export interface AIRecognizeSubscriptionDialogContentProps extends Omit<
+  AIRecognizeSubscriptionDialogProps,
+  "apiKeyConfigured" | "availableTags" | "onOpenChange"
+> {
+  apiKeyConfigured: boolean | undefined;
+  availableTags: readonly string[] | undefined;
+  onNestedDialogOpenChange: (open: boolean) => void;
+  onRequestClose: () => void;
+  onWorkflowExpandedChange: (expanded: boolean) => void;
+}
+
 type AIRecognitionStage = "input" | "draft" | "preview";
 type AIRecognitionStreamStatus = "running" | "complete" | "error" | "stopped";
 const AI_RECOGNITION_TEXT_PREVIEW_MAX_CHARS = 360;
 const AI_RECOGNITION_REASONING_PREVIEW_MAX_CHARS = 1600;
-export function AIRecognizeSubscriptionDialog({
+export function AIRecognizeSubscriptionDialogContent({
   open,
-  onOpenChange,
   settings,
   apiKeyConfigured = false,
   config,
   availableTags = [],
-}: AIRecognizeSubscriptionDialogProps) {
+  onNestedDialogOpenChange,
+  onRequestClose,
+  onWorkflowExpandedChange,
+}: AIRecognizeSubscriptionDialogContentProps) {
   const { t } = useI18n();
   const isMobile = useMediaQuery("(max-width: 639px)");
   const textInputRef = useRef<HTMLTextAreaElement>(null);
   const draftIdRef = useRef(0);
   const recognitionRunRef = useRef(0);
   const recognitionAbortRef = useRef<AbortController | null>(null);
+  const previewAbortRef = useRef<AbortController | null>(null);
   const recognitionStartedAtRef = useRef<number | null>(null);
   const recognitionElapsedSecondsRef = useRef<number | null>(null);
   const [inputMode, setInputMode] = useState<AIRecognitionInputMode>("text");
@@ -108,10 +122,6 @@ export function AIRecognizeSubscriptionDialog({
   const [draftGenerationElapsedSeconds, setDraftGenerationElapsedSeconds] = useState<number | null>(null);
   const [aiErrorDetails, setAIErrorDetails] = useState<AIErrorDetails | null>(null);
   const [aiErrorDetailsOpen, setAIErrorDetailsOpen] = useState(false);
-  const { handleNestedDialogOpenChange, handleParentOpenChange: handleOpenChange } = useNestedDialogCloseGuard(
-    open,
-    handleRootDialogOpenChange,
-  );
   const aiSettings = settings.aiRecognition;
   const settingsBlocker = getAIRecognitionSettingsBlocker(aiSettings, apiKeyConfigured);
   const thinkingOptions = useMemo(
@@ -137,14 +147,14 @@ export function AIRecognizeSubscriptionDialog({
     handleLogoChange,
     handleSkipChange,
     handleApply,
-  } = useImportPreviewApply({ onApplied: () => handleOpenChange(false) });
+  } = useImportPreviewApply({ onApplied: onRequestClose });
   const {
     images,
     imageProcessing,
     imageProcessingCount,
     addImages,
     removeImage,
-    resetImages,
+    abortProcessing: abortImageProcessing,
   } = useAIRecognitionImages({
     setError,
     onInputChanged: markDraftsStaleFromInputChange,
@@ -174,18 +184,46 @@ export function AIRecognizeSubscriptionDialog({
   const mobileActiveStepIndex = previewStageVisible && preview?.summary.errors === 0
     ? 3
     : draftStageVisible ? 1 : previewStageVisible ? 2 : 0;
+  const resolveInitialFocus = useCallback(() => {
+    if (!isMobile) return textInputRef.current;
+    return textInputRef.current
+      ?.closest<HTMLElement>('[role="dialog"]')
+      ?.querySelector<HTMLElement>("[data-dialog-close]") ?? null;
+  }, [isMobile]);
+  useDeferredDialogInitialFocus(
+    open,
+    true,
+    isMobile ? "ai-recognition-mobile" : "ai-recognition-desktop",
+    resolveInitialFocus,
+  );
 
   useEffect(() => () => {
     recognitionAbortRef.current?.abort();
+    previewAbortRef.current?.abort();
   }, []);
+
+  useLayoutEffect(() => {
+    if (open) return;
+    // 关闭即废弃当前异步会话，但保留退出动画中的最后一帧；新会话会以新的 content key 重新初始化。
+    recognitionRunRef.current += 1;
+    recognitionAbortRef.current?.abort();
+    recognitionAbortRef.current = null;
+    previewAbortRef.current?.abort();
+    previewAbortRef.current = null;
+    abortImageProcessing();
+  }, [abortImageProcessing, open]);
 
   useEffect(() => {
     if (!open) return;
     setThinkingControl(normalizeAIThinkingControl(aiSettings.providerType, aiSettings.transportProtocol, aiSettings.model, aiSettings.defaultThinkingControl));
   }, [aiSettings.defaultThinkingControl, aiSettings.model, aiSettings.providerType, aiSettings.transportProtocol, open]);
 
+  useLayoutEffect(() => {
+    onWorkflowExpandedChange(workflowExpanded);
+  }, [onWorkflowExpandedChange, workflowExpanded]);
+
   useEffect(() => {
-    if (!recognizing || recognitionStartedAtRef.current === null) return;
+    if (!open || !recognizing || recognitionStartedAtRef.current === null) return;
     // runId 保护事件顺序，elapsed refs 保护计时器：旧运行结束后不能把耗时写进新草稿。
     const timer = window.setInterval(() => {
       const startedAt = recognitionStartedAtRef.current;
@@ -195,38 +233,11 @@ export function AIRecognizeSubscriptionDialog({
       setStreamElapsedSeconds(elapsed);
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [recognizing]);
+  }, [open, recognizing]);
 
   function cancelActiveRecognitionRun() {
     recognitionAbortRef.current?.abort();
     recognitionAbortRef.current = null;
-  }
-
-  function reset() {
-    cancelActiveRecognitionRun();
-    recognitionRunRef.current += 1;
-    draftIdRef.current = 0;
-    setInputMode("text");
-    setText("");
-    resetImages();
-    setDrafts([]);
-    setSelectedDraftId(null);
-    setRecognitionWarnings([]);
-    setRecognizing(false);
-    setPreviewingDrafts(false);
-    setStage("input");
-    setDraftsStale(false);
-    resetStreamState();
-    setDraftGenerationElapsedSeconds(null);
-    setAIErrorDetails(null);
-    setAIErrorDetailsOpen(false);
-    setError(null);
-    resetImportPreview();
-  }
-
-  function handleRootDialogOpenChange(nextOpen: boolean) {
-    if (!nextOpen) reset();
-    onOpenChange(nextOpen);
   }
 
   function handleInputModeChange(nextMode: AIRecognitionInputMode) {
@@ -412,16 +423,24 @@ export function AIRecognizeSubscriptionDialog({
       setError(null);
       return;
     }
+    previewAbortRef.current?.abort();
+    const controller = new AbortController();
+    previewAbortRef.current = controller;
     setPreviewingDrafts(true);
     setError(null);
     try {
       const preparedImport = buildPreparedImportFromAIDrafts(drafts, { config });
-      await previewPrepared(preparedImport, conflictMode);
+      await previewPrepared(preparedImport, conflictMode, controller.signal);
+      if (controller.signal.aborted) return;
       setStage("preview");
     } catch (err) {
+      if (controller.signal.aborted) return;
       setError(getDisplayErrorMessage(err, t("import.previewFailed")));
     } finally {
-      setPreviewingDrafts(false);
+      if (previewAbortRef.current === controller) {
+        previewAbortRef.current = null;
+        setPreviewingDrafts(false);
+      }
     }
   };
 
@@ -513,120 +532,120 @@ export function AIRecognizeSubscriptionDialog({
           : cn("overflow-y-auto", isMobile ? "space-y-3" : "space-y-4"),
       )}
     >
-          {aiErrorDetails && !streamStatus ? (
-            <div className={cn("flex", isMobile ? "justify-stretch" : "justify-end")}>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className={cn("border-border", isMobile && "w-full")}
-                onClick={() => setAIErrorDetailsOpen(true)}
-              >
-                <AlertTriangle className="h-4 w-4" />
-                {t("aiRecognition.errorDetailsOpenLast")}
-              </Button>
-            </div>
-          ) : null}
+      {aiErrorDetails && !streamStatus ? (
+        <div className={cn("flex", isMobile ? "justify-stretch" : "justify-end")}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={cn("border-border", isMobile && "w-full")}
+            onClick={() => setAIErrorDetailsOpen(true)}
+          >
+            <AlertTriangle className="h-4 w-4" />
+            {t("aiRecognition.errorDetailsOpenLast")}
+          </Button>
+        </div>
+      ) : null}
 
-          {settingsBlocker ? (
-            <div className="flex flex-col gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-foreground sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex min-w-0 gap-2">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-                <span>{t(settingsBlocker)}</span>
+      {settingsBlocker ? (
+        <div className="flex flex-col gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-foreground sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+            <span>{t(settingsBlocker)}</span>
+          </div>
+          <Button asChild type="button" variant="outline" className="shrink-0 border-border">
+            <Link href="/settings#settings-ai-recognition" onClick={onRequestClose}>
+              {t("aiRecognition.openSettings")}
+            </Link>
+          </Button>
+        </div>
+      ) : null}
+
+      {inputStageVisible ? (
+        <section
+          className={cn(
+            "grid min-h-0 flex-1",
+            isMobile
+              ? "grid-rows-[auto_minmax(0,1fr)] gap-2 overflow-hidden"
+              : "gap-4 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-stretch lg:overflow-hidden",
+          )}
+          aria-label={t("aiRecognition.stepInput")}
+        >
+          {isMobile ? (
+            <>
+              {runSettingsPanel}
+              {inputTabs}
+            </>
+          ) : (
+            <>
+              {inputTabs}
+              <div className="min-h-0 space-y-3 overflow-y-auto">
+                {runSettingsPanel}
               </div>
-              <Button asChild type="button" variant="outline" className="shrink-0 border-border">
-                <Link href="/settings#settings-ai-recognition" onClick={() => handleOpenChange(false)}>
-                  {t("aiRecognition.openSettings")}
-                </Link>
-              </Button>
-            </div>
-          ) : null}
+            </>
+          )}
+        </section>
+      ) : null}
 
-          {inputStageVisible ? (
-            <section
-              className={cn(
-                "grid min-h-0 flex-1",
-                isMobile
-                  ? "grid-rows-[auto_minmax(0,1fr)] gap-2 overflow-hidden"
-                  : "gap-4 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-stretch lg:overflow-hidden",
-              )}
-              aria-label={t("aiRecognition.stepInput")}
-            >
-              {isMobile ? (
-                <>
-                  {runSettingsPanel}
-                  {inputTabs}
-                </>
-              ) : (
-                <>
-                  {inputTabs}
-                  <div className="min-h-0 space-y-3 overflow-y-auto">
-                    {runSettingsPanel}
-                  </div>
-                </>
-              )}
-            </section>
-          ) : null}
+      {inputStageVisible && drafts.length > 0 && draftsStale ? (
+        <div className="flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{t("aiRecognition.draftsStale")}</span>
+        </div>
+      ) : null}
 
-          {inputStageVisible && drafts.length > 0 && draftsStale ? (
-            <div className="flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>{t("aiRecognition.draftsStale")}</span>
-            </div>
-          ) : null}
+      {error ? (
+        <div className="flex gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{error}</span>
+        </div>
+      ) : null}
 
-          {error ? (
-            <div className="flex gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>{error}</span>
-            </div>
-          ) : null}
+      {draftStageVisible && recognitionWarnings.length > 0 ? (
+        <div className="rounded-lg border border-border bg-secondary/30 p-3 text-xs leading-5 text-muted-foreground">
+          {recognitionWarnings.slice(0, 6).map((warning, index) => <p key={`${warning}:${index}`}>{warning}</p>)}
+        </div>
+      ) : null}
 
-          {draftStageVisible && recognitionWarnings.length > 0 ? (
-            <div className="rounded-lg border border-border bg-secondary/30 p-3 text-xs leading-5 text-muted-foreground">
-              {recognitionWarnings.slice(0, 6).map((warning, index) => <p key={`${warning}:${index}`}>{warning}</p>)}
-            </div>
-          ) : null}
+      {draftStageVisible && drafts.length > 0 ? (
+        <AIDraftReviewPanel
+          drafts={drafts}
+          config={config}
+          settings={settings}
+          availableTags={availableTags}
+          draftBlockingIssuesById={draftBlockingIssuesById}
+          generationElapsedSeconds={draftGenerationElapsedSeconds}
+          selectedDraftId={selectedDraftId}
+          onSelectedDraftIdChange={setSelectedDraftId}
+          onChangeDraftForm={updateDraftForm}
+          onConfirmDraftField={confirmDraftField}
+          onNestedDialogOpenChange={onNestedDialogOpenChange}
+          onRemoveDraft={removeDraft}
+        />
+      ) : null}
 
-          {draftStageVisible && drafts.length > 0 ? (
-            <AIDraftReviewPanel
-              drafts={drafts}
-              config={config}
-              settings={settings}
-              availableTags={availableTags}
-              draftBlockingIssuesById={draftBlockingIssuesById}
-              generationElapsedSeconds={draftGenerationElapsedSeconds}
-              selectedDraftId={selectedDraftId}
-              onSelectedDraftIdChange={setSelectedDraftId}
-              onChangeDraftForm={updateDraftForm}
-              onConfirmDraftField={confirmDraftField}
-              onNestedDialogOpenChange={handleNestedDialogOpenChange}
-              onRemoveDraft={removeDraft}
-            />
-          ) : null}
-
-          {previewStageVisible && prepared && preview ? (
-            <ImportPreviewPanel
-              prepared={prepared}
-              preview={preview}
-              conflictMode={conflictMode}
-              previewFilter={previewFilter}
-              skippedIndexes={skippedIndexes}
-              assetProgress={assetProgress}
-              applyProgress={applyProgress}
-              showImportOptions={false}
-              onConflictModeChange={handleConflictModeChange}
-              onPreviewFilterChange={setPreviewFilter}
-              onLogoChange={handleLogoChange}
-              onSkipChange={handleSkipChange}
-            />
-          ) : null}
+      {previewStageVisible && prepared && preview ? (
+        <ImportPreviewPanel
+          prepared={prepared}
+          preview={preview}
+          conflictMode={conflictMode}
+          previewFilter={previewFilter}
+          skippedIndexes={skippedIndexes}
+          assetProgress={assetProgress}
+          applyProgress={applyProgress}
+          showImportOptions={false}
+          onConflictModeChange={handleConflictModeChange}
+          onPreviewFilterChange={setPreviewFilter}
+          onLogoChange={handleLogoChange}
+          onSkipChange={handleSkipChange}
+        />
+      ) : null}
     </div>
   );
 
   const desktopFooter = (
     <DialogFooter className="shrink-0 border-t border-border bg-card px-4 py-4 sm:px-6">
-      <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>{t("common.cancel")}</Button>
+      <Button type="button" variant="outline" onClick={onRequestClose}>{t("common.cancel")}</Button>
       <AIRecognitionFooterActions
         inputStageVisible={inputStageVisible}
         draftStageVisible={draftStageVisible}
@@ -677,79 +696,56 @@ export function AIRecognizeSubscriptionDialog({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent
-          dismissMode="explicit"
-          layout="frame"
-          closeLabel={t("common.close")}
-          className={cn(
-            "overflow-hidden border-border bg-card p-0",
-            isMobile
-              ? "h5-ai-recognition-workbench-frame"
-              : cn(
-                "h5-import-dialog-panel sm:max-w-6xl",
-                workflowExpanded ? "h5-dialog-frame" : "h5-ai-recognition-input-dialog-frame",
-              ),
-          )}
-          onOpenAutoFocus={(event) => {
-            event.preventDefault();
-            // H5 首屏需要先露出输入模式和上传入口；自动聚焦会立刻弹键盘并挤掉工作区。
-            if (isMobile) return;
-            textInputRef.current?.focus();
-          }}
-        >
-          <DialogHeader
-            className={cn(
-              "shrink-0 border-b border-border bg-card pr-12",
-              isMobile ? "px-4 py-3 text-left" : "px-4 py-4 sm:px-6 sm:pr-14",
-            )}
-          >
-            {isMobile ? (
-              <>
-                <DialogTitle className="text-base leading-6">{t("aiRecognition.dialogTitle")}</DialogTitle>
-                <DialogDescription className="sr-only">{t("aiRecognition.dialogDescription")}</DialogDescription>
-              </>
-            ) : (
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
-                <div className="flex min-w-0 items-start gap-3">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-secondary/50 text-muted-foreground">
-                    <FileSearch className="h-4 w-4" />
-                  </div>
-                  <div className="min-w-0 text-left">
-                    <DialogTitle className="text-lg">{t("aiRecognition.dialogTitle")}</DialogTitle>
-                    <DialogDescription className="mt-1 max-w-3xl text-left leading-5">{t("aiRecognition.dialogDescription")}</DialogDescription>
-                  </div>
-                </div>
-                <AIRecognitionStepper
-                  steps={steps}
-                  ariaLabel={t("aiRecognition.dialogTitle")}
-                />
+      <DialogHeader
+        className={cn(
+          "shrink-0 border-b border-border bg-card pr-12",
+          isMobile ? "px-4 py-3 text-left" : "px-4 py-4 sm:px-6 sm:pr-14",
+        )}
+      >
+        {isMobile ? (
+          <>
+            <DialogTitle className="text-base leading-6">{t("aiRecognition.dialogTitle")}</DialogTitle>
+            <DialogDescription className="sr-only">{t("aiRecognition.dialogDescription")}</DialogDescription>
+          </>
+        ) : (
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-secondary/50 text-muted-foreground">
+                <FileSearch className="h-4 w-4" />
               </div>
-            )}
-          </DialogHeader>
-
-          {isMobile ? (
-            <AIRecognitionCompactStepper
+              <div className="min-w-0 text-left">
+                <DialogTitle className="text-lg">{t("aiRecognition.dialogTitle")}</DialogTitle>
+                <DialogDescription className="sr-only">{t("aiRecognition.dialogDescription")}</DialogDescription>
+              </div>
+            </div>
+            <AIRecognitionStepper
               steps={steps}
-              activeIndex={mobileActiveStepIndex}
               ariaLabel={t("aiRecognition.dialogTitle")}
             />
-          ) : null}
-
-          <div data-testid="ai-recognition-dialog-workspace" className="relative min-h-0 flex-1 overflow-hidden">
-            {body}
-            {streamPanel ? (
-              <div
-                data-testid="ai-recognition-stream-overlay"
-                className="absolute inset-0 z-20 flex items-center justify-center overflow-y-auto bg-card/75 px-3 py-4 backdrop-blur-[2px] sm:px-6"
-              >
-                {streamPanel}
-              </div>
-            ) : null}
           </div>
-          {isMobile ? mobileFooter : desktopFooter}
-        </DialogContent>
-      </Dialog>
+        )}
+      </DialogHeader>
+
+      {isMobile ? (
+        <AIRecognitionCompactStepper
+          steps={steps}
+          activeIndex={mobileActiveStepIndex}
+          ariaLabel={t("aiRecognition.dialogTitle")}
+        />
+      ) : null}
+
+      <div data-testid="ai-recognition-dialog-workspace" className="relative min-h-0 flex-1 overflow-hidden">
+        {body}
+        {streamPanel ? (
+          <div
+            data-testid="ai-recognition-stream-overlay"
+            className="absolute inset-0 z-20 flex items-center justify-center overflow-y-auto bg-card/75 px-3 py-4 backdrop-blur-[2px] sm:px-6"
+          >
+            {streamPanel}
+          </div>
+        ) : null}
+      </div>
+      {isMobile ? mobileFooter : desktopFooter}
       <AIErrorDetailsDialog
         open={aiErrorDetailsOpen}
         details={aiErrorDetails}

@@ -21,7 +21,7 @@ import {
   type CloudBackupScheduleWeekday,
   type CloudBackupSnapshot,
 } from "@/lib/api/schemas/cloud-backup";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "@/components/ui/sonner";
 import { getDisplayErrorMessage } from "@/lib/display-error";
 import { useI18n } from "@/i18n/I18nProvider";
 import { ApiError } from "@/lib/api-client";
@@ -31,6 +31,7 @@ import {
   type CloudBackupErrorDetailsView,
 } from "@/lib/cloud-backup-error-details";
 import { getApiLocale } from "@/i18n/api-locale";
+import { toSettingsReadState, type SettingsReadState } from "./settings-read-state";
 
 export interface CloudBackupFormState {
   provider: CloudBackupProvider;
@@ -52,18 +53,17 @@ export interface CloudBackupFormState {
 }
 
 export interface CloudBackupController {
-  config: CloudBackupConfig | null;
-  snapshots: CloudBackupSnapshot[];
+  config: SettingsReadState<CloudBackupConfig>;
+  snapshots: SettingsReadState<CloudBackupSnapshot[]>;
+  isInitialLayoutReady: boolean;
   form: CloudBackupFormState;
   credentialSet: boolean;
   canCreateSnapshot: boolean;
-  isLoading: boolean;
   isSaving: boolean;
   isTesting: boolean;
   isCreating: boolean;
   isDownloading: boolean;
   isDeleting: boolean;
-  isRefreshingSnapshots: boolean;
   restoringSnapshotKey: string | null;
   deletingSnapshotKey: string | null;
   hasUnsavedChanges: boolean;
@@ -78,7 +78,6 @@ export interface CloudBackupController {
   createSnapshot: () => Promise<void>;
   restoreSnapshot: (snapshot: CloudBackupSnapshot) => Promise<void>;
   deleteSnapshot: (snapshot: CloudBackupSnapshot) => Promise<void>;
-  refreshSnapshots: () => Promise<void>;
 }
 
 interface CloudBackupPolicyDraft {
@@ -149,7 +148,6 @@ const DEFAULT_S3_DRAFT: CloudBackupS3Draft = {
 
 export function useCloudBackupController(onRestoreFile: (file: File) => void): CloudBackupController {
   const { t } = useI18n();
-  const { toast } = useToast();
   const configQuery = useCloudBackupConfig();
   const config = configQuery.data ?? null;
   const [draftState, setDraftState] = useState<CloudBackupDraftState>(() => ({
@@ -192,6 +190,18 @@ export function useCloudBackupController(onRestoreFile: (file: File) => void): C
     () => (snapshotsQuery.data ?? []).filter((snapshot) => snapshot.provider === activeProvider),
     [activeProvider, snapshotsQuery.data],
   );
+  const configReadState = toSettingsReadState(configQuery);
+  const snapshotsReadState = {
+    ...toSettingsReadState(snapshotsQuery),
+    data: canQuerySnapshots
+      ? snapshotsQuery.data === undefined ? undefined : visibleSnapshots
+      : [],
+    hasData: !canQuerySnapshots || snapshotsQuery.data !== undefined,
+  } satisfies SettingsReadState<CloudBackupSnapshot[]>;
+  // config success 早于草稿同步，快照查询又可能在 provider 就绪后才启动；三者都稳定后完整表单几何才可用于目录定位。
+  const isInitialLayoutReady = !configReadState.isInitialLoading
+    && (!configReadState.hasData || draftState.initializedFromConfig)
+    && !snapshotsReadState.isInitialLoading;
 
   const openCloudBackupErrorDetails = useCallback((error: unknown, fallbackMessage: string) => {
     const extracted = extractCloudBackupErrorDetails(error);
@@ -235,14 +245,10 @@ export function useCloudBackupController(onRestoreFile: (file: File) => void): C
       const description = error instanceof z.ZodError
         ? t("settings.cloudBackupInvalidDescription")
         : getDisplayErrorMessage(error, t("settings.cloudBackupInvalidDescription"));
-      toast({
-        title: t("settings.cloudBackupInvalid"),
-        description,
-        variant: "destructive",
-      });
+      toast.error(t("settings.cloudBackupInvalid"), { description });
       throw error;
     }
-  }, [activeProvider, draftByProvider, t, toast]);
+  }, [activeProvider, draftByProvider, t]);
 
   const saveConfig = useCallback(async () => {
     try {
@@ -254,56 +260,41 @@ export function useCloudBackupController(onRestoreFile: (file: File) => void): C
         setSavedDraftSnapshotByProvider(synced.savedSnapshots);
         return synced.state;
       });
-      toast({
-        title: t("settings.cloudBackupSaved"),
-        description: credentialSetForProvider(saved, payload.provider)
+      toast.success(credentialSetForProvider(saved, payload.provider)
           ? t("settings.cloudBackupSavedWithCredential")
-          : t("settings.cloudBackupSavedDescription"),
-      });
+          : t("settings.cloudBackupSaved"));
     } catch (error) {
       if (error instanceof z.ZodError) return;
-      toast({
-        title: t("settings.cloudBackupSaveFailed"),
+      toast.error(t("settings.cloudBackupSaveFailed"), {
         description: getDisplayErrorMessage(error, t("settings.cloudBackupSaveFailedDescription")),
-        variant: "destructive",
       });
     }
-  }, [parsePayload, t, toast, updateConfigMutation]);
+  }, [parsePayload, t, updateConfigMutation]);
 
   const testConfig = useCallback(async () => {
     try {
       await testMutation.mutateAsync(parsePayload());
-      toast({
-        title: t("settings.cloudBackupTestSucceeded"),
-        description: t("settings.cloudBackupTestSucceededDescription"),
-      });
+      toast.success(t("settings.cloudBackupTestSucceeded"));
     } catch (error) {
       if (error instanceof z.ZodError) return;
-      toast({
-        title: t("settings.cloudBackupTestFailed"),
+      toast.error(t("settings.cloudBackupTestFailed"), {
         description: getDisplayErrorMessage(error, t("settings.cloudBackupTestFailedDescription")),
-        variant: "destructive",
       });
       openCloudBackupErrorDetails(error, t("settings.cloudBackupTestFailedDescription"));
     }
-  }, [openCloudBackupErrorDetails, parsePayload, t, testMutation, toast]);
+  }, [openCloudBackupErrorDetails, parsePayload, t, testMutation]);
 
   const createSnapshot = useCallback(async () => {
     try {
       await createSnapshotMutation.mutateAsync({ provider: activeProvider });
-      toast({
-        title: t("settings.cloudBackupCreated"),
-        description: t("settings.cloudBackupCreatedDescription"),
-      });
+      toast.success(t("settings.cloudBackupCreated"));
     } catch (error) {
-      toast({
-        title: t("settings.cloudBackupCreateFailed"),
+      toast.error(t("settings.cloudBackupCreateFailed"), {
         description: getDisplayErrorMessage(error, t("settings.cloudBackupCreateFailedDescription")),
-        variant: "destructive",
       });
       openCloudBackupErrorDetails(error, t("settings.cloudBackupCreateFailedDescription"));
     }
-  }, [activeProvider, createSnapshotMutation, openCloudBackupErrorDetails, t, toast]);
+  }, [activeProvider, createSnapshotMutation, openCloudBackupErrorDetails, t]);
 
   const restoreSnapshot = useCallback(async (snapshot: CloudBackupSnapshot) => {
     // 恢复 loading 必须绑定 provider:id；WebDAV/S3 可以出现同名快照 id，不能只用 id 标记行状态。
@@ -312,60 +303,45 @@ export function useCloudBackupController(onRestoreFile: (file: File) => void): C
       const blob = await downloadSnapshotMutation.mutateAsync(snapshot);
       // 云快照恢复只能把 ZIP 交给现有导入预览；导入 apply 前仍由用户确认 create/replace/skip。
       onRestoreFile(new File([blob], snapshot.filename, { type: "application/zip" }));
-      toast({
-        title: t("settings.cloudBackupRestoreReady"),
-        description: t("settings.cloudBackupRestoreReadyDescription"),
-      });
+      toast.success(t("settings.cloudBackupRestoreReadyResult"));
     } catch (error) {
-      toast({
-        title: t("settings.cloudBackupRestoreFailed"),
+      toast.error(t("settings.cloudBackupRestoreFailed"), {
         description: getDisplayErrorMessage(error, t("settings.cloudBackupRestoreFailedDescription")),
-        variant: "destructive",
       });
       openCloudBackupErrorDetails(error, t("settings.cloudBackupRestoreFailedDescription"));
     } finally {
       setRestoringSnapshotKey(null);
     }
-  }, [downloadSnapshotMutation, onRestoreFile, openCloudBackupErrorDetails, t, toast]);
+  }, [downloadSnapshotMutation, onRestoreFile, openCloudBackupErrorDetails, t]);
 
   const deleteSnapshot = useCallback(async (snapshot: CloudBackupSnapshot) => {
     // 删除 mutation 也是全局单操作；行级 UI 必须绑定 provider:id，避免 WebDAV/S3 同名快照串 loading。
     setDeletingSnapshotKey(cloudBackupSnapshotKey(snapshot));
     try {
       await deleteSnapshotMutation.mutateAsync(snapshot);
-      toast({
-        title: t("settings.cloudBackupDeleted"),
-        description: t("settings.cloudBackupDeletedDescription"),
-      });
+      toast.success(t("settings.cloudBackupDeleted"));
     } catch (error) {
-      toast({
-        title: t("settings.cloudBackupDeleteFailed"),
+      toast.error(t("settings.cloudBackupDeleteFailed"), {
         description: getDisplayErrorMessage(error, t("settings.cloudBackupDeleteFailedDescription")),
-        variant: "destructive",
       });
       openCloudBackupErrorDetails(error, t("settings.cloudBackupDeleteFailedDescription"));
     } finally {
       setDeletingSnapshotKey(null);
     }
-  }, [deleteSnapshotMutation, openCloudBackupErrorDetails, t, toast]);
-
-  const refreshSnapshots = useCallback(async () => {
-    await snapshotsQuery.refetch();
-  }, [snapshotsQuery]);
+  }, [deleteSnapshotMutation, openCloudBackupErrorDetails, t]);
 
   return {
-    config,
-    snapshots: visibleSnapshots,
+    config: configReadState,
+    snapshots: snapshotsReadState,
+    isInitialLayoutReady,
     form,
     credentialSet,
     canCreateSnapshot,
-    isLoading: configQuery.isLoading || snapshotsQuery.isLoading,
     isSaving: updateConfigMutation.isPending,
     isTesting: testMutation.isPending,
     isCreating: createSnapshotMutation.isPending,
     isDownloading: downloadSnapshotMutation.isPending,
     isDeleting: deleteSnapshotMutation.isPending,
-    isRefreshingSnapshots: snapshotsQuery.isFetching,
     restoringSnapshotKey,
     deletingSnapshotKey,
     hasUnsavedChanges,
@@ -380,7 +356,6 @@ export function useCloudBackupController(onRestoreFile: (file: File) => void): C
     createSnapshot,
     restoreSnapshot,
     deleteSnapshot,
-    refreshSnapshots,
   };
 }
 

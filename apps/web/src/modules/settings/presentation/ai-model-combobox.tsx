@@ -140,9 +140,9 @@ export function AIModelCombobox({
               data-testid="ai-model-combobox-popover"
               mobilePresentation="anchored"
               mobileKind="list"
-              className="w-[var(--radix-popover-trigger-width)] min-w-0 overflow-hidden border-border bg-popover p-0 text-popover-foreground"
+              className="w-(--radix-popover-trigger-width) min-w-0 overflow-hidden border-border bg-popover p-0 text-popover-foreground"
             >
-              <Command shouldFilter={false} loop className="flex max-h-[24rem] w-full flex-col bg-popover text-popover-foreground">
+              <Command shouldFilter={false} loop className="flex max-h-96 w-full flex-col bg-popover text-popover-foreground">
                 <div className="flex items-center border-b border-border px-3">
                   <Search className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
                   <Command.Input

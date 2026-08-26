@@ -72,3 +72,15 @@ func cleanupInvalidSubscriptionLogos(app core.App) error {
 		}
 	}
 }
+
+func deleteOrphanSubscriptionCalendarFeeds(app core.App) error {
+	// Docker 的 subscriptionId 是文本投影，没有 D1 外键级联；一次性迁移先清掉旧版本留下的孤儿。
+	_, err := app.DB().NewQuery(`DELETE FROM calendar_feeds
+		WHERE scope = 'subscription'
+			AND NOT EXISTS (
+				SELECT 1 FROM subscriptions
+				WHERE subscriptions.id = calendar_feeds.subscriptionId
+					AND subscriptions.user = calendar_feeds.user
+			)`).Execute()
+	return err
+}

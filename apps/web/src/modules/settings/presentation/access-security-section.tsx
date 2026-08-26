@@ -10,13 +10,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { FormField } from "@/components/ui/form-field";
+import { FormField, FormFieldRow } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { useI18n } from "@/i18n/I18nProvider";
 import { useTheme } from "@/lib/theme-provider";
 import type { SettingsAuthSecurityController } from "../application/use-auth-security-settings-controller";
 import { getSettingsSectionClassName } from "./settings-layout";
 import { CheckboxSettingRow, LoadingButtonContent } from "./settings-shared-controls";
+import { ManagerDataBoundary } from "./manager-data-boundary";
+import { SettingsSectionHeader } from "./settings-section-header";
 
 export interface AccessSecuritySectionProps {
   id?: string;
@@ -27,35 +29,40 @@ export interface AccessSecuritySectionProps {
 export function AccessSecuritySection({ id, className, controller }: AccessSecuritySectionProps) {
   const { t } = useI18n();
   const { resolvedTheme } = useTheme();
-  const disabled = controller.disabled || controller.isLoading;
+  const disabled = controller.disabled || controller.readState.isInitialLoading;
   const actionBusy = controller.isSaving || controller.isClearingSecret || controller.isTesting;
   // badge 展示的是可实际生效的完整配置，不是单纯开关状态；缺任一 key 都不能提示已启用。
   const enabled = controller.draft.enabled && controller.draft.siteKey.trim().length > 0 && (controller.secretConfigured || controller.draft.secret.trim().length > 0);
+  const statusLabel = controller.readState.isInitialLoading
+    ? t("common.loading")
+    : !controller.readState.hasData && controller.readState.error
+      ? t("settings.statusUnknown")
+      : controller.readState.error
+        ? t("settings.notUpdated")
+        : enabled
+          ? t("common.enabled")
+          : t("common.disabled");
 
   if (!controller.canManage) return null;
 
   return (
     <section id={id} className={getSettingsSectionClassName(className)}>
-      <div className="mb-6 flex items-center gap-2">
-        <ShieldCheck className="h-5 w-5 text-primary" aria-hidden="true" />
-        <h2 className="text-lg font-semibold text-foreground">{t("settings.accessSecurity")}</h2>
-      </div>
-
+      <SettingsSectionHeader
+        className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"
+        icon={<ShieldCheck className="mt-0.5 h-5 w-5 text-primary" aria-hidden="true" />}
+        title={t("settings.accessSecurity")}
+        help={t("settings.turnstileHelp")}
+        status={(
+          <Badge variant={enabled ? "default" : "secondary"}>
+            {statusLabel}
+          </Badge>
+        )}
+      />
+      <ManagerDataBoundary state={controller.readState}>
       <div className="grid gap-4 rounded-md border border-border bg-secondary/20 p-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="grid gap-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-sm font-semibold text-foreground">{t("settings.turnstileTitle")}</h3>
-              <Badge variant={enabled ? "default" : "secondary"}>
-                {enabled ? t("common.enabled") : t("common.disabled")}
-              </Badge>
-              {controller.secretConfigured ? (
-                <Badge variant="outline">{t("settings.turnstileSecretConfigured")}</Badge>
-              ) : null}
-            </div>
-            <p className="text-xs leading-5 text-muted-foreground">{t("settings.turnstileHelp")}</p>
-          </div>
-        </div>
+        {controller.secretConfigured ? (
+          <Badge variant="outline" className="w-fit">{t("settings.turnstileSecretConfigured")}</Badge>
+        ) : null}
 
         <CheckboxSettingRow
           id="turnstile-enabled"
@@ -66,7 +73,7 @@ export function AccessSecuritySection({ id, className, controller }: AccessSecur
           description={t("settings.turnstileEnableHelp")}
         />
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <FormFieldRow alignAt="sm" rowClassName="sm:grid-cols-2">
           <FormField
             id="turnstile-site-key"
             label={t("settings.turnstileSiteKey")}
@@ -107,7 +114,7 @@ export function AccessSecuritySection({ id, className, controller }: AccessSecur
               />
             )}
           </FormField>
-        </div>
+        </FormFieldRow>
 
         <div className="flex flex-wrap gap-2">
           <Button
@@ -157,6 +164,7 @@ export function AccessSecuritySection({ id, className, controller }: AccessSecur
           ) : null}
         </div>
       </div>
+      </ManagerDataBoundary>
 
       <Dialog open={controller.testDialogOpen} onOpenChange={controller.handleTestDialogOpenChange}>
         <DialogContent

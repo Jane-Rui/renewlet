@@ -1,19 +1,39 @@
 /* 全局工具类承载移动端视口、safe-area 和弹层滚动策略；这些约束需要和 e2e/mobile-* 基线同步演进。 */
 @layer utilities {
-  /* 页面级容器只管视口和横向裁剪；业务内部滚动必须另找主人，别让页面跟弹层抢滚动。 */
+  /* 粗指针命中区通过透明伪元素扩展，不能改变按钮的可见盒子、对齐基线或弹窗关闭图标样式。 */
+  @media (pointer: coarse) {
+    .touch-target::after {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: max(100%, 2.75rem);
+      height: max(100%, 2.75rem);
+      content: "";
+      transform: translate(-50%, -50%);
+    }
+
+    .dialog-close-touch-target::after {
+      top: 0;
+      right: 0;
+      left: auto;
+      transform: none;
+    }
+  }
+
+  /* 页面级容器只负责视口与横向裁剪；业务滚动区必须显式确定归属，避免页面与弹层形成嵌套滚动。 */
   .app-page {
     min-height: var(--app-viewport-height);
     overflow-x: clip;
   }
 
-  /* 主内容区吃 safe area，避免 H5 底部工具栏和刘海屏把真实操作区啃掉。 */
+  /* 主内容区叠加 safe area，避免浏览器底部工具栏或异形屏遮挡操作区。 */
   .app-main {
     padding: 1.5rem calc(1rem + env(safe-area-inset-right))
       calc(2rem + env(safe-area-inset-bottom))
       calc(1rem + env(safe-area-inset-left));
   }
 
-  /* 认证页用 flex 居中是因为只有单面板；换 Grid 没收益，还会把移动端高度约束绕复杂。 */
+  /* 认证页保持单面板 Flex 居中，使移动端视口高度与 safe area 约束维持单一布局链。 */
   .auth-page {
     min-height: var(--app-viewport-height);
     display: flex;
@@ -34,13 +54,13 @@
       calc(1rem + env(safe-area-inset-left));
   }
 
-  /* 通用 Dialog 只限制外框，滚动权交给业务内容；一刀切 overflow 在表单弹层里很坑人。 */
+  /* 通用 Dialog 只限制外框，滚动由业务内容区承担，避免表单弹层出现嵌套滚动。 */
   .h5-dialog-panel {
     width: calc(100vw - 2rem - env(safe-area-inset-left) - env(safe-area-inset-right));
     max-height: calc(var(--app-viewport-height) - 2rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   }
 
-  /* Dialog frame 必须有显式高度，内部 minmax(0,1fr) 才能真的收缩，不然 footer 会被内容顶飞。 */
+  /* Dialog frame 必须提供显式高度，内部 minmax(0,1fr) 才能收缩并保持 footer 可见。 */
   .h5-dialog-frame {
     height: min(90vh, calc(var(--app-viewport-height) - 2rem - env(safe-area-inset-top) - env(safe-area-inset-bottom)));
     max-height: calc(var(--app-viewport-height) - 2rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
@@ -85,12 +105,12 @@
     grid-template-rows: minmax(0, 1fr) auto;
   }
 
-  /* min-height:0 是 Grid 子项滚动的门票，少了它 Safari 会装作没看见 overflow。 */
+  /* Grid 滚动子项必须显式允许收缩；否则 Safari 会按内容最小高度扩张并绕过 overflow。 */
   .h5-subscription-dialog-scroll {
     min-height: 0;
   }
 
-  /* 配置管理弹窗有标题、说明、列表、footer 四段，Grid 轨道比 Flex 猜 flex-basis 更不容易漏。 */
+  /* 配置管理弹窗用四段 Grid 轨道固定标题、说明与 footer，仅列表区域参与收缩和滚动。 */
   .h5-config-manager-dialog-panel {
     display: grid;
     grid-template-rows: auto auto minmax(0, 1fr) auto;

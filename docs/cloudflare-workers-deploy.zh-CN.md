@@ -244,11 +244,13 @@ pnpm exec wrangler d1 export DB --remote --config wrangler.generated.jsonc --out
 pnpm exec wrangler d1 time-travel info DB --json --config wrangler.generated.jsonc
 ```
 
-仓库 migration helper 会依次应用未执行的 migration、运行必要的数据 backfill，并执行 `PRAGMA foreign_key_check`。backfill 失败或外键检查返回任意记录都会阻断部署。
+仓库 migration helper 会依次备份受 `0035` 影响的日历 Feed、应用未执行的 migration、精确恢复 Feed、重建订阅集合派生数据，并执行 `PRAGMA foreign_key_check`。任一步骤失败都会保留恢复现场并阻断新 Worker 部署。
 
 ```bash
 pnpm cloudflare:migrations:apply --config wrangler.generated.jsonc
 ```
+
+已经由旧部署执行过 `0035` 的数据库会自动重建订阅列表、筛选、统计、标签、应用内日历和调度状态。旧 migration 已删除的单订阅日历 Feed token 无法从订阅数据推导：请在 Renewlet 中重新生成该订阅的链接，并替换外部日历中的旧 URL。全量订阅 Feed 不受这次级联删除影响。只有仍保留升级前 Time Travel bookmark 时，才可能通过下面的人工恢复流程保留旧单订阅 URL；Renewlet 不会自动执行覆盖生产数据库的恢复。
 
 命令失败时不要部署新 Worker。workflow 会输出经过校验的恢复命令，但不会自动执行，因为 Time Travel 会原地覆盖数据库。检查 checkpoint 之后产生的写入后，再使用升级前记录的 bookmark 恢复；也可以用 `renewlet-before-upgrade.sql` 创建替代 D1 数据库，重新绑定 `DB` 后部署旧 Worker 版本。失败后才捕获的 bookmark 只能保护更晚的变更，不能替代升级前 bookmark。
 

@@ -25,9 +25,9 @@ export function useUploadedLogoAssets(): UseUploadedLogoAssetsResult {
   return {
     assets: uploadedLogos.assets,
     error: uploadedLogos.error,
-    hasLoaded: uploadedLogos.hasLoaded,
+    hasLoaded: uploadedLogos.hasData,
     hasMore: uploadedLogos.hasMore,
-    isLoading: uploadedLogos.isLoading,
+    isLoading: uploadedLogos.isInitialLoading || uploadedLogos.isRefreshing,
     isLoadingMore: uploadedLogos.isLoadingMore,
     loadInitial: uploadedLogos.refresh,
     loadMore: uploadedLogos.loadMore,

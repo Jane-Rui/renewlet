@@ -28,7 +28,7 @@ import {
   nowIso,
   parseSubscriptionCursor,
   subscriptionCursor,
-  toApiSubscription,
+  toPublicApiSubscription,
 } from "./db";
 import { getSubscriptionStats, getSubscriptionTotal } from "./subscription-derived-state";
 import { dateOnlyInZone } from "./subscription-renewal";
@@ -130,7 +130,7 @@ export async function publicApiSubscription(request: Request, env: Env, subscrip
   const auth = await requirePublicApiRead(request, env);
   const row = await getSubscription(env, auth.userId, subscriptionId);
   if (!row) throw new HttpError(404, serverText(locale, "subscription.notFound"), "NOT_FOUND");
-  return noStoreSuccessJson(publicApiSubscriptionPayloadSchema.parse({ subscription: toApiSubscription(row) }));
+  return noStoreSuccessJson(publicApiSubscriptionPayloadSchema.parse({ subscription: toPublicApiSubscription(row) }));
 }
 
 export async function publicApiStatus(request: Request, env: Env): Promise<Response> {
@@ -161,7 +161,7 @@ export async function readPublicApiSubscriptionsForUser(
   const lastPageRow = pageRows.at(-1);
   const nextCursor = rows.length > options.limit && lastPageRow ? subscriptionCursor(lastPageRow) : null;
   return publicApiSubscriptionsListPayloadSchema.parse({
-    subscriptions: pageRows.map(toApiSubscription),
+    subscriptions: pageRows.map(toPublicApiSubscription),
     nextCursor,
     total: await getSubscriptionTotal(env, userId),
   });
@@ -192,7 +192,7 @@ export async function readPublicApiDueForUser(env: Env, userId: string, days: nu
   `).bind(userId, today, through, today, through).all<SubscriptionRow>();
   const items = result.results
     .map((row) => toDueItem(row, today, through))
-    .filter((item): item is NonNullable<ReturnType<typeof toDueItem>> => item !== null)
+    .filter((item) => item !== null)
     .sort((left, right) => left.dueDate.localeCompare(right.dueDate) || left.subscription.name.localeCompare(right.subscription.name));
   return publicApiDuePayloadSchema.parse({
     days,
@@ -228,7 +228,7 @@ export async function readPublicApiNextDueForUser(env: Env, userId: string, opti
   `).bind(userId, today, today, today, today).all<SubscriptionRow>();
   const items = result.results
     .map((row) => toDueItem(row, today, "9999-12-31"))
-    .filter((item): item is z.infer<typeof publicApiDueItemSchema> => item !== null)
+    .filter((item) => item !== null)
     .sort((left, right) => left.dueDate.localeCompare(right.dueDate) || left.subscription.name.localeCompare(right.subscription.name));
   return items[0] ?? null;
 }
@@ -295,7 +295,7 @@ function parseQuery<Schema extends z.ZodType>(schema: Schema, input: unknown, lo
 function toDueItem(row: SubscriptionRow, today: string, through: string) {
   const dueType = dueTypeForSubscription(row, today, through);
   if (!dueType) return null;
-  const subscription = toApiSubscription(row);
+  const subscription = toPublicApiSubscription(row);
   return {
     dueDate: dueType === "trial" ? row.trial_end_date! : row.next_billing_date,
     dueType,

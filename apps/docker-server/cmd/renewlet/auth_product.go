@@ -23,7 +23,6 @@ const (
 	appSessionTokenN     = 32
 	appSessionCSRFTokens = 32
 	mfaTicketTokenN      = 32
-	appSessionHashLen    = 43
 	appSessionCookieName = "renewlet_session"
 	appCSRFCookieName    = "renewlet_csrf"
 	appCSRFHeaderName    = "X-Renewlet-CSRF"
@@ -72,7 +71,7 @@ func handleAuthLogin(app core.App, e *core.RequestEvent) error {
 	if err != nil {
 		return e.BadRequestError(validationErrorMessage(locale, "common.invalidRequestBody", err), err)
 	}
-	if err := requireTurnstileForPasswordLogin(app, e.Request, body.TurnstileToken, locale); err != nil {
+	if err := requireTurnstileForPasswordLogin(app, e.Request, body.TurnstileToken); err != nil {
 		return turnstileAPIError(e, err)
 	}
 	user, err := app.FindAuthRecordByEmail("users", body.Email)
@@ -152,7 +151,7 @@ func handleMFAVerify(app core.App, e *core.RequestEvent) error {
 	if err != nil {
 		return e.BadRequestError(validationErrorMessage(locale, "common.invalidRequestBody", err), err)
 	}
-	response, err := verifyLoginMFA(app, e.Request, body)
+	response, err := verifyLoginMFA(app, body)
 	if err != nil {
 		// ticket 过期、方法不匹配和 OTP/恢复码错误统一为 sessionExpired，避免枚举认证器状态。
 		return e.UnauthorizedError(serverText(locale, "auth.sessionExpired"), nil)
@@ -470,18 +469,6 @@ func sessionResponseFromRecord(token string, csrfToken string, expiresAt string,
 
 func createMfaAuthTicket(app core.App, userID string, methods []string) (string, string, error) {
 	return createMfaTicketRecord(app, userID, methods, "")
-}
-
-func bearerTokenFromHeader(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return ""
-	}
-	const prefix = "Bearer "
-	if strings.HasPrefix(value, prefix) {
-		return strings.TrimSpace(strings.TrimPrefix(value, prefix))
-	}
-	return ""
 }
 
 func appSameOriginUnsafeMiddleware(e *core.RequestEvent) error {

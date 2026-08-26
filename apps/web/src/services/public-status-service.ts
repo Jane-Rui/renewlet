@@ -17,8 +17,12 @@ import {
  * 管理接口只返回完整 pageUrl；公开 token 是可撤销 bearer secret，不在前端拆字段、不进设置草稿或导出。
  */
 export const publicStatusService = {
-  async getPage(): Promise<PublicStatusPageResponse["publicStatusPage"]> {
-    const data = await apiFetch("/api/app/public-status-page", publicStatusPageResponseSchema);
+  async getPage(signal?: AbortSignal): Promise<PublicStatusPageResponse["publicStatusPage"]> {
+    const data = await apiFetch(
+      "/api/app/public-status-page",
+      publicStatusPageResponseSchema,
+      signal ? { signal } : undefined,
+    );
     return data.publicStatusPage;
   },
 
@@ -42,7 +46,10 @@ export const publicStatusService = {
     await apiFetch("/api/app/public-status-page", publicStatusPageDeleteResponseSchema, { method: "DELETE" });
   },
 
-  async readPublicStatus(token: string): Promise<PublicStatusResponse> {
-    return await apiFetch(`/api/public/status/${encodeURIComponent(token)}`, publicStatusResponseSchema, { authMode: "none" });
+  async readPublicStatus(token: string, signal?: AbortSignal): Promise<PublicStatusResponse> {
+    return await apiFetch(`/api/public/status/${encodeURIComponent(token)}`, publicStatusResponseSchema, {
+      authMode: "none",
+      ...(signal ? { signal } : {}),
+    });
   },
 };

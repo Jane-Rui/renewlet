@@ -29,14 +29,49 @@ msgid "customConfig.dragSortOnly"
 msgstr "Drag sorting only"
 
 #. js-lingui-explicit-id
+#: src/i18n/descriptors/custom-config.ts:22
+msgid "customConfig.saveNamed"
+msgstr "Save \"{label}\""
+
+#. js-lingui-explicit-id
 #: src/i18n/descriptors/custom-config.ts:16
 msgid "customConfig.totalItems"
 msgstr "{count} items total"
 
 #. js-lingui-explicit-id
+#: src/i18n/descriptors/custom-config.ts:21
+msgid "customConfig.deleteNamed"
+msgstr "Delete \"{label}\""
+
+#. js-lingui-explicit-id
+#: src/i18n/descriptors/custom-config.ts:24
+msgid "customConfig.confirmDeleteTitle"
+msgstr "Delete \"{label}\"?"
+
+#. js-lingui-explicit-id
+#: src/i18n/descriptors/custom-config.ts:23
+msgid "customConfig.cancelEditNamed"
+msgstr "Cancel editing \"{label}\""
+
+#. js-lingui-explicit-id
+#: src/i18n/descriptors/custom-config.ts:19
+msgid "customConfig.toggleNamed"
+msgstr "Enable or disable \"{label}\""
+
+#. js-lingui-explicit-id
 #: src/i18n/descriptors/custom-config.ts:5
 msgid "customConfig.iconLabel"
 msgstr "Icon:"
+
+#. js-lingui-explicit-id
+#: src/i18n/descriptors/custom-config.ts:25
+msgid "customConfig.confirmDeleteDescription"
+msgstr "Existing subscription data will remain; this option will no longer be selectable and may affect display or filters."
+
+#. js-lingui-explicit-id
+#: src/i18n/descriptors/custom-config.ts:18
+msgid "customConfig.dragNamed"
+msgstr "Reorder \"{label}\""
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/custom-config.ts:15
@@ -59,19 +94,14 @@ msgid "customConfig.addOption"
 msgstr "Add option"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/custom-config.ts:19
-msgid "customConfig.confirmDeleteDescription"
-msgstr "Delete \"{label}\"? Existing subscription data will remain, but this option will no longer be selectable and may affect display or filters."
-
-#. js-lingui-explicit-id
-#: src/i18n/descriptors/custom-config.ts:18
-msgid "customConfig.confirmDeleteTitle"
-msgstr "Confirm deletion"
-
-#. js-lingui-explicit-id
 #: src/i18n/descriptors/custom-config.ts:12
 msgid "customConfig.srDescription"
 msgstr "Manage options, order, and enabled state for {title}."
+
+#. js-lingui-explicit-id
+#: src/i18n/descriptors/custom-config.ts:20
+msgid "customConfig.editNamed"
+msgstr "Edit \"{label}\""
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/custom-config.ts:9

@@ -101,8 +101,63 @@ describe("ImportPreviewPanel", () => {
     renderPanel();
 
     expect(screen.getByText("导入设置")).toBeInTheDocument();
-    expect(screen.getByText("冲突处理")).toBeInTheDocument();
+    const conflictMode = screen.getByRole("combobox", { name: "冲突处理" });
+    expect(conflictMode.closest('[data-slot="form-field-row"]')).toHaveAttribute("data-align-at", "md");
     expect(screen.getByTestId("import-preview-list")).toBeInTheDocument();
+  });
+
+  it("让 Wallos 用户和冲突策略共享公共字段轨道", () => {
+    render(
+      <ImportPreviewPanel
+        prepared={{ ...prepared, payload: { ...payload, source: "wallos" } }}
+        preview={preview}
+        conflictMode="skip"
+        previewFilter="all"
+        skippedIndexes={new Set<number>()}
+        wallosUsers={[
+          { id: "user-1", label: "Alice" },
+          { id: "user-2", label: "Bob" },
+        ]}
+        selectedWallosUser="user-1"
+        onConflictModeChange={vi.fn()}
+        onWallosUserChange={vi.fn()}
+        onPreviewFilterChange={vi.fn()}
+        onLogoChange={vi.fn()}
+        onSkipChange={vi.fn()}
+      />,
+    );
+
+    const wallosUser = screen.getByRole("combobox", { name: "Wallos 用户" });
+    const row = wallosUser.closest('[data-slot="form-field-row"]');
+    expect(row).toHaveAttribute("data-tracks", "2");
+    expect(row?.querySelectorAll('[data-slot="form-field"]')).toHaveLength(2);
+    expect(screen.getByRole("combobox", { name: "冲突处理" }).closest('[data-slot="form-field-row"]')).toBe(row);
+  });
+
+  it("在 Wallos 用户选择状态完整后才渲染对应字段", () => {
+    render(
+      <ImportPreviewPanel
+        prepared={{ ...prepared, payload: { ...payload, source: "wallos" } }}
+        preview={preview}
+        conflictMode="skip"
+        previewFilter="all"
+        skippedIndexes={new Set<number>()}
+        wallosUsers={[
+          { id: "user-1", label: "Alice" },
+          { id: "user-2", label: "Bob" },
+        ]}
+        selectedWallosUser=""
+        onConflictModeChange={vi.fn()}
+        onWallosUserChange={vi.fn()}
+        onPreviewFilterChange={vi.fn()}
+        onLogoChange={vi.fn()}
+        onSkipChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("combobox", { name: "Wallos 用户" })).not.toBeInTheDocument();
+    const conflictMode = screen.getByRole("combobox", { name: "冲突处理" });
+    expect(conflictMode.closest('[data-slot="form-field-row"]')?.querySelectorAll('[data-slot="form-field"]')).toHaveLength(1);
   });
 
   it("允许 AI 识别预览隐藏导入设置控件但保留预览内容", () => {

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { gotoSettingsSectionAfterHydration } from "../support/settings";
 import {
   attachNetworkSummary,
   createNetworkMonitor,
@@ -94,8 +95,7 @@ test("settings notification history filter does not disturb next-check summary",
     const initialHistoryRead = page.waitForResponse((response) =>
       isApiResponse(response, "/api/app/notifications/history", "GET"),
     );
-    await page.goto("/settings");
-    await expect(page.getByRole("heading", { name: "系统配置" })).toBeVisible();
+    await gotoSettingsSectionAfterHydration(page, "settings-notifications");
     await initialHistoryRead;
 
     const summaryBefore = await readNotificationSummaryText(page);

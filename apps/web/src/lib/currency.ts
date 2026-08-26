@@ -23,6 +23,15 @@ export function formatCurrencySymbolAmount(amount: number | string, currency: st
   return prefix ? `${prefix}${formattedAmount}` : formattedAmount;
 }
 
+/** 保留低于 0.01 个货币单位的非零事实，避免常规两位小数格式让用户误读为零。 */
+export function formatCompactCurrencyAmount(amount: number | string, currency: string, locale = DEFAULT_LOCALE): string {
+  const numericAmount = moneyToNumber(amount);
+  if (numericAmount > 0 && numericAmount < 0.01) {
+    return `< ${formatCurrencySymbolAmount(0.01, currency, locale)}`;
+  }
+  return formatCurrencySymbolAmount(numericAmount, currency, locale);
+}
+
 export function getCurrencyAmountPrefix(currency: string, locale = DEFAULT_LOCALE): string {
   const currencyCode = normalizeCurrencyCode(currency);
   const symbol = getIntlCurrencyNarrowSymbol(currencyCode, locale).trim();

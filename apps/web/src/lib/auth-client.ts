@@ -4,12 +4,11 @@
  * Docker 与 Cloudflare 都只消费 Renewlet `/api/app/auth/*`；PocketBase SDK 不再参与登录态恢复，
  * 避免启用 MFA 后原生 `authWithPassword/authRefresh` 成为绕过口。
  */
-import { useEffect } from "react";
 import {
+  QueryObserver,
+  queryOptions,
   useQuery,
-  useQueryClient,
   type QueryClient,
-  type UseQueryResult,
 } from "@tanstack/react-query";
 import { pb } from "@/lib/pocketbase";
 import { ApiError } from "@/lib/api-client";
@@ -52,14 +51,6 @@ interface VerifyMfaOptions {
 const SESSION_QUERY_KEY = ["auth-session"] as const;
 const SESSION_STALE_TIME_MS = 60_000;
 const CLOUDFLARE_PASSWORD_RESET_DISABLED = "Email password reset is not enabled for this deployment.";
-
-let sessionRefreshKey: string | null = null;
-let sessionRefreshPromise: Promise<SessionData | null> | null = null;
-
-const queryClientSubscriptions = new WeakMap<QueryClient, {
-  count: number;
-  unsubscribe: () => void;
-}>();
 
 async function fetchAuthJson(input: RequestInfo, init?: RequestInit): Promise<unknown> {
   const headers = new Headers(init?.headers);
@@ -107,36 +98,30 @@ async function fetchLogin(input: RequestInfo, init?: RequestInit): Promise<Login
   return parsed.data.data;
 }
 
-async function refreshSession(): Promise<SessionData | null> {
-  const record = readProductSessionRecord();
-  if (!record) return null;
-  const key = sessionRecordKey(record);
-  if (sessionRefreshPromise && sessionRefreshKey === key) {
-    return sessionRefreshPromise;
-  }
-
-  sessionRefreshKey = key;
-  sessionRefreshPromise = (async () => {
-    try {
-      const session = await fetchSession("/api/app/auth/session");
-      if (sessionRecordKey(readProductSessionRecord()) === key) {
-        writeProductSession(session);
-      }
+async function requestFreshSession(key: string, signal: AbortSignal): Promise<SessionData | null> {
+  try {
+    const session = await fetchSession("/api/app/auth/session", { signal });
+    const currentRecord = readProductSessionRecord();
+    if (sessionRecordKey(currentRecord) === key) {
+      writeProductSession(session);
       return session;
-    } catch {
-      if (sessionRecordKey(readProductSessionRecord()) === key) {
-        writeProductSession(null);
-      }
+    }
+    return currentRecord?.value ?? null;
+  } catch (error) {
+    if (signal.aborted) throw error;
+    const currentRecord = readProductSessionRecord();
+    if (sessionRecordKey(currentRecord) === key) {
+      writeProductSession(null);
       return null;
     }
-  })().finally(() => {
-    if (sessionRefreshKey === key) {
-      sessionRefreshKey = null;
-      sessionRefreshPromise = null;
-    }
-  });
+    return currentRecord?.value ?? null;
+  }
+}
 
-  return sessionRefreshPromise;
+function refreshSession(signal: AbortSignal): Promise<SessionData | null> {
+  const record = readProductSessionRecord();
+  if (!record) return Promise.resolve(null);
+  return requestFreshSession(sessionRecordKey(record), signal);
 }
 
 function sessionRecordKey(record: ProductSessionRecord | null): string {
@@ -144,19 +129,36 @@ function sessionRecordKey(record: ProductSessionRecord | null): string {
   return `${record.value.user.id}:${record.value.session.expiresAt}:${record.verifiedAt}`;
 }
 
-function subscribeQueryClientToSession(queryClient: QueryClient): () => void {
-  const current = queryClientSubscriptions.get(queryClient);
-  if (current) {
-    current.count += 1;
-    return () => {
-      current.count -= 1;
-      if (current.count <= 0) {
-        current.unsubscribe();
-        queryClientSubscriptions.delete(queryClient);
-      }
-    };
-  }
+function sessionQueryOptions(sessionRecord: ProductSessionRecord | null) {
+  return queryOptions({
+    queryKey: SESSION_QUERY_KEY,
+    queryFn: ({ signal }) => refreshSession(signal),
+    initialData: () => sessionRecord?.value ?? null,
+    initialDataUpdatedAt: () => sessionRecord?.verifiedAt ?? 0,
+    enabled: Boolean(sessionRecord),
+    retry: false,
+    staleTime: SESSION_STALE_TIME_MS,
+    refetchOnReconnect: false,
+    refetchOnWindowFocus: false,
+  });
+}
 
+function useProductSession(): UseSessionResult {
+  const sessionRecord = readProductSessionRecord();
+  const sessionQuery = useQuery(sessionQueryOptions(sessionRecord));
+
+  const isInitialValidation =
+    sessionQuery.fetchStatus === "fetching" &&
+    !isProductSessionFresh(sessionRecord, SESSION_STALE_TIME_MS);
+
+  return {
+    data: sessionQuery.data ?? null,
+    isPending: isInitialValidation,
+  };
+}
+
+export function initializeProductSessionQuery(queryClient: QueryClient): () => void {
+  const observer = new QueryObserver(queryClient, sessionQueryOptions(readProductSessionRecord()));
   const sync = () => {
     const record = readProductSessionRecord();
     queryClient.setQueryData(
@@ -164,17 +166,16 @@ function subscribeQueryClientToSession(queryClient: QueryClient): () => void {
       record?.value ?? null,
       record ? { updatedAt: record.verifiedAt } : undefined,
     );
+    observer.setOptions(sessionQueryOptions(record));
   };
-  const unsubscribe = subscribeProductSession(sync);
-  queryClientSubscriptions.set(queryClient, { count: 1, unsubscribe });
+  const unsubscribeSession = subscribeProductSession(sync);
+  sync();
+  const unsubscribeObserver = observer.subscribe(() => undefined);
+
+  // 应用级 observer 跨越 StrictMode 的探测性卸载；TanStack Query 因而独占请求去重、取消和缓存所有权。
   return () => {
-    const state = queryClientSubscriptions.get(queryClient);
-    if (!state) return;
-    state.count -= 1;
-    if (state.count <= 0) {
-      state.unsubscribe();
-      queryClientSubscriptions.delete(queryClient);
-    }
+    unsubscribeObserver();
+    unsubscribeSession();
   };
 }
 
@@ -183,37 +184,7 @@ export const authClient = {
     passkeyService.cancelActiveCeremony();
   },
 
-  useSession(): UseSessionResult {
-    const queryClient: QueryClient = useQueryClient();
-    const sessionRecord = readProductSessionRecord();
-    const sessionQuery: UseQueryResult<SessionData | null, Error> = useQuery<
-      SessionData | null,
-      Error,
-      SessionData | null,
-      typeof SESSION_QUERY_KEY
-    >({
-      queryKey: SESSION_QUERY_KEY,
-      queryFn: refreshSession,
-      initialData: () => sessionRecord?.value ?? null,
-      initialDataUpdatedAt: () => sessionRecord?.verifiedAt ?? 0,
-      enabled: Boolean(sessionRecord),
-      retry: false,
-      staleTime: SESSION_STALE_TIME_MS,
-      refetchOnReconnect: false,
-      refetchOnWindowFocus: false,
-    });
-
-    useEffect(() => subscribeQueryClientToSession(queryClient), [queryClient]);
-
-    const isInitialValidation =
-      sessionQuery.fetchStatus === "fetching" &&
-      !isProductSessionFresh(sessionRecord, SESSION_STALE_TIME_MS);
-
-    return {
-      data: sessionQuery.data ?? null,
-      isPending: isInitialValidation,
-    };
-  },
+  useSession: useProductSession,
 
   signIn: {
     async email({ email, password, turnstileToken }: { email: string; password: string; turnstileToken?: string }) {

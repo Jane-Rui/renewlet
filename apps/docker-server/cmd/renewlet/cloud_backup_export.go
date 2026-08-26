@@ -145,14 +145,17 @@ func (collector *cloudBackupExportAssetCollector) resolve(assetID string, origin
 }
 
 func buildCloudBackupExportBundle(app core.App, user *core.Record, exportedAt time.Time) (cloudBackupExportBundle, error) {
-	rows, err := listImportExistingSubscriptions(app, user.Id)
+	rows, err := listOwnedSubscriptionRecords(app, user.Id)
 	if err != nil {
 		return cloudBackupExportBundle{}, err
 	}
 	assetCollector := newCloudBackupExportAssetCollector(app, user.Id)
 	subscriptions := make([]interface{}, 0, len(rows))
 	for _, row := range rows {
-		subscription := subscriptionAPIFromRecord(row)
+		subscription, err := subscriptionDetailResponseMap(subscriptionAPIFromRecord(row))
+		if err != nil {
+			return cloudBackupExportBundle{}, err
+		}
 		if logo, ok := subscription["logo"].(string); ok {
 			if assetID := privateAssetIDFromPath(logo); assetID != "" {
 				if assetPath, ok := assetCollector.resolve(assetID, logo, "subscription.logo", row.Id); ok {
@@ -213,6 +216,18 @@ func buildCloudBackupExportBundle(app core.App, user *core.Record, exportedAt ti
 		manifest.MissingAssets = []cloudBackupExportMissingAsset{}
 	}
 	return cloudBackupExportBundle{Payload: payload, Assets: assetCollector.assets, Manifest: manifest}, nil
+}
+
+func subscriptionDetailResponseMap(subscription subscriptionDetailResponse) (map[string]interface{}, error) {
+	data, err := json.Marshal(subscription)
+	if err != nil {
+		return nil, err
+	}
+	var result map[string]interface{}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func cloudBackupExportSettings(app core.App, user *core.Record) (map[string]interface{}, bool, error) {

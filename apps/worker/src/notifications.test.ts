@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDefaultAppSettings } from "@renewlet/shared/settings-defaults";
 import type { ApiAppSettings } from "@renewlet/shared/schemas/settings";
-import type { ApiSubscription } from "@renewlet/shared/schemas/subscriptions";
+import { apiSubscriptionSchema, type ApiSubscription } from "@renewlet/shared/schemas/subscriptions";
 import { collectNotificationItemsForLocalDate, notificationHistory, runScheduledNotifications } from "./notifications";
 import { readSuccessData } from "./api-test-helpers";
 import { createCronJobResult } from "./notification-jobs";
@@ -120,7 +120,7 @@ function settings(overrides: Partial<ApiAppSettings> = {}): ApiAppSettings {
 }
 
 function subscription(overrides: Partial<ApiSubscription> = {}): ApiSubscription {
-  return {
+  return apiSubscriptionSchema.parse({
     id: "sub_quiet",
     name: "Quiet SaaS",
     price: "10",
@@ -139,8 +139,9 @@ function subscription(overrides: Partial<ApiSubscription> = {}): ApiSubscription
     repeatReminderEnabled: false,
     repeatReminderInterval: "1h",
     repeatReminderWindow: "72h",
+    extra: {},
     ...overrides,
-  };
+  });
 }
 
 function subscriptionRow(overrides: Partial<SubscriptionRow> = {}): SubscriptionRow {

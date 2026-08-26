@@ -771,16 +771,6 @@ func firstNonBlank(values ...string) string {
 	return ""
 }
 
-func redactServerChanSecret(value, sendKey string) string {
-	value = strings.TrimSpace(value)
-	sendKey = strings.TrimSpace(sendKey)
-	if sendKey != "" {
-		value = strings.ReplaceAll(value, sendKey, "[redacted]")
-		value = strings.ReplaceAll(value, url.PathEscape(sendKey), "[redacted]")
-	}
-	return trimLongText(value)
-}
-
 func webhookSecrets(endpoint string, headers map[string]string) []string {
 	secrets := []string{endpoint}
 	for key, value := range headers {

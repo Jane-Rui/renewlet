@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -11,25 +9,29 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"sync"
 )
 
 // defaultSystemReleaseClient 返回只信任 GitHub Release feed 和下载边界的 HTTP 客户端。
 func defaultSystemReleaseClient() systemReleaseClient {
-	downloadClient := defaultUpstreamHTTPClient(systemUpdateDownloadTimeout)
-	downloadClient.CheckRedirect = func(request *http.Request, via []*http.Request) error {
-		if len(via) >= 5 {
-			return errors.New("too many redirects")
-		}
-		// GitHub Release 会跳到对象存储；每一跳都重验 host，避免可信首跳被开放重定向带出边界。
-		return validateTrustedDownloadURL(request.URL.String())
-	}
+	assetClient := defaultUpstreamHTTPClient(systemUpdateAssetRequestTimeout)
+	assetClient.CheckRedirect = validateSystemReleaseRedirect
+	downloadClient := defaultSystemReleaseDownloadHTTPClient()
+	downloadClient.CheckRedirect = validateSystemReleaseRedirect
 	return &httpSystemReleaseClient{
 		metadataClient: defaultUpstreamHTTPClient(systemUpdateCheckTimeout),
-		downloadClient: downloadClient,
+		assetClient:    assetClient,
+		downloader:     newSystemReleaseDownloader(downloadClient),
 	}
+}
+
+func validateSystemReleaseRedirect(request *http.Request, via []*http.Request) error {
+	if len(via) >= 5 {
+		return errors.New("too many redirects")
+	}
+	// GitHub Release 会跳到对象存储；每一跳都重验 host，避免可信首跳被开放重定向带出边界。
+	return validateTrustedDownloadURL(request.URL.String())
 }
 
 // FetchReleases 读取官方仓库 Release Atom feed；系统版本检查不再访问 GitHub REST API。
@@ -107,8 +109,8 @@ func (client *httpSystemReleaseClient) probeReleaseAsset(ctx context.Context, so
 	request.Header.Set("User-Agent", "Renewlet/"+Version)
 	response, err := sendUpstreamHTTPRequest(request, upstreamHTTPRequestOptions{
 		Provider: "GitHub Release asset",
-		Timeout:  systemUpdateDownloadTimeout,
-		Client:   client.downloadClient,
+		Timeout:  systemUpdateAssetRequestTimeout,
+		Client:   client.assetClient,
 	})
 	if err != nil {
 		return 0, false
@@ -123,53 +125,15 @@ func (client *httpSystemReleaseClient) probeReleaseAsset(ctx context.Context, so
 	return response.ContentLength, true
 }
 
-// DownloadFile 下载时同步计算 SHA-256，避免大归档落盘后再做一次完整顺序读取。
-func (client *httpSystemReleaseClient) DownloadFile(ctx context.Context, sourceURL string, targetPath string, maxBytes int64) (string, error) {
+// DownloadFile 把大归档交给独立下载状态机；Release 元数据和 checksum 仍使用短请求客户端。
+func (client *httpSystemReleaseClient) DownloadFile(ctx context.Context, sourceURL string, targetPath string, expectedSize int64, maxBytes int64) (string, error) {
 	if err := validateTrustedDownloadURL(sourceURL); err != nil {
 		return "", err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, sourceURL, nil)
-	if err != nil {
-		return "", err
+	if client.downloader == nil {
+		return "", errors.New("system release downloader is unavailable")
 	}
-	request.Header.Set("User-Agent", "Renewlet/"+Version)
-	response, err := sendUpstreamHTTPRequest(request, upstreamHTTPRequestOptions{
-		Provider: "GitHub",
-		Timeout:  systemUpdateDownloadTimeout,
-		Client:   client.downloadClient,
-	})
-	if err != nil {
-		return "", err
-	}
-	defer response.Body.Close()
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		providerResponse, _, captureErr := captureUpstreamProviderResponse(response, nil)
-		if captureErr != nil {
-			return "", captureErr
-		}
-		return "", createUpstreamHTTPError("GitHub", response, providerResponse, upstreamProviderMessage(providerResponse))
-	}
-	if response.ContentLength > maxBytes {
-		return "", fmt.Errorf("download is too large")
-	}
-	// 下载产物先落 0600 临时文件；替换前不让同机其它用户读到半成品 binary 或 checksum 线索。
-	target, err := os.OpenFile(targetPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if err != nil {
-		return "", err
-	}
-	hash := sha256.New()
-	if _, err := copyLimited(io.MultiWriter(target, hash), response.Body, maxBytes); err != nil {
-		_ = target.Close()
-		return "", err
-	}
-	if err := target.Sync(); err != nil {
-		_ = target.Close()
-		return "", err
-	}
-	if err := target.Close(); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
+	return client.downloader.Download(ctx, sourceURL, targetPath, expectedSize, maxBytes)
 }
 
 // FetchText 下载 checksum 等小文本资产；调用方负责在返回后检查是否超过 maxBytes。
@@ -184,8 +148,8 @@ func (client *httpSystemReleaseClient) FetchText(ctx context.Context, sourceURL 
 	request.Header.Set("User-Agent", "Renewlet/"+Version)
 	response, err := sendUpstreamHTTPRequest(request, upstreamHTTPRequestOptions{
 		Provider: "GitHub",
-		Timeout:  systemUpdateDownloadTimeout,
-		Client:   client.downloadClient,
+		Timeout:  systemUpdateAssetRequestTimeout,
+		Client:   client.assetClient,
 	})
 	if err != nil {
 		return nil, err

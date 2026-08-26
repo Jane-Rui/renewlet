@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/lib/api-client";
 import { assetInUseDetailsSchema, type AssetInUseDetails, type UploadedAsset } from "@/lib/api/schemas/media";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "@/components/ui/sonner";
 import {
   invalidateUploadedAssetsQueries,
   removeUploadedAssetFromQueryCache,
@@ -11,15 +11,12 @@ import {
 import { assetService } from "@/services/asset-service";
 import { getDisplayErrorMessage } from "@/lib/display-error";
 import { useI18n } from "@/i18n/I18nProvider";
+import type { SettingsReadState } from "./settings-read-state";
 
 interface UploadedAssetKindController {
-  assets: UploadedAsset[];
-  error: Error | null;
-  hasLoaded: boolean;
+  readState: SettingsReadState<UploadedAsset[]>;
   hasMore: boolean;
-  isLoading: boolean;
   isLoadingMore: boolean;
-  refresh: () => Promise<void>;
   loadMore: () => Promise<void>;
 }
 
@@ -39,7 +36,6 @@ export interface UploadedAssetsManagerController {
 // 设置页资产管理器只编排 UI 状态和 React Query 缓存；owner 校验、引用阻止和底层文件清理由服务端负责。
 export function useUploadedAssetsManager(): UploadedAssetsManagerController {
   const { t } = useI18n();
-  const { toast } = useToast();
   const queryClient = useQueryClient();
   const logo = useUploadedAssetsByKind("logo", { enabled: true });
   const icon = useUploadedAssetsByKind("icon", { enabled: true });
@@ -55,32 +51,45 @@ export function useUploadedAssetsManager(): UploadedAssetsManagerController {
       // 后端已确认删除成功后再做本地缓存剔除；ASSET_IN_USE 不做乐观更新，避免隐藏仍被引用的资产。
       removeUploadedAssetFromQueryCache(queryClient, asset);
       await invalidateUploadedAssetsQueries(queryClient, asset.kind);
-      toast({
-        title: t("settings.uploadedIconsDeleteSuccess"),
-        description: t("settings.uploadedIconsDeleteSuccessDescription", { name: assetLabel(asset, t("settings.uploadedIconsUnnamedAsset")) }),
-      });
+      toast.success(t("settings.uploadedIconsDeleted", {
+        name: assetLabel(asset, t("settings.uploadedIconsUnnamedAsset")),
+      }));
       return true;
     } catch (error: unknown) {
       const fallback = t("settings.uploadedIconsDeleteFailedDescription");
       const message = assetDeleteErrorMessage(error, fallback, t);
       setDeleteError({ assetId: asset.id, message });
-      toast({
-        title: t("settings.uploadedIconsDeleteFailed"),
-        description: message,
-        variant: "destructive",
-      });
+      toast.error(t("settings.uploadedIconsDeleteFailed"), { description: message });
       return false;
     } finally {
       setDeletingAssetId(null);
     }
-  }, [deletingAssetId, queryClient, t, toast]);
+  }, [deletingAssetId, queryClient, t]);
 
   return {
-    logo,
-    icon,
+    logo: uploadedAssetKindController(logo),
+    icon: uploadedAssetKindController(icon),
     deleteError,
     deletingAssetId,
     deleteAsset,
+  };
+}
+
+function uploadedAssetKindController(
+  query: ReturnType<typeof useUploadedAssetsByKind>,
+): UploadedAssetKindController {
+  return {
+    readState: {
+      data: query.hasData ? query.assets : undefined,
+      hasData: query.hasData,
+      error: query.error,
+      isInitialLoading: query.isInitialLoading,
+      isRefreshing: query.isRefreshing,
+      retry: query.refresh,
+    },
+    hasMore: query.hasMore,
+    isLoadingMore: query.isLoadingMore,
+    loadMore: query.loadMore,
   };
 }
 

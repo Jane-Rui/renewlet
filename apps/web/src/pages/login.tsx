@@ -179,10 +179,9 @@ const Login = () => {
     } else {
       forgetRememberedLoginEmail();
     }
-    toast.success(t("auth.loginSuccess"));
     // 登录成功后只跳转 sanitize 后的站内路径，避免 next 参数把 token/session 状态带到外站。
     router.push(getNextPath());
-  }, [cancelPasskeyCeremony, getNextPath, invalidateMfaVerifyFlows, rememberEmail, router, t]);
+  }, [cancelPasskeyCeremony, getNextPath, invalidateMfaVerifyFlows, rememberEmail, router]);
 
   const resetTurnstile = useCallback(() => {
     // Turnstile token 单次有效且会过期；登录失败、进入 MFA 或 challenge 异常后必须换新 token。
@@ -401,7 +400,7 @@ const Login = () => {
 
   return (
     <div className="app-page bg-background theme-gradient flex">
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-primary/20 via-primary/10 to-background items-center justify-center p-12">
+      <div className="hidden lg:flex lg:w-1/2 bg-linear-to-br from-primary/20 via-primary/10 to-background items-center justify-center p-12">
         <div className="max-w-md grid gap-8">
           <RenewletBrandLockup
             title="Renewlet"

@@ -12,7 +12,7 @@ import { getIntlCurrencyIdentityLabel } from "@/lib/currency-data";
 import type { ConfigItem } from "@/types/config";
 import type { CurrencyOption, CurrencyRegion } from "@/types/subscription";
 import { DEFAULT_LOCALE, localizedLabel, type Locale } from "@/i18n/locales";
-import { translateStaticMessage } from "@/i18n/static-catalogs";
+import { translate } from "@/i18n/messages";
 
 /** 可搜索 Select/Command 组件使用的通用选项结构。 */
 export interface SearchableSelectOption {
@@ -227,7 +227,7 @@ export function createCurrencySelectOptions(params: {
     const label = option ? localizedLabel(option.labels, locale) : localizedLabel(item.labels, locale);
     items.push({
       value: item.value,
-      label: disabled ? translateStaticMessage(locale, "common.optionDisabled", { label }) : label,
+      label: disabled ? translate(locale, "common.optionDisabled", { label }) : label,
       ...(disabled ? { disabled: true } : {}),
       keywords: option ? createCurrencyKeywords(option) : uniq([item.value, localizedLabel(item.labels, "zh-CN"), localizedLabel(item.labels, "en-US")]),
     });

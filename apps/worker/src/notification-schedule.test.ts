@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { notificationScheduleFixtures, type NotificationScheduleFixture } from "@renewlet/shared/contract-fixtures";
 import { createDefaultAppSettings } from "@renewlet/shared/settings-defaults";
 import type { ApiAppSettings } from "@renewlet/shared/schemas/settings";
-import type { ApiSubscription } from "@renewlet/shared/schemas/subscriptions";
+import { apiSubscriptionSchema, type ApiSubscription } from "@renewlet/shared/schemas/subscriptions";
 import { collectNotificationItemsForSchedule } from "./notifications";
 import { getNotificationScheduleDecision } from "./notification-schedule";
 
@@ -24,7 +24,7 @@ function settings(fixture: NotificationScheduleFixture): ApiAppSettings {
 }
 
 function subscription(input: NotificationScheduleFixture["subscriptions"][number]): ApiSubscription {
-  return {
+  return apiSubscriptionSchema.parse({
     id: input.id,
     name: input.name,
     price: input.price,
@@ -45,7 +45,8 @@ function subscription(input: NotificationScheduleFixture["subscriptions"][number
     repeatReminderEnabled: input.repeatReminderEnabled,
     repeatReminderInterval: input.repeatReminderInterval,
     repeatReminderWindow: input.repeatReminderWindow,
-  };
+    extra: {},
+  });
 }
 
 describe("Cloudflare notification schedule", () => {

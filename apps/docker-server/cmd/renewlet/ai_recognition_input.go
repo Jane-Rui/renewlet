@@ -265,10 +265,6 @@ func isValidAIRecognitionProviderType(value string) bool {
 	return value == aiProviderTypeOpenAI || value == aiProviderTypeGemini || value == aiProviderTypeAnthropic || value == aiProviderTypeOpenAICompatible
 }
 
-func isValidAIRecognitionTransportProtocol(value string) bool {
-	return value == aiProtocolOpenAIChat || value == aiProtocolAnthropicMessages || value == aiProtocolGeminiGenerateContent
-}
-
 func aiThinkingControlMatchesSettings(settings aiRecognitionSettings, control *aiThinkingControl) bool {
 	if control == nil {
 		return true

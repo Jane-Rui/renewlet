@@ -1,88 +1,72 @@
-import { useCallback, useMemo } from "react";
+import { useCallback } from "react";
 import {
   useCreatePublicStatusPage,
   useDeletePublicStatusPage,
   usePublicStatusPageStatus,
   useUpdatePublicStatusPage,
 } from "@/hooks/use-public-status-page";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "@/components/ui/sonner";
 import { useI18n } from "@/i18n/I18nProvider";
 import { getDisplayErrorMessage } from "@/lib/display-error";
 import { copyTextToClipboard, type ClipboardCopyTarget } from "@/shared/browser/clipboard";
-import type { Subscription } from "@/types/subscription";
+import type { PublicStatusPage } from "@/lib/api/schemas/public-status";
+import type { SubscriptionFacets } from "@/services/subscription-service";
+import { toSettingsReadState, type SettingsReadState } from "./settings-read-state";
 
 export interface SettingsPublicStatusPageController {
-  enabled: boolean;
-  pageUrl: string | null;
-  showPrices: boolean;
-  visibleCount: number;
-  hiddenCount: number;
-  isLoading: boolean;
+  status: SettingsReadState<PublicStatusPage>;
+  visibility: SettingsReadState<{ visibleCount: number; hiddenCount: number }>;
   isCreating: boolean;
   isDeleting: boolean;
   isUpdating: boolean;
   createOrRotate: () => Promise<void>;
   copyUrl: (target?: ClipboardCopyTarget | null) => Promise<void>;
   openPage: () => Promise<void>;
-  regenerate: () => Promise<void>;
-  revoke: () => Promise<void>;
+  regenerate: () => Promise<boolean>;
+  revoke: () => Promise<boolean>;
   updateShowPrices: (checked: boolean) => Promise<void>;
 }
 
 export function usePublicStatusPageSettingsController(
-  subscriptions: Subscription[] | undefined,
+  facets: SettingsReadState<SubscriptionFacets>,
 ): SettingsPublicStatusPageController {
-  const { toast } = useToast();
   const { t } = useI18n();
   const publicStatusPageStatus = usePublicStatusPageStatus();
   const createPublicStatusPage = useCreatePublicStatusPage();
   const updatePublicStatusPage = useUpdatePublicStatusPage();
   const deletePublicStatusPage = useDeletePublicStatusPage();
-  const publicStatusCounts = useMemo(() => {
-    const rows = subscriptions ?? [];
-    return rows.reduce(
-      (counts, subscription) => ({
-        visible: counts.visible + (subscription.publicHidden ? 0 : 1),
-        hidden: counts.hidden + (subscription.publicHidden ? 1 : 0),
-      }),
-      { visible: 0, hidden: 0 },
-    );
-  }, [subscriptions]);
+  const visibility = {
+    ...facets,
+    data: facets.data ? {
+      visibleCount: facets.data.visibleCount,
+      hiddenCount: facets.data.hiddenCount,
+    } : undefined,
+  } satisfies SettingsReadState<{ visibleCount: number; hiddenCount: number }>;
 
   const handleCreatePublicStatusPage = useCallback(async () => {
     try {
       // 公开页 token 是 bearer secret；创建成功后立即更新缓存，避免复制到旧地址或空地址。
       await createPublicStatusPage.mutateAsync();
-      toast({
-        title: t("settings.publicStatusGenerated"),
-        description: t("settings.publicStatusGeneratedDescription"),
-      });
+      toast.success(t("settings.publicStatusGenerated"));
     } catch (error) {
-      toast({
-        title: t("settings.publicStatusFailed"),
+      toast.error(t("settings.publicStatusFailed"), {
         description: getDisplayErrorMessage(error, t("settings.publicStatusFailedDescription")),
-        variant: "destructive",
       });
     }
-  }, [createPublicStatusPage, t, toast]);
+  }, [createPublicStatusPage, t]);
 
   const handleCopyPublicStatusUrl = useCallback(async (target?: ClipboardCopyTarget | null) => {
     const pageUrl = publicStatusPageStatus.data?.pageUrl;
     if (!pageUrl) return;
     const copyResult = await copyTextToClipboard(pageUrl, { target });
     if (copyResult.ok) {
-      toast({
-        title: t("settings.publicStatusCopied"),
-        description: t("settings.publicStatusCopiedDescription"),
-      });
+      toast.success(t("settings.publicStatusCopied"));
       return;
     }
-    toast({
-      title: t("settings.publicStatusCopyFailed"),
+    toast.error(t("settings.publicStatusCopyFailed"), {
       description: t("settings.publicStatusCopyFailedDescription"),
-      variant: "destructive",
     });
-  }, [publicStatusPageStatus.data?.pageUrl, t, toast]);
+  }, [publicStatusPageStatus.data?.pageUrl, t]);
 
   const handleOpenPublicStatusPage = useCallback(async () => {
     const pageUrl = publicStatusPageStatus.data?.pageUrl;
@@ -94,61 +78,46 @@ export function usePublicStatusPageSettingsController(
     try {
       // 撤销的安全边界在服务端删除 token；前端缓存只是让设置页立刻停止显示旧 URL。
       await deletePublicStatusPage.mutateAsync();
-      toast({
-        title: t("settings.publicStatusRevoked"),
-        description: t("settings.publicStatusRevokedDescription"),
-      });
+      toast.success(t("settings.publicStatusRevoked"));
+      return true;
     } catch (error) {
-      toast({
-        title: t("settings.publicStatusFailed"),
+      toast.error(t("settings.publicStatusFailed"), {
         description: getDisplayErrorMessage(error, t("settings.publicStatusRevokeFailedDescription")),
-        variant: "destructive",
       });
+      return false;
     }
-  }, [deletePublicStatusPage, t, toast]);
+  }, [deletePublicStatusPage, t]);
 
   const handleRegeneratePublicStatusPage = useCallback(async () => {
     try {
       // 轮换采用先撤销后创建；只有旧 token 已失效后，设置页才展示新公开页 URL。
       await deletePublicStatusPage.mutateAsync();
       await createPublicStatusPage.mutateAsync();
-      toast({
-        title: t("settings.publicStatusRegenerated"),
-        description: t("settings.publicStatusRegeneratedDescription"),
-      });
+      toast.success(t("settings.publicStatusRegenerated"));
+      return true;
     } catch (error) {
-      toast({
-        title: t("settings.publicStatusFailed"),
+      toast.error(t("settings.publicStatusFailed"), {
         description: getDisplayErrorMessage(error, t("settings.publicStatusFailedDescription")),
-        variant: "destructive",
       });
+      return false;
     }
-  }, [createPublicStatusPage, deletePublicStatusPage, t, toast]);
+  }, [createPublicStatusPage, deletePublicStatusPage, t]);
 
   const handleUpdatePublicStatusShowPrices = useCallback(async (checked: boolean) => {
     if (!publicStatusPageStatus.data?.enabled) return;
     try {
       await updatePublicStatusPage.mutateAsync(checked);
-      toast({
-        title: t("settings.publicStatusUpdated"),
-        description: checked ? t("settings.publicStatusPricesEnabled") : t("settings.publicStatusPricesDisabled"),
-      });
+      toast.success(checked ? t("settings.publicStatusPricesEnabled") : t("settings.publicStatusPricesDisabled"));
     } catch (error) {
-      toast({
-        title: t("settings.publicStatusFailed"),
+      toast.error(t("settings.publicStatusFailed"), {
         description: getDisplayErrorMessage(error, t("settings.publicStatusUpdateFailedDescription")),
-        variant: "destructive",
       });
     }
-  }, [publicStatusPageStatus.data?.enabled, t, toast, updatePublicStatusPage]);
+  }, [publicStatusPageStatus.data?.enabled, t, updatePublicStatusPage]);
 
   return {
-    enabled: publicStatusPageStatus.data?.enabled ?? false,
-    pageUrl: publicStatusPageStatus.data?.pageUrl ?? null,
-    showPrices: publicStatusPageStatus.data?.showPrices ?? false,
-    visibleCount: publicStatusCounts.visible,
-    hiddenCount: publicStatusCounts.hidden,
-    isLoading: publicStatusPageStatus.isLoading,
+    status: toSettingsReadState(publicStatusPageStatus),
+    visibility,
     isCreating: createPublicStatusPage.isPending,
     isDeleting: deletePublicStatusPage.isPending,
     isUpdating: updatePublicStatusPage.isPending,

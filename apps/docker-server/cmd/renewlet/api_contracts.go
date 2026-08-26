@@ -592,12 +592,6 @@ func requireEmptyRequestBody(request *http.Request) error {
 	return nil
 }
 
-// decodeStrictJSONFromReader 限制请求体大小后再进入 JSON decoder。
-// 这样能在 DisallowUnknownFields 前先阻断异常大 body，避免内存被恶意请求放大。
-func decodeStrictJSONFromReader[T interface{}](reader io.Reader, locale appLocale, allowEmpty bool) (T, error) {
-	return decodeStrictJSONFromReaderWithLimit[T](reader, locale, allowEmpty, maxJSONBodyBytes)
-}
-
 func decodeStrictJSONFromReaderWithLimit[T interface{}](reader io.Reader, locale appLocale, allowEmpty bool, maxBytes int64) (T, error) {
 	var zero T
 	if reader == nil {
@@ -699,11 +693,6 @@ func newReadyResponse(app core.App) (healthResponse, error) {
 		return healthResponse{}, err
 	}
 	return newHealthResponse(), nil
-}
-
-// invalidRequestBodyMessage 返回本地化请求体错误文案。
-func invalidRequestBodyMessage(locale appLocale) string {
-	return serverText(locale, "common.invalidRequestBody")
 }
 
 // validationErrorMessage 优先透出 Validate 返回的具体错误。

@@ -9,7 +9,7 @@
  * 注意： data URL 体积可能很大，不能直接持久化；上传 hook 会负责替换成资产 URL。
  */
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
 import {
   ReactCrop,
   centerCrop,
@@ -19,15 +19,16 @@ import {
   type PixelCrop,
 } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { RotateCcw, ZoomIn } from 'lucide-react';
 import { useI18n } from '@/i18n/I18nProvider';
+import { useDeferredDialogInitialFocus } from '@/hooks/use-deferred-dialog-initial-focus';
 import { reportClientError } from "@/lib/report-client-error";
 
-interface ImageCropDialogProps {
+export interface ImageCropDialogProps {
   /** 外层上传 hook 持有 open 状态，用于在关闭时废弃未完成的裁剪链路。 */
   open: boolean;
   /** 关闭动作只改变弹窗状态；裁剪结果必须通过 onCropComplete 显式上抛。 */
@@ -124,7 +125,7 @@ async function getCroppedImg(
 
   // 旋转/缩放都围绕原图中心执行，避免裁剪框坐标和 natural 像素坐标混用后产生偏移。
   ctx.translate(-crop.x * scaleX, -crop.y * scaleY);
-  
+
   if (rotate !== 0) {
     ctx.translate(centerX, centerY);
     ctx.rotate(rotateRads);
@@ -184,7 +185,7 @@ async function getCroppedImg(
  *
  * 注意： 确认过程中可能被关闭/卸载，因此用 AbortController 防止旧 canvas/FileReader 回写。
  */
-export function ImageCropDialog({
+export function ImageCropDialogContent({
   open,
   onOpenChange,
   imageSrc,
@@ -198,8 +199,14 @@ export function ImageCropDialog({
   const [scale, setScale] = useState(1);
   const [rotate, setRotate] = useState(0);
   const imgRef = useRef<HTMLImageElement>(null);
+  const controlsRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef(false);
   const cropAbortRef = useRef<AbortController | null>(null);
+  const resolveInitialFocus = useCallback(
+    () => controlsRef.current?.querySelector<HTMLElement>('[role="slider"]') ?? null,
+    [],
+  );
+  useDeferredDialogInitialFocus(open, true, "image-crop", resolveInitialFocus);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -209,6 +216,12 @@ export function ImageCropDialog({
       cropAbortRef.current = null;
     };
   }, []);
+
+  useLayoutEffect(() => {
+    if (open) return;
+    cropAbortRef.current?.abort();
+    cropAbortRef.current = null;
+  }, [open]);
 
   const onImageLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
     const { width, height } = e.currentTarget;
@@ -252,104 +265,102 @@ export function ImageCropDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent dismissMode="explicit" className="sm:max-w-md border-border bg-card">
-        <DialogHeader>
-          <DialogTitle>{t("media.cropTitle")}</DialogTitle>
-          <DialogDescription className="sr-only">
-            {t("media.cropDescription")}
-          </DialogDescription>
-        </DialogHeader>
+    <>
+      <DialogHeader>
+        <DialogTitle>{t("media.cropTitle")}</DialogTitle>
+        <DialogDescription className="sr-only">
+          {t("media.cropDescription")}
+        </DialogDescription>
+      </DialogHeader>
 
-        <div className="grid gap-4">
-          <div className="flex justify-center bg-secondary/30 rounded-lg p-4 overflow-hidden">
-            <ReactCrop
-              {...(crop ? { crop } : {})}
-              onChange={(_: PixelCrop, percentCrop: PercentCrop) => setCrop(percentCrop)}
-              onComplete={(c: PixelCrop) => setCompletedCrop(c)}
-              aspect={aspectRatio}
-              circularCrop={false}
-              className="max-h-64"
-            >
-              <img
-                ref={imgRef}
-                src={imageSrc}
-                alt={t("media.cropPreview")}
-                style={{
-                  transform: `scale(${scale}) rotate(${rotate}deg)`,
-                  maxHeight: '256px',
-                  objectFit: 'contain',
-                }}
-                onLoad={onImageLoad}
-              />
-            </ReactCrop>
-          </div>
-
-          <div className="grid gap-4 px-1">
-            <div className="grid gap-2">
-              <div className="flex items-center justify-between">
-                <Label className="flex items-center gap-2 text-sm">
-                  <ZoomIn className="w-4 h-4" />
-                  {t("media.zoom")}
-                </Label>
-                <span className="text-sm text-muted-foreground">{Math.round(scale * 100)}%</span>
-              </div>
-              <Slider
-                value={[scale]}
-                onValueChange={(value) => setScale(value[0] ?? scale)}
-                min={0.5}
-                max={3}
-                step={0.1}
-                className="w-full"
-              />
-            </div>
-
-            <div className="grid gap-2">
-              <div className="flex items-center justify-between">
-                <Label className="flex items-center gap-2 text-sm">
-                  <RotateCcw className="w-4 h-4" />
-                  {t("media.rotate")}
-                </Label>
-                <span className="text-sm text-muted-foreground">{rotate}°</span>
-              </div>
-              <Slider
-                value={[rotate]}
-                onValueChange={(value) => setRotate(value[0] ?? rotate)}
-                min={-180}
-                max={180}
-                step={1}
-                className="w-full"
-              />
-            </div>
-          </div>
+      <div ref={controlsRef} className="grid gap-4">
+        <div className="flex justify-center bg-secondary/30 rounded-lg p-4 overflow-hidden">
+          <ReactCrop
+            {...(crop ? { crop } : {})}
+            onChange={(_: PixelCrop, percentCrop: PercentCrop) => setCrop(percentCrop)}
+            onComplete={(c: PixelCrop) => setCompletedCrop(c)}
+            aspect={aspectRatio}
+            circularCrop={false}
+            className="max-h-64"
+          >
+            <img
+              ref={imgRef}
+              src={imageSrc}
+              alt={t("media.cropPreview")}
+              style={{
+                transform: `scale(${scale}) rotate(${rotate}deg)`,
+                maxHeight: '256px',
+                objectFit: 'contain',
+              }}
+              onLoad={onImageLoad}
+            />
+          </ReactCrop>
         </div>
 
-        <DialogFooter className="gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleReset}
-            className="border-border"
-          >
-            {t("media.reset")}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            className="border-border"
-          >
-            {t("common.cancel")}
-          </Button>
-          <Button
-            type="button"
-            onClick={handleConfirm}
-            className="bg-primary text-primary-foreground hover:bg-primary-glow"
-          >
-            {t("media.confirmCrop")}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        <div className="grid gap-4 px-1">
+          <div className="grid gap-2">
+            <div className="flex items-center justify-between">
+              <Label className="flex items-center gap-2 text-sm">
+                <ZoomIn className="w-4 h-4" />
+                {t("media.zoom")}
+              </Label>
+              <span className="text-sm text-muted-foreground">{Math.round(scale * 100)}%</span>
+            </div>
+            <Slider
+              value={[scale]}
+              onValueChange={(value) => setScale(value[0] ?? scale)}
+              min={0.5}
+              max={3}
+              step={0.1}
+              className="w-full"
+            />
+          </div>
+
+          <div className="grid gap-2">
+            <div className="flex items-center justify-between">
+              <Label className="flex items-center gap-2 text-sm">
+                <RotateCcw className="w-4 h-4" />
+                {t("media.rotate")}
+              </Label>
+              <span className="text-sm text-muted-foreground">{rotate}°</span>
+            </div>
+            <Slider
+              value={[rotate]}
+              onValueChange={(value) => setRotate(value[0] ?? rotate)}
+              min={-180}
+              max={180}
+              step={1}
+              className="w-full"
+            />
+          </div>
+        </div>
+      </div>
+
+      <DialogFooter className="gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={handleReset}
+          className="border-border"
+        >
+          {t("media.reset")}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => onOpenChange(false)}
+          className="border-border"
+        >
+          {t("common.cancel")}
+        </Button>
+        <Button
+          type="button"
+          onClick={handleConfirm}
+          className="bg-primary text-primary-foreground hover:bg-primary-glow"
+        >
+          {t("media.confirmCrop")}
+        </Button>
+      </DialogFooter>
+    </>
   );
 }

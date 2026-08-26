@@ -9,6 +9,9 @@ import { useI18n } from "@/i18n/I18nProvider";
 import type { MfaTotpSetupResponse } from "@/lib/api/schemas/auth";
 import { MFA_STATUS_QUERY_KEY } from "./account-security-query-keys";
 import type { MfaPasswordAction } from "./account-security-dialog-state";
+import { preloadAccountSecurityDialogs } from "./account-security-dialogs-loader";
+import { toSettingsReadState } from "../application/settings-read-state";
+import { ManagerDataBoundary } from "./manager-data-boundary";
 
 export interface AccountMfaSectionProps {
   disabled?: boolean;
@@ -25,12 +28,22 @@ export function AccountMfaSection({
 
   const statusQuery = useQuery({
     queryKey: MFA_STATUS_QUERY_KEY,
-    queryFn: () => mfaService.status(),
+    queryFn: ({ signal }) => mfaService.status(signal),
     staleTime: 30_000,
   });
 
   const status = statusQuery.data;
+  const readState = toSettingsReadState(statusQuery);
   const enabled = Boolean(status?.enabled);
+  const statusLabel = readState.isInitialLoading
+    ? t("common.loading")
+    : !readState.hasData && readState.error
+      ? t("settings.statusUnknown")
+      : readState.error
+        ? t("settings.notUpdated")
+        : enabled
+          ? t("common.enabled")
+          : t("common.disabled");
 
   const setupMutation = useMutation({
     mutationFn: () => mfaService.startTotpSetup(),
@@ -57,29 +70,33 @@ export function AccountMfaSection({
             <ShieldCheck className="h-4 w-4 text-primary" aria-hidden="true" />
             <h3 className="text-sm font-semibold text-foreground">{t("settings.mfaTitle")}</h3>
             <Badge variant={enabled ? "default" : "secondary"}>
-              {enabled ? t("common.enabled") : t("common.disabled")}
+              {statusLabel}
             </Badge>
           </div>
           <p className="text-xs text-muted-foreground">{t("settings.mfaHelp")}</p>
         </div>
-        <Button
+        {readState.hasData ? <Button
           type="button"
           size="sm"
           variant={enabled ? "outline" : "default"}
           disabled={disabled || setupMutation.isPending}
+          onFocus={preloadAccountSecurityDialogs}
+          onPointerEnter={preloadAccountSecurityDialogs}
+          onTouchStart={preloadAccountSecurityDialogs}
           onClick={() => setupMutation.mutate()}
         >
           <ShieldCheck className="h-4 w-4" />
           {enabled ? t("settings.mfaAddAuthenticator") : t("settings.mfaEnable")}
-        </Button>
+        </Button> : null}
       </div>
 
+      <ManagerDataBoundary state={readState}>
       <div className="grid gap-2 text-xs text-muted-foreground">
         <div className="flex flex-wrap gap-2">
           {methodLabels.length > 0 ? methodLabels.map((label) => (
             <Badge key={label} variant="outline">{label}</Badge>
           )) : (
-            <span>{statusQuery.isLoading ? t("common.loading") : t("settings.mfaNoMethods")}</span>
+            <span>{t("settings.mfaNoMethods")}</span>
           )}
         </div>
         {status ? (
@@ -93,6 +110,9 @@ export function AccountMfaSection({
           size="sm"
           variant="outline"
           disabled={disabled || !enabled}
+          onFocus={preloadAccountSecurityDialogs}
+          onPointerEnter={preloadAccountSecurityDialogs}
+          onTouchStart={preloadAccountSecurityDialogs}
           onClick={() => onPasswordAction("regenerate")}
         >
           <RefreshCw className="h-4 w-4" />
@@ -103,12 +123,16 @@ export function AccountMfaSection({
           size="sm"
           variant="outline"
           disabled={disabled || !enabled}
+          onFocus={preloadAccountSecurityDialogs}
+          onPointerEnter={preloadAccountSecurityDialogs}
+          onTouchStart={preloadAccountSecurityDialogs}
           onClick={() => onPasswordAction("disable")}
         >
           <ShieldOff className="h-4 w-4" />
           {t("settings.mfaDisable")}
         </Button>
       </div>
+      </ManagerDataBoundary>
     </div>
   );
 }

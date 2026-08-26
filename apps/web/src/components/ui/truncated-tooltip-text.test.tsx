@@ -54,7 +54,7 @@ describe("TruncatedTooltipText", () => {
     await user.hover(screen.getByText(longText));
 
     await screen.findByRole("tooltip");
-    expect(document.body.innerHTML).toContain("origin-[var(--radix-tooltip-content-transform-origin)]");
+    expect(document.body.innerHTML).toContain("origin-(--radix-tooltip-content-transform-origin)");
     expect(document.body.innerHTML).not.toContain("slide-in-from");
   });
 

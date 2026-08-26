@@ -35,10 +35,6 @@ vi.mock("@/hooks/use-uploaded-logo-assets", () => ({
   }),
 }));
 
-vi.mock("@/components/image-crop-dialog", () => ({
-  ImageCropDialog: () => null,
-}));
-
 function mockMatchMedia(matchesByQuery: Record<string, boolean> = {}) {
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
