@@ -88,7 +88,7 @@ jobs:
               }
               if (char === "/" && next === "*") {
                 index += 2;
-                while (index < input.length && input[index] !== "*" && input[index + 1] === "/")) index += 1;
+                while (index < input.length && !(input[index] === "*" && input[index + 1] === "/")) index += 1;
                 index += 1;
                 continue;
               }
@@ -122,7 +122,7 @@ jobs:
           const d1 = findBinding(config, "d1_databases", "DB");
           const r2 = findBinding(config, "r2_buckets", "ASSETS_BUCKET");
           const queue = findQueueProducer(config, "MEDIA_ICON_INDEX_REFRESH_QUEUE");
-          conrig.name = preserved.name;
+          config.name = preserved.name;
           d1.database_name = preserved.database_name;
           d1.database_id = preserved.database_id;
           r2.bucket_name = preserved.bucket_name;
@@ -161,13 +161,12 @@ jobs:
           echo "upstream_sha=${upstream_sha}" >> "$GITHUB_OUTPUT"
           echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-
   deploy:
-    name: 📠 Trigger Cloudflare Deploy
+    name: 🚀 Trigger Cloudflare Deploy
     needs: sync
-    if: ${ { needs.sync.outputs.changed == 'true' } }
+    if: ${{ needs.sync.outputs.changed == 'true' }}
     uses: ./.github/workflows/cloudflare-worker.yml
     with:
-      source_ref: ${ { needs.sync.outputs.revision } }
+      source_ref: ${{ needs.sync.outputs.revision }}
       deployment_reason: Scheduled upstream synchronization
     secrets: inherit
