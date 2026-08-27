@@ -38,9 +38,9 @@ jobs:
           set -euo pipefail
 
           target_branch="${GITHUB_REF_NAME:-main}"
-          preserve_path="${RUNNER_TEMP}/renewlet-cloudflare-config.json"
-          workflows_backup="${RUNNER_TEMP}/renewlet-workflows"
-          workflows_present="${RUNNER_TEMP}/renewlet-workflows-present"
+          preserve_path="/tmp/renewlet-cloudflare-config.json"
+          workflows_backup="/tmp/renewlet-workflows-backup"
+          workflows_present="/tmp/renewlet-workflows-present"
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -54,6 +54,7 @@ jobs:
             touch "${workflows_present}"
           fi
 
+          echo "📦 Preserving local wrangler.jsonc configuration..."
           PRESERVE_PATH="${preserve_path}" node -e '
             const { readFileSync, writeFileSync } = require("node:fs");
 
@@ -97,57 +98,67 @@ jobs:
             return output;
           }
 
-            function findBinding(config, key, binding) {
+          function findBinding(config, key, binding) {
               const match = Array.isArray(config[key])
                 ? config[key].find((item) => item && typeof item === "object" && item.binding === binding)
                 : undefined;
               if (!match) throw new Error("wrangler.jsonc must contain " + binding + " in " + key);
               return match;
-            }
+          }
 
-            function findQueueProducer(config, binding) {
-              return Array.isArray(config.queues?.producers)
-                ? config.queues.producers.find((item) => item && typeof item === "object" && item.binding === binding)
+          function findQueueProducer(config, binding) {
+            return Array.isArray(config.queues?.producers)
+              ? config.queues.producers.find((item) => item && typeof item === "object" && item.binding === binding)
+              : undefined;
+          }
+
+          function findQueueConsumer(config, queueName) {
+            return Array.isArray(config.queues?.consumers)
+              ? config.queues.consumers.find((item) => item && typeof item === "object" && item.queue === queueName)
                 : undefined;
-            }
+          }
 
-            function findQueueConsumer(config, queueName) {
-              return Array.isArray(config.queues?.consumers)
-                ? config.queues.consumers.find((item) => item && typeof item === "object" && item.queue === queueName)
-                : undefined;
-            }
-
-            const preserved = JSON.parse(readFileSync(process.env.PRESERVE_PATH, "utf8"));
-            const config = JSON.parse(stripJsoncComments(readFileSync("wrangler.jsonc", "utf8")));
-            const d1 = findBinding(config, "d1_databases", "DB");
-            const r2 = findBinding(config, "r2_buckets", "ASSETS_BUCKET");
-            const queue = findQueueProducer(config, "MEDIA_ICON_INDEX_REFRESH_QUEUE");
-            const queueConsumer = queue?.queue ? findQueueConsumer(config, queue.queue) : undefined;
-            writeFileSync(
-              process.env.PRESERVE_PATH,
-              JSON.stringify({
-                name: config.name,
-                database_name: d1.database_name,
-                database_id: d1.database_id,
-                bucket_name: r2.bucket_name,
-                media_icon_index_refresh_queue_name: queue?.queue,
-                media_icon_index_refresh_dead_letter_queue_name: queueConsumer?.dead_letter_queue,
-                vars: config.vars && typeof config.vars === "object" && !Array.isArray(config.vars) ? config.vars : {},
-              }),
-            );
+          const preserved = JSON.parse(readFileSync(process.env.PRESERVE_PATH, "utf8"));
+          const config = JSON.parse(stripJsoncComments(readFileSync("wrangler.jsonc", "utf8")));
+          const d1 = findBinding(config, "d1_databases", "DB");
+          const r2 = findBinding(config, "r2_buckets", "ASSETS_BUCKET");
+          const queue = findQueueProducer(config, "MEDIA_ICON_INDEX_REFRESH_QUEUE");
+          const queueConsumer = queue?.queue ? findQueueConsumer(config, queue.queue) : undefined;
+            const data = {
+              name: config.name,
+              database_name: d1.database_name,
+              database_id: d1.database_id,
+              bucket_name: r2.bucket_name,
+              media_icon_index_refresh_queue_name: queue?.queue,
+              media_icon_index_refresh_dead_letter_queue_name: queueConsumer?.dead_letter_queue,
+              vars: config.vars && typeof config.vars === "object" && !Array.isArray(config.vars) ? config.vars : {},
+            };
+            writeFileSync(process.env.PRESERVE_PATH, JSON.stringify(data));
           '
+
+          echo "✅ Config preserved at ${preserve_path}"
+          ls -la "${preserve_path}"
+
+          echo "🔄 Fetching upstream..."
           git remote add upstream https://github.com/zhiyingzzhou/renewlet.git 2>/dev/null || git remote set-url upstream https://github.com/zhiyingzzhou/renewlet.git
           git fetch upstream main
           upstream_ref="FETCH_HEAD"
           upstream_sha="$(git rev-parse --short=12 "${upstream_ref}")"
+
+          echo "💀 Restoring upstream code tree..."
           git restore --source "${upstream_ref}" --staged --worktree :/
+
           if [ -f "${workflows_present}" ]; then
+            echo "🛿️ Restoring local workflows (preventing upstream workflow pollution)..."
             rm -rf .github/workflows
             mkdir -p .github/workflows
             cp -a "${workflows_backup}/." .github/workflows/
           fi
+
+          echo "📝 Reapplying preserved Cloudflare configuration..."
           PRESERVE_PATH="${preserve_path}" node -e '
             const { readFileSync, writeFileSync } = require("node:fs");
+
             function stripJsoncComments(input) {
               let output = "";
               let inString = false;
@@ -179,72 +190,79 @@ jobs:
                 }
                 if (char === "/" && next === "*") {
                   index += 2;
-                  while (index < input.length && !(input[index] === "*" && input[index + 1] === "/")) index += 1;
+                  while (index < input.length && input[index] !== "*" && input[index + 1] === "/")) index += 1;
                   index += 1;
                   continue;
                 }
                 output += char;
+            e}
+            return output;
+          }
+
+          function findBinding(config, key, binding) {
+            const match = Array.isArray(config[key])
+              ? config[key].find((item) => item && typeof item === "object" && item.binding === binding)
+              : undefined;
+            if (!match) throw new Error("wrangler.jsonc must contain " + binding + " in " + key);
+            return match;
+          }
+
+          function findQueueProducer(config, binding) {
+            return Array.isArray(config.queues?.producers)
+              ? config.queues.producers.find((item) => item && typeof item === "object" && item.binding === binding)
+              : undefined;
+          }
+
+          function findQueueConsumer(config, queueName) {
+            return Array.isArray(config.queues?.consumers)
+              ? config.queues.consumers.find((item) => item && typeof item === "object" && item.queue === queueName)
+              : undefined;
+          }
+
+          const preserved = JSON.parse(readFileSync(process.env.PRESERVE_PATH, "utf8"));
+          const config = JSON.parse(stripJsoncComments(readFileSync("wrangler.jsonc", "utf8")));
+          const d1 = findBinding(config, "d1_databases", "DB");
+          const r2 = findBinding(config, "r2_buckets", "ASSETS_BUCKET");
+          const queue = findQueueProducer(config, "MEDIA_ICON_INDEX_REFRESH_QUEUE");
+          config.name = preserved.name;
+          d1.database_name = preserved.database_name;
+          d1.database_id = preserved.database_id;
+          r2.bucket_name = preserved.bucket_name;
+          if (queue && preserved.media_icon_index_refresh_queue_name) {
+            const templateQueueName = queue.queue;
+            queue.queue = preserved.media_icon_index_refresh_queue_name;
+            const consumer =
+              findQueueConsumer(config, templateQueueName) ??
+              findQueueConsumer(config, preserved.media_icon_index_refresh_queue_name);
+            if (consumer) {
+              consumer.queue = preserved.media_icon_index_refresh_queue_name;
+              if (preserved.media_icon_index_refresh_dead_letter_queue_name) {
+                consumer.dead_letter_queue = preserved.media_icon_index_refresh_dead_letter_queue_name;
               }
-              return output;
             }
-            function findBinding(config, key, binding) {
-              const match = Array.isArray(config[key])
-                ? config[key].find((item) => item && typeof item === "object" && item.binding === binding)
-                : undefined;
-              if (!match) throw new Error("wrangler.jsonc must contain " + binding + " in " + key);
-              return match;
-            }
-            function findQueueProducer(config, binding) {
-              return Array.isArray(config.queues?.producers)
-                ? config.queues.producers.find((item) => item && typeof item === "object" && item.binding === binding)
-                : undefined;
-            }
-            function findQueueConsumer(config, queueName) {
-              return Array.isArray(config.queues?.consumers)
-                ? config.queues.consumers.find((item) => item && typeof item === "object" && item.queue === queueName)
-                : undefined;
-            }
-            const preserved = JSON.parse(readFileSync(process.env.PRESERVE_PATH, "utf8"));
-            const config = JSON.parse(stripJsoncComments(readFileSync("wrangler.jsonc", "utf8")));
-            const d1 = findBinding(config, "d1_databases", "DB");
-            const r2 = findBinding(config, "r2_buckets", "ASSETS_BUCKET");
-            const queue = findQueueProducer(config, "MEDIA_ICON_INDEX_REFRESH_QUEUE");
-            config.name = preserved.name;
-            d1.database_name = preserved.database_name;
-            d1.database_id = preserved.database_id;
-            r2.bucket_name = preserved.bucket_name;
-            if (queue && preserved.media_icon_index_refresh_queue_name) {
-              const templateQueueName = queue.queue;
-              queue.queue = preserved.media_icon_index_refresh_queue_name;
-              const consumer =
-                findQueueConsumer(config, templateQueueName) ??
-                findQueueConsumer(config, preserved.media_icon_index_refresh_queue_name);
-              if (consumer) {
-                consumer.queue = preserved.media_icon_index_refresh_queue_name;
-                if (preserved.media_icon_index_refresh_dead_letter_queue_name) {
-                  consumer.dead_letter_queue = preserved.media_icon_index_refresh_dead_letter_queue_name;
-                }
-              }
-            }
-            config.vars = {
-              ...(config.vars && typeof config.vars === "object" && !Array.isArray(config.vars) ? config.vars : {}),
-              ...preserved.vars,
-            };
-            writeFileSync("wrangler.jsonc", JSON.stringify(config, null, 2) + "\n");
+          }
+          config.vars = {
+            ...(config.vars && typeof config.vars === "object" && !Array.isArray(config.vars) ? config.vars : {}),
+            ...preserved.vars,
+          };
+          writeFileSync("wrangler.jsonc", JSON.stringify(config, null, 2) + "\n");
           '
+
           git add -A
           if git diff --cached --quiet; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "upstream_sha=${upstream_sha}" >> "$GITHUB_OUTPUT"
-           echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-            echo "Renewlet upstream ${upstream_sha} is already applied. No commit was created."
+            echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+            echo "✅ Renewlet upstream ${upstream_sha} is already applied. No commit was created."
             exit 0
           fi
+
           git commit -m "chore: sync Renewlet upstream ${upstream_sha}"
           git push origin "HEAD:${target_branch}"
           echo "changed=true" >> "$GITHUB_OUTPUT"
           echo "upstream_sha=${upstream_sha}" >> "$GITHUB_OUTPUT"
           echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "✅ Synced upstream ${upstream_sha} and pushed to ${target_branch}"
 
   deploy:
     name: 🚀 Trigger Cloudflare Deploy
