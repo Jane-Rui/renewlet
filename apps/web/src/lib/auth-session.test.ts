@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { readProductSession, readProductSessionSnapshot, writeProductSession } from "@/services/product-session";
+import { ACCOUNT_LOCALE_PROJECTION_KEY, writeAccountLocaleProjection } from "@/i18n/account-locale-projection";
 import { clearAuthSession } from "./auth-session";
 
 const sessionFixture = {
@@ -35,11 +36,26 @@ describe("auth-session helpers", () => {
 
   it("clears the current product session when the failing snapshot matches", () => {
     writeProductSession(sessionFixture);
+    writeAccountLocaleProjection("user-1", "en-US");
     const snapshot = readProductSessionSnapshot();
 
     clearAuthSession(snapshot);
 
     expect(readProductSession()).toBeNull();
+    expect(localStorage.getItem(ACCOUNT_LOCALE_PROJECTION_KEY)).toBeNull();
+  });
+
+  it("clears the previous account locale projection when the signed-in user changes", () => {
+    writeProductSession(sessionFixture);
+    writeAccountLocaleProjection("user-1", "en-US");
+
+    writeProductSession({
+      ...sessionFixture,
+      user: { ...sessionFixture.user, id: "user-2", email: "bob@example.com" },
+    });
+
+    expect(readProductSession()?.user.id).toBe("user-2");
+    expect(localStorage.getItem(ACCOUNT_LOCALE_PROJECTION_KEY)).toBeNull();
   });
 
 });

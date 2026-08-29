@@ -3474,7 +3474,7 @@ msgstr "Language"
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/settings.ts:109
 msgid "settings.languageHelp"
-msgstr "Language previews immediately in the UI and syncs to account notifications and other devices after saving."
+msgstr "Language previews immediately. Saving syncs the account preference; following the device does not pin background content to a device language."
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/settings.ts:374
@@ -3970,3 +3970,19 @@ msgstr "Default equivalent"
 #: src/i18n/descriptors/settings.ts:598
 msgid "settings.subscriptionPriceReferenceDisabledHelp"
 msgstr "Hidden by default. Turn it on to follow the reporting currency or pin a reference currency."
+
+#. js-lingui-explicit-id
+msgid "settings.telegramBotTokenLabel"
+msgstr "Bot Token"
+
+#. js-lingui-explicit-id
+msgid "settings.telegramChatIdLabel"
+msgstr "Chat ID"
+
+#. js-lingui-explicit-id
+msgid "settings.apiKeyLabel"
+msgstr "API Key"
+
+#. js-lingui-explicit-id
+msgid "settings.webhookUrlLabel"
+msgstr "Webhook URL"

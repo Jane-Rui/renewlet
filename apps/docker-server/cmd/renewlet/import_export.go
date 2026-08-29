@@ -466,7 +466,10 @@ func applyImportedSettings(app core.App, user *core.Record, raw json.RawMessage)
 	current := defaultAppSettings()
 	record, err := app.FindFirstRecordByFilter("settings", "user = {:user}", dbx.Params{"user": user.Id})
 	if err == nil && record != nil {
-		current = settingsFromRecord(record)
+		current, err = settingsFromRecord(record)
+		if err != nil {
+			return false, err
+		}
 	} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return false, err
 	}

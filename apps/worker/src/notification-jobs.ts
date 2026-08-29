@@ -1,9 +1,10 @@
-import { NOTIFICATION_CHANNELS } from "@renewlet/shared/runtime";
-import type { ApiAppSettings } from "@renewlet/shared/schemas/settings";
 import type { NotificationEmailMessage } from "@renewlet/shared/email-template";
-import type { UpstreamErrorDetails } from "@renewlet/shared/schemas/upstream";
+import { NOTIFICATION_CHANNELS } from "@renewlet/shared/runtime";
 import { notificationJobResultResponseSchema } from "@renewlet/shared/schemas/notifications";
+import type { ApiAppSettings } from "@renewlet/shared/schemas/settings";
+import type { UpstreamErrorDetails } from "@renewlet/shared/schemas/upstream";
 import { NOTIFICATION_JOB_COLUMNS, newId, nowIso, parseJobResult } from "./db";
+import type { AppLocale } from "./http";
 import type { Env, NotificationJobRow } from "./types";
 import type { ScheduleOccurrence } from "./notification-schedule";
 
@@ -235,6 +236,7 @@ export function createCronJobResult(input: {
   triggeredAtUtc: string;
   schedule: ScheduleOccurrence;
   settings: ApiAppSettings;
+  locale: AppLocale;
   message: NotificationEmailMessage;
   channels: JobChannels;
 }): unknown {
@@ -248,7 +250,7 @@ export function createCronJobResult(input: {
     schedule: publicScheduleOccurrence(input.schedule),
     settings: {
       timezone: input.settings.timezone,
-      locale: input.settings.locale,
+      locale: input.locale,
       notificationTimeLocal: input.settings.notificationTimeLocal,
       enabledChannels: input.settings.enabledChannels,
       showExpired: input.settings.showExpired,

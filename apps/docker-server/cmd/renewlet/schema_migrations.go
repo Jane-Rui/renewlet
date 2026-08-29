@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/pocketbase/dbx"
@@ -11,13 +12,36 @@ import (
 
 const schemaDataMigrationsTable = "renewlet_schema_data_migrations"
 
+const (
+	settingsLocalePreferenceMigrationName = "settings_locale_preference_v1"
+	settingsLocalePreferenceRecoveryPoint = "renewlet_pre_settings_locale_preference_v1.zip"
+)
+
 type schemaDataMigration struct {
-	Name string
-	Run  func(core.App) error
+	Name      string
+	Run       func(core.App) error
+	Exclusive *exclusiveSchemaDataMigration
+}
+
+type exclusiveSchemaDataMigration struct {
+	Preflight    func(core.App) error
+	Verify       func(core.App) error
+	InstallGuard func(core.App) error
+	VerifyGuard  func(core.App) error
 }
 
 func runSchemaDataMigrations(app core.App) error {
 	migrations := []schemaDataMigration{
+		{
+			Name: settingsLocalePreferenceMigrationName,
+			Run:  migrateSettingsLocalePreference,
+			Exclusive: &exclusiveSchemaDataMigration{
+				Preflight:    preflightSettingsLocalePreferenceMigration,
+				Verify:       verifySettingsLocalePreferenceInvariant,
+				InstallGuard: installSettingsLocalePreferenceGuard,
+				VerifyGuard:  verifySettingsLocalePreferenceGuard,
+			},
+		},
 		{Name: "legacy_cloud_backup_configs_v1", Run: migrateLegacyCloudBackupConfigs},
 		{Name: "backfill_autodates_v1", Run: func(app core.App) error { return backfillAutodates(app, schemaAutodateCollections...) }},
 		{Name: "money_strings_v1", Run: migrateMoneyStrings},
@@ -31,11 +55,103 @@ func runSchemaDataMigrations(app core.App) error {
 		{Name: "orphan_subscription_calendar_feeds_v1", Run: deleteOrphanSubscriptionCalendarFeeds},
 	}
 	for _, migration := range migrations {
-		if err := runSchemaDataMigration(app, migration.Name, migration.Run); err != nil {
+		var err error
+		if migration.Exclusive != nil {
+			err = runExclusiveSchemaDataMigration(app, migration)
+		} else {
+			err = runSchemaDataMigration(app, migration.Name, migration.Run)
+		}
+		if err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func schemaDataMigrationPendingWithoutWrites(app core.App, name string) (bool, error) {
+	exists, err := sqliteObjectExists(app, "table", schemaDataMigrationsTable)
+	if err != nil || !exists {
+		return !exists, err
+	}
+	applied, err := schemaDataMigrationApplied(app, name)
+	return !applied, err
+}
+
+func historicalRenewletDataExists(app core.App) (bool, error) {
+	for _, table := range []string{"users", "settings"} {
+		exists, err := sqliteObjectExists(app, "table", table)
+		if err != nil {
+			return false, err
+		}
+		if !exists {
+			continue
+		}
+		var row struct {
+			Count int `db:"count"`
+		}
+		if err := app.DB().NewQuery("SELECT COUNT(*) AS count FROM " + table).One(&row); err != nil {
+			return false, err
+		}
+		if row.Count > 0 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func sqliteObjectExists(app core.App, objectType string, name string) (bool, error) {
+	var row struct {
+		Name string `db:"name"`
+	}
+	err := app.DB().NewQuery(`SELECT name FROM sqlite_master WHERE type = {:type} AND name = {:name} LIMIT 1`).
+		Bind(dbx.Params{"type": objectType, "name": name}).
+		One(&row)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return false, err
+}
+
+func runExclusiveSchemaDataMigration(app core.App, migration schemaDataMigration) error {
+	return app.RunInTransaction(func(txApp core.App) error {
+		pending, err := schemaDataMigrationPendingWithoutWrites(txApp, migration.Name)
+		if err != nil {
+			return err
+		}
+		if !pending {
+			if err := migration.Exclusive.Verify(txApp); err != nil {
+				return fmt.Errorf("schema data migration %s invariant drift: %w", migration.Name, err)
+			}
+			if err := migration.Exclusive.VerifyGuard(txApp); err != nil {
+				return fmt.Errorf("schema data migration %s guard drift: %w", migration.Name, err)
+			}
+			return nil
+		}
+
+		// 待迁移数据必须在账本或业务写入前完成全量预检，损坏 JSON 不得留下任何升级痕迹。
+		if err := migration.Exclusive.Preflight(txApp); err != nil {
+			return err
+		}
+		if err := ensureSchemaDataMigrationsTable(txApp); err != nil {
+			return err
+		}
+		if err := migration.Run(txApp); err != nil {
+			return err
+		}
+		if err := migration.Exclusive.Verify(txApp); err != nil {
+			return err
+		}
+		if err := migration.Exclusive.InstallGuard(txApp); err != nil {
+			return err
+		}
+		if err := migration.Exclusive.VerifyGuard(txApp); err != nil {
+			return err
+		}
+		return markSchemaDataMigrationApplied(txApp, migration.Name)
+	})
 }
 
 func migrateSubscriptionCycleFields(app core.App) error {

@@ -74,7 +74,7 @@ func TestSendDiscordPostsAllowedMentionsAndTruncatesContent(t *testing.T) {
 		Title:     "Renewlet",
 		Content:   strings.Repeat("订", 2100) + "@everyone",
 		Timestamp: "2026-06-23 08:00 UTC",
-	})
+	}, defaultAppLocale)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestSendDiscordTransportErrorDiagnosticRedactsWebhookTarget(t *testing.T) {
 
 	settings := defaultAppSettings()
 	settings.DiscordWebhookURL = "https://discord.com/api/webhooks/123/super-secret"
-	err := sendDiscord(settings, notificationMessage{Title: "title", Content: "content", Timestamp: "time"})
+	err := sendDiscord(settings, notificationMessage{Title: "title", Content: "content", Timestamp: "time"}, defaultAppLocale)
 	if err == nil {
 		t.Fatal("expected Discord transport error")
 	}
@@ -143,7 +143,7 @@ func TestSendPushPlusPostsOfficialPayloadAndRequiresCode200(t *testing.T) {
 
 	settings := defaultAppSettings()
 	settings.PushPlusToken = "push-token"
-	err := sendPushPlus(settings, notificationMessage{Title: "title", Content: "content", Timestamp: "time"})
+	err := sendPushPlus(settings, notificationMessage{Title: "title", Content: "content", Timestamp: "time"}, defaultAppLocale)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestSendPushPlusFailsBusinessCodeOnceAndRedactsToken(t *testing.T) {
 
 	settings := defaultAppSettings()
 	settings.PushPlusToken = "push-token"
-	err := sendPushPlus(settings, notificationMessage{Title: "title", Content: "content", Timestamp: "time"})
+	err := sendPushPlus(settings, notificationMessage{Title: "title", Content: "content", Timestamp: "time"}, defaultAppLocale)
 	if err == nil {
 		t.Fatal("expected PushPlus business code failure")
 	}

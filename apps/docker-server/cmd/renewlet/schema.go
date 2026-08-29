@@ -691,7 +691,7 @@ func migrateLegacyCloudBackupConfigRow(app core.App, targetCollection *core.Coll
 		ScheduleWeekday:   row.GetString("scheduleWeekday"),
 		Retention:         row.GetInt("retention"),
 	}
-	_ = policy.NormalizeAndValidate("zh-CN")
+	_ = policy.NormalizeAndValidate(defaultAppLocale)
 	status := nonEmptyCloudBackupStatus(row.GetString("lastStatus"))
 	for _, provider := range []string{cloudBackupProviderWebDAV, cloudBackupProviderS3} {
 		if provider == cloudBackupProviderWebDAV && stored.WebDAV == nil && strings.TrimSpace(credential.WebDAVPassword) == "" {

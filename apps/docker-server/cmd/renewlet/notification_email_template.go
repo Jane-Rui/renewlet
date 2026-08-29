@@ -165,8 +165,8 @@ type emailTemplateItem struct {
 	Detail     string
 }
 
-func buildEmailHTMLMessage(settings appSettings, message notificationMessage) (string, error) {
-	data, err := buildEmailTemplateData(settings, message, false)
+func buildEmailHTMLMessage(settings appSettings, message notificationMessage, locale appLocale) (string, error) {
+	data, err := buildEmailTemplateData(settings, message, locale, false)
 	if err != nil {
 		return "", err
 	}
@@ -179,15 +179,14 @@ func buildEmailHTMLMessage(settings appSettings, message notificationMessage) (s
 	}
 
 	// 超限时降级为紧凑正文而不是直接失败，避免大量提醒项导致邮件渠道整批不可用。
-	compactData, err := buildEmailTemplateData(settings, message, true)
+	compactData, err := buildEmailTemplateData(settings, message, locale, true)
 	if err != nil {
 		return "", err
 	}
 	return renderEmailTemplate(compactData)
 }
 
-func buildEmailTemplateData(settings appSettings, message notificationMessage, compact bool) (emailTemplateData, error) {
-	locale := normalizeAppLocale(settings.Locale)
+func buildEmailTemplateData(settings appSettings, message notificationMessage, locale appLocale, compact bool) (emailTemplateData, error) {
 	copy := loadEmailCatalog(locale)
 	itemCount := len(message.Items)
 	hasReminderItems := itemCount > 0

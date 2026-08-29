@@ -86,7 +86,7 @@ func finalizeNotificationJob(app core.App, record *core.Record, userID string, s
 
 // createJobResult 构造历史面板可解析的 cron result。
 // 注意： 新增字段时必须同步前端 cronJobResultResponseSchema。
-func createJobResult(reason string, schedule localScheduleOccurrence, settings appSettings, due notificationMessage, options notificationCronOptions, channels jobChannels) notificationJobResult {
+func createJobResult(reason string, schedule localScheduleOccurrence, settings appSettings, locale appLocale, due notificationMessage, options notificationCronOptions, channels jobChannels) notificationJobResult {
 	var reasonValue *string
 	if reason != "" {
 		reasonValue = &reason
@@ -100,7 +100,7 @@ func createJobResult(reason string, schedule localScheduleOccurrence, settings a
 		Schedule:       schedule,
 		Settings: notificationJobResultSettings{
 			Timezone:              settings.Timezone,
-			Locale:                settings.Locale,
+			Locale:                string(locale),
 			NotificationTimeLocal: settings.NotificationTimeLocal,
 			EnabledChannels:       settings.EnabledChannels,
 			ShowExpired:           settings.ShowExpired,
@@ -338,7 +338,7 @@ func notificationJobResultRaw(record *core.Record) (json.RawMessage, error) {
 		return json.RawMessage([]byte("{}")), nil
 	}
 	var result notificationJobResult
-	if err := decodeStrictJSONBytesInto(trimmed, &result, localeZhCN, false); err != nil {
+	if err := decodeStrictJSONBytesInto(trimmed, &result, defaultAppLocale, false); err != nil {
 		return json.RawMessage([]byte("{}")), err
 	}
 	// history 读路径只验收当前 cron result wire shape；旧/坏历史不再运行时重塑。

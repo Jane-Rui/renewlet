@@ -2,7 +2,7 @@
   "name": "@renewlet/cloudflare",
   "private": true,
   "license": "MIT",
-  "version": "0.3.22",
+  "version": "0.3.23",
   "type": "module",
   "scripts": {
     "build": "wrangler deploy --dry-run --config ../../wrangler.jsonc --outdir dist",

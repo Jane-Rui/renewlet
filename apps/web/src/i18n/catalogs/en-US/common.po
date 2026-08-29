@@ -672,3 +672,7 @@ msgstr "Saturation (S)"
 #: src/i18n/descriptors/common.ts:121
 msgid "theme.color.yellow"
 msgstr "Yellow"
+
+#. js-lingui-explicit-id
+msgid "locale.auto"
+msgstr "Follow this device"

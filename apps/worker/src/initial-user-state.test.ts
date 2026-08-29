@@ -18,7 +18,7 @@ describe("initial user state SQLite transaction", () => {
       const database = migratedDatabase();
       const outcomes = ordered.map((user) => applyQueryPlan(
         database,
-        buildInitialUserStateQueries(user, "en-US", true),
+        buildInitialUserStateQueries(user, true),
       ));
 
       expect(outcomes).toEqual([true, false]);
@@ -34,6 +34,7 @@ describe("initial user state SQLite transaction", () => {
         JOIN subscription_scheduler_state ON subscription_scheduler_state.user_id = users.id
       `)).toBe(1);
       expect(textValue(database, "SELECT email AS value FROM users LIMIT 1")).toBe(ordered[0]?.email);
+      expect(JSON.parse(textValue(database, "SELECT settings_json AS value FROM settings LIMIT 1"))).toMatchObject({ localePreference: "auto" });
       database.close();
     }
   });

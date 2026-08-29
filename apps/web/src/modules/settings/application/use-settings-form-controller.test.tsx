@@ -317,10 +317,10 @@ describe("useSettingsFormController", () => {
 
   it("remembers explicit locale preference only after saving a locale change", async () => {
     const { result } = renderSettingsFormController();
-    const nextLocale = BASE_SETTINGS.locale === "en-US" ? "zh-CN" : "en-US";
+    const nextPreference = BASE_SETTINGS.localePreference === "en-US" ? "zh-CN" : "en-US";
 
     act(() => {
-      result.current.updateSetting("locale", nextLocale);
+      result.current.updateSetting("localePreference", nextPreference);
     });
 
     await act(async () => {
@@ -328,8 +328,8 @@ describe("useSettingsFormController", () => {
     });
 
     const command = mocks.updateSettingsMutateAsync.mock.calls.at(0)?.at(0);
-    expect(command?.patch.locale).toBe(nextLocale);
-    expect(mocks.commitLocale).toHaveBeenLastCalledWith(nextLocale);
+    expect(command?.patch.localePreference).toBe(nextPreference);
+    expect(mocks.commitLocalePreference).toHaveBeenLastCalledWith(nextPreference);
   });
 
   it("keeps the draft dirty and shows the server restart hint when saving the provider hits PocketBase 400", async () => {
@@ -360,12 +360,48 @@ describe("useSettingsFormController", () => {
     });
   });
 
+  it("rolls back only the locale preview to the latest remote baseline when saving settings fails", async () => {
+    const { result, rerender } = renderSettingsFormController();
+
+    act(() => {
+      mocks.remoteSettings = {
+        ...BASE_SETTINGS,
+        localePreference: "en-US",
+        recipientEmail: "updated@example.com",
+      };
+      rerender();
+    });
+
+    await waitFor(() => {
+      expect(result.current.settings.localePreference).toBe("en-US");
+      expect(result.current.settings.recipientEmail).toBe("updated@example.com");
+    });
+    expect(result.current.hasUnsavedChanges).toBe(false);
+    mocks.updateSettingsMutateAsync.mockRejectedValue(new Error("save failed"));
+
+    act(() => {
+      result.current.updateSetting("localePreference", "zh-CN");
+      result.current.updateSetting("monthlyBudget", "2333");
+    });
+
+    await act(async () => {
+      await result.current.handleSaveChanges();
+    });
+
+    expect(result.current.settings.localePreference).toBe("en-US");
+    expect(result.current.settings.recipientEmail).toBe("updated@example.com");
+    expect(result.current.settings.monthlyBudget).toBe("2333");
+    expect(result.current.hasUnsavedChanges).toBe(true);
+    expect(mocks.syncRemoteLocalePreference).toHaveBeenLastCalledWith("en-US");
+    expect(mocks.commitLocalePreference).not.toHaveBeenCalled();
+  });
+
   it("discards draft settings and restores locale/theme previews", () => {
     const { result } = renderSettingsFormController();
 
     act(() => {
       result.current.handleThemeModeChange("light");
-      result.current.updateSetting("locale", "en-US");
+      result.current.updateSetting("localePreference", "en-US");
     });
     expect(result.current.hasUnsavedChanges).toBe(true);
     expect(localStorage.getItem(SETTINGS_APPEARANCE_PENDING_STORAGE_KEY)).toBe("1");
@@ -376,10 +412,10 @@ describe("useSettingsFormController", () => {
     });
 
     expect(result.current.settings.themeMode).toBe(BASE_SETTINGS.themeMode);
-    expect(result.current.settings.locale).toBe(BASE_SETTINGS.locale);
+    expect(result.current.settings.localePreference).toBe(BASE_SETTINGS.localePreference);
     expect(result.current.hasUnsavedChanges).toBe(false);
     expect(mocks.setTheme).toHaveBeenLastCalledWith(BASE_SETTINGS.themeMode, { localOverride: false });
-    expect(mocks.syncRemoteLocale).toHaveBeenLastCalledWith(BASE_SETTINGS.locale);
+    expect(mocks.syncRemoteLocalePreference).toHaveBeenLastCalledWith(BASE_SETTINGS.localePreference);
     expect(localStorage.getItem(SETTINGS_APPEARANCE_PENDING_STORAGE_KEY)).toBeNull();
     expect(localStorage.getItem(SETTINGS_THEME_MODE_STORAGE_KEY)).toBeNull();
   });

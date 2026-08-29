@@ -21,7 +21,7 @@ func TestPublicAPITokenLifecycleAndReadRoutes(t *testing.T) {
 	user, sessionToken := createRouteTestUser(t, app, "public-api")
 	otherUser, otherSessionToken := createRouteTestUser(t, app, "public-api-other")
 	settings := defaultAppSettings()
-	settings.Locale = "en-US"
+	settings.LocalePreference = string(preferenceEnUS)
 	settings.Timezone = "UTC"
 	createCalendarFeedTestSettings(t, app, user, settings)
 

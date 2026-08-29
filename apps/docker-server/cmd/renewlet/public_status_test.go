@@ -20,7 +20,7 @@ func TestPublicStatusPageLifecycleAndPublicRoute(t *testing.T) {
 	registerRecordHooks(app)
 	user, token := createRouteTestUser(t, app, "public-status")
 	settings := defaultAppSettings()
-	settings.Locale = "en-US"
+	settings.LocalePreference = string(preferenceEnUS)
 	settings.PublicStatusCurrency = "USD"
 	createCalendarFeedTestSettings(t, app, user, settings)
 	createCalendarFeedTestCustomConfig(t, app, user.Id)
@@ -95,7 +95,9 @@ func TestPublicStatusPageLifecycleAndPublicRoute(t *testing.T) {
 	publicToken := publicStatusTokenFromURL(t, createBody.PublicStatusPage.PageURL)
 	publicTarget := "/api/public/status/" + publicToken
 
-	publicRes := serveTestRequest(t, app, http.MethodGet, publicTarget, "", "")
+	publicRes := serveTestRequestWithHeaders(t, app, http.MethodGet, publicTarget, "", "", map[string]string{
+		"Accept-Language": "zh-CN",
+	})
 	if publicRes.Code != http.StatusOK {
 		t.Fatalf("expected public status 200, got %d: %s", publicRes.Code, publicRes.Body.String())
 	}
@@ -113,6 +115,10 @@ func TestPublicStatusPageLifecycleAndPublicRoute(t *testing.T) {
 	item := publicStatusTestSubscriptionByName(t, subscriptions, "Visible Plan")
 	if item["name"] != "Visible Plan" {
 		t.Fatalf("unexpected public subscription: %#v", item)
+	}
+	category, ok := item["category"].(map[string]any)
+	if !ok || category["label"] != "开发工具" {
+		t.Fatalf("public category should follow the visitor request instead of the account preference: %#v", item["category"])
 	}
 	if publicStatusTestSubscriptionByName(t, subscriptions, "Legacy Overdue")["status"] != "expired" {
 		t.Fatalf("expected legacy overdue active subscription to be exposed as expired: %#v", subscriptions)

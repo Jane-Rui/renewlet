@@ -5,7 +5,7 @@ import { getSettings, getTelegramBotBinding, newId, nowIso, TELEGRAM_BOT_BINDING
 import { randomToken, sha256 } from "./crypto";
 import { HttpError, json, requireEmptyBody, requestLocale, successJson } from "./http";
 import { requestOrigin } from "./request-origin";
-import { normalizeServerLocale, serverFormat, serverText, type AppLocale } from "./server-i18n";
+import { accountContentLocale, serverFormat, serverText, type AppLocale } from "./server-i18n";
 import {
   upstreamErrorDetailsFromError,
 } from "./upstream-response";
@@ -106,7 +106,8 @@ export async function installTelegramBotCommands(request: Request, env: Env): Pr
   ).run();
 
   try {
-    await installTelegramRemote(config.botToken, config.chatId, `${origin}/api/telegram/webhook/${bindingId}`, secret, normalizeServerLocale(settings.locale));
+    // Telegram 菜单和后续 Bot 对话没有浏览器设备上下文，只能使用账号内容语言。
+    await installTelegramRemote(config.botToken, config.chatId, `${origin}/api/telegram/webhook/${bindingId}`, secret, accountContentLocale(settings.localePreference));
     await env.DB.prepare("UPDATE telegram_bot_bindings SET status = 'installed', updated_at = ? WHERE user_id = ? AND id = ?")
       .bind(nowIso(), auth.user.id, bindingId)
       .run();
@@ -159,7 +160,8 @@ export async function telegramWebhook(request: Request, env: Env, bindingId: str
   // settings 读取放在真实命令之后；foreign chat/非命令 no-op 不产生额外 D1 读写，也不刷新 last_update_id。
   const settings = await getSettings(env, binding.user_id);
   if (!await bindingMatchesSettings(binding, settings)) return telegramWebhookOk();
-  const telegramLocale = normalizeServerLocale(settings.locale);
+  // Webhook 的 Accept-Language 来自 Telegram 基础设施，不能覆盖 owner 的账号偏好。
+  const telegramLocale = accountContentLocale(settings.localePreference);
   const reply = await telegramCommandReply(env, binding.user_id, settings, parsed.command, parsed.arg, telegramLocale);
   const config = telegramSavedConfig(settings);
   if (config && reply) {

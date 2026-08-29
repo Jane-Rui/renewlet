@@ -46,6 +46,21 @@ describe("sanitizeSettingsForExport", () => {
     expect(withSecrets.dingtalkTitleTemplate).toBe("自定义标题");
     expect(withSecrets.dingtalkContentTemplate).toBe("自定义正文");
   });
+
+  it.each([
+    ["auto", undefined],
+    ["zh-CN", "zh-CN"],
+    ["en-US", "en-US"],
+  ] as const)("maps %s to the stable v1 locale field", (localePreference, expectedLocale) => {
+    const sanitized = sanitizeSettingsForExport({ ...DEFAULT_SETTINGS, localePreference }, false);
+
+    expect(sanitized).not.toHaveProperty("localePreference");
+    if (expectedLocale) {
+      expect(sanitized.locale).toBe(expectedLocale);
+    } else {
+      expect(sanitized).not.toHaveProperty("locale");
+    }
+  });
 });
 
 describe("subscription export model", () => {

@@ -7,13 +7,12 @@ import (
 	"testing"
 )
 
-func TestSettingsFromValueRecoversUnsupportedPersistedLocale(t *testing.T) {
-	settings, err := settingsFromValue(json.RawMessage(`{"locale":"fr-FR","monthlyBudget":"2333"}`))
-	if err != nil {
-		t.Fatal(err)
+func TestSettingsFromValueRejectsUnsupportedPersistedLocalePreference(t *testing.T) {
+	if _, err := settingsFromValue(json.RawMessage(`{"localePreference":"fr-FR","monthlyBudget":"2333"}`)); err == nil {
+		t.Fatal("expected unsupported persisted locale preference to fail")
 	}
-	if settings.Locale != string(localeEnUS) || settings.MonthlyBudget != "2333" {
-		t.Fatalf("expected persisted settings to recover locale only, got %#v", settings)
+	if _, err := settingsFromValue(json.RawMessage(`{"monthlyBudget":"2333"}`)); err == nil {
+		t.Fatal("expected missing persisted locale preference to fail")
 	}
 }
 
@@ -22,7 +21,7 @@ func TestTelegramMessageFormatDefaultsAndRecoversPersistedValue(t *testing.T) {
 		t.Fatalf("expected plain Telegram message format default, got %q", got)
 	}
 
-	settings, err := settingsFromValue(json.RawMessage(`{"telegramMessageFormat":"markdown","monthlyBudget":"2333"}`))
+	settings, err := settingsFromValue(json.RawMessage(`{"localePreference":"auto","telegramMessageFormat":"markdown","monthlyBudget":"2333"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +39,7 @@ func TestSubscriptionPriceReferenceSettingsDefaultRecoverAndWriteValidation(t *t
 		t.Fatalf("expected default subscription price reference currency, got %q", defaults.SubscriptionPriceReferenceCurrency)
 	}
 
-	settings, err := settingsFromValue(json.RawMessage(`{"subscriptionPriceReferenceEnabled":true,"subscriptionPriceReferenceCurrency":"usd","monthlyBudget":"2333"}`))
+	settings, err := settingsFromValue(json.RawMessage(`{"localePreference":"auto","subscriptionPriceReferenceEnabled":true,"subscriptionPriceReferenceCurrency":"usd","monthlyBudget":"2333"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,9 +59,12 @@ func TestSubscriptionPriceReferenceSettingsDefaultRecoverAndWriteValidation(t *t
 	}
 }
 
-func TestMergeSettingsForWriteRejectsUnsupportedLocale(t *testing.T) {
-	if _, err := mergeSettingsForWrite(defaultAppSettings(), json.RawMessage(`{"locale":"fr-FR"}`)); err == nil {
-		t.Fatal("expected unsupported locale write to fail")
+func TestMergeSettingsForWriteRejectsUnsupportedOrLegacyLocale(t *testing.T) {
+	if _, err := mergeSettingsForWrite(defaultAppSettings(), json.RawMessage(`{"localePreference":"fr-FR"}`)); err == nil {
+		t.Fatal("expected unsupported locale preference write to fail")
+	}
+	if _, err := mergeSettingsForWrite(defaultAppSettings(), json.RawMessage(`{"locale":"zh-CN"}`)); err == nil {
+		t.Fatal("expected legacy locale field write to fail")
 	}
 }
 
@@ -140,7 +142,7 @@ func TestDingTalkMessageTypeDefaultsAndWriteValidation(t *testing.T) {
 		t.Fatalf("expected markdown DingTalk message type default, got %q", got)
 	}
 
-	settings, err := settingsFromValue(json.RawMessage(`{"dingtalkMessageType":"feedCard","monthlyBudget":"2333"}`))
+	settings, err := settingsFromValue(json.RawMessage(`{"localePreference":"auto","dingtalkMessageType":"feedCard","monthlyBudget":"2333"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +168,7 @@ func TestDingTalkTemplateDefaultsAndWriteValidation(t *testing.T) {
 		t.Fatalf("expected empty DingTalk template defaults, got %#v", settings)
 	}
 
-	recovered, err := settingsFromValue(json.RawMessage(`{"dingtalkTitleTemplate":"标题","dingtalkContentTemplate":"正文","monthlyBudget":"2333"}`))
+	recovered, err := settingsFromValue(json.RawMessage(`{"localePreference":"auto","dingtalkTitleTemplate":"标题","dingtalkContentTemplate":"正文","monthlyBudget":"2333"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +176,7 @@ func TestDingTalkTemplateDefaultsAndWriteValidation(t *testing.T) {
 		t.Fatalf("expected DingTalk templates to survive settings recovery, got %#v", recovered)
 	}
 
-	recovered, err = settingsFromValue(json.RawMessage(`{"dingtalkTitleTemplate":"` + strings.Repeat("a", dingtalkTitleTemplateMaxRunes+1) + `","dingtalkContentTemplate":42,"monthlyBudget":"2333"}`))
+	recovered, err = settingsFromValue(json.RawMessage(`{"localePreference":"auto","dingtalkTitleTemplate":"` + strings.Repeat("a", dingtalkTitleTemplateMaxRunes+1) + `","dingtalkContentTemplate":42,"monthlyBudget":"2333"}`))
 	if err != nil {
 		t.Fatal(err)
 	}

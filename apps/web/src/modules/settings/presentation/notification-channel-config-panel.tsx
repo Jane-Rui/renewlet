@@ -236,7 +236,7 @@ export function NotificationChannelConfigPanel({
         <>
           <div className="grid gap-4">
             <div className="grid gap-2">
-              <Label htmlFor="telegramBot">Bot Token</Label>
+              <Label htmlFor="telegramBot">{t("settings.telegramBotTokenLabel")}</Label>
               <Input
                 id="telegramBot"
                 placeholder="xx:xxxxxxxxx-token"
@@ -247,7 +247,7 @@ export function NotificationChannelConfigPanel({
               />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="telegramChat">Chat ID</Label>
+              <Label htmlFor="telegramChat">{t("settings.telegramChatIdLabel")}</Label>
               <Input
                 id="telegramChat"
                 placeholder={t("settings.telegramChatPlaceholder")}
@@ -354,7 +354,7 @@ export function NotificationChannelConfigPanel({
       {channel === 'notifyx' ? (
         <>
           <div className="grid gap-2">
-            <Label htmlFor="notifyxKey">API Key</Label>
+            <Label htmlFor="notifyxKey">{t("settings.apiKeyLabel")}</Label>
             <Input
               id="notifyxKey"
               placeholder="napi_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"

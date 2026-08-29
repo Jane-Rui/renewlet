@@ -62,8 +62,8 @@ const mocks = vi.hoisted(() => ({
   setTheme: vi.fn(),
   clearThemeModeOverride: vi.fn(),
   theme: "dark",
-  commitLocale: vi.fn(),
-  syncRemoteLocale: vi.fn(),
+  commitLocalePreference: vi.fn(),
+  syncRemoteLocalePreference: vi.fn(),
   testConnection: vi.fn(),
   refetchNotificationHistory: vi.fn<() => Promise<void>>(),
   publicStatusPageStatus: { data: { enabled: false, pageUrl: undefined as string | undefined, showPrices: false }, isLoading: false },
@@ -246,8 +246,8 @@ vi.mock("@/i18n/I18nProvider", () => ({
       const message = messages[key] ?? key;
       return typeof message === "function" ? message(params ?? {}) : message;
     },
-    commitLocale: mocks.commitLocale,
-    syncRemoteLocale: mocks.syncRemoteLocale,
+    commitLocalePreference: mocks.commitLocalePreference,
+    syncRemoteLocalePreference: mocks.syncRemoteLocalePreference,
   }),
 }));
 
@@ -327,8 +327,8 @@ describe("useSettingsFormController integrations", () => {
     mocks.setTheme.mockReset();
     mocks.clearThemeModeOverride.mockReset();
     mocks.theme = "dark";
-    mocks.commitLocale.mockReset();
-    mocks.syncRemoteLocale.mockReset();
+    mocks.commitLocalePreference.mockReset();
+    mocks.syncRemoteLocalePreference.mockReset();
     mocks.refetchNotificationHistory.mockReset().mockResolvedValue(undefined);
     mocks.createPublicStatusPageMutateAsync.mockReset();
     mocks.updatePublicStatusPageMutateAsync.mockReset();

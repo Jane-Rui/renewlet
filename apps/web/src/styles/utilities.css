@@ -110,10 +110,10 @@
     min-height: 0;
   }
 
-  /* 配置管理弹窗用四段 Grid 轨道固定标题、说明与 footer，仅列表区域参与收缩和滚动。 */
-  .h5-config-manager-dialog-panel {
+  /* 设置管理弹窗用 Grid 固定 header/footer，body 独占可收缩轨道，短视口下不会把操作区顶出屏幕。 */
+  .h5-settings-manager-dialog-panel {
     display: grid;
-    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    grid-template-rows: auto minmax(0, 1fr) auto;
   }
 
   /* 导入弹窗会承载虚拟列表、嵌套 Logo sheet 和底部进度；Grid 轨道固定住 header/footer，避免大批量预览把操作区顶走。 */

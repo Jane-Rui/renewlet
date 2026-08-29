@@ -5,6 +5,7 @@ export const messages = [
   msg({ id: "notification.channel", message: "渠道" }),
   msg({ id: "media.upload", message: "上传" }),
   msg({ id: "media.uploadIcon", message: "上传图标" }),
+  msg({ id: "media.icon", message: "图标" }),
   msg({ id: "media.logo", message: "Logo" }),
   msg({ id: "media.uploadLogo", message: "上传 Logo" }),
   msg({ id: "media.uploadLogoImage", message: "上传 Logo 图片" }),

@@ -26,50 +26,50 @@ import (
 var serverChanSCTPSendKeyRe = regexp.MustCompile(`^sctp(\d+)t`)
 
 type notificationSender interface {
-	Send(core.App, appSettings, notificationMessage) error
+	Send(core.App, appSettings, notificationMessage, appLocale) error
 }
 
-type notificationSenderFunc func(core.App, appSettings, notificationMessage) error
+type notificationSenderFunc func(core.App, appSettings, notificationMessage, appLocale) error
 
-func (fn notificationSenderFunc) Send(app core.App, settings appSettings, message notificationMessage) error {
-	return fn(app, settings, message)
+func (fn notificationSenderFunc) Send(app core.App, settings appSettings, message notificationMessage, locale appLocale) error {
+	return fn(app, settings, message, locale)
 }
 
 // notificationSenders 是 Go 运行面的渠道 registry；调度 job 幂等、失败重试和 raw details 剥离不在这里分叉。
 var notificationSenders = map[string]notificationSender{
-	"telegram": notificationSenderFunc(func(_ core.App, settings appSettings, message notificationMessage) error {
-		return sendTelegram(settings, message)
+	"telegram": notificationSenderFunc(func(_ core.App, settings appSettings, message notificationMessage, locale appLocale) error {
+		return sendTelegram(settings, message, locale)
 	}),
-	"notifyx": notificationSenderFunc(func(_ core.App, settings appSettings, message notificationMessage) error {
-		return sendNotifyx(settings, message)
+	"notifyx": notificationSenderFunc(func(_ core.App, settings appSettings, message notificationMessage, locale appLocale) error {
+		return sendNotifyx(settings, message, locale)
 	}),
-	"webhook": notificationSenderFunc(func(_ core.App, settings appSettings, message notificationMessage) error {
-		return sendWebhook(settings, message)
+	"webhook": notificationSenderFunc(func(_ core.App, settings appSettings, message notificationMessage, locale appLocale) error {
+		return sendWebhook(settings, message, locale)
 	}),
-	"dingtalk": notificationSenderFunc(func(_ core.App, settings appSettings, message notificationMessage) error {
-		return sendDingTalk(settings, message)
+	"dingtalk": notificationSenderFunc(func(_ core.App, settings appSettings, message notificationMessage, locale appLocale) error {
+		return sendDingTalk(settings, message, locale)
 	}),
-	"wechat": notificationSenderFunc(func(_ core.App, settings appSettings, message notificationMessage) error {
-		return sendWeChatWork(settings, message)
+	"wechat": notificationSenderFunc(func(_ core.App, settings appSettings, message notificationMessage, locale appLocale) error {
+		return sendWeChatWork(settings, message, locale)
 	}),
-	"email": notificationSenderFunc(func(_ core.App, settings appSettings, message notificationMessage) error {
-		return sendEmail(settings, message)
+	"email": notificationSenderFunc(func(_ core.App, settings appSettings, message notificationMessage, locale appLocale) error {
+		return sendEmail(settings, message, locale)
 	}),
-	"bark": notificationSenderFunc(func(_ core.App, settings appSettings, message notificationMessage) error {
-		return sendBark(settings, message)
+	"bark": notificationSenderFunc(func(_ core.App, settings appSettings, message notificationMessage, locale appLocale) error {
+		return sendBark(settings, message, locale)
 	}),
-	"serverchan": notificationSenderFunc(func(_ core.App, settings appSettings, message notificationMessage) error {
-		return sendServerChan(settings, message)
+	"serverchan": notificationSenderFunc(func(_ core.App, settings appSettings, message notificationMessage, locale appLocale) error {
+		return sendServerChan(settings, message, locale)
 	}),
-	"discord": notificationSenderFunc(func(_ core.App, settings appSettings, message notificationMessage) error {
-		return sendDiscord(settings, message)
+	"discord": notificationSenderFunc(func(_ core.App, settings appSettings, message notificationMessage, locale appLocale) error {
+		return sendDiscord(settings, message, locale)
 	}),
-	"pushplus": notificationSenderFunc(func(_ core.App, settings appSettings, message notificationMessage) error {
-		return sendPushPlus(settings, message)
+	"pushplus": notificationSenderFunc(func(_ core.App, settings appSettings, message notificationMessage, locale appLocale) error {
+		return sendPushPlus(settings, message, locale)
 	}),
 }
 
-func sendToChannels(app core.App, channels []string, settings appSettings, message notificationMessage) sendSummary {
+func sendToChannels(app core.App, channels []string, settings appSettings, message notificationMessage, locale appLocale) sendSummary {
 	summary := sendSummary{
 		Attempted: append([]string(nil), channels...),
 		Succeeded: []string{},
@@ -77,7 +77,7 @@ func sendToChannels(app core.App, channels []string, settings appSettings, messa
 	}
 	for _, channel := range channels {
 		// 串行发送牺牲一点延迟，换来确定性的 history 顺序，并降低同一分钟对多个外部服务的突发压力。
-		if err := sendToChannel(app, channel, settings, message); err != nil {
+		if err := sendToChannel(app, channel, settings, message, locale); err != nil {
 			summary.Failed = append(summary.Failed, channelFailure{Channel: channel, Error: err.Error(), Details: notificationChannelErrorDetails(err)})
 		} else {
 			summary.Succeeded = append(summary.Succeeded, channel)
@@ -88,19 +88,17 @@ func sendToChannels(app core.App, channels []string, settings appSettings, messa
 
 // sendToChannel 将统一消息分发到具体通知渠道。
 // 注意： 新增渠道时必须同步 knownChannels、settings schema、前端渠道枚举和 history result schema。
-func sendToChannel(app core.App, channel string, settings appSettings, message notificationMessage) error {
-	locale := normalizeAppLocale(settings.Locale)
+func sendToChannel(app core.App, channel string, settings appSettings, message notificationMessage, locale appLocale) error {
 	sender, ok := notificationSenders[channel]
 	if !ok {
 		return errors.New(serverFormat(locale, "notification.channelUnknown", map[string]interface{}{"channel": channel}))
 	}
-	return sender.Send(app, settings, message)
+	return sender.Send(app, settings, message, locale)
 }
 
 // sendTelegram 发送 Telegram Bot 消息。
 // Telegram/网络 429 或 5xx 会短重试，其他 4xx 直接失败，避免无效配置反复打扰外部 API。
-func sendTelegram(settings appSettings, message notificationMessage) error {
-	locale := normalizeAppLocale(settings.Locale)
+func sendTelegram(settings appSettings, message notificationMessage, locale appLocale) error {
 	token, err := requireNonEmptyLocalized(locale, serverText(locale, "service.telegramBotToken"), settings.TelegramBotToken)
 	if err != nil {
 		return err
@@ -128,7 +126,7 @@ func sendTelegram(settings appSettings, message notificationMessage) error {
 			lastErr = err
 		} else {
 			statusCode := resp.StatusCode
-			lastErr = channelHTTPErrorFromResponse(normalizeAppLocale(settings.Locale), "Telegram", resp, token, chatID)
+			lastErr = channelHTTPErrorFromResponse(locale, "Telegram", resp, token, chatID)
 			if statusCode != http.StatusTooManyRequests && statusCode < 500 {
 				// 配置错误类 4xx 不重试，避免每轮 cron 都重复打到外部 API。
 				break
@@ -140,8 +138,7 @@ func sendTelegram(settings appSettings, message notificationMessage) error {
 }
 
 // sendNotifyx 发送 NotifyX 消息。
-func sendNotifyx(settings appSettings, message notificationMessage) error {
-	locale := normalizeAppLocale(settings.Locale)
+func sendNotifyx(settings appSettings, message notificationMessage, locale appLocale) error {
 	apiKey, err := requireNonEmptyLocalized(locale, serverText(locale, "service.notifyxAPIKey"), settings.NotifyxAPIKey)
 	if err != nil {
 		return err
@@ -158,12 +155,11 @@ func sendNotifyx(settings appSettings, message notificationMessage) error {
 	if responseOK(resp) {
 		return nil
 	}
-	return channelHTTPErrorFromResponse(normalizeAppLocale(settings.Locale), "NotifyX", resp, apiKey)
+	return channelHTTPErrorFromResponse(locale, "NotifyX", resp, apiKey)
 }
 
 // sendDiscord 发送 Discord Webhook 消息。
-func sendDiscord(settings appSettings, message notificationMessage) error {
-	locale := normalizeAppLocale(settings.Locale)
+func sendDiscord(settings appSettings, message notificationMessage, locale appLocale) error {
 	rawWebhook, err := requireNonEmptyLocalized(locale, serverText(locale, "service.discordWebhookURL"), settings.DiscordWebhookURL)
 	if err != nil {
 		return err
@@ -243,8 +239,7 @@ func truncateRunes(value string, limit int) string {
 
 // sendWebhook 发送用户自定义 Webhook。
 // 注意： URL 必须经过 assertSafeOutboundURL，防止 Webhook 被用作 SSRF 到内网服务。
-func sendWebhook(settings appSettings, message notificationMessage) error {
-	locale := normalizeAppLocale(settings.Locale)
+func sendWebhook(settings appSettings, message notificationMessage, locale appLocale) error {
 	rawURL, err := requireNonEmptyLocalized(locale, serverText(locale, "service.webhookURL"), settings.WebhookURL)
 	if err != nil {
 		return err
@@ -272,7 +267,7 @@ func sendWebhook(settings appSettings, message notificationMessage) error {
 		if responseOK(resp) {
 			return nil
 		}
-		return channelHTTPErrorFromResponse(normalizeAppLocale(settings.Locale), "Webhook", resp, webhookSecrets(safeURL.String(), headers)...)
+		return channelHTTPErrorFromResponse(locale, "Webhook", resp, webhookSecrets(safeURL.String(), headers)...)
 	}
 
 	body, err := renderWebhookPayloadTemplate(settings.WebhookPayload, message, locale)
@@ -289,12 +284,11 @@ func sendWebhook(settings appSettings, message notificationMessage) error {
 	if responseOK(resp) {
 		return nil
 	}
-	return channelHTTPErrorFromResponse(normalizeAppLocale(settings.Locale), "Webhook", resp, webhookSecrets(safeURL.String(), headers)...)
+	return channelHTTPErrorFromResponse(locale, "Webhook", resp, webhookSecrets(safeURL.String(), headers)...)
 }
 
 // sendDingTalk 发送钉钉自定义机器人消息。
-func sendDingTalk(settings appSettings, message notificationMessage) error {
-	locale := normalizeAppLocale(settings.Locale)
+func sendDingTalk(settings appSettings, message notificationMessage, locale appLocale) error {
 	rawURL, err := requireNonEmptyLocalized(locale, serverText(locale, "service.dingtalkWebhookURL"), settings.DingTalkWebhookURL)
 	if err != nil {
 		return err
@@ -491,8 +485,7 @@ func dingTalkResponseMessage(result dingTalkSendResponse) string {
 }
 
 // sendWeChatWork 发送企业微信机器人消息。
-func sendWeChatWork(settings appSettings, message notificationMessage) error {
-	locale := normalizeAppLocale(settings.Locale)
+func sendWeChatWork(settings appSettings, message notificationMessage, locale appLocale) error {
 	rawURL, err := requireNonEmptyLocalized(locale, localizedFieldLabel(locale, "wechatWebhookURL"), settings.WechatWebhookURL)
 	if err != nil {
 		return err
@@ -516,7 +509,7 @@ func sendWeChatWork(settings appSettings, message notificationMessage) error {
 		if responseOK(resp) {
 			return nil
 		}
-		return channelHTTPErrorFromResponse(normalizeAppLocale(settings.Locale), "WeCom", resp, safeURL.String())
+		return channelHTTPErrorFromResponse(locale, "WeCom", resp, safeURL.String())
 	} else {
 		phones := splitList(settings.WechatAtPhones)
 		if settings.WechatAtAll {
@@ -535,14 +528,13 @@ func sendWeChatWork(settings appSettings, message notificationMessage) error {
 		if responseOK(resp) {
 			return nil
 		}
-		return channelHTTPErrorFromResponse(normalizeAppLocale(settings.Locale), "WeCom", resp, safeURL.String())
+		return channelHTTPErrorFromResponse(locale, "WeCom", resp, safeURL.String())
 	}
 }
 
 // sendBark 发送 Bark 推送。
-func sendBark(settings appSettings, message notificationMessage) error {
-	locale := normalizeAppLocale(settings.Locale)
-	parsed, err := buildBarkRequestURL(settings, message)
+func sendBark(settings appSettings, message notificationMessage, locale appLocale) error {
+	parsed, err := buildBarkRequestURL(settings, message, locale)
 	if err != nil {
 		return err
 	}
@@ -561,8 +553,7 @@ func sendBark(settings appSettings, message notificationMessage) error {
 }
 
 // buildBarkRequestURL 构造 Bark GET 请求 URL。
-func buildBarkRequestURL(settings appSettings, message notificationMessage) (*url.URL, error) {
-	locale := normalizeAppLocale(settings.Locale)
+func buildBarkRequestURL(settings appSettings, message notificationMessage, locale appLocale) (*url.URL, error) {
 	serverRaw, err := requireNonEmptyLocalized(locale, localizedFieldLabel(locale, "barkServerURL"), settings.BarkServerURL)
 	if err != nil {
 		return nil, err
@@ -620,8 +611,7 @@ func safePublicHTTPSIconURL(rawURL string) string {
 }
 
 // sendServerChan 发送 Server酱 Turbo / Server酱³ 推送。
-func sendServerChan(settings appSettings, message notificationMessage) error {
-	locale := normalizeAppLocale(settings.Locale)
+func sendServerChan(settings appSettings, message notificationMessage, locale appLocale) error {
 	sendKey, err := requireNonEmptyLocalized(locale, serverText(locale, "service.serverchanSendKey"), settings.ServerChanSendKey)
 	if err != nil {
 		return err
@@ -641,8 +631,7 @@ func sendServerChan(settings appSettings, message notificationMessage) error {
 }
 
 // sendPushPlus 发送 PushPlus 消息。
-func sendPushPlus(settings appSettings, message notificationMessage) error {
-	locale := normalizeAppLocale(settings.Locale)
+func sendPushPlus(settings appSettings, message notificationMessage, locale appLocale) error {
 	token, err := requireNonEmptyLocalized(locale, serverText(locale, "service.pushplusToken"), settings.PushPlusToken)
 	if err != nil {
 		return err

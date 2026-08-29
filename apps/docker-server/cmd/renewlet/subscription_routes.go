@@ -113,7 +113,7 @@ func subscriptionRecordJSONMap(record *core.Record, name string) map[string]inte
 }
 
 func currentUserSettingsTimezone(app core.App, user *core.Record) string {
-	settings, err := currentUserSettings(app, user, nil)
+	settings, err := currentUserSettings(app, user)
 	if err != nil {
 		return defaultAppSettings().Timezone
 	}

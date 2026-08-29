@@ -6,6 +6,7 @@ describe("settings normalization", () => {
   it("recovers known dirty stored settings without dropping unrelated fields", () => {
     const defaults = createDefaultAppSettings();
     const settings = normalizeSettingsValue({
+      localePreference: "auto",
       defaultCurrency: "USD",
       monthlyBudget: 2333,
       telegramMessageFormat: "markdown",
@@ -50,8 +51,8 @@ describe("settings normalization", () => {
     });
   });
 
-  it("leaves unknown non-record stored values to the strict schema fallback", () => {
+  it("rejects non-record stored values at the migrated persistence boundary", () => {
     expect(normalizeStoredSettingsPatch(null)).toBeNull();
-    expect(normalizeSettingsValue(null, createDefaultAppSettings()).defaultCurrency).toBe("CNY");
+    expect(() => normalizeSettingsValue(null, createDefaultAppSettings())).toThrow();
   });
 });

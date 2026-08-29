@@ -249,7 +249,10 @@ func TestDemoModeCreatesRepairsSeedsAndDisablesSetup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	demoSettings := settingsFromRecord(settingsRecord)
+	demoSettings := mustSettingsFromRecord(t, settingsRecord)
+	if demoSettings.LocalePreference != string(autoLocalePreference) {
+		t.Fatalf("expected demo locale preference auto, got %q", demoSettings.LocalePreference)
+	}
 	if !demoSettings.SubscriptionPriceReferenceEnabled || demoSettings.SubscriptionPriceReferenceCurrency != "CNY" {
 		t.Fatalf("expected demo subscription price reference to default to CNY, got enabled=%v currency=%q", demoSettings.SubscriptionPriceReferenceEnabled, demoSettings.SubscriptionPriceReferenceCurrency)
 	}
@@ -422,7 +425,7 @@ func TestDemoModeAllowsNormalSettingsButProtectsExternalIntegrationSettings(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	settings := settingsFromRecord(settingsRecord)
+	settings := mustSettingsFromRecord(t, settingsRecord)
 	if settings.ThemeMode != "light" || settings.MonthlyBudget != "123" {
 		t.Fatalf("ordinary settings were not persisted: %#v", settings)
 	}
@@ -439,7 +442,7 @@ func TestDemoModeAllowsNormalSettingsButProtectsExternalIntegrationSettings(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := settingsFromRecord(settingsRecord).TelegramBotToken; got != "" {
+	if got := mustSettingsFromRecord(t, settingsRecord).TelegramBotToken; got != "" {
 		t.Fatalf("protected setting leaked into storage: %q", got)
 	}
 	keep := serveTestRequest(t, app, http.MethodPut, "/api/app/settings", `{"themeVariant":"rose","secretUpdates":{"telegramBotToken":{"action":"keep"},"aiRecognition.apiKey":{"action":"keep"}}}`, token)
@@ -447,7 +450,7 @@ func TestDemoModeAllowsNormalSettingsButProtectsExternalIntegrationSettings(t *t
 		t.Fatalf("expected keep-only secret mutations to remain ordinary settings updates, got %d: %s", keep.Code, keep.Body.String())
 	}
 
-	recordSettings := settingsFromRecord(settingsRecord)
+	recordSettings := mustSettingsFromRecord(t, settingsRecord)
 	recordSettings.AIRecognition.APIKey = "sk-demo"
 	settingsRecord.Set("settings", recordSettings)
 	if err := app.Save(settingsRecord); err == nil {

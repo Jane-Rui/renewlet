@@ -98,6 +98,31 @@ describe("Cloudflare notification test endpoint upstream details", () => {
     });
   });
 
+  it("uses the current request locale instead of the account preference", async () => {
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({ code: 0, message: "ok" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const env = fakeEnv(({ sql, method }) => {
+      if (method === "first" && sql.includes("SELECT settings_json FROM settings")) {
+        return { settings_json: JSON.stringify(settings({
+          localePreference: "en-US",
+          serverchanSendKey: "SCT123456",
+        })) };
+      }
+      throw new Error(`unexpected ${method} query: ${sql}`);
+    });
+
+    await expect(notificationTest(notificationTestRequest("serverchan", {}), env)).resolves.toMatchObject({ status: 200 });
+
+    const init = fetchMock.mock.calls[0]?.[1];
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      title: "Renewlet 测试通知",
+      desp: expect.stringContaining("如果你收到了这条消息，说明该通知渠道配置可用。"),
+    });
+  });
+
   it("returns notification test failures with one-shot ServerChan upstream details", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("too many requests for SCTsecret", {
       status: 429,

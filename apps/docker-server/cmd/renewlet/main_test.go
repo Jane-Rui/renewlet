@@ -93,9 +93,9 @@ func TestExternalRequestOriginFallsBackWhenForwardedHostIsInvalid(t *testing.T) 
 
 func TestStaticCacheControlSplitsAssetsFromHTMLFallback(t *testing.T) {
 	fsys := fstest.MapFS{
-		"index.html":                  {Data: []byte("<!doctype html>")},
-		"assets/app.abc123.js":        {Data: []byte("console.log('renewlet')")},
-		"renewlet-theme-bootstrap.js": {Data: []byte("document.documentElement.classList.add('dark')")},
+		"index.html":                   {Data: []byte("<!doctype html>")},
+		"assets/app.abc123.js":         {Data: []byte("console.log('renewlet')")},
+		"renewlet-client-bootstrap.js": {Data: []byte("document.documentElement.classList.add('dark')")},
 	}
 	tests := []struct {
 		path string
@@ -105,7 +105,7 @@ func TestStaticCacheControlSplitsAssetsFromHTMLFallback(t *testing.T) {
 		{path: "/assets/missing.js", want: "no-cache"},
 		{path: "/settings", want: "no-cache"},
 		{path: "/index.html", want: "no-cache"},
-		{path: "/renewlet-theme-bootstrap.js", want: "no-cache"},
+		{path: "/renewlet-client-bootstrap.js", want: "no-cache"},
 	}
 
 	for _, tt := range tests {

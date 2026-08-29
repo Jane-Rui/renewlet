@@ -13,6 +13,7 @@ dist-ssr
 .vercel
 .wrangler/
 wrangler.generated.jsonc
+wrangler.maintenance.generated.jsonc
 *.local
 *.tsbuildinfo
 .env

@@ -5,8 +5,10 @@ import {
   type CloudBackupSnapshotManifest,
 } from "@renewlet/shared/schemas/cloud-backup";
 import {
+  RENEWLET_EXPORT_SCHEMA_VERSION,
   renewletExportManifestV1Schema,
   renewletExportV1Schema,
+  toRenewletExportSettingsV1,
   type RenewletExportAsset,
   type RenewletExportMissingAsset,
   type RenewletExportMissingAssetReason,
@@ -67,7 +69,7 @@ export async function buildCloudBackupSnapshotPayload(env: Env, userId: string):
     sizeBytes: content.length,
     sha256: await sha256Hex(content),
     exportKind: "renewlet-export",
-    exportSchemaVersion: 1,
+    exportSchemaVersion: RENEWLET_EXPORT_SCHEMA_VERSION,
   });
   return { content, id, filename, manifest };
 }
@@ -94,14 +96,15 @@ export async function buildCloudBackupExportZip(env: Env, userId: string): Promi
     exportSubscriptions.push(subscription);
   }
   const customConfig = await buildExportCustomConfig(env, userId, collector);
-  // 云备份使用业务恢复 allowlist 组包；sessions/MFA/passkey/tickets 和 R2 系统密钥对象都不进入 ZIP。
+  // 云备份使用业务恢复 allowlist 组包；settings 必须经过 shared v1 投影，避免 Worker 与浏览器互导漂移。
+  // sessions/MFA/passkey/tickets 和 R2 系统密钥对象都不进入 ZIP。
   const payload = renewletExportV1Schema.parse({
     kind: "renewlet-export",
-    schemaVersion: 1,
+    schemaVersion: RENEWLET_EXPORT_SCHEMA_VERSION,
     exportedAt: exportedAt.toISOString(),
     data: {
       subscriptions: exportSubscriptions,
-      settings: sanitizeSettingsForCloudBackup(await getSettings(env, userId)),
+      settings: toRenewletExportSettingsV1(sanitizeSettingsForCloudBackup(await getSettings(env, userId))),
       customConfig,
       exchangeRateSnapshots: await listExchangeRateSnapshots(env, userId),
       ...(collector.assets.length > 0

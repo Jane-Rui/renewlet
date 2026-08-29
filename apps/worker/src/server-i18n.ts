@@ -1,3 +1,4 @@
+import { resolveLocalePreference, type LocalePreference } from "@renewlet/shared/i18n-config";
 import {
   DEFAULT_SERVER_I18N_LOCALE,
   SERVER_I18N_CATALOGS,
@@ -10,26 +11,34 @@ import {
 export type AppLocale = ServerI18nLocale;
 export { DEFAULT_SERVER_I18N_LOCALE };
 
-/**
- * Worker 服务端文案使用生成 catalog，而不是复用前端 Lingui runtime。
- *
- * 这样 API 错误、Cron 和通知日志在无浏览器环境中也能稳定本地化，同时只向前端暴露稳定错误 code。
- */
+// Worker 服务端文案使用生成 catalog，不复用浏览器 Lingui runtime；前端只消费稳定错误 code。
 
 const localeLookup = new Map<string, AppLocale>();
+const acceptLanguageQPattern = /^(?:0(?:\.[0-9]{0,3})?|1(?:\.0{0,3})?)$/;
 for (const locale of SERVER_I18N_LOCALES) {
   const normalized = normalizeLocaleTag(locale);
   localeLookup.set(normalized, locale);
-  if (locale !== DEFAULT_SERVER_I18N_LOCALE) {
-    // 只给非默认语言注册主语言别名，避免默认语言抢走未来独立 catalog。
-    localeLookup.set(normalized.split("-")[0] ?? normalized, locale);
-  }
+  const language = normalized.split("-")[0] ?? normalized;
+  if (!localeLookup.has(language)) localeLookup.set(language, locale);
 }
 
 function normalizeLocaleTag(value: string): string {
-  return value.trim().replaceAll("_", "-").toLowerCase();
+  const normalized = value.trim().replaceAll("_", "-");
+  if (!normalized) return "";
+  try {
+    return (Intl.getCanonicalLocales(normalized)[0] ?? "").toLowerCase();
+  } catch {
+    return "";
+  }
 }
 
+function acceptLanguageQuality(value: string | undefined): number {
+  if (value === undefined) return 1;
+  const normalized = value.trim();
+  return acceptLanguageQPattern.test(normalized) ? Number(normalized) : Number.NaN;
+}
+
+// 合法完整标签先精确匹配，再按基础语言收敛；结果必须与 Go matchAppLocale 保持同构。
 function matchServerLocale(value: string | null | undefined): AppLocale | null {
   const normalized = normalizeLocaleTag(value ?? "");
   if (!normalized) return null;
@@ -43,24 +52,33 @@ export function normalizeServerLocale(value: string | null | undefined): AppLoca
   return matchServerLocale(value) ?? DEFAULT_SERVER_I18N_LOCALE;
 }
 
+/** 请求语言与账号内容语言互不覆盖；auto 在 Cron、Feed、Bot 等无设备上下文中稳定回退英文。 */
+export function accountContentLocale(preference: LocalePreference): AppLocale {
+  return resolveLocalePreference(preference);
+}
+
 /** requestLocale 优先读取前端随用户设置发送的显式 locale header。 */
 export function requestLocale(request: Request): AppLocale {
   const explicit = request.headers.get("x-renewlet-locale");
   if (explicit?.trim()) {
     // 显式 header 来自用户设置，比浏览器语言更可信；非法值只回默认语言，不再被 Accept-Language 反向覆盖。
-    return matchServerLocale(explicit) ?? DEFAULT_SERVER_I18N_LOCALE;
+    const value = explicit.trim();
+    return (SERVER_I18N_LOCALES as readonly string[]).includes(value)
+      ? value as AppLocale
+      : DEFAULT_SERVER_I18N_LOCALE;
   }
-  // Accept-Language 只是无显式设置时的兜底；用户设置页语言仍由 X-Renewlet-Locale 锁定。
+  // Accept-Language 只是无显式设置时的兜底；q 权重、非法项和通配符规则必须与 Go matcher 同构。
   const accepted = (request.headers.get("accept-language") ?? "")
     .split(",")
     .map((part, index) => {
       const [tag = "", ...params] = part.trim().split(";");
-      const qValue = params.map((item) => item.trim()).find((item) => item.startsWith("q="))?.slice(2);
-      return { tag: tag.trim(), q: qValue === undefined ? 1 : Number.parseFloat(qValue), index };
+      const qValue = params.map((item) => item.trim()).find((item) => item.slice(0, 2).toLowerCase() === "q=")?.slice(2);
+      return { tag: tag.trim(), q: acceptLanguageQuality(qValue), index };
     })
-    .filter((item) => item.tag && Number.isFinite(item.q) && item.q > 0)
+    .filter((item) => item.tag && Number.isFinite(item.q) && item.q > 0 && item.q <= 1)
     .sort((a, b) => b.q - a.q || a.index - b.index);
   for (const { tag } of accepted) {
+    if (tag === "*") return DEFAULT_SERVER_I18N_LOCALE;
     const matched = matchServerLocale(tag);
     if (matched) return matched;
   }

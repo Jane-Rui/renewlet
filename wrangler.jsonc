@@ -70,6 +70,7 @@
     ]
   },
   "vars": {
-    "SETUP_ENABLED": "true"
+    "SETUP_ENABLED": "true",
+    "RENEWLET_MAINTENANCE_MODE": "false"
   }
 }

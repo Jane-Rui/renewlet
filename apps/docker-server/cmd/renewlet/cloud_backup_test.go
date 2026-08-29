@@ -269,10 +269,12 @@ func TestVerifyCloudBackupSnapshotBytesEnforcesUnifiedSnapshotLimit(t *testing.T
 	allowed := content[:159*(1<<20)/10]
 	allowedHash := sha256.Sum256(allowed)
 	allowedManifest := cloudBackupSnapshotManifest{
-		Kind:          "renewlet-cloud-backup-snapshot",
-		SchemaVersion: 1,
-		SizeBytes:     int64(len(allowed)),
-		SHA256:        hex.EncodeToString(allowedHash[:]),
+		Kind:                "renewlet-cloud-backup-snapshot",
+		SchemaVersion:       cloudBackupTransportSchemaVersion,
+		SizeBytes:           int64(len(allowed)),
+		SHA256:              hex.EncodeToString(allowedHash[:]),
+		ExportKind:          "renewlet-export",
+		ExportSchemaVersion: renewletExportSchemaVersion,
 	}
 	if err := verifyCloudBackupSnapshotBytes(allowed, allowedManifest); err != nil {
 		t.Fatalf("expected 15.9 MiB snapshot to pass, got %v", err)
@@ -469,14 +471,14 @@ func cloudBackupManifestForTest(id string, content []byte) cloudBackupSnapshotMa
 	sum := sha256.Sum256(content)
 	return cloudBackupSnapshotManifest{
 		Kind:                "renewlet-cloud-backup-snapshot",
-		SchemaVersion:       1,
+		SchemaVersion:       cloudBackupTransportSchemaVersion,
 		ID:                  id,
 		Filename:            id + ".zip",
 		CreatedAt:           "2026-06-09T00:00:00.000Z",
 		SizeBytes:           int64(len(content)),
 		SHA256:              hex.EncodeToString(sum[:]),
 		ExportKind:          "renewlet-export",
-		ExportSchemaVersion: 1,
+		ExportSchemaVersion: renewletExportSchemaVersion,
 	}
 }
 

@@ -6,10 +6,12 @@ import type { ReactNode } from "react";
 import { I18nProvider, useI18n } from "@/i18n/I18nProvider";
 import PrivateLocaleSync from "@/components/private-locale-sync";
 import { getApiLocale, setApiLocale } from "@/i18n/api-locale";
-import { EXPLICIT_LOCALE_PREFERENCE_KEY, type Locale } from "@/i18n/locales";
+import { ACCOUNT_LOCALE_PROJECTION_KEY } from "@/i18n/account-locale-projection";
+import { writeAccountLocaleProjection, type Locale, type LocalePreference } from "@/i18n/locales";
+import { writeProductSession } from "@/services/product-session";
 
 const mocks = vi.hoisted(() => ({
-  settings: undefined as { locale: Locale } | undefined,
+  settings: undefined as { localePreference: LocalePreference } | undefined,
   activateLoadedLocale: vi.fn(),
   loadLocaleCatalog: vi.fn(),
   reportClientError: vi.fn(),
@@ -80,6 +82,19 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+function signIn(userId = "user-1") {
+  writeProductSession({
+    type: "session",
+    session: { expiresAt: "2026-12-31T00:00:00.000Z" },
+    user: { id: userId, email: `${userId}@example.com`, name: userId, role: "admin", banned: false },
+  });
+}
+
+function storedProjection() {
+  const value = localStorage.getItem(ACCOUNT_LOCALE_PROJECTION_KEY);
+  return value ? JSON.parse(value) as unknown : null;
+}
+
 describe("I18nProvider locale sources", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -103,67 +118,85 @@ describe("I18nProvider locale sources", () => {
     expect(result.current.locale).toBe("zh-CN");
     await waitFor(() => expect(document.documentElement.lang).toBe("zh-CN"));
     expect(getApiLocale()).toBe("zh-CN");
-    expect(localStorage.getItem(EXPLICIT_LOCALE_PREFERENCE_KEY)).toBeNull();
+    expect(storedProjection()).toBeNull();
   });
 
   it("lets remote settings override the automatic initial language", async () => {
-    mocks.settings = { locale: "en-US" };
+    mocks.settings = { localePreference: "en-US" };
     stubNavigatorLanguages(["zh-CN"]);
+    signIn();
 
     const { result } = renderHook(() => useI18n(), { wrapper: createWrapper() });
 
     await waitFor(() => expect(result.current.locale).toBe("en-US"));
     expect(document.documentElement.lang).toBe("en-US");
     expect(getApiLocale()).toBe("en-US");
-    expect(localStorage.getItem(EXPLICIT_LOCALE_PREFERENCE_KEY)).toBeNull();
+    expect(storedProjection()).toEqual({ version: 1, userId: "user-1", locale: "en-US" });
   });
 
-  it("keeps settings-page preview local until the language is saved", async () => {
-    mocks.settings = { locale: "en-US" };
+  it("uses the previewed interface language for requests without persisting it", async () => {
+    mocks.settings = { localePreference: "en-US" };
     stubNavigatorLanguages(["en-US"]);
+    signIn();
 
     const { result } = renderHook(() => useI18n(), { wrapper: createWrapper() });
     await waitFor(() => expect(result.current.locale).toBe("en-US"));
 
     act(() => {
-      result.current.previewLocale("zh-CN");
+      result.current.previewLocalePreference("zh-CN");
     });
 
     await waitFor(() => expect(result.current.locale).toBe("zh-CN"));
     expect(document.documentElement.lang).toBe("zh-CN");
-    expect(getApiLocale()).toBe("en-US");
-    expect(localStorage.getItem(EXPLICIT_LOCALE_PREFERENCE_KEY)).toBeNull();
+    expect(getApiLocale()).toBe("zh-CN");
+    expect(storedProjection()).toEqual({ version: 1, userId: "user-1", locale: "en-US" });
 
     act(() => {
-      result.current.commitLocale("zh-CN");
+      result.current.commitLocalePreference("zh-CN");
     });
 
     await waitFor(() => expect(getApiLocale()).toBe("zh-CN"));
-    expect(localStorage.getItem(EXPLICIT_LOCALE_PREFERENCE_KEY)).toBe("zh-CN");
+    expect(storedProjection()).toEqual({ version: 1, userId: "user-1", locale: "zh-CN" });
   });
 
-  it("can restore the saved account locale without writing an explicit preference", async () => {
-    mocks.settings = { locale: "en-US" };
+  it("restores the saved account preference and its first-paint cache", async () => {
+    mocks.settings = { localePreference: "en-US" };
     stubNavigatorLanguages(["en-US"]);
+    signIn();
 
     const { result } = renderHook(() => useI18n(), { wrapper: createWrapper() });
     await waitFor(() => expect(result.current.locale).toBe("en-US"));
 
     act(() => {
-      result.current.previewLocale("zh-CN");
+      result.current.previewLocalePreference("zh-CN");
     });
     await waitFor(() => expect(result.current.locale).toBe("zh-CN"));
     act(() => {
-      result.current.syncRemoteLocale("en-US");
+      result.current.syncRemoteLocalePreference("en-US");
     });
 
     await waitFor(() => expect(result.current.locale).toBe("en-US"));
     expect(getApiLocale()).toBe("en-US");
-    expect(localStorage.getItem(EXPLICIT_LOCALE_PREFERENCE_KEY)).toBeNull();
+    expect(storedProjection()).toEqual({ version: 1, userId: "user-1", locale: "en-US" });
+  });
+
+  it("returns an account to device detection when the preference becomes auto", async () => {
+    signIn();
+    writeAccountLocaleProjection("user-1", "en-US");
+    mocks.settings = { localePreference: "auto" };
+    stubNavigatorLanguages(["zh-CN"]);
+
+    const { result } = renderHook(() => useI18n(), { wrapper: createWrapper() });
+
+    await waitFor(() => expect(result.current.locale).toBe("zh-CN"));
+    expect(document.documentElement.lang).toBe("zh-CN");
+    expect(getApiLocale()).toBe("zh-CN");
+    expect(storedProjection()).toBeNull();
   });
 
   it("discards a late catalog result after a newer locale intent wins", async () => {
     stubNavigatorLanguages(["en-US"]);
+    signIn();
     const zhCatalog = deferred<Record<string, never>>();
     const enCatalog = deferred<Record<string, never>>();
     mocks.loadLocaleCatalog.mockImplementation((locale: Locale) => (
@@ -172,8 +205,8 @@ describe("I18nProvider locale sources", () => {
     const { result } = renderHook(() => useI18n(), { wrapper: createWrapper() });
 
     act(() => {
-      result.current.previewLocale("zh-CN");
-      result.current.commitLocale("en-US");
+      result.current.previewLocalePreference("zh-CN");
+      result.current.commitLocalePreference("en-US");
     });
     await act(async () => {
       enCatalog.resolve({});
@@ -181,7 +214,7 @@ describe("I18nProvider locale sources", () => {
     });
     expect(result.current.locale).toBe("en-US");
     expect(getApiLocale()).toBe("en-US");
-    expect(localStorage.getItem(EXPLICIT_LOCALE_PREFERENCE_KEY)).toBe("en-US");
+    expect(storedProjection()).toEqual({ version: 1, userId: "user-1", locale: "en-US" });
 
     await act(async () => {
       zhCatalog.resolve({});
@@ -194,18 +227,52 @@ describe("I18nProvider locale sources", () => {
 
   it("allows an explicit retry after catalog loading fails", async () => {
     stubNavigatorLanguages(["en-US"]);
+    signIn();
     mocks.loadLocaleCatalog
       .mockRejectedValueOnce(new Error("catalog unavailable"))
       .mockResolvedValueOnce({});
     const { result } = renderHook(() => useI18n(), { wrapper: createWrapper() });
 
-    act(() => result.current.commitLocale("zh-CN"));
+    act(() => result.current.commitLocalePreference("zh-CN"));
     await waitFor(() => expect(mocks.reportClientError).toHaveBeenCalledTimes(1));
     expect(result.current.locale).toBe("en-US");
 
-    act(() => result.current.commitLocale("zh-CN"));
+    act(() => result.current.commitLocalePreference("zh-CN"));
     await waitFor(() => expect(result.current.locale).toBe("zh-CN"));
     expect(mocks.loadLocaleCatalog).toHaveBeenCalledTimes(2);
     expect(getApiLocale()).toBe("zh-CN");
+  });
+
+  it("drops the account projection and returns to the device locale on logout", async () => {
+    stubNavigatorLanguages(["zh-CN"]);
+    signIn();
+    writeAccountLocaleProjection("user-1", "en-US");
+    const { result } = renderHook(() => useI18n(), { wrapper: createWrapper() });
+    expect(result.current.locale).toBe("en-US");
+
+    act(() => writeProductSession(null));
+
+    await waitFor(() => expect(result.current.locale).toBe("zh-CN"));
+    expect(storedProjection()).toBeNull();
+  });
+
+  it("does not commit a catalog request that belongs to the previous account", async () => {
+    stubNavigatorLanguages(["en-US"]);
+    signIn("user-1");
+    const zhCatalog = deferred<Record<string, never>>();
+    mocks.loadLocaleCatalog.mockImplementation((locale: Locale) => (
+      locale === "zh-CN" ? zhCatalog.promise : Promise.resolve({})
+    ));
+    const { result } = renderHook(() => useI18n(), { wrapper: createWrapper() });
+
+    act(() => result.current.commitLocalePreference("zh-CN"));
+    act(() => signIn("user-2"));
+    await act(async () => {
+      zhCatalog.resolve({});
+      await zhCatalog.promise;
+    });
+
+    expect(result.current.locale).toBe("en-US");
+    expect(storedProjection()).toBeNull();
   });
 });

@@ -476,14 +476,14 @@ func buildCloudBackupSnapshotPayload(app core.App, user *core.Record) (cloudBack
 	filename := id + ".zip"
 	manifest := cloudBackupSnapshotManifest{
 		Kind:                "renewlet-cloud-backup-snapshot",
-		SchemaVersion:       1,
+			SchemaVersion:       cloudBackupTransportSchemaVersion,
 		ID:                  id,
 		Filename:            filename,
 		CreatedAt:           exportedAt.Format(time.RFC3339Nano),
 		SizeBytes:           source.Size(),
 		SHA256:              hex.EncodeToString(hash.Sum(nil)),
 		ExportKind:          "renewlet-export",
-		ExportSchemaVersion: 1,
+			ExportSchemaVersion: renewletExportSchemaVersion,
 	}
 	return cloudBackupSnapshotPayload{Source: source, ID: id, Filename: filename, Manifest: manifest}, nil
 }
@@ -504,7 +504,10 @@ func verifyCloudBackupSnapshotBytes(content []byte, manifest cloudBackupSnapshot
 	if int64(len(content)) > cloudBackupSnapshotMaxBytes {
 		return errors.New("CLOUD_BACKUP_SNAPSHOT_TOO_LARGE")
 	}
-	if manifest.Kind != "renewlet-cloud-backup-snapshot" || manifest.SchemaVersion != 1 {
+	if manifest.Kind != "renewlet-cloud-backup-snapshot" ||
+		manifest.SchemaVersion != cloudBackupTransportSchemaVersion ||
+		manifest.ExportKind != "renewlet-export" ||
+		manifest.ExportSchemaVersion != renewletExportSchemaVersion {
 		return errors.New("CLOUD_BACKUP_MANIFEST_INVALID")
 	}
 	if manifest.SizeBytes != int64(len(content)) {

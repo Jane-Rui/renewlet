@@ -1,5 +1,4 @@
 import { createDefaultAppSettings } from "@renewlet/shared/settings-defaults";
-import type { AppLocale } from "./http";
 
 export interface InitialUserStateUser {
   id: string;
@@ -16,13 +15,12 @@ export interface InitialUserStateQuery {
   bindings: Array<string | number>;
 }
 
-/** D1 batch 与 SQLite 原子性测试共用同一查询计划，避免首装条件写入在测试中被重新实现。 */
+/** D1 batch 与 SQLite 原子性测试共用查询计划；账号创建始终保存 auto，不能注入请求语言。 */
 export function buildInitialUserStateQueries(
   user: InitialUserStateUser,
-  locale: AppLocale,
   initialSetup: boolean,
 ): InitialUserStateQuery[] {
-  const settings = createDefaultAppSettings({ locale });
+  const settings = createDefaultAppSettings();
   const userInsert: InitialUserStateQuery = initialSetup
     ? {
         sql: `

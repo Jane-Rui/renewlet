@@ -2,8 +2,8 @@ import { SUBSCRIPTION_STATUSES, type SubscriptionStatus } from "@renewlet/shared
 import type { ApiAppSettings } from "@renewlet/shared/schemas/settings";
 import { getNextRepeatScheduleOccurrence, getRepeatScheduleDecision, toRfc3339Seconds } from "./notification-schedule";
 import {
-  normalizeSettingsJson,
   parseStringArray,
+  settingsFromRowJson,
   SUBSCRIPTION_COLUMN_NAMES,
   SUBSCRIPTION_COLUMNS,
   subscriptionRowValues,
@@ -344,7 +344,7 @@ export async function rebuildSubscriptionDerivedStateForUser(env: Env, userId: s
   if (!userId) return;
   const settingsRow = await env.DB.prepare("SELECT settings_json FROM settings WHERE user_id = ? LIMIT 1")
     .bind(userId).first<{ settings_json: string }>();
-  const settings = normalizeSettingsJson(settingsRow?.settings_json ?? "{}");
+  const settings = settingsFromRowJson(settingsRow?.settings_json);
   const rows = await env.DB.prepare(`
     SELECT ${SUBSCRIPTION_COLUMNS} FROM subscriptions
     WHERE user_id = ? ORDER BY created_at DESC, id DESC

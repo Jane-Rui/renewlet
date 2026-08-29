@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -12,6 +11,7 @@ import {
   type D1Statement,
   type D1Value,
 } from "./cloudflare-d1-client";
+import { readWranglerConfig } from "./cloudflare-wrangler-config";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -25,46 +25,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function stripJsoncComments(input: string): string {
-  let output = "";
-  let inString = false;
-  let escaped = false;
-  for (let index = 0; index < input.length; index += 1) {
-    const character = input.charAt(index);
-    const next = input.charAt(index + 1);
-    if (inString) {
-      output += character;
-      if (escaped) escaped = false;
-      else if (character === "\\") escaped = true;
-      else if (character === '"') inString = false;
-      continue;
-    }
-    if (character === '"') {
-      inString = true;
-      output += character;
-      continue;
-    }
-    if (character === "/" && next === "/") {
-      while (index < input.length && input.charAt(index) !== "\n") index += 1;
-      output += "\n";
-      continue;
-    }
-    if (character === "/" && next === "*") {
-      index += 2;
-      while (index < input.length && !(input.charAt(index) === "*" && input.charAt(index + 1) === "/")) index += 1;
-      index += 1;
-      continue;
-    }
-    output += character;
-  }
-  return output;
-}
-
 function resolveDatabaseId(options: D1TargetOptions): string {
   const environmentId = process.env["D1_DATABASE_ID"]?.trim();
   if (environmentId) return environmentId;
   const configPath = resolve(repoRoot, options.configPath ?? "wrangler.jsonc");
-  const config: unknown = JSON.parse(stripJsoncComments(readFileSync(configPath, "utf8")));
+  const config = readWranglerConfig(configPath);
   const bindings = isRecord(config) && Array.isArray(config["d1_databases"])
     ? config["d1_databases"]
     : [];

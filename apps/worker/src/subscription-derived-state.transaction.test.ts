@@ -360,7 +360,6 @@ function openDerivedStateDatabase(): { db: DatabaseSync; env: Env } {
       updated_at TEXT NOT NULL
     );
     INSERT INTO users (id) VALUES ('${USER_ID}');
-    INSERT INTO settings (user_id, settings_json) VALUES ('${USER_ID}', '{}');
     INSERT INTO subscription_user_stats (
       user_id, total_count, trial_count, active_count, expired_count, paused_count, cancelled_count, created_at, updated_at
     ) VALUES ('${USER_ID}', 0, 0, 0, 0, 0, 0, '${NOW.toISOString()}', '${NOW.toISOString()}');
@@ -370,6 +369,8 @@ function openDerivedStateDatabase(): { db: DatabaseSync; env: Env } {
       created_at, updated_at
     ) VALUES ('${USER_ID}', 0, 0, '', NULL, NULL, NULL, '${NOW.toISOString()}', '${NOW.toISOString()}');
   `);
+  db.prepare("INSERT INTO settings (user_id, settings_json) VALUES (?, ?)")
+    .run(USER_ID, JSON.stringify(createDefaultAppSettings()));
   const database = new TransactionalD1Database(db);
   return {
     db,

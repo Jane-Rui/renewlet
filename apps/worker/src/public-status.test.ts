@@ -47,7 +47,7 @@ function d1Result<T = unknown>(results: T[]): D1Result<T> {
 
 function createEnv(overrides: Partial<PublicStatusTestState> = {}): Env {
   // public status 资产读取必须走 token -> owner -> 可见订阅引用 -> R2 object；mock 也保持这条链路。
-  const settings = { ...createDefaultAppSettings(), locale: "en-US" as const, timezone: "UTC" };
+  const settings = { ...createDefaultAppSettings(), localePreference: "en-US" as const, timezone: "UTC" };
   const state: PublicStatusTestState = {
     pages: [],
     subscriptions: [],
@@ -189,9 +189,9 @@ function authorizedRequest(path: string, init: RequestInit = {}): Request {
   });
 }
 
-function publicRequest(path: string): Request {
+function publicRequest(path: string, locale = "en-US"): Request {
   return new Request(`https://renewlet.test${path}`, {
-    headers: { "accept-language": "en-US" },
+    headers: { "accept-language": locale },
   });
 }
 
@@ -362,7 +362,13 @@ describe("public status worker handlers", () => {
     expect(data.subscriptions[0]).not.toHaveProperty("currency");
     expect(data.subscriptions[0]).not.toHaveProperty("billingCycle");
 
-    const pricedSettings = { ...createDefaultAppSettings(), locale: "en-US" as const, timezone: "UTC", publicStatusCurrency: "USD" as const };
+    const chineseResponse = await readPublicStatus(publicRequest(`/api/public/status/${TOKEN}`, "zh-CN"), env, TOKEN);
+    const chineseData = await readSuccessData<{ subscriptions: Array<Record<string, unknown>> }>(chineseResponse);
+    expect(chineseData.subscriptions[0]).toMatchObject({
+      category: { value: "developer_tools", label: "开发工具" },
+    });
+
+    const pricedSettings = { ...createDefaultAppSettings(), localePreference: "en-US" as const, timezone: "UTC", publicStatusCurrency: "USD" as const };
     const pricedEnv = createEnv({
       pages: [publicPage({ show_prices: 1 })],
       subscriptions: [subscriptionRow()],

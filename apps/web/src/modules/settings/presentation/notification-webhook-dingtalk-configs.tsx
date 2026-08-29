@@ -34,7 +34,7 @@ export function NotificationWebhookConfigPanel({
     <>
       <div className="grid gap-4">
         <div className="grid gap-2">
-          <Label htmlFor="webhookUrl">Webhook URL</Label>
+          <Label htmlFor="webhookUrl">{t("settings.webhookUrlLabel")}</Label>
           <Input
             id="webhookUrl"
             name="webhookUrl"

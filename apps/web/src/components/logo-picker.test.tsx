@@ -4,7 +4,6 @@ import { render as renderComponent, screen, waitFor } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { EXPLICIT_LOCALE_PREFERENCE_KEY } from "@/i18n/locales";
 import { IMAGE_UPLOAD_ACCEPT } from "@/lib/upload-constraints";
 import { LogoPicker } from "./logo-picker";
 
@@ -331,7 +330,8 @@ describe("LogoPicker", () => {
   });
 
   it("keeps English Logo action labels at content width", () => {
-    localStorage.setItem(EXPLICIT_LOCALE_PREFERENCE_KEY, "en-US");
+    Object.defineProperty(globalThis.navigator, "languages", { configurable: true, value: ["en-US"] });
+    Object.defineProperty(globalThis.navigator, "language", { configurable: true, value: "en-US" });
 
     render(<LogoPicker value={undefined} onChange={vi.fn()} />);
 

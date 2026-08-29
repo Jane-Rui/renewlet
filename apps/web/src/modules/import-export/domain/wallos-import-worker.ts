@@ -116,7 +116,7 @@ self.onmessage = (event: MessageEvent<WorkerJobRequest<WallosImportWorkerPayload
   })();
 };
 
-async function parseImportBytes(
+export async function parseImportBytes(
   jobId: string,
   bytes: Uint8Array,
   context: ImportBuildBaseContext,

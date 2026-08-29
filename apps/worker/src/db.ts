@@ -254,24 +254,18 @@ export async function enabledAdminCount(env: Env): Promise<number> {
   return row?.count ?? 0;
 }
 
-/** getSettings 只做后台/二级读取兜底；带请求 locale 的首次初始化必须走 ensureSettings。 */
+/** 后台读取没有设备语言；缺行只返回 auto 默认值，不替账号持久化任何请求语言。 */
 export async function getSettings(env: Env, userId: string): Promise<ApiAppSettings> {
   const row = await env.DB.prepare("SELECT settings_json FROM settings WHERE user_id = ? LIMIT 1").bind(userId).first<{ settings_json: string }>();
-  // 后台任务没有可信请求语言，空库时只返回默认设置，不能替账号落语言。
-  if (!row) return createDefaultAppSettings();
-  return normalizeSettingsJson(row.settings_json);
+  return settingsFromRowJson(row?.settings_json);
 }
 
-/**
- * ensureSettings 只用于带请求 locale 的首次账号初始化入口。
- *
- * 请求 header 只影响缺行时的初始 settings；已有 settings 是账号真相源，不能被浏览器语言或代理 header 覆盖。
- */
-export async function ensureSettings(env: Env, userId: string, locale: ApiAppSettings["locale"]): Promise<ApiAppSettings> {
+/** 首次补建 settings 固定写 auto；ON CONFLICT 后回读可承接并发登录已经创建的账号设置。 */
+export async function ensureSettings(env: Env, userId: string): Promise<ApiAppSettings> {
   const existing = await env.DB.prepare("SELECT settings_json FROM settings WHERE user_id = ? LIMIT 1").bind(userId).first<{ settings_json: string }>();
   if (existing) return normalizeSettingsJson(existing.settings_json);
 
-  const defaults = createDefaultAppSettings({ locale });
+  const defaults = createDefaultAppSettings();
   const timestamp = nowIso();
   await env.DB.prepare(`
     INSERT INTO settings (user_id, settings_json, created_at, updated_at)
@@ -301,13 +295,13 @@ export function settingsUpsertStatement(env: Env, userId: string, settings: ApiA
 }
 
 export function normalizeSettingsJson(value: string): ApiAppSettings {
-  try {
-    // 历史 settings_json 缺字段时只在读取边界补默认值，不写回 D1，也不触碰订阅自己的显式 reminder_days。
-    return normalizeSettingsValue(JSON.parse(value) as unknown, createDefaultAppSettings());
-  } catch {
-    // D1 里 settings_json 不是可信源；坏 JSON 只能回落默认值，不能拖垮整个 Worker。
-  }
-  return createDefaultAppSettings();
+  // 排他迁移后，存在的 settings 行必须满足数据库契约；静默回落会掩盖漂移并以默认值执行后台任务。
+  return normalizeSettingsValue(JSON.parse(value) as unknown, createDefaultAppSettings());
+}
+
+/** 缺行使用 auto 默认值；只要 settings 行存在就严格解析，禁止把损坏或旧契约数据误判成缺行。 */
+export function settingsFromRowJson(value: string | null | undefined): ApiAppSettings {
+  return value == null ? createDefaultAppSettings() : normalizeSettingsJson(value);
 }
 
 /** getCustomConfig 保留用户自定义文本原貌；产品内置标签翻译不在 Worker 里生成。 */

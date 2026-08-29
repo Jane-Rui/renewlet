@@ -31,7 +31,7 @@ import { renewAutoSubscriptionsForUserWithSettings } from "./subscription-renewa
 import { refreshCostSharingCollectionReminderMirrors } from "./subscriptions";
 import { advanceSubscriptionSchedulerDueState, getSubscriptionSchedulerState, listNotificationDueUsers } from "./subscription-scheduler-state";
 import { HttpError, ok, readOptionalJson, readJson, requestLocale, successJson, type AppLocale } from "./http";
-import { DEFAULT_SERVER_I18N_LOCALE, serverFormat, serverText } from "./server-i18n";
+import { accountContentLocale, serverFormat, serverText } from "./server-i18n";
 import { requireAuth } from "./auth";
 import { notificationChannelErrorDetails } from "./notification-errors";
 import { sendChannel, sendChannels } from "./notification-channel-send";
@@ -80,13 +80,13 @@ const CRON_USER_CONCURRENCY = 5;
 type NotificationMessage = NotificationEmailMessage;
 type CronRunOutcome = "settled" | "keep_due";
 
-/** 发送单渠道测试通知；settings 来自表单快照，只临时合并校验，不写入 D1。 */
+/** 发送单渠道测试通知；settings 只临时合并，正文跟随请求语言，两者都不改写账号偏好。 */
 export async function notificationTest(request: Request, env: Env): Promise<Response> {
   const locale = requestLocale(request);
   const auth = await requireAuth(request, env);
   const body = await readJson(request, notificationsTestBodySchema, locale);
   const settings = await effectiveSettings(env, auth.user.id, body.settings);
-  const message = buildTestMessage(new Date(), settings);
+  const message = buildTestMessage(new Date(), settings, locale);
   try {
     await sendChannel(env, body.channel, settings, message, locale, requestAppUrl(request));
   } catch (error) {
@@ -100,7 +100,7 @@ export async function notificationTest(request: Request, env: Env): Promise<Resp
   return ok();
 }
 
-/** 手动运行当前用户通知任务；force 只影响本次 due 判断，仍复用真实发送与审计链路。 */
+/** 手动运行当前用户通知任务；正文跟随请求语言，force 只影响本次 due 判断。 */
 export async function notificationRun(request: Request, env: Env): Promise<Response> {
   const startedAt = performance.now();
   const locale = requestLocale(request);
@@ -256,6 +256,8 @@ async function runBounded<T>(items: T[], concurrency: number, task: (item: T) =>
 
 async function runScheduledForUser(env: Env, userId: string, now = new Date()): Promise<{ subscriptions: number; batches: number }> {
   const settings = await getSettings(env, userId);
+  // Cron 没有设备/请求上下文；明确账号偏好生效，auto 固定按英文生成正文和历史 locale。
+  const locale = accountContentLocale(settings.localePreference);
   let repeatCandidatesForRefresh: ApiSubscription[] | undefined;
   let decision = getLocalScheduleDecision(now, settings.timezone, settings.notificationTimeLocal, NOTIFICATION_CRON_WINDOW_MINUTES, false);
   if (!decision.due) {
@@ -281,7 +283,7 @@ async function runScheduledForUser(env: Env, userId: string, now = new Date()): 
     showExpired: settings.showExpired,
   })).map(toApiSubscription);
   // Cron 没有 request origin；邮件 CTA 只在手动请求能确定公开域名时生成。
-  const outcome = await runCronForUser(env, userId, settings, subscriptions, occurrence, now, DEFAULT_SERVER_I18N_LOCALE);
+  const outcome = await runCronForUser(env, userId, settings, subscriptions, occurrence, now, locale);
   if (outcome === "settled") {
     // failed/fresh sending 需要继续留在 due-index 内重试；只有 sent/skipped/终止状态才推进到下一次提醒。
     await refreshCostSharingCollectionReminderMirrors(env, userId, settings, addDays(occurrence.scheduledLocalDate, 1));
@@ -308,7 +310,7 @@ async function runManualForUser(
   // 通知正文生成前先幂等推进自动续订，避免已自动续订的旧日期继续进入 expired/renewal 内容。
   await renewAutoSubscriptionsForUserWithSettings(env, userId, settings, now);
   const subscriptions = (await listSubscriptions(env, userId)).map(toApiSubscription);
-  const message = buildDueMessage(now, settings, subscriptions, true);
+  const message = buildDueMessage(now, settings, subscriptions, true, locale);
   if (!message.hasPayload && !force) {
     return { sent: false, summary: { attempted: [], succeeded: [], failed: [] }, subscriptionCount: subscriptions.length };
   }
@@ -334,7 +336,7 @@ async function runCronForUser(
   if (existingJob && isSendingJobFresh(existingJob, now, NOTIFICATION_STALE_SENDING_MINUTES)) return "keep_due";
   if (existingJob?.status === "failed" && existingJob.attempts >= NOTIFICATION_MAX_RETRIES) return "settled";
 
-  const message = buildDueMessageForSchedule(schedule, now, settings, subscriptions, true);
+  const message = buildDueMessageForSchedule(schedule, now, settings, subscriptions, true, locale);
   const previousChannels = existingJob?.status === "failed" ? readJobChannels(existingJob) : emptyJobChannels();
   const retryChannels = channelsToSend(existingJob, previousChannels, settings.enabledChannels);
   const finalReason = settings.enabledChannels.length === 0
@@ -354,6 +356,7 @@ async function runCronForUser(
       triggeredAtUtc: toRfc3339Seconds(now),
       schedule,
       settings,
+      locale,
       message,
       channels: emptyJobChannels(),
     });
@@ -371,6 +374,7 @@ async function runCronForUser(
       triggeredAtUtc: toRfc3339Seconds(now),
       schedule,
       settings,
+      locale,
       message,
       channels,
     });
@@ -401,6 +405,7 @@ async function runCronForUser(
     triggeredAtUtc: toRfc3339Seconds(now),
     schedule,
     settings,
+    locale,
     message,
     channels,
   });
@@ -459,23 +464,21 @@ function buildOverview(now: Date, settings: ApiAppSettings, subscriptions: ApiSu
   };
 }
 
-function buildTestMessage(now: Date, settings: ApiAppSettings): NotificationMessage {
-  const locale = settings.locale;
+function buildTestMessage(now: Date, settings: ApiAppSettings, locale: AppLocale): NotificationMessage {
   return { title: serverText(locale, "notification.content.testTitle"), content: serverText(locale, "notification.content.testBody"), timestamp: displayTime(now, settings), hasPayload: true, items: [] };
 }
 
-function buildDueMessage(now: Date, settings: ApiAppSettings, subscriptions: ApiSubscription[], includeExpired: boolean): NotificationMessage {
+function buildDueMessage(now: Date, settings: ApiAppSettings, subscriptions: ApiSubscription[], includeExpired: boolean, locale: AppLocale): NotificationMessage {
   const items = collectItems(dateOnlyInZone(now, settings.timezone), settings, subscriptions, { includeExpired });
-  return buildMessageFromItems(now, settings, items);
+  return buildMessageFromItems(now, settings, items, locale);
 }
 
-function buildDueMessageForSchedule(schedule: ScheduleOccurrence, now: Date, settings: ApiAppSettings, subscriptions: ApiSubscription[], includeExpired: boolean): NotificationMessage {
+function buildDueMessageForSchedule(schedule: ScheduleOccurrence, now: Date, settings: ApiAppSettings, subscriptions: ApiSubscription[], includeExpired: boolean, locale: AppLocale): NotificationMessage {
   const items = collectItemsForSchedule(schedule, settings, subscriptions, { includeExpired });
-  return buildMessageFromItems(now, settings, items);
+  return buildMessageFromItems(now, settings, items, locale);
 }
 
-function buildMessageFromItems(now: Date, settings: ApiAppSettings, items: NotificationEmailItem[]): NotificationMessage {
-  const locale = settings.locale;
+function buildMessageFromItems(now: Date, settings: ApiAppSettings, items: NotificationEmailItem[], locale: AppLocale): NotificationMessage {
   const content = items.length === 0
     ? serverText(locale, "notification.content.empty")
     : groupedNotificationContent(items, locale);

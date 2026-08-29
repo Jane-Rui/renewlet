@@ -75,7 +75,7 @@ func targetFromCloudBackupUpdate(userID string, body cloudBackupConfigUpdateRequ
 		s3 = body.S3
 	}
 	policy := body.Policy
-	_ = policy.NormalizeAndValidate("zh-CN")
+	_ = policy.NormalizeAndValidate(defaultAppLocale)
 	return cloudBackupResolvedTarget{
 		Record:       current.Record,
 		UserID:       userID,
@@ -150,7 +150,7 @@ func cloudBackupTargetFromRecord(userID string, record *core.Record) cloudBackup
 		ScheduleWeekday:   strings.TrimSpace(record.GetString("scheduleWeekday")),
 		Retention:         record.GetInt("retention"),
 	}
-	_ = target.Policy.NormalizeAndValidate("zh-CN")
+	_ = target.Policy.NormalizeAndValidate(defaultAppLocale)
 	target.LastBackupAt = strings.TrimSpace(record.GetString("lastBackupAt"))
 	target.LastStatus = strings.TrimSpace(record.GetString("lastStatus"))
 	if target.LastStatus == "" {

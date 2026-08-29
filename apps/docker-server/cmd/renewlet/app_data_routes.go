@@ -116,7 +116,7 @@ func (f *optionalJSONField[T]) UnmarshalJSON(data []byte) error {
 
 func handleSettingsRead(app core.App, e *core.RequestEvent) error {
 	locale := requestLocale(e.Request)
-	_, settings, err := ensureSettingsRecord(app, e.Auth.Id, locale)
+	_, settings, err := ensureSettingsRecord(app, e.Auth.Id)
 	if err != nil {
 		return e.InternalServerError(serverText(locale, "common.internalError"), err)
 	}
@@ -131,12 +131,12 @@ func handleSettingsUpdate(app core.App, e *core.RequestEvent) error {
 		return e.BadRequestError(validationErrorMessage(locale, "common.invalidRequestBody", err), err)
 	}
 
-	record, current, err := settingsRecordOrDefault(app, e.Auth.Id, locale)
+	record, current, err := settingsRecordOrDefault(app, e.Auth.Id)
 	if err != nil {
 		return e.InternalServerError(serverText(locale, "common.internalError"), err)
 	}
 
-	next, err := mergeSettingsRequest(current, raw)
+	next, err := mergeSettingsRequest(current, raw, locale)
 	if err != nil {
 		return e.BadRequestError(validationErrorMessage(locale, "common.invalidRequestBody", err), err)
 	}
@@ -174,8 +174,8 @@ func handleSettingsUpdate(app core.App, e *core.RequestEvent) error {
 				return err
 			}
 		}
-		saved = settingsFromRecord(record)
-		return nil
+		saved, err = settingsFromRecord(record)
+		return err
 	})
 	if err != nil {
 		if validationErr != nil {

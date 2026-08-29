@@ -672,3 +672,7 @@ msgstr "饱和度 (S)"
 #: src/i18n/descriptors/common.ts:121
 msgid "theme.color.yellow"
 msgstr "黄"
+
+#. js-lingui-explicit-id
+msgid "locale.auto"
+msgstr "跟随当前设备"

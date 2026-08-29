@@ -1,6 +1,13 @@
 /** shared runtime 常量是 Go DTO、Cloudflare Worker 和前端 schema 的共同枚举边界。 */
-export const SUPPORTED_LOCALES = ["zh-CN", "en-US"] as const;
-export type Locale = (typeof SUPPORTED_LOCALES)[number];
+export {
+  DEFAULT_LOCALE_PREFERENCE,
+  FALLBACK_LOCALE,
+  LOCALE_PREFERENCES,
+  SOURCE_LOCALE,
+  SUPPORTED_LOCALES,
+  type Locale,
+  type LocalePreference,
+} from "./i18n-config";
 
 export const THEME_MODES = ["light", "dark", "system"] as const;
 export type ThemeMode = (typeof THEME_MODES)[number];

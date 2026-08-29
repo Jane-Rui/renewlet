@@ -11,6 +11,8 @@ const contractFiles = [
   ".github/workflows/cloudflare-worker.yml",
   ".github/workflows/release-publish.yml",
   "package.json",
+  "scripts/cloudflare-deploy.ts",
+  "apps/worker/src/index.ts",
   "docs/cloudflare-workers-deploy.md",
   "docs/cloudflare-workers-deploy.zh-CN.md",
 ];
@@ -33,16 +35,11 @@ function withContractFixture(
   }
 }
 
-function swapStepNames(content, first, second) {
-  const placeholder = "__RENEWLET_D1_DEPLOY_STEP_PLACEHOLDER__";
-  return content.replace(first, placeholder).replace(second, first).replace(placeholder, second);
-}
-
 test("the repository keeps the complete D1 deployment contract", () => {
   assert.doesNotThrow(() => checkCloudflareD1DeployContract(repoRoot));
 });
 
-test("rejects cancellable deployment sequences and checkpoints after migration", () => {
+test("rejects cancellable deployments and workflow-owned migration writes", () => {
   withContractFixture(
     (relativePath, source) => relativePath === ".github/workflows/cloudflare-worker.yml"
       ? source.replace("cancel-in-progress: false", "cancel-in-progress: true")
@@ -54,34 +51,34 @@ test("rejects cancellable deployment sequences and checkpoints after migration",
   );
 
   withContractFixture(
-    (relativePath, source) => relativePath === ".github/workflows/release-publish.yml"
-      ? swapStepNames(source, "Capture D1 Time Travel checkpoint", "Apply D1 migrations")
+    (relativePath, source) => relativePath === ".github/workflows/cloudflare-worker.yml"
+      ? source.replace("pnpm deploy -- --config", "pnpm cloudflare:migrations:apply && pnpm deploy -- --config")
       : source,
     (fixtureRoot) => assert.throws(
       () => checkCloudflareD1DeployContract(fixtureRoot),
-      /deployment order/,
+      /must not duplicate orchestrator operation/,
     ),
   );
 });
 
-test("rejects missing failure recovery evidence and illegal Time Travel flags", () => {
+test("rejects missing failure containment and independent recovery commands", () => {
   withContractFixture(
-    (relativePath, source) => relativePath === ".github/workflows/release-publish.yml"
-      ? source.replace("recovery-hint --config", "missing-recovery-hint --config")
+    (relativePath, source) => relativePath === "scripts/cloudflare-deploy.ts"
+      ? source.replaceAll("recordRecoveryHint", "missingRecoveryHint")
       : source,
     (fixtureRoot) => assert.throws(
       () => checkCloudflareD1DeployContract(fixtureRoot),
-      /recovery-hint/,
+      /recordRecoveryHint/,
     ),
   );
 
   withContractFixture(
     (relativePath, source) => relativePath === "docs/cloudflare-workers-deploy.md"
-      ? source.replace("time-travel info DB --json", "time-travel info DB --remote --json")
+      ? `${source}\n\nwrangler d1 time-travel restore DB --bookmark=unsafe\n`
       : source,
     (fixtureRoot) => assert.throws(
       () => checkCloudflareD1DeployContract(fixtureRoot),
-      /unsupported --remote/,
+      /outside the deployment orchestrator/,
     ),
   );
 });

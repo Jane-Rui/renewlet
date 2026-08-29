@@ -116,7 +116,7 @@ export function IconPicker({
               <div className="relative z-10 h-full w-full p-1">
                 <FaviconResultImage
                   src={displayedIcon}
-                  alt="Icon"
+                  alt={t("media.icon")}
                   className="media-thumbnail-image"
                   onError={() => applyValue(undefined)}
                 />

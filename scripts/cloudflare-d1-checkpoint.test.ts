@@ -5,11 +5,11 @@ import { join } from "node:path";
 import test from "node:test";
 import {
   captureBookmark,
+  deploymentRecoveryCommand,
   parseBookmarkJson,
-  restoreCommand,
   validateBookmark,
-  writeCheckpointEvidence,
-  writeRecoveryHint,
+  writeDeploymentCheckpointEvidence,
+  writeDeploymentRecoveryHint,
   type CommandRunner,
 } from "./cloudflare-d1-checkpoint";
 
@@ -56,21 +56,29 @@ test("rejects failed and malformed Wrangler checkpoint commands", async () => {
   );
 });
 
-test("writes checkpoint output and manual-only recovery evidence", () => {
+test("writes one maintenance-first recovery command with the checkpoint evidence", () => {
   const tempDir = mkdtempSync(join(tmpdir(), "renewlet-d1-checkpoint-"));
   const outputPath = join(tempDir, "output.txt");
   const summaryPath = join(tempDir, "summary.md");
   try {
-    writeCheckpointEvidence(bookmark, outputPath, summaryPath, "wrangler.generated.jsonc");
-    writeRecoveryHint(bookmark, summaryPath, "wrangler.generated.jsonc");
-    assert.equal(readFileSync(outputPath, "utf8"), `bookmark=${bookmark}\n`);
+    const options = {
+      configPath: "wrangler.generated.jsonc",
+      maintenanceConfigPath: "wrangler.maintenance.generated.jsonc",
+      workerVersion: "12345678-abcd-4321-abcd-1234567890ab",
+    };
+    writeDeploymentCheckpointEvidence(bookmark, outputPath, summaryPath, options);
+    writeDeploymentRecoveryHint(bookmark, summaryPath, options);
+    assert.equal(
+      readFileSync(outputPath, "utf8"),
+      `bookmark=${bookmark}\nworker-version=${options.workerVersion}\n`,
+    );
     const summary = readFileSync(summaryPath, "utf8");
-    assert.match(summary, /D1 Time Travel checkpoint/);
-    assert.match(summary, /D1 deployment recovery review required/);
+    assert.match(summary, /Renewlet Cloudflare deployment checkpoint/);
+    assert.match(summary, /Renewlet Cloudflare recovery review required/);
     assert.match(summary, /not restored automatically/);
-    assert.match(summary, /time-travel restore DB/);
-    assert.doesNotMatch(summary, /--remote/);
-    assert.match(restoreCommand(bookmark, "wrangler.generated.jsonc"), /--config 'wrangler\.generated\.jsonc'/);
+    assert.match(summary, /cloudflare:deploy:recover/);
+    assert.doesNotMatch(summary, /wrangler d1 time-travel restore/);
+    assert.match(deploymentRecoveryCommand(bookmark, options), /--worker-version '12345678-abcd-4321-abcd-1234567890ab'/);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }

@@ -328,7 +328,7 @@ describe("calendar feed worker handlers", () => {
   it("falls back to built-in labels when custom config is missing", async () => {
     const env = await createCalendarFeedTestEnv({
       customConfigJson: null,
-      locale: "zh-CN",
+      localePreference: "zh-CN",
       subscriptions: [
         subscriptionRow("sub_sentry", "Sentry Team", "active", "monthly", "2099-06-02", {
           category: "developer_tools",
@@ -355,7 +355,7 @@ describe("calendar feed worker handlers", () => {
 
   it("describes custom cycle units in ICS details", async () => {
     const env = await createCalendarFeedTestEnv({
-      locale: "zh-CN",
+      localePreference: "zh-CN",
       subscriptions: [
         subscriptionRow("sub_custom_year", "Three Year Plan", "active", "custom", "2099-06-02", {
           custom_days: 3,
@@ -383,7 +383,7 @@ describe("calendar feed worker handlers", () => {
     customConfig.paymentMethods = [];
     const env = await createCalendarFeedTestEnv({
       customConfigJson: JSON.stringify(customConfig),
-      locale: "zh-CN",
+      localePreference: "zh-CN",
       subscriptions: [
         subscriptionRow("sub_missing_config", "Missing Config Plan", "active", "monthly", "2099-06-02", {
           category: "developer_tools",

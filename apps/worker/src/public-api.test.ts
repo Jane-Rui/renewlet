@@ -61,7 +61,7 @@ function d1Result<T = unknown>(results: T[], changes = 0): D1Result<T> {
 }
 
 function createEnv(overrides: Partial<PublicApiTestState> = {}): Env & { __state: PublicApiTestState } {
-  const settings = { ...createDefaultAppSettings(), locale: "en-US" as const, timezone: "UTC" };
+  const settings = { ...createDefaultAppSettings(), localePreference: "en-US" as const, timezone: "UTC" };
   const state: PublicApiTestState = {
     users: [
       { id: USER_ID, banned: 0 },

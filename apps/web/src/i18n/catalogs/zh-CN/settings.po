@@ -3474,7 +3474,7 @@ msgstr "语言"
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/settings.ts:109
 msgid "settings.languageHelp"
-msgstr "语言会立即预览到页面，点击保存后才会同步到账号通知和其他设备。"
+msgstr "语言会立即预览；保存后同步账号偏好，跟随设备不会固定后台内容语言。"
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/settings.ts:374
@@ -3970,3 +3970,19 @@ msgstr "默认等价"
 #: src/i18n/descriptors/settings.ts:598
 msgid "settings.subscriptionPriceReferenceDisabledHelp"
 msgstr "默认隐藏；开启后可选择跟随统计货币或固定参考货币。"
+
+#. js-lingui-explicit-id
+msgid "settings.telegramBotTokenLabel"
+msgstr "机器人令牌"
+
+#. js-lingui-explicit-id
+msgid "settings.telegramChatIdLabel"
+msgstr "聊天 ID"
+
+#. js-lingui-explicit-id
+msgid "settings.apiKeyLabel"
+msgstr "API 密钥"
+
+#. js-lingui-explicit-id
+msgid "settings.webhookUrlLabel"
+msgstr "Webhook 地址"

@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { effectiveReminderDays } from "../packages/shared/src/runtime";
-import { normalizeSettingsJson, toApiSubscription } from "../apps/worker/src/db";
+import { settingsFromRowJson, toApiSubscription } from "../apps/worker/src/db";
 import {
   normalizeSubscriptionTags,
   SUBSCRIPTION_LIST_INDEX_UPSERT_SQL,
@@ -139,7 +139,7 @@ function parseArgs(argv: string[]): Options {
 
 function nextRepeatDue(row: SubscriptionBackfillRow, now: Date): string | null {
   if (row.repeat_reminder_enabled !== 1) return null;
-  const settings = normalizeSettingsJson(row.settings_json ?? "{}");
+  const settings = settingsFromRowJson(row.settings_json);
   // 调度不依赖标签；旧事实里的空白/重复标签只影响可重建投影，不能阻断 repeat schedule 恢复。
   const subscription = toApiSubscription({
     ...row,
@@ -197,7 +197,7 @@ async function assertBackfilledSchedules(client: D1Client, now: Date): Promise<n
 function storedRepeatScheduleMatches(row: SubscriptionScheduleVerificationRow, stored: string): boolean {
   const instant = new Date(stored);
   if (!Number.isFinite(instant.getTime())) return false;
-  const settings = normalizeSettingsJson(row.settings_json ?? "{}");
+  const settings = settingsFromRowJson(row.settings_json);
   const subscription = toApiSubscription({
     ...row,
     tags_json: JSON.stringify(normalizeSubscriptionTags(row).map((tag) => tag.value)),
@@ -382,7 +382,7 @@ async function upsertSchedulerRows(client: D1Client, now: Date): Promise<void> {
     if (rows.length === 0) return;
 
     const statements = rows.map((row): D1Statement => {
-      const settings = normalizeSettingsJson(row.settings_json ?? "{}");
+      const settings = settingsFromRowJson(row.settings_json);
       const autoRenewCount = Number(row.auto_renew_count) || 0;
       const repeatReminderCount = Number(row.repeat_reminder_count) || 0;
       const lastAutoRenewLocalDate = row.last_auto_renew_local_date ?? "";

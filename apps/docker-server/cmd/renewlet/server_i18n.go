@@ -4,41 +4,31 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
-	"io/fs"
-	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"golang.org/x/text/language"
 )
 
-const defaultAppLocale = localeEnUS
-
-// 服务端 catalog 是 Go/Worker 的唯一文案源；前端错误展示只共享 code，不共享这里的翻译文本。
+// Go catalog 与 Worker catalog 由 shared JSON 同源生成；前端错误展示只共享 code，不共享服务端翻译文本。
 //
 //go:embed i18n/active.*.json
 var serverI18nFS embed.FS
 
 var (
 	serverI18nCatalogs = mustLoadServerI18nCatalogs()
-	serverI18nLocales  = sortedServerI18nLocales(serverI18nCatalogs)
+	serverI18nLocales  = append([]appLocale(nil), supportedAppLocales...)
 	serverI18nTags     = serverI18nLanguageTags(serverI18nLocales)
 	serverI18nMatcher  = language.NewMatcher(serverI18nTags)
+	acceptLanguageQRe  = regexp.MustCompile(`^(?:0(?:\.[0-9]{0,3})?|1(?:\.0{0,3})?)$`)
 )
 
 func mustLoadServerI18nCatalogs() map[appLocale]map[string]string {
 	catalogs := map[appLocale]map[string]string{}
-	entries, err := fs.ReadDir(serverI18nFS, "i18n")
-	if err != nil {
-		panic(err)
-	}
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasPrefix(name, "active.") || !strings.HasSuffix(name, ".json") {
-			continue
-		}
-		locale := appLocale(strings.TrimSuffix(strings.TrimPrefix(name, "active."), ".json"))
-		data, err := serverI18nFS.ReadFile(filepath.Join("i18n", name))
+	for _, locale := range supportedAppLocales {
+		data, err := serverI18nFS.ReadFile("i18n/active." + string(locale) + ".json")
 		if err != nil {
 			panic(err)
 		}
@@ -54,17 +44,6 @@ func mustLoadServerI18nCatalogs() map[appLocale]map[string]string {
 	return catalogs
 }
 
-func sortedServerI18nLocales(catalogs map[appLocale]map[string]string) []appLocale {
-	locales := make([]appLocale, 0, len(catalogs))
-	for locale := range catalogs {
-		if locale != defaultAppLocale {
-			locales = append(locales, locale)
-		}
-	}
-	sort.Slice(locales, func(i, j int) bool { return locales[i] < locales[j] })
-	return append([]appLocale{defaultAppLocale}, locales...)
-}
-
 func serverI18nLanguageTags(locales []appLocale) []language.Tag {
 	tags := make([]language.Tag, 0, len(locales))
 	for _, locale := range locales {
@@ -73,6 +52,7 @@ func serverI18nLanguageTags(locales []appLocale) []language.Tag {
 	return tags
 }
 
+// matcher 只接受合法语言标签并按受支持语言收敛；这里的结果必须与 Worker matchServerLocale 保持同构。
 func matchAppLocale(value string) (appLocale, bool) {
 	value = strings.TrimSpace(strings.ReplaceAll(value, "_", "-"))
 	if value == "" {
@@ -97,23 +77,71 @@ func normalizeAppLocale(value string) appLocale {
 }
 
 func isSupportedAppLocale(value string) bool {
-	_, ok := serverI18nCatalogs[appLocale(value)]
-	return ok
+	for _, locale := range supportedAppLocales {
+		if value == string(locale) {
+			return true
+		}
+	}
+	return false
 }
 
+// Accept-Language 只服务无显式偏好请求；按 q 权重和原始顺序选择，忽略非法项，无匹配或通配符回退英文。
+// 解析规则必须与 Worker requestLocale 的夹具保持一致，避免 Docker/Cloudflare 返回不同语言。
 func matchAcceptLanguage(header string) appLocale {
-	// ParseAcceptLanguage 已按 q 值和出现顺序排序；Matcher 只负责把浏览器偏好折到服务端支持集。
-	tags, _, err := language.ParseAcceptLanguage(header)
-	if err != nil || len(tags) == 0 {
-		return defaultAppLocale
+	type preference struct {
+		tag   string
+		q     float64
+		index int
 	}
-	_, index, confidence := serverI18nMatcher.Match(tags...)
-	if confidence == language.No {
-		return defaultAppLocale
+	preferences := []preference{}
+	for index, rawPart := range strings.Split(header, ",") {
+		parts := strings.Split(rawPart, ";")
+		tag := strings.TrimSpace(parts[0])
+		if tag == "" {
+			continue
+		}
+		quality := 1.0
+		valid := true
+		for _, rawParameter := range parts[1:] {
+			parameter := strings.TrimSpace(rawParameter)
+			if len(parameter) < 2 || !strings.EqualFold(parameter[:2], "q=") {
+				continue
+			}
+			value := strings.TrimSpace(parameter[2:])
+			if !acceptLanguageQRe.MatchString(value) {
+				valid = false
+				break
+			}
+			parsed, err := strconv.ParseFloat(value, 64)
+			if err != nil || parsed <= 0 {
+				valid = false
+				break
+			}
+			quality = parsed
+			break
+		}
+		if valid {
+			preferences = append(preferences, preference{tag: tag, q: quality, index: index})
+		}
 	}
-	return serverI18nLocales[index]
+	sort.SliceStable(preferences, func(i, j int) bool {
+		if preferences[i].q == preferences[j].q {
+			return preferences[i].index < preferences[j].index
+		}
+		return preferences[i].q > preferences[j].q
+	})
+	for _, candidate := range preferences {
+		if strings.TrimSpace(candidate.tag) == "*" {
+			return defaultAppLocale
+		}
+		if matched, ok := matchAppLocale(candidate.tag); ok {
+			return matched
+		}
+	}
+	return defaultAppLocale
 }
 
+// 缺少目标语言或 key 时统一回退英文 catalog；最终返回 key 让缺失构件在测试和日志中可见。
 func serverText(locale appLocale, key string) string {
 	if catalog, ok := serverI18nCatalogs[locale]; ok {
 		if message, ok := catalog[key]; ok {

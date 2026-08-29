@@ -144,7 +144,7 @@ export function LogoPicker({
               <div className="relative z-10 h-full w-full p-1">
                 <FaviconResultImage
                   src={displayedLogo}
-                  alt="Logo"
+                  alt={t("media.logo")}
                   className="media-thumbnail-image"
                   onError={() => applyValue(undefined)}
                 />

@@ -187,7 +187,7 @@ describe("Cloudflare auth settings initialization", () => {
     mocks.verifyPassword.mockReset().mockResolvedValue(true);
   });
 
-  it("creates initial admin settings from the setup request locale", async () => {
+  it("creates initial admin settings with auto regardless of request locale", async () => {
     const setup = setupEnvFixture([[1, 1, 1, 1]]);
 
     const response = await createInitialAdmin(jsonRequest("/api/app/setup", "POST", {
@@ -207,7 +207,8 @@ describe("Cloudflare auth settings initialization", () => {
     expect(batch).toHaveLength(4);
     expect(userInsert).toContain("WHERE NOT EXISTS");
     expect(batch.slice(1).every((sql) => /FROM users WHERE id = \?/.test(sql))).toBe(true);
-    expect(String(settingsBindings.at(1))).toContain('"locale":"zh-CN"');
+    expect(String(settingsBindings.at(1))).toContain('"localePreference":"auto"');
+    expect(String(settingsBindings.at(1))).not.toContain('"locale":');
     expect(mocks.ensureSettings).not.toHaveBeenCalled();
   });
 
@@ -248,7 +249,7 @@ describe("Cloudflare auth settings initialization", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.verifyPassword).toHaveBeenCalledWith("password123", "old-hash");
-    expect(mocks.ensureSettings).toHaveBeenCalledWith(expect.anything(), "usr_login", "zh-CN");
+    expect(mocks.ensureSettings).toHaveBeenCalledWith(expect.anything(), "usr_login");
     expect(run).toHaveBeenCalledTimes(1);
   });
 

@@ -176,7 +176,7 @@ describe("IconPicker", () => {
 
     render(<IconPicker value="https://example.com/icon.svg" onChange={onChange} />);
 
-    const icon = screen.getByAltText("Icon");
+    const icon = screen.getByAltText("图标");
     const iconPreview = icon.closest(".media-thumbnail-canvas");
     const clearIconButton = screen.getByRole("button", { name: "清除图标" });
     expect(icon).toHaveClass("media-thumbnail-image");

@@ -96,6 +96,7 @@ export const messages = [
   msg({ id: "notFound.home", message: "返回首页" }),
   msg({ id: "locale.zhCN", message: "中文" }),
   msg({ id: "locale.enUS", message: "English" }),
+  msg({ id: "locale.auto", message: "跟随当前设备" }),
   msg({ id: "reminder.days", message: "提前 {days} 天" }),
   msg({ id: "time.hour", message: "时" }),
   msg({ id: "time.minute", message: "分" }),

@@ -31,7 +31,7 @@ func TestSettingsSecretsAreWriteOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stored := settingsFromRecord(record)
+	stored := mustSettingsFromRecord(t, record)
 	if stored.TelegramBotToken != "stored-telegram-secret" || stored.AIRecognition.APIKey != "stored-ai-secret" {
 		t.Fatalf("secret mutations were not persisted: %#v", stored)
 	}
@@ -53,5 +53,12 @@ func TestSettingsSecretsAreWriteOnly(t *testing.T) {
 	direct := serveTestRequest(t, app, http.MethodPut, "/api/app/settings", `{"telegramBotToken":"raw-secret"}`, token)
 	if direct.Code != http.StatusBadRequest {
 		t.Fatalf("expected direct secret field 400, got %d: %s", direct.Code, direct.Body.String())
+	}
+
+	invalid := serveTestRequestWithHeaders(t, app, http.MethodPut, "/api/app/settings", `{"secretUpdates":{"telegramBotToken":{"action":"set"}}}`, token, map[string]string{
+		"X-Renewlet-Locale": "zh-CN",
+	})
+	if invalid.Code != http.StatusBadRequest || !strings.Contains(invalid.Body.String(), serverText(localeZhCN, "common.invalidRequestParameters")) {
+		t.Fatalf("expected auto account settings validation to follow request locale, got %d: %s", invalid.Code, invalid.Body.String())
 	}
 }

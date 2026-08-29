@@ -14,7 +14,6 @@ import {
 import {
   NOTIFICATION_CHANNELS,
   MAX_REMINDER_DAYS,
-  SUPPORTED_LOCALES,
   THEME_MODES,
   THEME_VARIANTS,
   isValidLocalTime,
@@ -22,6 +21,7 @@ import {
   normalizeExchangeRateProvider,
   type LocalTime,
 } from "../runtime";
+import { LOCALE_PREFERENCES } from "../i18n-config";
 import { aiRecognitionPublicSettingsSchema, aiRecognitionSettingsSchema } from "./ai-recognition";
 import { apiSuccessResponseSchema } from "./api";
 import { exchangeRateProviderSchema } from "./exchange-rates";
@@ -108,7 +108,7 @@ const appSettingsShape = {
     s: z.number().min(0).max(100),
     l: z.number().min(0).max(100),
   }),
-  locale: z.enum(SUPPORTED_LOCALES),
+  localePreference: z.enum(LOCALE_PREFERENCES),
   showExpired: z.boolean(),
   defaultCurrency: z.string().trim().regex(/^[A-Z]{3}$/),
   publicStatusCurrency: publicStatusCurrencySchema,
@@ -276,6 +276,11 @@ export const persistedSettingsBackupSchema = appSettingsSchema.partial().extend(
   onlineIconSources: onlineIconSourcesPatchSchema.optional(),
 }).strict();
 export type PersistedSettingsBackup = z.infer<typeof persistedSettingsBackupSchema>;
+
+// 排他迁移后的数据库记录必须携带语言偏好；外部备份使用独立版本契约，其他新字段仍可由默认值补齐。
+export const persistedAppSettingsSchema = persistedSettingsBackupSchema.required({
+  localePreference: true,
+});
 
 export function toPublicAppSettings(settings: ApiAppSettings): PublicAppSettings {
   const {

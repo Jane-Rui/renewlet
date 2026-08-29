@@ -54,8 +54,8 @@ func TestBuildServerChanEndpoint(t *testing.T) {
 
 func TestSendServerChanRequiresSendKey(t *testing.T) {
 	settings := defaultAppSettings()
-	settings.Locale = string(localeZhCN)
-	err := sendServerChan(settings, notificationMessage{Title: "title", Content: "content", Timestamp: "time"})
+	settings.LocalePreference = string(preferenceZhCN)
+	err := sendServerChan(settings, notificationMessage{Title: "title", Content: "content", Timestamp: "time"}, accountContentLocale(settings))
 	if err == nil {
 		t.Fatal("expected missing SendKey error")
 	}
@@ -88,7 +88,7 @@ func TestSendServerChanPostsOfficialPayload(t *testing.T) {
 		Title:     "Renewlet 测试通知",
 		Content:   "如果你收到了这条消息，说明该通知渠道配置可用。",
 		Timestamp: "2026-05-14 08:00 UTC",
-	})
+	}, localeZhCN)
 	if err != nil {
 		t.Fatal(err)
 	}

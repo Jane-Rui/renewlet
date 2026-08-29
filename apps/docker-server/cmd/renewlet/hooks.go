@@ -477,7 +477,7 @@ func normalizeNotificationJobRecord(record *core.Record) error {
 		record.Set("result", emptyJSONPayload{})
 	} else {
 		var result notificationJobResult
-		if err := decodeStrictJSONBytesInto(resultData, &result, localeZhCN, false); err != nil {
+		if err := decodeStrictJSONBytesInto(resultData, &result, defaultAppLocale, false); err != nil {
 			return fmt.Errorf("NOTIFICATION_RESULT_INVALID: %w", err)
 		}
 		if result.Source != "cron" {
@@ -682,7 +682,7 @@ func customConfigFromValue(value interface{}) (customConfigPayload, error) {
 	if err != nil || len(strings.TrimSpace(string(data))) == 0 {
 		return config, err
 	}
-	if err := decodeStrictJSONBytesInto(data, &config, localeZhCN, false); err != nil {
+	if err := decodeStrictJSONBytesInto(data, &config, defaultAppLocale, false); err != nil {
 		return config, err
 	}
 	return config, nil

@@ -81,7 +81,7 @@ func handleAuthLogin(app core.App, e *core.RequestEvent) error {
 	if user.GetBool("banned") {
 		return e.ForbiddenError(localizedDisabledBanReason(locale), nil)
 	}
-	if _, _, err := ensureSettingsRecord(app, user.Id, locale); err != nil {
+	if _, _, err := ensureSettingsRecord(app, user.Id); err != nil {
 		return e.InternalServerError(serverText(locale, "common.internalError"), err)
 	}
 	methods, err := authenticatorMfaMethodsForUser(app, user.Id)

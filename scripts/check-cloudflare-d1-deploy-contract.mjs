@@ -1,66 +1,59 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-// 部署 YAML、运维脚本与恢复文档共同组成 D1 写库事务边界；本守卫防止单点修改破坏整体顺序。
-
 function requireSnippet(content, snippet, context) {
   if (!content.includes(snippet)) throw new Error(`${context} must keep D1 deployment snippet: ${snippet}`);
 }
 
-function requireOrder(content, snippets, context) {
-  let previous = -1;
-  for (const snippet of snippets) {
-    const index = content.indexOf(snippet);
-    if (index < 0 || index <= previous) {
-      throw new Error(`${context} must keep D1 deployment order: ${snippets.join(" -> ")}`);
-    }
-    previous = index;
-  }
-}
-
-/** 固化 checkpoint -> migration/backfill -> deploy -> failure hint 的不可取消部署契约。 */
+/** workflow 和文档只暴露统一编排入口；状态机顺序由 cloudflare-deploy 行为测试证明。 */
 export function checkCloudflareD1DeployContract(repoRoot) {
   const selfHostedPath = ".github/workflows/cloudflare-worker.yml";
   const releasePath = ".github/workflows/release-publish.yml";
   const selfHosted = readFileSync(join(repoRoot, selfHostedPath), "utf8");
   const release = readFileSync(join(repoRoot, releasePath), "utf8");
+  const orchestrator = readFileSync(join(repoRoot, "scripts/cloudflare-deploy.ts"), "utf8");
   const packageJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
 
   for (const snippet of [
     "group: cloudflare-worker-${{ github.repository }}\n  cancel-in-progress: false",
-    "id: d1-checkpoint\n        if: steps.deployment-secrets.outputs.ready == 'true'",
-    "if: ${{ failure() && steps.deployment-secrets.outputs.ready == 'true' && steps.d1-checkpoint.outputs.bookmark != '' }}",
+    "timeout-minutes: 60",
+    "CI_WRANGLER_MAINTENANCE_CONFIG: wrangler.maintenance.generated.jsonc",
   ]) requireSnippet(selfHosted, snippet, selfHostedPath);
   for (const snippet of [
     "group: production-cloudflare-${{ github.repository }}\n      cancel-in-progress: false",
-    "id: d1-checkpoint",
-    "if: ${{ failure() && steps.d1-checkpoint.outputs.bookmark != '' }}",
+    "timeout-minutes: 60",
+    "CI_WRANGLER_MAINTENANCE_CONFIG: wrangler.maintenance.generated.jsonc",
   ]) requireSnippet(release, snippet, releasePath);
 
-  const deploymentOrder = [
-    "Capture D1 Time Travel checkpoint",
-    "Apply D1 migrations",
-    "Ensure Cloudflare Queues",
-    "Deploy Worker",
-    "Report manual D1 recovery command",
-  ];
-  requireOrder(selfHosted, deploymentOrder, selfHostedPath);
-  requireOrder(release, deploymentOrder, releasePath);
+  const workflowCommand = "pnpm deploy -- --config \"$CI_WRANGLER_CONFIG\" --maintenance-config \"$CI_WRANGLER_MAINTENANCE_CONFIG\"";
   for (const workflow of [selfHosted, release]) {
-    requireSnippet(
-      workflow,
-      "pnpm exec tsx scripts/cloudflare-d1-checkpoint.ts capture --config \"$CI_WRANGLER_CONFIG\"",
-      "Cloudflare workflow",
-    );
-    requireSnippet(
-      workflow,
-      "pnpm exec tsx scripts/cloudflare-d1-checkpoint.ts recovery-hint --config \"$CI_WRANGLER_CONFIG\"",
-      "Cloudflare workflow",
-    );
-    requireSnippet(workflow, "failure()", "Cloudflare workflow");
-    if (workflow.includes("time-travel restore DB")) {
-      throw new Error("Cloudflare workflows must never restore D1 automatically.");
+    requireSnippet(workflow, workflowCommand, "Cloudflare workflow");
+    for (const forbidden of ["cloudflare:migrations:apply", "cloudflare:queues:ensure", "wrangler deploy", "cloudflare-d1-checkpoint.ts"]) {
+      if (workflow.includes(forbidden)) {
+        throw new Error(`Cloudflare workflows must not duplicate orchestrator operation: ${forbidden}`);
+      }
     }
+  }
+
+  for (const snippet of [
+    "15 * 60 * 1000",
+    "retryAll({ delaySeconds: 900 })",
+    "recordRecoveryHint",
+    "restoreQueueConsumers(options.configPath)",
+    "SELECT name, sql FROM sqlite_master",
+    "assertD1TriggerDefinitions",
+  ]) {
+    const source = snippet.startsWith("retryAll")
+      ? readFileSync(join(repoRoot, "apps/worker/src/index.ts"), "utf8")
+      : orchestrator;
+    requireSnippet(source, snippet, "Cloudflare maintenance state machine");
+  }
+
+  if (packageJson.scripts?.deploy !== "tsx scripts/cloudflare-deploy.ts deploy") {
+    throw new Error("package.json deploy must delegate to the Cloudflare deployment orchestrator.");
+  }
+  if (packageJson.scripts?.["cloudflare:deploy:recover"] !== "tsx scripts/cloudflare-deploy.ts recover") {
+    throw new Error("package.json recovery must delegate to the Cloudflare deployment orchestrator.");
   }
 
   const expectedScriptTests = "node --test scripts/*.test.mjs && node --import tsx --test scripts/*.test.ts";
@@ -76,18 +69,17 @@ export function checkCloudflareD1DeployContract(repoRoot) {
 
   for (const relativePath of ["docs/cloudflare-workers-deploy.md", "docs/cloudflare-workers-deploy.zh-CN.md"]) {
     const content = readFileSync(join(repoRoot, relativePath), "utf8");
-    if (/d1 time-travel (?:info|restore)[^\n]*--remote/.test(content)) {
-      throw new Error(`${relativePath} must not pass unsupported --remote to D1 Time Travel commands.`);
+    for (const forbidden of [
+      "pnpm cloudflare:migrations:apply",
+      "wrangler d1 time-travel restore",
+      "wrangler rollback",
+    ]) {
+      if (content.includes(forbidden)) {
+        throw new Error(`${relativePath} must not expose an operation outside the deployment orchestrator: ${forbidden}`);
+      }
     }
-    requireSnippet(
-      content,
-      "d1 time-travel info DB --json --config wrangler.generated.jsonc",
-      relativePath,
-    );
-    requireSnippet(
-      content,
-      "d1 time-travel restore DB --bookmark=\"<bookmark>\" --config wrangler.generated.jsonc",
-      relativePath,
-    );
+    requireSnippet(content, "pnpm cloudflare:deploy:recover", relativePath);
+    requireSnippet(content, "--bookmark", relativePath);
+    requireSnippet(content, "--worker-version", relativePath);
   }
 }

@@ -237,28 +237,31 @@ https://<WORKER_NAME>.<workers-dev-subdomain>.workers.dev/setup
 
 ## D1 升级与恢复
 
-升级 schema 前，同时创建一份可移植 SQL 导出和 Time Travel bookmark。可移植 SQL 导出仍由运维者主动完成；GitHub 部署会在 migration 前自动捕获当前 bookmark 并写入 job summary，手动部署应执行下面的同一条 bookmark 命令。在 migration、派生状态 backfill 与外键检查全部通过前，保留旧 Worker 版本以便恢复。
+升级 schema 前，先创建一份可移植 SQL 导出。`pnpm deploy` 会在首次 D1 写入前自动捕获当前 Time Travel bookmark 和线上 Worker version，并写入 GitHub job summary 或本地输出。
 
 ```bash
 pnpm exec wrangler d1 export DB --remote --config wrangler.generated.jsonc --output renewlet-before-upgrade.sql
-pnpm exec wrangler d1 time-travel info DB --json --config wrangler.generated.jsonc
 ```
 
-仓库 migration helper 会依次备份受 `0035` 影响的日历 Feed、应用未执行的 migration、精确恢复 Feed、重建订阅集合派生数据，并执行 `PRAGMA foreign_key_check`。任一步骤失败都会保留恢复现场并阻断新 Worker 部署。
+普通升级保持在线。检测到尚未应用的 `_exclusive_` 排他 migration 时，部署编排器会先用同一份 Worker bundle 部署维护配置，解绑 Cron 和 Queue consumer，并等待 Cloudflare 后台 invocation 的 15 分钟最长执行时间。API、ICS 和 webhook 返回带 `Retry-After: 900`、`Cache-Control: no-store` 的 `503`，Static Assets 仍继续提供 SPA。
 
 ```bash
-pnpm cloudflare:migrations:apply --config wrangler.generated.jsonc
+pnpm deploy -- --config wrangler.generated.jsonc --maintenance-config wrangler.maintenance.generated.jsonc
 ```
 
-已经由旧部署执行过 `0035` 的数据库会自动重建订阅列表、筛选、统计、标签、应用内日历和调度状态。旧 migration 已删除的单订阅日历 Feed token 无法从订阅数据推导：请在 Renewlet 中重新生成该订阅的链接，并替换外部日历中的旧 URL。全量订阅 Feed 不受这次级联删除影响。只有仍保留升级前 Time Travel bookmark 时，才可能通过下面的人工恢复流程保留旧单订阅 URL；Renewlet 不会自动执行覆盖生产数据库的恢复。
+排空后，编排器会保护日历 Feed、执行 migration、重建派生状态、检查外键以及 settings 数据/trigger 完整定义，再部署正常配置并校验 active Worker version。首次 D1 写入前失败会自动恢复旧 Worker、Cron 和 Queue consumer；首次写入后失败则保持或重新部署维护模式。修复原因后重跑同一条 deploy 命令即可；已写入的 migration marker 会被复核，不会重复执行已完成 migration。
 
-命令失败时不要部署新 Worker。workflow 会输出经过校验的恢复命令，但不会自动执行，因为 Time Travel 会原地覆盖数据库。检查 checkpoint 之后产生的写入后，再使用升级前记录的 bookmark 恢复；也可以用 `renewlet-before-upgrade.sql` 创建替代 D1 数据库，重新绑定 `DB` 后部署旧 Worker 版本。失败后才捕获的 bookmark 只能保护更晚的变更，不能替代升级前 bookmark。
+如果决定回退数据契约，必须先审查 checkpoint 之后的所有写入。恢复会原地覆盖数据，只能使用下面的统一命令：它先部署维护配置并排空后台任务，D1 restore 成功后才回滚 Worker 和恢复触发器。排他 migration 后禁止单独执行 Worker rollback。
 
 ```bash
-pnpm exec wrangler d1 time-travel restore DB --bookmark="<bookmark>" --config wrangler.generated.jsonc
+pnpm cloudflare:deploy:recover -- --config wrangler.generated.jsonc --maintenance-config wrangler.maintenance.generated.jsonc --bookmark "<bookmark>" --worker-version "<version-id>"
 ```
+
+也可以从 `renewlet-before-upgrade.sql` 创建替代 D1 数据库，复核 binding 后仍按同一套维护优先恢复流程操作。失败后才捕获的 bookmark 不能替代升级前 checkpoint。
 
 Docker 与 Cloudflare 运行面的云备份快照上限统一为 16 MiB。若旧版本曾允许更大快照，升级前必须先用旧版本下载或恢复所有超过 16 MiB 的远端快照。
+
+导入、浏览器导出和云备份内容统一使用稳定的 `renewlet-export` schema v1；`renewlet-cloud-backup-snapshot` 传输封装同样保持 schema v1，并通过 `exportSchemaVersion=1` 声明内部载荷。
 
 ## 可选：Wrangler CLI
 
@@ -282,14 +285,13 @@ export WORKER_NAME="renewlet"
 export D1_DATABASE_ID="..."
 export R2_BUCKET_NAME="renewlet-assets"
 export CI_WRANGLER_CONFIG="wrangler.generated.jsonc"
+export CI_WRANGLER_MAINTENANCE_CONFIG="wrangler.maintenance.generated.jsonc"
 export CLOUDFLARE_OBSERVABILITY_PROFILE="development"
 
 pnpm cloudflare:config:ci
 pnpm check:cloudflare
 pnpm build:cloudflare
-pnpm cloudflare:migrations:apply --config wrangler.generated.jsonc
-pnpm cloudflare:queues:ensure
-pnpm exec wrangler deploy --config wrangler.generated.jsonc
+pnpm deploy -- --config wrangler.generated.jsonc --maintenance-config wrangler.maintenance.generated.jsonc
 ```
 
 ## 其他配置
@@ -308,11 +310,12 @@ pnpm exec wrangler deploy --config wrangler.generated.jsonc
 
 **日历订阅提示 `no such table: calendar_feeds`？**
 
-说明 Worker 已更新，但远端 D1 migrations 没有完成或没有运行。重新运行 `Cloudflare Worker` workflow，或执行：
+说明旧部署没有完成远端 D1 状态机。重新运行 `Cloudflare Worker` workflow，或在本地执行同一个部署编排器：
 
 ```bash
 pnpm cloudflare:config:ci
-pnpm cloudflare:migrations:apply --config wrangler.generated.jsonc
+pnpm build:cloudflare
+pnpm deploy -- --config wrangler.generated.jsonc --maintenance-config wrangler.maintenance.generated.jsonc
 ```
 
 **Server酱测试通知返回 HTTP 429？**

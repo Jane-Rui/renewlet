@@ -360,7 +360,7 @@ func schedulerSettingsForUser(app core.App, userID string) appSettings {
 	if err != nil {
 		return defaultAppSettings()
 	}
-	settings, err := currentUserSettings(app, user, nil)
+	settings, err := currentUserSettings(app, user)
 	if err != nil {
 		return defaultAppSettings()
 	}

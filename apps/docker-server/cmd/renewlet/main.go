@@ -85,7 +85,10 @@ func main() {
 		if err := e.Next(); err != nil {
 			return err
 		}
-		// PocketBase migration history 只保证迁移文件跑一次；后续启动仍要轻量校验 schema，旧数据修复则由内部账本防止重复全表扫描。
+		if err := prepareExclusiveSchemaDataMigrations(e.App); err != nil {
+			return err
+		}
+		// PocketBase migration history 只保证迁移文件跑一次；内部账本防止重复转换，排他契约仍会复核数据与 guard 漂移。
 		if err := e.App.RunAppMigrations(); err != nil {
 			return err
 		}

@@ -12,7 +12,7 @@ import (
 
 func TestBuildDueNotificationCreatesCostSharingCollectionReminders(t *testing.T) {
 	settings := defaultAppSettings()
-	settings.Locale = string(localeZhCN)
+	settings.LocalePreference = string(preferenceZhCN)
 	settings.Timezone = "UTC"
 	settings.NotificationReminderDays = 3
 	reminderDays := inheritReminderDays
@@ -40,7 +40,7 @@ func TestBuildDueNotificationCreatesCostSharingCollectionReminders(t *testing.T)
 				},
 			},
 		},
-	}, true)
+	}, true, accountContentLocale(settings))
 
 	if !message.HasPayload || len(message.Items) != 2 {
 		t.Fatalf("expected two collection reminders, got %#v", message.Items)
@@ -83,7 +83,7 @@ func TestBuildDueNotificationUsesCustomCostSharingCollectionCurrency(t *testing.
 				},
 			},
 		},
-	}, true)
+	}, true, accountContentLocale(settings))
 
 	if !message.HasPayload || len(message.Items) != 1 {
 		t.Fatalf("expected one custom collection reminder, got %#v", message.Items)
@@ -119,7 +119,7 @@ func TestBuildDueNotificationSkipsOneTimeBuyoutCostSharingCollection(t *testing.
 				Members: []costSharingMember{{ID: "partner", Name: "Partner", JoinedDate: "2026-04-14", Currency: "USD"}},
 			},
 		},
-	}, true)
+	}, true, accountContentLocale(settings))
 
 	if message.HasPayload || len(message.Items) != 0 {
 		t.Fatalf("expected one-time buyout collection reminder to be skipped, got %#v", message.Items)
@@ -163,8 +163,8 @@ func TestNotificationScheduleCandidateSubscriptionsMatchFullFiltering(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	fullMessage := buildDueNotificationForSchedule(schedule, time.Date(2026, 5, 14, 8, 0, 0, 0, time.UTC), settings, full, true)
-	candidateMessage := buildDueNotificationForSchedule(schedule, time.Date(2026, 5, 14, 8, 0, 0, 0, time.UTC), settings, candidates, true)
+	fullMessage := buildDueNotificationForSchedule(schedule, time.Date(2026, 5, 14, 8, 0, 0, 0, time.UTC), settings, full, true, accountContentLocale(settings))
+	candidateMessage := buildDueNotificationForSchedule(schedule, time.Date(2026, 5, 14, 8, 0, 0, 0, time.UTC), settings, candidates, true, accountContentLocale(settings))
 
 	if len(candidates) >= len(full) {
 		t.Fatalf("expected cron candidates to avoid full subscription scan, got candidates=%d full=%d", len(candidates), len(full))
@@ -214,7 +214,7 @@ func TestNotificationCronSettlesExhaustedCostSharingFailedJob(t *testing.T) {
 
 			sendCount := 0
 			originalSender := notificationSenders["webhook"]
-			notificationSenders["webhook"] = notificationSenderFunc(func(_ core.App, _ appSettings, _ notificationMessage) error {
+			notificationSenders["webhook"] = notificationSenderFunc(func(_ core.App, _ appSettings, _ notificationMessage, _ appLocale) error {
 				sendCount++
 				return errors.New("still failing")
 			})
@@ -294,6 +294,7 @@ func createFailedCronJobForTest(t *testing.T, app core.App, userID string, setti
 		"some_channels_failed",
 		schedule.localScheduleOccurrence,
 		settings,
+		accountContentLocale(settings),
 		notificationMessage{
 			Title:      "Renewlet",
 			Content:    "failed",

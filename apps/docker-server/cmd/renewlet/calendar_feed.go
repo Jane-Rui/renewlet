@@ -234,6 +234,8 @@ func renderCalendarFeedICS(app core.App, request *http.Request, feed *core.Recor
 		return "", "", err
 	}
 	sourceURL := calendarFeedURL(request, feed.GetString("token"))
+	// 日历客户端的请求语言不稳定且没有账号会话；Feed 内容必须始终由 owner 的账号内容语言决定。
+	contentLocale := accountContentLocale(settings)
 	switch feed.GetString("scope") {
 	case calendarFeedScopeSubscription:
 		subscription, err := findCalendarFeedSubscriptionByID(app, userID, feed.GetString("subscriptionId"))
@@ -241,7 +243,7 @@ func renderCalendarFeedICS(app core.App, request *http.Request, feed *core.Recor
 			return "", "", err
 		}
 		body := buildCalendarFeedICS(calendarFeedBuildOptions{
-			Name:              serverFormat(normalizeAppLocale(settings.Locale), "calendarFeed.subscriptionCalendarName", map[string]interface{}{"name": subscription.Name}),
+			Name:              serverFormat(contentLocale, "calendarFeed.subscriptionCalendarName", map[string]interface{}{"name": subscription.Name}),
 			SourceURL:         sourceURL,
 			Now:               time.Now().UTC(),
 			Settings:          settings,
@@ -255,7 +257,7 @@ func renderCalendarFeedICS(app core.App, request *http.Request, feed *core.Recor
 			return "", "", err
 		}
 		body := buildCalendarFeedICS(calendarFeedBuildOptions{
-			Name:              serverText(normalizeAppLocale(settings.Locale), "calendarFeed.calendarName"),
+			Name:              serverText(contentLocale, "calendarFeed.calendarName"),
 			SourceURL:         sourceURL,
 			Now:               time.Now().UTC(),
 			Settings:          settings,
@@ -277,9 +279,9 @@ func renderSubscriptionCalendarICSDownload(app core.App, userID string, subscrip
 	if err != nil {
 		return "", err
 	}
-	// 登录态下载是一次性 .ics 文件，不写 SOURCE/TTL，避免外部日历把它误当成可刷新的订阅 feed。
+	// 一次性 .ics 进入外部日历后脱离当前请求，因此沿用账号内容语言，且不写 SOURCE/TTL。
 	return buildCalendarFeedICS(calendarFeedBuildOptions{
-		Name:              serverFormat(normalizeAppLocale(settings.Locale), "calendarFeed.subscriptionCalendarName", map[string]interface{}{"name": subscription.Name}),
+		Name:              serverFormat(accountContentLocale(settings), "calendarFeed.subscriptionCalendarName", map[string]interface{}{"name": subscription.Name}),
 		Now:               time.Now().UTC(),
 		Settings:          settings,
 		Events:            subscriptionCalendarFeedEvents(subscription, settings, labels),
@@ -329,7 +331,7 @@ func calendarFeedSettingsForUser(app core.App, userID string) (appSettings, erro
 		}
 		return settings, err
 	}
-	return settingsFromRecord(record), nil
+	return settingsFromRecord(record)
 }
 
 func errorsIsNoRows(err error) bool {
@@ -468,7 +470,7 @@ func calendarFeedSubscriptionFromRecord(row *core.Record) calendarFeedSubscripti
 
 func newCalendarFeedLabelResolver(app core.App, userID string, settings appSettings) (calendarFeedLabelResolver, error) {
 	resolver := calendarFeedLabelResolver{
-		locale:               normalizeAppLocale(settings.Locale),
+		locale:               accountContentLocale(settings),
 		categoryByValue:      map[string]string{},
 		paymentMethodByValue: map[string]string{},
 	}
@@ -559,7 +561,7 @@ type calendarFeedBuildOptions struct {
 }
 
 func buildCalendarFeedICS(options calendarFeedBuildOptions) string {
-	locale := normalizeAppLocale(options.Settings.Locale)
+	locale := accountContentLocale(options.Settings)
 	events := options.Events
 	cal := ics.NewCalendar()
 	cal.SetProductId("-//Renewlet//Renewal Calendar//EN")
@@ -673,7 +675,7 @@ func calendarFeedAlarmDescription(event calendarFeedEvent, locale appLocale) str
 }
 
 func calendarFeedDescription(item calendarFeedSubscription, settings appSettings, labels calendarFeedLabelResolver) string {
-	locale := normalizeAppLocale(settings.Locale)
+	locale := accountContentLocale(settings)
 	lines := []string{
 		serverFormat(locale, "calendarFeed.description.amount", map[string]interface{}{"amount": formatAmount(item.Price), "currency": item.Currency}),
 		serverFormat(locale, "calendarFeed.description.billingCycle", map[string]interface{}{"cycle": calendarFeedBillingCycleLabel(item, locale)}),

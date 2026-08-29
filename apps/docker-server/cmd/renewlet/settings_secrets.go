@@ -127,7 +127,7 @@ func appSettingsSecretStatus(settings appSettings) map[string]settingsSecretConf
 	return status
 }
 
-func mergeSettingsRequest(base appSettings, raw json.RawMessage) (appSettings, error) {
+func mergeSettingsRequest(base appSettings, raw json.RawMessage, locale appLocale) (appSettings, error) {
 	// 裸 secret 字段必须先拒绝，再合并公共 patch 和判别联合；否则旧客户端可能把响应中的空值误写成 clear。
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil {
@@ -153,7 +153,7 @@ func mergeSettingsRequest(base appSettings, raw json.RawMessage) (appSettings, e
 		if bytes.Equal(bytes.TrimSpace(updatesRaw), []byte("null")) {
 			return base, errors.New("secretUpdates cannot be null")
 		}
-		if err := decodeStrictJSONBytesInto(updatesRaw, &updates, normalizeAppLocale(base.Locale), false); err != nil {
+		if err := decodeStrictJSONBytesInto(updatesRaw, &updates, locale, false); err != nil {
 			return base, err
 		}
 		delete(fields, "secretUpdates")
@@ -162,22 +162,22 @@ func mergeSettingsRequest(base appSettings, raw json.RawMessage) (appSettings, e
 	if err != nil {
 		return base, err
 	}
-	next, err := mergeSettingsForWrite(base, publicRaw)
+	next, err := mergeSettingsWithOptions(base, publicRaw, true, locale)
 	if err != nil {
 		return base, err
 	}
-	if err := applySettingsSecretUpdates(&next, updates); err != nil {
+	if err := applySettingsSecretUpdates(&next, updates, locale); err != nil {
 		return base, err
 	}
 	return sanitizeSettings(next), nil
 }
 
-func applySettingsSecretUpdates(settings *appSettings, updates settingsSecretUpdates) error {
+func applySettingsSecretUpdates(settings *appSettings, updates settingsSecretUpdates, locale appLocale) error {
 	apply := func(current *string, mutation *settingsSecretMutation) error {
 		if mutation == nil {
 			return nil
 		}
-		if err := mutation.Validate(normalizeAppLocale(settings.Locale)); err != nil {
+		if err := mutation.Validate(locale); err != nil {
 			return err
 		}
 		if mutation.Action == "keep" {

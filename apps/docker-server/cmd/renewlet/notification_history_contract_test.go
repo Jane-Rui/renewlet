@@ -23,6 +23,7 @@ func TestCreateJobResultUsesEmptyArraysForEmptyCollections(t *testing.T) {
 			ScheduledInstantUTC: "2026-05-17T08:00:00Z",
 		},
 		defaultAppSettings(),
+		defaultAppLocale,
 		notificationMessage{
 			Title:      "Renewlet 订阅提醒",
 			Content:    "No subscriptions need reminders today.",

@@ -12,7 +12,13 @@ import {
   cloudBackupScheduleWeekdaySchema,
   cloudBackupSnapshotManifestSchema,
 } from "./cloud-backup";
-import { importPayloadSchema, renewletExportManifestV1Schema, renewletExportV1Schema } from "./import-export";
+import {
+  fromRenewletExportSettingsV1,
+  importPayloadSchema,
+  renewletExportManifestV1Schema,
+  renewletExportV1Schema,
+  toRenewletExportSettingsV1,
+} from "./import-export";
 
 const success = <T>(data: T) => ({ ok: true, data });
 
@@ -460,5 +466,19 @@ describe("renewlet export schema", () => {
         exchangeRateSnapshots: [{ ...snapshot, provider: "builtin" }],
       },
     }).success).toBe(false);
+  });
+
+  it.each(["zh-CN", "en-US"] as const)("maps explicit %s preferences through the v1 locale field", (localePreference) => {
+    const exported = toRenewletExportSettingsV1({ localePreference, defaultCurrency: "USD" });
+
+    expect(exported).toEqual({ locale: localePreference, defaultCurrency: "USD" });
+    expect(fromRenewletExportSettingsV1(exported)).toEqual({ localePreference, defaultCurrency: "USD" });
+  });
+
+  it("omits auto from v1 exports and leaves an absent v1 locale out of the import patch", () => {
+    expect(toRenewletExportSettingsV1({ localePreference: "auto", defaultCurrency: "USD" })).toEqual({
+      defaultCurrency: "USD",
+    });
+    expect(fromRenewletExportSettingsV1({ defaultCurrency: "CNY" })).toEqual({ defaultCurrency: "CNY" });
   });
 });

@@ -14,7 +14,6 @@ func seedDemoSettings(app core.App, userID string) error {
 	}
 	settings := defaultAppSettings()
 	settings.AdminUsername = demoModePolicy.Name
-	settings.Locale = string(localeZhCN)
 	settings.DefaultCurrency = "CNY"
 	settings.PublicStatusCurrency = "inherit"
 	// 价格 catalog 覆盖多币种，demo 默认展示 CNY 参考价，避免访客先改设置才能看懂折算效果。

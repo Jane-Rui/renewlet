@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { RENEWLET_EXPORT_SCHEMA_VERSION } from "./import-export";
 import {
   UPSTREAM_RAW_RESPONSE_TEXT_MAX_CHARS,
   upstreamErrorDetailsSchema,
@@ -175,7 +176,7 @@ export const cloudBackupSnapshotManifestSchema = z.object({
   sizeBytes: z.number().int().nonnegative(),
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
   exportKind: z.literal("renewlet-export"),
-  exportSchemaVersion: z.literal(1),
+  exportSchemaVersion: z.literal(RENEWLET_EXPORT_SCHEMA_VERSION),
 }).strict();
 export type CloudBackupSnapshotManifest = z.infer<typeof cloudBackupSnapshotManifestSchema>;
 

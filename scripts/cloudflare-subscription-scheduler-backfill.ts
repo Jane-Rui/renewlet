@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { isValidDateOnly } from "../packages/shared/src/runtime";
-import { normalizeSettingsJson } from "../apps/worker/src/db";
+import { settingsFromRowJson } from "../apps/worker/src/db";
 import {
   addDays,
   dateOnlyInZone,
@@ -128,7 +128,7 @@ export async function assertStoredSubscriptionSchedulerRowsValid(
     `, [cursorUserId, pageSize], schedulerVerificationRowSchema.parse);
     if (rows.length === 0) return;
     for (const row of rows) {
-      const settings = normalizeSettingsJson(row.settings_json ?? "{}");
+      const settings = settingsFromRowJson(row.settings_json);
       const autoRenewCount = Number(row.fact_auto_renew_count);
       const repeatReminderCount = Number(row.fact_repeat_reminder_count);
       if (
@@ -194,7 +194,7 @@ export async function assertSubscriptionSchedulerRows(
     `, [cursorUserId, pageSize], schedulerVerificationRowSchema.parse);
     if (rows.length === 0) return;
     for (const row of rows) {
-      const settings = normalizeSettingsJson(row.settings_json ?? "{}");
+      const settings = settingsFromRowJson(row.settings_json);
       const autoRenewCount = Number(row.fact_auto_renew_count);
       const repeatReminderCount = Number(row.fact_repeat_reminder_count);
       if (

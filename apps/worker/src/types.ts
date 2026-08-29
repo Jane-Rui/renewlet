@@ -6,10 +6,11 @@ import type { CustomCycleUnit } from "@renewlet/shared/runtime";
 /**
  * Env 的 binding 字段来自 `wrangler types --env-file /dev/null` 生成结果；这里仅补 CI 注入的可选构建元信息。
  *
- * `SETUP_ENABLED` 在 wrangler.jsonc 中有默认值，但测试和生成配置可能显式省略，运行时仍按关闭外的字符串判断。
+ * `SETUP_ENABLED` 与维护开关在 wrangler.jsonc 中有默认值，但测试和生成配置可能显式省略。
  */
-export type Env = Omit<Cloudflare.Env, "SETUP_ENABLED" | "MEDIA_ICON_INDEX_REFRESH_QUEUE"> & {
+export type Env = Omit<Cloudflare.Env, "SETUP_ENABLED" | "RENEWLET_MAINTENANCE_MODE" | "MEDIA_ICON_INDEX_REFRESH_QUEUE"> & {
   SETUP_ENABLED?: string;
+  RENEWLET_MAINTENANCE_MODE?: string;
   SESSION_TTL_DAYS?: string;
   RENEWLET_VERSION?: string;
   RENEWLET_COMMIT?: string;

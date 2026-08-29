@@ -5,11 +5,14 @@ package main
 import (
 	"encoding/json"
 	"maps"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/pocketbase/pocketbase/core"
 )
 
 func TestNotificationSenderRegistryMatchesKnownChannels(t *testing.T) {
@@ -28,6 +31,85 @@ func TestNotificationSenderRegistryMatchesKnownChannels(t *testing.T) {
 	}
 }
 
+func TestNotificationRoutesUseCurrentRequestLocale(t *testing.T) {
+	app := newSchemaTestApp(t)
+	if err := ensureSchema(app); err != nil {
+		t.Fatal(err)
+	}
+	user, token := createRouteTestUser(t, app, "notification-request-locale")
+	settings := defaultAppSettings()
+	settings.LocalePreference = string(preferenceEnUS)
+	settings.EnabledChannels = []string{"serverchan"}
+	createNotificationCronRouteTestSettings(t, app, user, settings)
+
+	type capturedNotification struct {
+		locale  appLocale
+		message notificationMessage
+	}
+	captured := []capturedNotification{}
+	originalSender := notificationSenders["serverchan"]
+	notificationSenders["serverchan"] = notificationSenderFunc(func(_ core.App, _ appSettings, message notificationMessage, locale appLocale) error {
+		captured = append(captured, capturedNotification{locale: locale, message: message})
+		return nil
+	})
+	defer func() { notificationSenders["serverchan"] = originalSender }()
+
+	headers := map[string]string{"X-Renewlet-Locale": "zh-CN"}
+	testResponse := serveTestRequestWithHeaders(t, app, http.MethodPost, "/api/app/notifications/test", `{"channel":"serverchan"}`, token, headers)
+	if testResponse.Code != http.StatusOK {
+		t.Fatalf("expected notification test 200, got %d: %s", testResponse.Code, testResponse.Body.String())
+	}
+	manualResponse := serveTestRequestWithHeaders(t, app, http.MethodPost, "/api/app/notifications/run", `{"force":true}`, token, headers)
+	if manualResponse.Code != http.StatusOK {
+		t.Fatalf("expected manual notification run 200, got %d: %s", manualResponse.Code, manualResponse.Body.String())
+	}
+
+	if len(captured) != 2 {
+		t.Fatalf("expected test and manual notifications, got %#v", captured)
+	}
+	if captured[0].locale != localeZhCN || captured[0].message.Title != "Renewlet 测试通知" {
+		t.Fatalf("test notification should use the current request locale: %#v", captured[0])
+	}
+	if captured[1].locale != localeZhCN || captured[1].message.Title != "Renewlet 订阅提醒" {
+		t.Fatalf("manual notification should use the current request locale: %#v", captured[1])
+	}
+}
+
+func TestNotificationCronAutoPreferenceUsesEnglishContent(t *testing.T) {
+	app := newSchemaTestApp(t)
+	if err := ensureSchema(app); err != nil {
+		t.Fatal(err)
+	}
+	user, _ := createRouteTestUser(t, app, "notification-cron-locale")
+	settings := defaultAppSettings()
+	settings.LocalePreference = string(autoLocalePreference)
+	settings.EnabledChannels = []string{"serverchan"}
+	settings.Timezone = "UTC"
+	settings.NotificationTimeLocal = "08:00"
+	createNotificationCronRouteTestSettings(t, app, user, settings)
+
+	var capturedLocale appLocale
+	var capturedMessage notificationMessage
+	originalSender := notificationSenders["serverchan"]
+	notificationSenders["serverchan"] = notificationSenderFunc(func(_ core.App, _ appSettings, message notificationMessage, locale appLocale) error {
+		capturedLocale = locale
+		capturedMessage = message
+		return nil
+	})
+	defer func() { notificationSenders["serverchan"] = originalSender }()
+
+	result, err := runNotificationCron(app, notificationCronOptions{
+		Force: true,
+		Now:   time.Date(2026, 5, 14, 8, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Sent != 1 || capturedLocale != localeEnUS || capturedMessage.Title != "Renewlet subscription reminder" {
+		t.Fatalf("auto cron content should use the English background fallback: result=%#v locale=%q message=%#v", result, capturedLocale, capturedMessage)
+	}
+}
+
 func TestBuildDueNotificationForLocalDate(t *testing.T) {
 	settings := defaultAppSettings()
 	settings.ShowExpired = true
@@ -37,7 +119,7 @@ func TestBuildDueNotificationForLocalDate(t *testing.T) {
 		{ID: "renewal", Name: "Renewal", Price: "18", Currency: "CNY", Status: "active", NextBillingDate: "2026-05-17", ReminderDays: 3},
 		{ID: "trial", Name: "Trial", Price: "9.9", Currency: "USD", Status: "trial", NextBillingDate: "2026-06-01", TrialEndDate: "2026-05-15", ReminderDays: 1},
 		{ID: "expired", Name: "Expired", Price: "12", Currency: "EUR", Status: "active", NextBillingDate: "2026-05-01", ReminderDays: 7},
-	}, true)
+	}, true, accountContentLocale(settings))
 
 	if !message.HasPayload {
 		t.Fatal("expected notification payload")
@@ -57,7 +139,7 @@ func TestBuildDueNotificationSkipsOneTimePurchases(t *testing.T) {
 
 	message := buildDueNotificationForLocalDate("2026-05-14", time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC), settings, []notificationSubscription{
 		{ID: "one-time", Name: "Lifetime", Price: "199", Currency: "USD", Status: "active", BillingCycle: "one-time", NextBillingDate: "2026-05-14", TrialEndDate: "2026-05-14", ReminderDays: 0},
-	}, true)
+	}, true, accountContentLocale(settings))
 
 	if message.HasPayload || len(message.Items) != 0 {
 		t.Fatalf("expected one-time purchase to be excluded from notifications, got %#v", message.Items)
@@ -66,13 +148,13 @@ func TestBuildDueNotificationSkipsOneTimePurchases(t *testing.T) {
 
 func TestBuildDueNotificationCreatesOneTimeFixedTermExpiry(t *testing.T) {
 	settings := defaultAppSettings()
-	settings.Locale = string(localeZhCN)
+	settings.LocalePreference = string(preferenceZhCN)
 	settings.ShowExpired = false
 	settings.Timezone = "Asia/Shanghai"
 
 	message := buildDueNotificationForLocalDate("2026-05-14", time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC), settings, []notificationSubscription{
 		{ID: "fixed-term", Name: "Fixed Term", Price: "120", Currency: "USD", Status: "active", BillingCycle: "one-time", OneTimeTermCount: 6, OneTimeTermUnit: "month", NextBillingDate: "2026-05-17", ReminderDays: 3},
-	}, true)
+	}, true, accountContentLocale(settings))
 
 	if !message.HasPayload || len(message.Items) != 1 {
 		t.Fatalf("expected one fixed-term expiry notification, got %#v", message.Items)
@@ -87,12 +169,12 @@ func TestBuildDueNotificationCreatesOneTimeFixedTermExpiry(t *testing.T) {
 
 func TestBuildDueNotificationUsesEnglishLocale(t *testing.T) {
 	settings := defaultAppSettings()
-	settings.Locale = string(localeEnUS)
+	settings.LocalePreference = string(preferenceEnUS)
 	settings.Timezone = "UTC"
 
 	message := buildDueNotificationForLocalDate("2026-05-14", time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC), settings, []notificationSubscription{
 		{ID: "renewal", Name: "Renewal", Price: "18", Currency: "USD", Status: "active", NextBillingDate: "2026-05-17", ReminderDays: 3},
-	}, true)
+	}, true, accountContentLocale(settings))
 
 	if message.Title != "Renewlet subscription reminder" {
 		t.Fatalf("unexpected title %q", message.Title)
@@ -109,7 +191,7 @@ func TestBuildDueNotificationUsesGlobalReminderForInheritedSubscription(t *testi
 
 	message := buildDueNotificationForLocalDate("2026-05-12", time.Date(2026, 5, 12, 1, 2, 3, 0, time.UTC), settings, []notificationSubscription{
 		{ID: "inherit", Name: "Inherited", Price: "18", Currency: "USD", Status: "active", NextBillingDate: "2026-05-17", ReminderDays: inheritReminderDays},
-	}, true)
+	}, true, accountContentLocale(settings))
 
 	if !message.HasPayload || len(message.Items) != 1 {
 		t.Fatalf("expected inherited reminder item, got %#v", message.Items)
@@ -125,7 +207,7 @@ func TestBuildDueNotificationSkipsDisabledReminderSubscription(t *testing.T) {
 
 	message := buildDueNotificationForLocalDate("2026-05-14", time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC), settings, []notificationSubscription{
 		{ID: "quiet", Name: "Quiet", Price: "18", Currency: "USD", Status: "active", NextBillingDate: "2026-05-14", ReminderDays: disabledReminderDays},
-	}, true)
+	}, true, accountContentLocale(settings))
 
 	if message.HasPayload || len(message.Items) != 0 {
 		t.Fatalf("expected disabled reminder subscription to be excluded, got %#v", message.Items)
@@ -156,7 +238,7 @@ func TestRepeatReminderScheduleBuildsRepeatItem(t *testing.T) {
 		t.Fatalf("expected 09:00 repeat reminder to be due, got %#v", schedule)
 	}
 
-	message := buildDueNotificationForSchedule(schedule.localScheduleOccurrence, now, settings, subscriptions, true)
+	message := buildDueNotificationForSchedule(schedule.localScheduleOccurrence, now, settings, subscriptions, true, accountContentLocale(settings))
 	if !message.HasPayload || len(message.Items) != 1 {
 		t.Fatalf("expected one repeat reminder item, got %#v", message)
 	}
@@ -199,7 +281,7 @@ func TestRepeatReminderScheduleSkipsDisabledReminderSubscription(t *testing.T) {
 		ScheduledLocalTime:  "09:00",
 		TimeZone:            "UTC",
 		ScheduledInstantUTC: "2026-05-14T09:00:00Z",
-	}, now, settings, subscriptions, true)
+	}, now, settings, subscriptions, true, accountContentLocale(settings))
 	if message.HasPayload || len(message.Items) != 0 {
 		t.Fatalf("expected disabled reminder subscription to skip repeat items, got %#v", message.Items)
 	}
@@ -230,7 +312,7 @@ func TestRepeatReminderScheduleUsesGlobalReminderForInheritedSubscription(t *tes
 		t.Fatalf("expected inherited repeat reminder to be due, got %#v", schedule)
 	}
 
-	message := buildDueNotificationForSchedule(schedule.localScheduleOccurrence, now, settings, subscriptions, true)
+	message := buildDueNotificationForSchedule(schedule.localScheduleOccurrence, now, settings, subscriptions, true, accountContentLocale(settings))
 	if !message.HasPayload || len(message.Items) != 1 {
 		t.Fatalf("expected one inherited repeat item, got %#v", message.Items)
 	}
@@ -301,7 +383,7 @@ func TestRegularAndRepeatReminderItemsShareOneSchedule(t *testing.T) {
 			NextBillingDate: "2026-05-18",
 			ReminderDays:    3,
 		},
-	}, true)
+	}, true, accountContentLocale(settings))
 
 	if len(message.Items) != 2 {
 		t.Fatalf("expected regular and repeat items in one schedule, got %#v", message.Items)
@@ -343,8 +425,8 @@ func TestRepeatReminderCandidateSubscriptionsMatchFullFiltering(t *testing.T) {
 	if !candidateSchedule.Due || candidateSchedule.ScheduledLocalTime != fullSchedule.ScheduledLocalTime {
 		t.Fatalf("candidate repeat schedule = %#v, want %#v", candidateSchedule, fullSchedule)
 	}
-	fullMessage := buildDueNotificationForSchedule(fullSchedule.localScheduleOccurrence, now, settings, full, true)
-	candidateMessage := buildDueNotificationForSchedule(candidateSchedule.localScheduleOccurrence, now, settings, candidates, true)
+	fullMessage := buildDueNotificationForSchedule(fullSchedule.localScheduleOccurrence, now, settings, full, true, accountContentLocale(settings))
+	candidateMessage := buildDueNotificationForSchedule(candidateSchedule.localScheduleOccurrence, now, settings, candidates, true, accountContentLocale(settings))
 	if got, want := notificationItemKeys(candidateMessage.Items), notificationItemKeys(fullMessage.Items); strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("candidate repeat items = %#v, want %#v", got, want)
 	}
@@ -559,7 +641,7 @@ func TestBuildBarkRequestURLAddsSinglePublicSubscriptionIcon(t *testing.T) {
 			Name:    "AWS",
 			LogoURL: "https://cdn.example.com/icons/aws.png?size=128",
 		}},
-	})
+	}, defaultAppLocale)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -606,7 +688,7 @@ func TestBuildBarkRequestURLSkipsUnsafeOrAmbiguousIcons(t *testing.T) {
 				Content:   "即将续费",
 				Timestamp: "2026-05-14 08:00",
 				Items:     tc.items,
-			})
+			}, defaultAppLocale)
 			if err != nil {
 				t.Fatal(err)
 			}

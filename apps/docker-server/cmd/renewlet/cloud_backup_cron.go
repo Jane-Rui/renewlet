@@ -64,7 +64,7 @@ func runDueCloudBackups(app core.App, now time.Time) error {
 				// UI 已禁止 demo 配置云备份；cron 仍要防历史残留配置被后台 tick 上传到真实远端。
 				continue
 			}
-			settings, err := currentUserSettings(app, user, nil)
+			settings, err := currentUserSettings(app, user)
 			if err != nil {
 				settings = defaultAppSettings()
 			}
@@ -138,7 +138,7 @@ func latestCloudBackupScheduledInstant(now time.Time, timezone string, policy cl
 		loc = time.UTC
 		timezone = "UTC"
 	}
-	if err := policy.NormalizeAndValidate("zh-CN"); err != nil {
+	if err := policy.NormalizeAndValidate(defaultAppLocale); err != nil {
 		policy = defaultCloudBackupPolicy()
 	}
 	localNow := now.In(loc)

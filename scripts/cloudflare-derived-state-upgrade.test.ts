@@ -206,7 +206,7 @@ function openDerivedDatabase({ v2Marker = true }: { v2Marker?: boolean } = {}): 
       completed_at TEXT NOT NULL
     );
     INSERT INTO users (id) VALUES ('usr_one'), ('usr_two');
-    INSERT INTO settings (user_id, settings_json) VALUES ('usr_one', '{}');
+    INSERT INTO settings (user_id, settings_json) VALUES ('usr_one', '{"localePreference":"auto"}');
     INSERT INTO subscriptions (
       id, user_id, name, price, currency, billing_cycle, category, status, pinned, public_hidden,
       start_date, next_billing_date, auto_renew, auto_calculate_next_billing_date, website, notes, tags_json,

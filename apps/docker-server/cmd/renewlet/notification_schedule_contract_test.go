@@ -26,20 +26,20 @@ type notificationScheduleFixtureSettings struct {
 }
 
 type notificationScheduleFixtureSub struct {
-	ID                     string  `json:"id"`
-	Name                   string  `json:"name"`
-	Price                  string  `json:"price"`
-	Currency               string  `json:"currency"`
-	Status                 string  `json:"status"`
-	BillingCycle           string  `json:"billingCycle"`
-	OneTimeTermCount       int     `json:"oneTimeTermCount,omitempty"`
-	OneTimeTermUnit        string  `json:"oneTimeTermUnit,omitempty"`
-	NextBillingDate        string  `json:"nextBillingDate"`
-	TrialEndDate           string  `json:"trialEndDate,omitempty"`
-	ReminderDays           int     `json:"reminderDays"`
-	RepeatReminderEnabled  bool    `json:"repeatReminderEnabled"`
-	RepeatReminderInterval string  `json:"repeatReminderInterval"`
-	RepeatReminderWindow   string  `json:"repeatReminderWindow"`
+	ID                     string `json:"id"`
+	Name                   string `json:"name"`
+	Price                  string `json:"price"`
+	Currency               string `json:"currency"`
+	Status                 string `json:"status"`
+	BillingCycle           string `json:"billingCycle"`
+	OneTimeTermCount       int    `json:"oneTimeTermCount,omitempty"`
+	OneTimeTermUnit        string `json:"oneTimeTermUnit,omitempty"`
+	NextBillingDate        string `json:"nextBillingDate"`
+	TrialEndDate           string `json:"trialEndDate,omitempty"`
+	ReminderDays           int    `json:"reminderDays"`
+	RepeatReminderEnabled  bool   `json:"repeatReminderEnabled"`
+	RepeatReminderInterval string `json:"repeatReminderInterval"`
+	RepeatReminderWindow   string `json:"repeatReminderWindow"`
 }
 
 type notificationScheduleFixtureExpectation struct {
@@ -83,7 +83,7 @@ func TestNotificationScheduleMatchesSharedFixtures(t *testing.T) {
 				decision.ScheduledInstantUTC != fixture.Expected.ScheduledInstantUTC {
 				t.Fatalf("schedule = %#v, want date=%s time=%s tz=%s instant=%s", decision.localScheduleOccurrence, fixture.Expected.ScheduledLocalDate, fixture.Expected.ScheduledLocalTime, fixture.Expected.TimeZone, fixture.Expected.ScheduledInstantUTC)
 			}
-			message := buildDueNotificationForSchedule(decision.localScheduleOccurrence, now, settings, subscriptions, true)
+			message := buildDueNotificationForSchedule(decision.localScheduleOccurrence, now, settings, subscriptions, true, accountContentLocale(settings))
 			gotTypes := make([]string, 0, len(message.Items))
 			for _, item := range message.Items {
 				gotTypes = append(gotTypes, item.Type)

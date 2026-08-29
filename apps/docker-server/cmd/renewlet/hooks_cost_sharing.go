@@ -216,7 +216,7 @@ func settingsForSubscriptionMirror(app core.App, userID string) appSettings {
 	if strings.TrimSpace(userID) == "" {
 		return defaultAppSettings()
 	}
-	_, settings, err := settingsRecordOrDefault(app, userID, normalizeAppLocale(""))
+	_, settings, err := settingsRecordOrDefault(app, userID)
 	if err != nil {
 		return defaultAppSettings()
 	}

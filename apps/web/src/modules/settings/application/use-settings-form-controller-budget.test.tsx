@@ -38,8 +38,8 @@ const mocks = vi.hoisted(() => ({
   setTheme: vi.fn(),
   clearThemeModeOverride: vi.fn(),
   theme: "dark",
-  commitLocale: vi.fn(),
-  syncRemoteLocale: vi.fn(),
+  commitLocalePreference: vi.fn(),
+  syncRemoteLocalePreference: vi.fn(),
   testConnection: vi.fn(),
   refetchNotificationHistory: vi.fn<() => Promise<void>>(),
   publicStatusPageStatus: { data: { enabled: false, pageUrl: undefined as string | undefined, showPrices: false }, isLoading: false },
@@ -170,8 +170,8 @@ vi.mock("@/i18n/I18nProvider", () => {
   return {
     useI18n: () => ({
       t: (key: string) => messages[key] ?? key,
-      commitLocale: mocks.commitLocale,
-      syncRemoteLocale: mocks.syncRemoteLocale,
+      commitLocalePreference: mocks.commitLocalePreference,
+      syncRemoteLocalePreference: mocks.syncRemoteLocalePreference,
     }),
   };
 });
@@ -243,8 +243,8 @@ describe("useSettingsFormController monthly budget input", () => {
     mocks.setTheme.mockReset();
     mocks.clearThemeModeOverride.mockReset();
     mocks.theme = "dark";
-    mocks.commitLocale.mockReset();
-    mocks.syncRemoteLocale.mockReset();
+    mocks.commitLocalePreference.mockReset();
+    mocks.syncRemoteLocalePreference.mockReset();
     localStorage.removeItem(APPEARANCE_PENDING_STORAGE_KEY);
     localStorage.removeItem(SETTINGS_APPEARANCE_PENDING_STORAGE_KEY);
     localStorage.removeItem(SETTINGS_THEME_MODE_STORAGE_KEY);

@@ -2,16 +2,16 @@ import { useEffect } from "react";
 import { useSettings } from "@/hooks/use-settings";
 import { useI18n } from "@/i18n/I18nProvider";
 
-/** 登录后的 settings.locale 是远端事实源；公开首屏不应为此加载完整 settings 模型。 */
+/** 登录后的明确账号偏好覆盖设备推断；auto 则重新交还给当前浏览器。 */
 export default function PrivateLocaleSync() {
   const { data: settings } = useSettings();
-  const { syncRemoteLocale } = useI18n();
+  const { syncRemoteLocalePreference } = useI18n();
 
   useEffect(() => {
-    if (settings?.locale) {
-      syncRemoteLocale(settings.locale);
+    if (settings?.localePreference) {
+      syncRemoteLocalePreference(settings.localePreference);
     }
-  }, [settings?.locale, syncRemoteLocale]);
+  }, [settings?.localePreference, syncRemoteLocalePreference]);
 
   return null;
 }

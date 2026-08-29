@@ -11,13 +11,14 @@ import { formatter } from "@lingui/format-po";
 import ts from "typescript";
 
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const i18nConfig = JSON.parse(fs.readFileSync(path.join(rootDir, "packages/shared/data/i18n-config.json"), "utf8"));
 const catalogDir = path.join(rootDir, "apps/web/src/i18n/catalogs");
 const catalogKeysPath = path.join(rootDir, "apps/web/src/i18n/catalog-keys.ts");
 const builtInLabelsPath = path.join(rootDir, "apps/web/src/i18n/built-in-labels.ts");
 const clientSourceDir = path.join(rootDir, "apps/web/src");
 const labelMessagesModule = "@/i18n/label-messages";
-const locales = ["zh-CN", "en-US"];
-const sourceLocale = locales[0];
+const locales = i18nConfig.supportedLocales;
+const sourceLocale = i18nConfig.sourceLocale;
 const domains = [
   "common",
   "legal",

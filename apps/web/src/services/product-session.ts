@@ -1,4 +1,8 @@
 import { sessionPayloadSchema, type SessionResponse } from "@renewlet/shared/schemas/auth";
+import {
+  ACCOUNT_LOCALE_PROJECTION_KEY,
+  clearAccountLocaleProjection,
+} from "@/i18n/account-locale-projection";
 
 /**
  * 产品 session 是浏览器唯一持久登录态；MFA ticket、Passkey challenge 和恢复码明文都不能进入这里。
@@ -42,12 +46,15 @@ function parseSessionRecord(value: string | null): ProductSessionRecord | null {
 
 export function readProductSessionRecord(): ProductSessionRecord | null {
   if (typeof localStorage === "undefined") return null;
-  const record = parseSessionRecord(localStorage.getItem(STORAGE_KEY));
-  if (!record) {
+  try {
+    const record = parseSessionRecord(localStorage.getItem(STORAGE_KEY));
+    if (record) return record;
     localStorage.removeItem(STORAGE_KEY);
+    clearAccountLocaleProjection();
+    return null;
+  } catch {
     return null;
   }
-  return record;
 }
 
 export function readProductSession(): ProductSessionData | null {
@@ -63,26 +70,39 @@ export function writeProductSession(
   options: { verifiedAt?: number } = {},
 ) {
   if (typeof localStorage === "undefined") return;
-  if (session) {
-    // 这里只有完成 MFA 后的产品 session 会持久化；mfa_required ticket 不允许进入 localStorage。
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      version: STORAGE_VERSION,
-      value: session,
-      verifiedAt: options.verifiedAt ?? Date.now(),
-    }));
-  } else {
-    localStorage.removeItem(STORAGE_KEY);
+  try {
+    const previousUserId = parseSessionRecord(localStorage.getItem(STORAGE_KEY))?.value.user.id ?? null;
+    const nextUserId = session?.user.id ?? null;
+    if (!nextUserId || (previousUserId && previousUserId !== nextUserId)) {
+      // 账号语言投影的生命周期从属于产品 session；退出或换号必须先释放，登录页和下一账号才能回到设备语言。
+      clearAccountLocaleProjection();
+    }
+    if (session) {
+      // 这里只有完成 MFA 后的产品 session 会持久化；mfa_required ticket 不允许进入 localStorage。
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        version: STORAGE_VERSION,
+        value: session,
+        verifiedAt: options.verifiedAt ?? Date.now(),
+      }));
+    } else {
+      localStorage.removeItem(STORAGE_KEY);
+    }
+  } catch {
+    return;
   }
   window.dispatchEvent(new Event(CHANGE_EVENT));
 }
 
 export function subscribeProductSession(listener: () => void): () => void {
   if (typeof window === "undefined") return () => undefined;
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key === STORAGE_KEY || event.key === ACCOUNT_LOCALE_PROJECTION_KEY) listener();
+  };
   window.addEventListener(CHANGE_EVENT, listener);
-  window.addEventListener("storage", listener);
+  window.addEventListener("storage", handleStorage);
   return () => {
     window.removeEventListener(CHANGE_EVENT, listener);
-    window.removeEventListener("storage", listener);
+    window.removeEventListener("storage", handleStorage);
   };
 }
 

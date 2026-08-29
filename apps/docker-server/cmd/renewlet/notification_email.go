@@ -17,9 +17,8 @@ import (
 )
 
 // sendEmail 发送 SMTP 邮件通知。
-func sendEmail(settings appSettings, message notificationMessage) error {
-	locale := normalizeAppLocale(settings.Locale)
-	config, err := smtpConfigFromSettings(settings)
+func sendEmail(settings appSettings, message notificationMessage, locale appLocale) error {
+	config, err := smtpConfigFromSettings(settings, locale)
 	if err != nil {
 		return err
 	}
@@ -61,7 +60,7 @@ func sendEmail(settings appSettings, message notificationMessage) error {
 	if authMethod := strings.TrimSpace(os.Getenv("SMTP_AUTH_METHOD")); authMethod != "" && !hasSettingsSmtpConfig(settings) {
 		client.AuthMethod = authMethod
 	}
-	htmlBody, err := buildEmailHTMLMessage(settings, message)
+	htmlBody, err := buildEmailHTMLMessage(settings, message, locale)
 	if err != nil {
 		return err
 	}
@@ -89,8 +88,7 @@ type smtpConfig struct {
 	ReplyTo  string
 }
 
-func smtpConfigFromSettings(settings appSettings) (smtpConfig, error) {
-	locale := normalizeAppLocale(settings.Locale)
+func smtpConfigFromSettings(settings appSettings, locale appLocale) (smtpConfig, error) {
 	if hasSettingsSmtpConfig(settings) {
 		return buildSMTPConfigForLocale(
 			strings.TrimSpace(settings.SMTPHost),

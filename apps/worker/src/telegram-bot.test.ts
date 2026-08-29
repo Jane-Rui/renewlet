@@ -48,7 +48,8 @@ function d1Result<T = unknown>(results: T[] = [], changes = 0): D1Result<T> {
 
 function settings(overrides: Partial<ApiAppSettings> = {}): ApiAppSettings {
   return {
-    ...createDefaultAppSettings({ locale: "zh-CN" }),
+    ...createDefaultAppSettings(),
+    localePreference: "zh-CN",
     timezone: "UTC",
     telegramBotToken: BOT_TOKEN,
     telegramChatId: CHAT_ID,

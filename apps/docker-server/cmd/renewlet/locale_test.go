@@ -21,12 +21,14 @@ func TestRequestLocalePrefersExplicitHeader(t *testing.T) {
 
 	req.Header.Set("X-Renewlet-Locale", "en-GB")
 	if got := requestLocale(req); got != localeEnUS {
-		t.Fatalf("expected en-US for matched explicit header, got %s", got)
+		t.Fatalf("expected unsupported explicit header to fall back to en-US, got %s", got)
 	}
 
-	req.Header.Set("X-Renewlet-Locale", "fr-FR")
-	if got := requestLocale(req); got != localeEnUS {
-		t.Fatalf("expected invalid explicit header to fall back to default locale, got %s", got)
+	for _, invalid := range []string{"fr-FR", "zh-Hant", "zh-CN, en-US", "zh-$$$"} {
+		req.Header.Set("X-Renewlet-Locale", invalid)
+		if got := requestLocale(req); got != localeEnUS {
+			t.Fatalf("expected invalid explicit header %q to fall back to default locale, got %s", invalid, got)
+		}
 	}
 }
 
@@ -45,6 +47,45 @@ func TestAcceptLanguageLocaleUsesHighestQualitySupportedLanguage(t *testing.T) {
 	}
 	if got := acceptLanguageLocale("en-US;q=0, zh-Hant;q=0.8"); got != localeZhCN {
 		t.Fatalf("expected zh-CN for zh-Hant fallback, got %s", got)
+	}
+	if got := acceptLanguageLocale("zh-CN;q=0.8junk, en-US;q=0.7"); got != localeEnUS {
+		t.Fatalf("expected malformed quality item to be skipped, got %s", got)
+	}
+	if got := acceptLanguageLocale("zh-CN;q=1.1, en-US;q=0.4"); got != localeEnUS {
+		t.Fatalf("expected out-of-range quality item to be skipped, got %s", got)
+	}
+	if got := acceptLanguageLocale("zh-CN;q=NaN, en-US;q=0.4"); got != localeEnUS {
+		t.Fatalf("expected non-finite quality item to be skipped, got %s", got)
+	}
+	if got := acceptLanguageLocale("zh-CN;q=0x1, en-US;q=0.4"); got != localeEnUS {
+		t.Fatalf("expected non-decimal quality item to be skipped, got %s", got)
+	}
+	if got := acceptLanguageLocale("zh-CN;q=0.1234, en-US;q=0.4"); got != localeEnUS {
+		t.Fatalf("expected over-precise quality item to be skipped, got %s", got)
+	}
+	if got := acceptLanguageLocale("zh-$$$;q=0.9, en-US;q=0.8"); got != localeEnUS {
+		t.Fatalf("expected invalid language tag to be skipped, got %s", got)
+	}
+	if got := acceptLanguageLocale("*;q=0.9, zh-CN;q=0.8"); got != localeEnUS {
+		t.Fatalf("expected wildcard to select the default locale by quality, got %s", got)
+	}
+	if got := acceptLanguageLocale("zh-CN;q=0.5, en-US;q=0.5"); got != localeZhCN {
+		t.Fatalf("expected original order to break equal-quality ties, got %s", got)
+	}
+}
+
+func TestAccountContentLocaleUsesExplicitPreferenceOrEnglishFallback(t *testing.T) {
+	settings := defaultAppSettings()
+	if got := accountContentLocale(settings); got != localeEnUS {
+		t.Fatalf("expected auto account content to fall back to en-US, got %s", got)
+	}
+	settings.LocalePreference = string(preferenceZhCN)
+	if got := accountContentLocale(settings); got != localeZhCN {
+		t.Fatalf("expected explicit zh-CN account preference, got %s", got)
+	}
+	settings.LocalePreference = "fr-FR"
+	if got := accountContentLocale(settings); got != localeEnUS {
+		t.Fatalf("expected invalid account preference to fall back to en-US, got %s", got)
 	}
 }
 

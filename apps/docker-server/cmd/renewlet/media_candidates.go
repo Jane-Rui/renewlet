@@ -32,7 +32,7 @@ func mediaCandidates(e *core.RequestEvent) error {
 		limit = *body.Limit
 	}
 	limit = clampInt(limit, 1, mediaResolverCfg.Limits.MaxCandidates)
-	settings, err := currentUserSettings(e.App, e.Auth, nil)
+	settings, err := currentUserSettings(e.App, e.Auth)
 	if err != nil {
 		return e.BadRequestError(validationErrorMessage(locale, "notification.settingsInvalid", err), err)
 	}

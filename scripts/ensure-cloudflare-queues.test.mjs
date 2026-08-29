@@ -7,7 +7,7 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const scriptPath = join(repoRoot, "scripts/ensure-cloudflare-queues.mjs");
+const scriptPath = join(repoRoot, "scripts/ensure-cloudflare-queues.ts");
 
 function writeQueueConfig(path, { queue = "renewlet-test-refresh", dlq = "renewlet-test-refresh-dlq", includeConsumer = true } = {}) {
   writeFileSync(path, `${JSON.stringify({
@@ -59,7 +59,7 @@ function runEnsure(responses, configOptions) {
     writeQueueConfig(configPath, configOptions);
     writeFakePnpm(binDir);
     writeFileSync(statePath, JSON.stringify({ responses, calls: [] }, null, 2));
-    const result = spawnSync(process.execPath, [scriptPath], {
+    const result = spawnSync(process.execPath, ["--import", "tsx", scriptPath], {
       cwd: repoRoot,
       encoding: "utf8",
       env: {

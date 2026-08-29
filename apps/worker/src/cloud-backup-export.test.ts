@@ -115,6 +115,27 @@ describe("Cloudflare cloud backup export ZIP", () => {
     }]);
   });
 
+  it.each([
+    ["auto", undefined],
+    ["zh-CN", "zh-CN"],
+    ["en-US", "en-US"],
+  ] as const)("maps %s to the v1 locale field", async (localePreference, expectedLocale) => {
+    dbMocks.getSettings.mockResolvedValue({ ...createDefaultAppSettings(), localePreference });
+
+    const { content } = await buildCloudBackupExportZip(envWithR2({}), "usr_cloud");
+    const data = readStoredZipJson(content, "data.json");
+    const manifest = readStoredZipJson(content, "manifest.json");
+
+    expect(data.schemaVersion).toBe(1);
+    expect(manifest.schemaVersion).toBe(1);
+    expect(data.data.settings).not.toHaveProperty("localePreference");
+    if (expectedLocale) {
+      expect(data.data.settings.locale).toBe(expectedLocale);
+    } else {
+      expect(data.data.settings).not.toHaveProperty("locale");
+    }
+  });
+
   it("loads multiple R2 assets sequentially through the export call chain", async () => {
     dbMocks.getCustomConfig.mockResolvedValue({
       categories: [],

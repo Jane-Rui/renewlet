@@ -8,6 +8,7 @@ package main
 //   - 私有 Logo 通过公开资产代理读取，代理每次都重新校验 token、owner 和可见订阅引用。
 import (
 	"database/sql"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -274,8 +275,12 @@ func publicStatusAssetURL(request *http.Request, token string, assetID string) s
 
 func buildPublicStatusResponse(app core.App, request *http.Request, page *core.Record) (publicStatusResponse, error) {
 	userID := page.GetString("user")
-	settings := publicStatusSettingsForUser(app, userID)
-	resolver := newPublicStatusCategoryResolver(app, userID, normalizeAppLocale(settings.Locale))
+	settings, err := publicStatusSettingsForUser(app, userID)
+	if err != nil {
+		return publicStatusResponse{}, err
+	}
+	// 公开状态页属于访客界面；分类标签跟随本次请求，不继承页面 owner 的账号内容语言。
+	resolver := newPublicStatusCategoryResolver(app, userID, requestLocale(request))
 	today := todayDateOnly(time.Now().UTC(), settings.Timezone)
 	items, truncated, err := listPublicStatusSubscriptions(app, request, page, resolver, today)
 	if err != nil {
@@ -420,11 +425,14 @@ func publicStatusAssetIsReferenced(app core.App, userID string, assetID string) 
 	return record != nil, nil
 }
 
-func publicStatusSettingsForUser(app core.App, userID string) appSettings {
+func publicStatusSettingsForUser(app core.App, userID string) (appSettings, error) {
 	settings := defaultAppSettings()
 	record, err := app.FindFirstRecordByFilter("settings", "user = {:user}", dbx.Params{"user": userID})
 	if err != nil {
-		return settings
+		if errors.Is(err, sql.ErrNoRows) {
+			return settings, nil
+		}
+		return appSettings{}, err
 	}
 	return settingsFromRecord(record)
 }

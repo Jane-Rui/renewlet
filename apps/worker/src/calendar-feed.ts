@@ -21,7 +21,7 @@ import { getCustomConfig, getSettings, getSubscription, listSubscriptions, newId
 import { randomToken } from "./crypto";
 import { requireAuth } from "./auth";
 import { HttpError, ok, readJson, requestLocale, successJson } from "./http";
-import { serverFormat, serverText } from "./server-i18n";
+import { accountContentLocale, serverFormat, serverText, type AppLocale } from "./server-i18n";
 import { calendarFeedBuiltInCategoryLabelKey, calendarFeedBuiltInPaymentMethodLabelKey } from "./calendar-feed-built-in-labels";
 import { requestOrigin } from "./request-origin";
 import { dateOnlyInZone } from "./time";
@@ -266,10 +266,12 @@ export async function downloadSubscriptionCalendarIcs(request: Request, env: Env
   const calendarSubscription = toCalendarSubscription(subscription);
   if (isOneTimeBuyout(calendarSubscription)) throw new HttpError(404, serverText(locale, "subscription.notFound"), "NOT_FOUND");
   const settings = await getSettings(env, auth.user.id);
-  const labels = await newCalendarFeedLabelResolver(env, auth.user.id, settings.locale);
-  // 登录态下载是一次性 .ics 文件，不写 SOURCE/TTL，避免外部日历把它误当成可刷新的订阅 feed。
+  // 一次性 .ics 进入外部日历后脱离当前请求，因此沿用账号内容语言。
+  const contentLocale = accountContentLocale(settings.localePreference);
+  const labels = await newCalendarFeedLabelResolver(env, auth.user.id, contentLocale);
+  // 不写 SOURCE/TTL，避免外部日历把一次性文件误当成可刷新的订阅 feed。
   const ics = buildRenewalCalendarIcs({
-    name: serverFormat(settings.locale, "calendarFeed.subscriptionCalendarName", { name: calendarSubscription.name }),
+    name: serverFormat(contentLocale, "calendarFeed.subscriptionCalendarName", { name: calendarSubscription.name }),
     generatedAt: new Date(),
     events: subscriptionCalendarEvents(calendarSubscription, settings, labels),
   });
@@ -328,7 +330,9 @@ async function renderCalendarFeed(
   settings: ApiAppSettings,
   feedUrl: string,
 ): Promise<{ filename: string; ics: string }> {
-  const labels = await newCalendarFeedLabelResolver(env, row.user_id, settings.locale);
+  // 日历客户端的请求语言不稳定且没有账号会话；Feed 内容必须始终由 owner 的账号内容语言决定。
+  const contentLocale = accountContentLocale(settings.localePreference);
+  const labels = await newCalendarFeedLabelResolver(env, row.user_id, contentLocale);
   if (row.scope === "subscription") {
     const subscriptionId = row.subscription_id ?? "";
     const subscription = subscriptionId ? await getSubscription(env, row.user_id, subscriptionId) : null;
@@ -337,7 +341,7 @@ async function renderCalendarFeed(
     return {
       filename: "renewlet-subscription.ics",
       ics: buildRenewalCalendarIcs({
-        name: serverFormat(settings.locale, "calendarFeed.subscriptionCalendarName", { name: calendarSubscription.name }),
+        name: serverFormat(contentLocale, "calendarFeed.subscriptionCalendarName", { name: calendarSubscription.name }),
         sourceUrl: feedUrl,
         generatedAt: new Date(),
         events: subscriptionCalendarEvents(calendarSubscription, settings, labels),
@@ -349,7 +353,7 @@ async function renderCalendarFeed(
   return {
     filename: "renewlet-renewals.ics",
     ics: buildRenewalCalendarIcs({
-      name: serverText(settings.locale, "calendarFeed.calendarName"),
+      name: serverText(contentLocale, "calendarFeed.calendarName"),
       sourceUrl: feedUrl,
       generatedAt: new Date(),
       events: calendarEvents(subscriptions, settings, labels),
@@ -360,7 +364,7 @@ async function renderCalendarFeed(
 async function newCalendarFeedLabelResolver(
   env: Env,
   userId: string,
-  locale: ApiAppSettings["locale"],
+  locale: AppLocale,
 ): Promise<CalendarFeedLabelResolver> {
   const empty = calendarFeedLabelResolver(new Map<string, string>(), new Map<string, string>(), locale);
   const result = customConfigSchema.safeParse(await getCustomConfig(env, userId));
@@ -376,7 +380,7 @@ async function newCalendarFeedLabelResolver(
 function calendarFeedLabelResolver(
   categoryByValue: Map<string, string>,
   paymentMethodByValue: Map<string, string>,
-  locale: ApiAppSettings["locale"],
+  locale: AppLocale,
 ): CalendarFeedLabelResolver {
   return {
     categoryLabel: (value) => calendarFeedResolvedLabel(categoryByValue, calendarFeedBuiltInCategoryLabelKey, locale, value),
@@ -387,7 +391,7 @@ function calendarFeedLabelResolver(
 function calendarFeedResolvedLabel(
   customLabels: Map<string, string>,
   builtInLabelKey: CalendarFeedBuiltInLabelKeyResolver,
-  locale: ApiAppSettings["locale"],
+  locale: AppLocale,
   value: string,
 ): string {
   const customLabel = customLabels.get(value);
@@ -396,7 +400,7 @@ function calendarFeedResolvedLabel(
   return key ? serverText(locale, key) : value;
 }
 
-function calendarFeedLabelMap(items: ApiCustomConfig["categories"], locale: ApiAppSettings["locale"]): Map<string, string> {
+function calendarFeedLabelMap(items: ApiCustomConfig["categories"], locale: AppLocale): Map<string, string> {
   const labels = new Map<string, string>();
   for (const item of items) {
     const label = calendarFeedLocalizedConfigLabel(item.labels, locale);
@@ -407,7 +411,7 @@ function calendarFeedLabelMap(items: ApiCustomConfig["categories"], locale: ApiA
 
 function calendarFeedLocalizedConfigLabel(
   labels: ApiCustomConfig["categories"][number]["labels"],
-  locale: ApiAppSettings["locale"],
+  locale: AppLocale,
 ): string | undefined {
   if (locale === "en-US") return labels["en-US"] || labels["zh-CN"] || undefined;
   return labels["zh-CN"] || labels["en-US"] || undefined;
@@ -587,7 +591,7 @@ function calendarEvent(
   settings: ApiAppSettings,
   labels: CalendarFeedLabelResolver,
 ): RenewalCalendarEvent {
-  const locale = settings.locale;
+  const locale = accountContentLocale(settings.localePreference);
   const reminderDays = isDisabledReminderDays(subscription.reminderDays)
     ? undefined
     : effectiveReminderDays(subscription.reminderDays, settings.notificationReminderDays);
@@ -611,7 +615,7 @@ function calendarEvent(
   });
 }
 
-function billingCycleLabel(subscription: CalendarSubscription, locale: ApiAppSettings["locale"]): string {
+function billingCycleLabel(subscription: CalendarSubscription, locale: AppLocale): string {
   if (subscription.billingCycle === "custom") {
     const custom = requireCustomBillingCycle(
       subscription.customDays,

@@ -52,6 +52,45 @@ func TestCloudBackupExportSettingsStripsExternalNotificationSecrets(t *testing.T
 	}
 }
 
+func TestCloudBackupExportSettingsMapsLocalePreferenceToV1(t *testing.T) {
+	for _, test := range []struct {
+		preference string
+		wantLocale string
+	}{
+		{preference: string(autoLocalePreference)},
+		{preference: string(preferenceZhCN), wantLocale: string(preferenceZhCN)},
+		{preference: string(preferenceEnUS), wantLocale: string(preferenceEnUS)},
+	} {
+		t.Run(test.preference, func(t *testing.T) {
+			app := newSchemaTestApp(t)
+			if err := ensureSchema(app); err != nil {
+				t.Fatal(err)
+			}
+			user, _ := createRouteTestUser(t, app, "cloud-backup-locale-"+test.preference)
+			settings := defaultAppSettings()
+			settings.LocalePreference = test.preference
+			if _, err := createSettingsRecord(app, user.Id, settings); err != nil {
+				t.Fatal(err)
+			}
+
+			exported, ok, err := cloudBackupExportSettings(app, user)
+			if err != nil || !ok {
+				t.Fatalf("expected settings export, ok=%v err=%v", ok, err)
+			}
+			if _, exists := exported["localePreference"]; exists {
+				t.Fatalf("v1 export must not contain localePreference: %#v", exported)
+			}
+			locale, exists := exported["locale"]
+			if test.wantLocale == "" && exists {
+				t.Fatalf("auto must omit v1 locale: %#v", exported)
+			}
+			if test.wantLocale != "" && (!exists || locale != test.wantLocale) {
+				t.Fatalf("locale = %#v, want %q", locale, test.wantLocale)
+			}
+		})
+	}
+}
+
 func TestCloudBackupExportZipAuditsMissingPrivateAssets(t *testing.T) {
 	app := newSchemaTestApp(t)
 	if err := ensureSchema(app); err != nil {

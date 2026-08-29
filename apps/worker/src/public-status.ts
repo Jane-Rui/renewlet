@@ -83,7 +83,8 @@ export async function readPublicStatus(request: Request, env: Env, token: string
   const page = await getPublicStatusPageByToken(env, token);
   if (!page) throw new HttpError(404, serverText(locale, "common.notFound"), "NOT_FOUND");
   const settings = await getSettings(env, page.user_id);
-  const resolver = await newPublicStatusCategoryResolver(env, page.user_id, settings.locale);
+  // 公开状态页属于访客界面；分类标签跟随本次请求，不继承页面 owner 的账号内容语言。
+  const resolver = await newPublicStatusCategoryResolver(env, page.user_id, locale);
   const { rows, truncated } = await listPublicStatusSubscriptions(env, page.user_id);
   const today = todayDateOnly(settings.timezone);
   const showPrices = intToBool(page.show_prices);

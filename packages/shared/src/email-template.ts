@@ -1,6 +1,6 @@
 import zhCatalog from "../data/server-i18n/active.zh-CN.json";
 import enCatalog from "../data/server-i18n/active.en-US.json";
-import type { Locale, RepeatReminderInterval, RepeatReminderWindow } from "./runtime";
+import { FALLBACK_LOCALE, type Locale, type RepeatReminderInterval, type RepeatReminderWindow } from "./runtime";
 import { renderEmailTemplate } from "./email-template-render";
 import { moneyToNumber, type MoneyString } from "./money";
 
@@ -15,7 +15,6 @@ const SERVER_CATALOGS: Record<Locale, ServerCatalog> = {
 };
 
 export interface NotificationEmailSettings {
-  locale: string;
   themeVariant: string;
   themeCustomColor: {
     h: number;
@@ -57,6 +56,7 @@ export interface NotificationEmailMessage {
 }
 
 export interface BuildNotificationEmailOptions {
+  locale: Locale;
   appUrl?: string;
 }
 
@@ -200,7 +200,7 @@ export interface EmailCta {
 export function buildNotificationEmail(
   settings: NotificationEmailSettings,
   message: NotificationEmailMessage,
-  options: BuildNotificationEmailOptions = {},
+  options: BuildNotificationEmailOptions,
 ): NotificationEmail {
   const data = buildEmailTemplateData(settings, message, options, false);
   let html = renderEmailTemplate(data);
@@ -220,7 +220,7 @@ function buildEmailTemplateData(
   options: BuildNotificationEmailOptions,
   compact: boolean,
 ): EmailTemplateData {
-  const locale = normalizeEmailLocale(settings.locale);
+  const locale = options.locale;
   const copy = loadEmailCopy(locale);
   const itemCount = input.items.length;
   const hasReminderItems = itemCount > 0;
@@ -514,15 +514,8 @@ function formatAmount(amount: MoneyString | number): string {
   return numericAmount.toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
 }
 
-function normalizeEmailLocale(value: string): Locale {
-  const normalized = value.trim().replaceAll("_", "-").toLowerCase();
-  if (normalized === "zh" || normalized === "zh-cn") return "zh-CN";
-  if (normalized === "en" || normalized === "en-us") return "en-US";
-  return "en-US";
-}
-
 function serverText(locale: Locale, key: string): string {
-  return SERVER_CATALOGS[locale]?.[key] ?? SERVER_CATALOGS["en-US"][key] ?? key;
+  return SERVER_CATALOGS[locale]?.[key] ?? SERVER_CATALOGS[FALLBACK_LOCALE][key] ?? key;
 }
 
 function utf8ByteLength(value: string): number {

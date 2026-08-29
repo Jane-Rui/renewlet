@@ -135,12 +135,12 @@ describe("SettingsScreen currency selectors", () => {
     try {
       renderSettingsScreen();
 
-      expect(screen.getByText("默认隐藏；开启后可选择跟随统计货币或固定参考货币。")).toBeInTheDocument();
-      expect(screen.getByRole("switch", { name: "单订阅参考价" })).not.toBeChecked();
-      expect(screen.getByRole("combobox", { name: "单订阅参考货币" })).toBeDisabled();
-      expect(screen.getByRole("combobox", { name: "单订阅参考货币" })).toHaveTextContent("跟随统计货币 (CNY)");
+      expect(screen.getByText("Hidden by default. Turn it on to follow the reporting currency or pin a reference currency.")).toBeInTheDocument();
+      expect(screen.getByRole("switch", { name: "Per-subscription reference price" })).not.toBeChecked();
+      expect(screen.getByRole("combobox", { name: "Per-subscription reference currency" })).toBeDisabled();
+      expect(screen.getByRole("combobox", { name: "Per-subscription reference currency" })).toHaveTextContent("Follow reporting currency (CNY)");
 
-      await user.click(screen.getByRole("button", { name: "按本机偏好设为 USD" }));
+      await user.click(screen.getByRole("button", { name: "Use local preference (USD)" }));
 
       expect(controller.updateSetting).toHaveBeenCalledWith("subscriptionPriceReferenceEnabled", true);
       expect(controller.updateSetting).toHaveBeenCalledWith("subscriptionPriceReferenceCurrency", "USD");

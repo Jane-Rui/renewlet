@@ -78,7 +78,7 @@ func registerRoutes(app core.App, router *router.Router[*core.RequestEvent]) []a
 		if err != nil {
 			return e.BadRequestError(validationErrorMessage(locale, "common.invalidRequestBody", err), err)
 		}
-		if err := createInitialAdmin(app, body.Name, body.Email, body.Password, locale); err != nil {
+		if err := createInitialAdmin(app, body.Name, body.Email, body.Password); err != nil {
 			if errors.Is(err, errSetupAlreadyInitialized) {
 				return e.ForbiddenError(serverText(locale, "auth.setupAlreadyInitialized"), nil)
 			}

@@ -1,4 +1,5 @@
 import {
+  RENEWLET_EXPORT_SCHEMA_VERSION,
   renewletExportManifestV1Schema,
   renewletExportV1Schema,
   type RenewletExportAsset,
@@ -104,7 +105,7 @@ export async function exportRenewletBackup(options: {
   const exportedAt = new Date().toISOString();
   const data = renewletExportV1Schema.parse({
     kind: "renewlet-export",
-    schemaVersion: 1,
+    schemaVersion: RENEWLET_EXPORT_SCHEMA_VERSION,
     exportedAt,
     data: {
       subscriptions,

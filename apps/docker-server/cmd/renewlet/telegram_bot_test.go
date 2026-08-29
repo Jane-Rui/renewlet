@@ -80,7 +80,7 @@ func TestTelegramBotCommandsInstallWebhookAndDelete(t *testing.T) {
 	registerRecordHooks(app)
 	user, sessionToken := createRouteTestUser(t, app, "telegram")
 	settings := defaultAppSettings()
-	settings.Locale = "zh-CN"
+	settings.LocalePreference = string(preferenceZhCN)
 	settings.Timezone = "UTC"
 	settings.TelegramBotToken = "123456:telegram-secret-token"
 	settings.TelegramChatID = "12345"
@@ -267,7 +267,7 @@ func TestTelegramBotHTMLRepliesEscapeUserContent(t *testing.T) {
 	registerRecordHooks(app)
 	user, sessionToken := createRouteTestUser(t, app, "telegram-html")
 	settings := defaultAppSettings()
-	settings.Locale = "zh-CN"
+	settings.LocalePreference = string(preferenceZhCN)
 	settings.Timezone = "UTC"
 	settings.TelegramBotToken = "123456:telegram-secret-token"
 	settings.TelegramChatID = "12345"

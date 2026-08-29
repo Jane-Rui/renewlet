@@ -93,7 +93,7 @@ func TestSendDingTalkPostsMarkdownPayloadAndRequiresErrCodeZero(t *testing.T) {
 		Title:     "Renewlet 订阅提醒",
 		Content:   "即将到期：\n- GitHub：2026-08-01",
 		Timestamp: "2026-07-20 08:00 CST",
-	})
+	}, defaultAppLocale)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestSendDingTalkAppliesTitleAndContentTemplates(t *testing.T) {
 		Content:   "即将到期：\n- GitHub：{timestamp}",
 		Timestamp: "2026-07-20 08:00 CST",
 		Items:     []notificationContentItem{{}, {}},
-	})
+	}, defaultAppLocale)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestSendDingTalkEmptyTemplatesKeepDefaultPayloadOrder(t *testing.T) {
 		Title:     "订阅提醒",
 		Content:   "即将到期：\n- GitHub：2026-08-01",
 		Timestamp: "2026-07-20 08:00 CST",
-	})
+	}, defaultAppLocale)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +237,7 @@ func TestSendDingTalkSignsTextPayloadAndRedactsSecretsOnBusinessFailure(t *testi
 	settings.DingTalkSecret = "SECsecret"
 	settings.DingTalkKeyword = "自定义关键词"
 	settings.DingTalkMessageType = dingtalkMessageTypeText
-	err := sendDingTalk(settings, notificationMessage{Title: "提醒", Content: "正文", Timestamp: "time"})
+	err := sendDingTalk(settings, notificationMessage{Title: "提醒", Content: "正文", Timestamp: "time"}, defaultAppLocale)
 	if err == nil {
 		t.Fatal("expected DingTalk business error")
 	}

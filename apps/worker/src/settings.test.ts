@@ -1,4 +1,4 @@
-// Worker settings 测试保护首次账号语言初始化；请求 locale 只允许影响缺失 settings 行。
+// Worker settings 测试保护账号偏好与请求语言分权；缺失 settings 行只能写入 auto。
 import { createDefaultAppSettings } from "@renewlet/shared/settings-defaults";
 import type { ApiAppSettings } from "@renewlet/shared/schemas/settings";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -39,6 +39,10 @@ function createEnv(initialSettings?: ApiAppSettings): { env: Env; state: Setting
     },
     state,
   };
+}
+
+function settingsWithLocalePreference(localePreference: ApiAppSettings["localePreference"]): ApiAppSettings {
+  return { ...createDefaultAppSettings(), localePreference };
 }
 
 class SettingsTestDB {
@@ -137,30 +141,30 @@ describe("Cloudflare settings initialization", () => {
     });
   });
 
-  it("creates missing settings with the request locale", async () => {
+  it("creates missing settings with auto preference", async () => {
     const { env, state } = createEnv();
 
-    const settings = await ensureSettings(env, USER_ID, "zh-CN");
+    const settings = await ensureSettings(env, USER_ID);
 
-    expect(settings.locale).toBe("zh-CN");
-    expect(JSON.parse(state.rows.get(USER_ID) ?? "{}")).toMatchObject({ locale: "zh-CN" });
+    expect(settings.localePreference).toBe("auto");
+    expect(JSON.parse(state.rows.get(USER_ID) ?? "{}")).toMatchObject({ localePreference: "auto" });
   });
 
-  it("does not overwrite an existing settings locale", async () => {
-    const existing = createDefaultAppSettings({ locale: "en-US" });
+  it("does not overwrite an existing explicit locale preference", async () => {
+    const existing = settingsWithLocalePreference("en-US");
     const { env, state } = createEnv(existing);
 
-    const settings = await ensureSettings(env, USER_ID, "zh-CN");
+    const settings = await ensureSettings(env, USER_ID);
 
-    expect(settings.locale).toBe("en-US");
+    expect(settings.localePreference).toBe("en-US");
     expect(state.inserts).toEqual([]);
-    expect(JSON.parse(state.rows.get(USER_ID) ?? "{}")).toMatchObject({ locale: "en-US" });
+    expect(JSON.parse(state.rows.get(USER_ID) ?? "{}")).toMatchObject({ localePreference: "en-US" });
   });
 
   it("defaults Telegram message format to plain and recovers invalid stored values", async () => {
     expect(createDefaultAppSettings().telegramMessageFormat).toBe("plain");
     const existing = {
-      ...createDefaultAppSettings({ locale: "en-US" }),
+      ...settingsWithLocalePreference("en-US"),
       monthlyBudget: "2333",
       telegramMessageFormat: "markdown",
     };
@@ -174,7 +178,7 @@ describe("Cloudflare settings initialization", () => {
       ASSETS_BUCKET: {} as R2Bucket,
     } as Env;
 
-    const settings = await ensureSettings(env, USER_ID, "zh-CN");
+    const settings = await ensureSettings(env, USER_ID);
 
     expect(settings.telegramMessageFormat).toBe("plain");
     expect(settings.monthlyBudget).toBe("2333");
@@ -182,6 +186,7 @@ describe("Cloudflare settings initialization", () => {
 
   it("adds subscription price reference defaults when reading old settings JSON", () => {
     const settings = normalizeSettingsJson(JSON.stringify({
+      localePreference: "auto",
       defaultCurrency: "USD",
       monthlyBudget: "2333",
     }));
@@ -192,9 +197,26 @@ describe("Cloudflare settings initialization", () => {
     expect(settings.subscriptionPriceReferenceCurrency).toBe("default");
   });
 
+  it("rejects migrated settings rows without a valid locale preference", async () => {
+    expect(() => normalizeSettingsJson(JSON.stringify({ monthlyBudget: "2333" }))).toThrow();
+    expect(() => normalizeSettingsJson("{")).toThrow();
+
+    const state: SettingsTestState = {
+      rows: new Map([[USER_ID, JSON.stringify({ monthlyBudget: "2333" })]]),
+      inserts: [],
+    };
+    const env = {
+      DB: new SettingsTestDB(state) as unknown as D1Database,
+      ASSETS: {} as Fetcher,
+      ASSETS_BUCKET: {} as R2Bucket,
+    } as Env;
+
+    await expect(ensureSettings(env, USER_ID)).rejects.toThrow();
+  });
+
   it("recovers invalid stored subscription price reference currency without dropping other settings", async () => {
     const existing = {
-      ...createDefaultAppSettings({ locale: "en-US" }),
+      ...settingsWithLocalePreference("en-US"),
       monthlyBudget: "2333",
       subscriptionPriceReferenceEnabled: true,
       subscriptionPriceReferenceCurrency: "usd",
@@ -209,7 +231,7 @@ describe("Cloudflare settings initialization", () => {
       ASSETS_BUCKET: {} as R2Bucket,
     } as Env;
 
-    const settings = await ensureSettings(env, USER_ID, "zh-CN");
+    const settings = await ensureSettings(env, USER_ID);
 
     expect(settings.subscriptionPriceReferenceEnabled).toBe(true);
     expect(settings.subscriptionPriceReferenceCurrency).toBe("default");
@@ -218,7 +240,7 @@ describe("Cloudflare settings initialization", () => {
 
   it("recovers invalid stored DingTalk template fields without dropping other settings", async () => {
     const existing = {
-      ...createDefaultAppSettings({ locale: "en-US" }),
+      ...settingsWithLocalePreference("en-US"),
       monthlyBudget: "2333",
       dingtalkTitleTemplate: "x".repeat(501),
       dingtalkContentTemplate: 42,
@@ -233,28 +255,28 @@ describe("Cloudflare settings initialization", () => {
       ASSETS_BUCKET: {} as R2Bucket,
     } as Env;
 
-    const settings = await ensureSettings(env, USER_ID, "zh-CN");
+    const settings = await ensureSettings(env, USER_ID);
 
     expect(settings.dingtalkTitleTemplate).toBe("");
     expect(settings.dingtalkContentTemplate).toBe("");
     expect(settings.monthlyBudget).toBe("2333");
   });
 
-  it("readSettings ensures a settings row from the request locale", async () => {
+  it("readSettings ignores request locale when ensuring a settings row", async () => {
     const { env, state } = createEnv();
 
     const response = await readSettings(settingsRequest("GET", "zh-CN"), env);
 
     expect(response.status).toBe(200);
     await expect(readSuccessData(response)).resolves.toMatchObject({
-      settings: { locale: "zh-CN" },
+      settings: { localePreference: "auto" },
       secretStatus: { telegramBotToken: { configured: false }, "aiRecognition.apiKey": { configured: false } },
     });
-    expect(JSON.parse(state.rows.get(USER_ID) ?? "{}")).toMatchObject({ locale: "zh-CN" });
+    expect(JSON.parse(state.rows.get(USER_ID) ?? "{}")).toMatchObject({ localePreference: "auto" });
   });
 
   it("never returns stored secrets and only updates them through discriminated mutations", async () => {
-    const defaults = createDefaultAppSettings({ locale: "en-US" });
+    const defaults = settingsWithLocalePreference("en-US");
     const existing = {
       ...defaults,
       telegramBotToken: "stored-telegram-secret",
@@ -290,7 +312,7 @@ describe("Cloudflare settings initialization", () => {
   });
 
   it("rejects direct secret fields and malformed secret mutations", async () => {
-    const { env } = createEnv(createDefaultAppSettings({ locale: "en-US" }));
+    const { env } = createEnv(settingsWithLocalePreference("en-US"));
 
     await expect(updateSettings(settingsRequest("PUT", "en-US", { telegramBotToken: "raw-secret" }), env))
       .rejects.toMatchObject({ status: 400, code: "INVALID_PAYLOAD" });
@@ -299,27 +321,39 @@ describe("Cloudflare settings initialization", () => {
     }), env)).rejects.toMatchObject({ status: 400, code: "INVALID_PAYLOAD" });
   });
 
-  it("updateSettings uses the request locale when creating the first row", async () => {
+  it("updateSettings keeps auto when creating the first row", async () => {
     const { env, state } = createEnv();
 
     const response = await updateSettings(settingsRequest("PUT", "zh-CN", { monthlyBudget: "2333" }), env);
 
     expect(response.status).toBe(200);
-    await expect(readSuccessData(response)).resolves.toMatchObject({ settings: { locale: "zh-CN", monthlyBudget: "2333" } });
-    expect(JSON.parse(state.rows.get(USER_ID) ?? "{}")).toMatchObject({ locale: "zh-CN", monthlyBudget: "2333" });
+    await expect(readSuccessData(response)).resolves.toMatchObject({ settings: { localePreference: "auto", monthlyBudget: "2333" } });
+    expect(JSON.parse(state.rows.get(USER_ID) ?? "{}")).toMatchObject({ localePreference: "auto", monthlyBudget: "2333" });
   });
 
-  it("does not create settings when the PATCH payload is invalid", async () => {
+  it("persists an explicit locale preference only from the settings payload", async () => {
     const { env, state } = createEnv();
 
-    await expect(updateSettings(settingsRequest("PUT", "zh-CN", { locale: "fr-FR" }), env))
+    const response = await updateSettings(settingsRequest("PUT", "en-US", { localePreference: "zh-CN" }), env);
+
+    expect(response.status).toBe(200);
+    await expect(readSuccessData(response)).resolves.toMatchObject({ settings: { localePreference: "zh-CN" } });
+    expect(JSON.parse(state.rows.get(USER_ID) ?? "{}")).toMatchObject({ localePreference: "zh-CN" });
+  });
+
+  it("does not create settings for invalid or legacy locale fields", async () => {
+    const { env, state } = createEnv();
+
+    await expect(updateSettings(settingsRequest("PUT", "zh-CN", { localePreference: "fr-FR" }), env))
+      .rejects.toMatchObject({ status: 400, code: "INVALID_PAYLOAD" });
+    await expect(updateSettings(settingsRequest("PUT", "zh-CN", { locale: "zh-CN" }), env))
       .rejects.toMatchObject({ status: 400, code: "INVALID_PAYLOAD" });
 
     expect(state.rows.has(USER_ID)).toBe(false);
   });
 
   it("rejects invalid subscription price reference currency on write", async () => {
-    const { env } = createEnv(createDefaultAppSettings({ locale: "en-US" }));
+    const { env } = createEnv(settingsWithLocalePreference("en-US"));
 
     await expect(updateSettings(settingsRequest("PUT", "zh-CN", {
       subscriptionPriceReferenceEnabled: true,
@@ -328,7 +362,7 @@ describe("Cloudflare settings initialization", () => {
   });
 
   it("accepts only supported Telegram message formats on write", async () => {
-    const { env, state } = createEnv(createDefaultAppSettings({ locale: "en-US" }));
+    const { env, state } = createEnv(settingsWithLocalePreference("en-US"));
 
     const response = await updateSettings(settingsRequest("PUT", "en-US", { telegramMessageFormat: "html" }), env);
     expect(response.status).toBe(200);
@@ -340,7 +374,7 @@ describe("Cloudflare settings initialization", () => {
   });
 
   it("merges online icon source settings without dropping defaults", async () => {
-    const { env, state } = createEnv(createDefaultAppSettings({ locale: "en-US" }));
+    const { env, state } = createEnv(settingsWithLocalePreference("en-US"));
 
     const response = await updateSettings(settingsRequest("PUT", "en-US", {
       onlineIconSources: {
@@ -395,7 +429,7 @@ describe("Cloudflare settings initialization", () => {
   });
 
   it("rejects overly long DingTalk templates on write", async () => {
-    const { env } = createEnv(createDefaultAppSettings({ locale: "en-US" }));
+    const { env } = createEnv(settingsWithLocalePreference("en-US"));
 
     await expect(updateSettings(settingsRequest("PUT", "en-US", { dingtalkTitleTemplate: "x".repeat(501) }), env))
       .rejects.toMatchObject({ status: 400, code: "INVALID_PAYLOAD" });

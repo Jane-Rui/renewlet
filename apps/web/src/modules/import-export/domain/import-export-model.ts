@@ -1,8 +1,10 @@
 import {
   IMPORT_PREVIEW_MAX_BYTES,
   IMPORT_PREVIEW_SUBSCRIPTION_LIMIT,
+  toRenewletExportSettingsV1,
   type ImportPayload,
   type ImportSubscription,
+  type RenewletExportSettingsV1,
   type RenewletExportV1,
 } from "@/lib/api/schemas/import-export";
 import type { AppSettings, BillingCycle, CustomCycleUnit, Subscription } from "@/types/subscription";
@@ -132,8 +134,9 @@ type RenewletExportSubscription = RenewletExportV1["data"]["subscriptions"][numb
  * sanitizeSettingsForExport 移除默认不应进入备份的通知和账号 secret。
  *
  * includeSecrets 只由用户显式选择触发；普通备份不能意外携带通知、Webhook、PushPlus 等凭证。
+ * 返回前统一投影为稳定 v1 settings，避免浏览器导出泄漏当前内部字段形状。
  */
-export function sanitizeSettingsForExport(settings: AppSettings, includeSecrets: boolean): Partial<AppSettings> {
+export function sanitizeSettingsForExport(settings: AppSettings, includeSecrets: boolean): RenewletExportSettingsV1 {
   const entries = Object.entries(settings).filter(([key]) => includeSecrets || !SECRET_SETTING_KEYS.has(key as keyof AppSettings));
   const sanitized = Object.fromEntries(entries) as Partial<AppSettings>;
   if (!includeSecrets && sanitized.aiRecognition) {
@@ -143,7 +146,7 @@ export function sanitizeSettingsForExport(settings: AppSettings, includeSecrets:
       apiKey: "",
     };
   }
-  return sanitized;
+  return toRenewletExportSettingsV1(sanitized);
 }
 
 /**

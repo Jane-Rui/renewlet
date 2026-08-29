@@ -11,7 +11,7 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
-func TestSettingsReadCreatesEnglishDefaultsWithoutHeader(t *testing.T) {
+func TestSettingsReadCreatesAutoDefaultsWithoutHeader(t *testing.T) {
 	app := newSchemaTestApp(t)
 	if err := ensureSchema(app); err != nil {
 		t.Fatal(err)
@@ -24,18 +24,18 @@ func TestSettingsReadCreatesEnglishDefaultsWithoutHeader(t *testing.T) {
 		t.Fatalf("expected settings read 200, got %d: %s", read.Code, read.Body.String())
 	}
 	body := decodeAPISuccessDataForTest[settingsResponse](t, read.Body.Bytes())
-	if body.Settings.Locale != string(localeEnUS) {
-		t.Fatalf("expected default locale en-US, got %q", body.Settings.Locale)
+	if body.Settings.LocalePreference != string(autoLocalePreference) {
+		t.Fatalf("expected default locale preference auto, got %q", body.Settings.LocalePreference)
 	}
 	if got := countUserRecords(t, app, "settings", user.Id); got != 1 {
 		t.Fatalf("expected settings read to create one settings row, got %d", got)
 	}
-	if got := settingsRecordLocale(t, app, user.Id); got != string(localeEnUS) {
-		t.Fatalf("expected persisted locale en-US, got %q", got)
+	if got := settingsRecordLocalePreference(t, app, user.Id); got != string(autoLocalePreference) {
+		t.Fatalf("expected persisted locale preference auto, got %q", got)
 	}
 }
 
-func TestSettingsReadCreatesRequestLocaleOnce(t *testing.T) {
+func TestSettingsReadDoesNotPersistRequestLocale(t *testing.T) {
 	app := newSchemaTestApp(t)
 	if err := ensureSchema(app); err != nil {
 		t.Fatal(err)
@@ -50,8 +50,8 @@ func TestSettingsReadCreatesRequestLocaleOnce(t *testing.T) {
 		t.Fatalf("expected first settings read 200, got %d: %s", first.Code, first.Body.String())
 	}
 	firstBody := decodeAPISuccessDataForTest[settingsResponse](t, first.Body.Bytes())
-	if firstBody.Settings.Locale != string(localeZhCN) {
-		t.Fatalf("expected first settings locale zh-CN, got %q", firstBody.Settings.Locale)
+	if firstBody.Settings.LocalePreference != string(autoLocalePreference) {
+		t.Fatalf("expected first settings locale preference auto, got %q", firstBody.Settings.LocalePreference)
 	}
 
 	second := serveTestRequestWithHeaders(t, app, http.MethodGet, "/api/app/settings", "", token, map[string]string{
@@ -61,12 +61,12 @@ func TestSettingsReadCreatesRequestLocaleOnce(t *testing.T) {
 		t.Fatalf("expected second settings read 200, got %d: %s", second.Code, second.Body.String())
 	}
 	secondBody := decodeAPISuccessDataForTest[settingsResponse](t, second.Body.Bytes())
-	if secondBody.Settings.Locale != string(localeZhCN) || settingsRecordLocale(t, app, user.Id) != string(localeZhCN) {
-		t.Fatalf("expected existing settings to keep zh-CN, got response=%q persisted=%q", secondBody.Settings.Locale, settingsRecordLocale(t, app, user.Id))
+	if secondBody.Settings.LocalePreference != string(autoLocalePreference) || settingsRecordLocalePreference(t, app, user.Id) != string(autoLocalePreference) {
+		t.Fatalf("expected request locale not to affect account preference, got response=%q persisted=%q", secondBody.Settings.LocalePreference, settingsRecordLocalePreference(t, app, user.Id))
 	}
 }
 
-func TestSettingsUpdateCreatesDefaultsFromRequestLocale(t *testing.T) {
+func TestSettingsUpdateCreatesAutoDefaultsRegardlessOfRequestLocale(t *testing.T) {
 	app := newSchemaTestApp(t)
 	if err := ensureSchema(app); err != nil {
 		t.Fatal(err)
@@ -81,15 +81,15 @@ func TestSettingsUpdateCreatesDefaultsFromRequestLocale(t *testing.T) {
 		t.Fatalf("expected settings update 200, got %d: %s", update.Code, update.Body.String())
 	}
 	body := decodeAPISuccessDataForTest[settingsResponse](t, update.Body.Bytes())
-	if body.Settings.Locale != string(localeZhCN) || body.Settings.MonthlyBudget != "2333" {
-		t.Fatalf("expected update to create zh-CN settings with monthly budget, got %#v", body.Settings)
+	if body.Settings.LocalePreference != string(autoLocalePreference) || body.Settings.MonthlyBudget != "2333" {
+		t.Fatalf("expected update to create auto settings with monthly budget, got %#v", body.Settings)
 	}
-	if got := settingsRecordLocale(t, app, user.Id); got != string(localeZhCN) {
-		t.Fatalf("expected persisted locale zh-CN, got %q", got)
+	if got := settingsRecordLocalePreference(t, app, user.Id); got != string(autoLocalePreference) {
+		t.Fatalf("expected persisted locale preference auto, got %q", got)
 	}
 }
 
-func TestSettingsUpdateRejectsUnsupportedLocaleWithoutCreatingRecord(t *testing.T) {
+func TestSettingsUpdateRejectsUnsupportedOrLegacyLocaleWithoutCreatingRecord(t *testing.T) {
 	app := newSchemaTestApp(t)
 	if err := ensureSchema(app); err != nil {
 		t.Fatal(err)
@@ -97,7 +97,7 @@ func TestSettingsUpdateRejectsUnsupportedLocaleWithoutCreatingRecord(t *testing.
 	registerRecordHooks(app)
 	user, token := createRouteTestUser(t, app, "settings-invalid-locale")
 
-	update := serveTestRequestWithHeaders(t, app, http.MethodPut, "/api/app/settings", `{"locale":"fr-FR"}`, token, map[string]string{
+	update := serveTestRequestWithHeaders(t, app, http.MethodPut, "/api/app/settings", `{"localePreference":"fr-FR"}`, token, map[string]string{
 		"X-Renewlet-Locale": "zh-CN",
 	})
 	if update.Code != http.StatusBadRequest {
@@ -105,6 +105,14 @@ func TestSettingsUpdateRejectsUnsupportedLocaleWithoutCreatingRecord(t *testing.
 	}
 	if got := countUserRecords(t, app, "settings", user.Id); got != 0 {
 		t.Fatalf("expected invalid settings update not to create a settings row, got %d", got)
+	}
+
+	legacy := serveTestRequest(t, app, http.MethodPut, "/api/app/settings", `{"locale":"zh-CN"}`, token)
+	if legacy.Code != http.StatusBadRequest {
+		t.Fatalf("expected legacy locale field update 400, got %d: %s", legacy.Code, legacy.Body.String())
+	}
+	if got := countUserRecords(t, app, "settings", user.Id); got != 0 {
+		t.Fatalf("expected legacy settings update not to create a settings row, got %d", got)
 	}
 }
 
@@ -140,13 +148,22 @@ func TestSettingsProductAPIRoundTripAndStrictJSON(t *testing.T) {
 	}
 }
 
-func settingsRecordLocale(t *testing.T, app core.App, userID string) string {
+func settingsRecordLocalePreference(t *testing.T, app core.App, userID string) string {
 	t.Helper()
 	record, err := app.FindFirstRecordByFilter("settings", "user = {:user}", dbx.Params{"user": userID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return settingsFromRecord(record).Locale
+	return mustSettingsFromRecord(t, record).LocalePreference
+}
+
+func mustSettingsFromRecord(t *testing.T, record *core.Record) appSettings {
+	t.Helper()
+	settings, err := settingsFromRecord(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return settings
 }
 
 func TestCustomConfigProductAPIRoundTrip(t *testing.T) {

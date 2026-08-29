@@ -268,7 +268,7 @@ export async function runDueCloudBackups(env: Env, now = new Date()): Promise<vo
       }
       if (!(await acquireCloudBackupLock(env, target.userId, target.provider, now))) continue;
       try {
-        const configuredTarget = configuredTargetFromResolvedTarget(target, requestLocaleFromDefault());
+        const configuredTarget = configuredTargetFromResolvedTarget(target, DEFAULT_SERVER_I18N_LOCALE);
         const group = groups.get(target.userId) ?? { user, targets: [] };
         group.targets.push(configuredTarget);
         groups.set(target.userId, group);
@@ -300,10 +300,6 @@ export async function runDueCloudBackups(env: Env, now = new Date()): Promise<vo
       }
     }
   }
-}
-
-function requestLocaleFromDefault(): AppLocale {
-  return DEFAULT_SERVER_I18N_LOCALE;
 }
 
 async function configuredCloudBackupTargets(env: Env, userId: string, locale: AppLocale): Promise<{
@@ -364,7 +360,7 @@ function cloudBackupTargetForProvider(config: ResolvedCloudBackupConfig, provide
   try {
     const target = config.targets[provider];
     if (!target) return [];
-    return [configuredTargetFromResolvedTarget(target, requestLocaleFromDefault())];
+    return [configuredTargetFromResolvedTarget(target, DEFAULT_SERVER_I18N_LOCALE)];
   } catch {
     return [];
   }

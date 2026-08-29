@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useI18n } from "@/i18n/I18nProvider";
-import type { Locale } from "@/i18n/locales";
+import { isLocalePreference } from "@renewlet/shared/i18n-config";
 import { cn } from "@/lib/utils";
 import { useSettingsFormController } from "../application/use-settings-form-controller";
 import { AccessSecuritySection } from "./access-security-section";
@@ -43,7 +43,7 @@ import { CheckboxSettingRow, LoadingButtonContent } from "./settings-shared-cont
 
 /** 设置页同步层只保留首屏区块、目录和统一保存状态；低频高级区块按滚动/导航 intent 装载。 */
 export function SettingsScreen() {
-  const { t, previewLocale } = useI18n();
+  const { t, previewLocalePreference } = useI18n();
   const controller = useSettingsFormController();
   const {
     settings,
@@ -93,9 +93,9 @@ export function SettingsScreen() {
   });
   const unsavedChangesGuard = useUnsavedChangesGuard(hasUnsavedChanges, handleDiscardChanges);
   const handleLocaleChange = (value: string) => {
-    const nextLocale = value as Locale;
-    updateSetting("locale", nextLocale);
-    previewLocale(nextLocale);
+    if (!isLocalePreference(value)) return;
+    updateSetting("localePreference", value);
+    previewLocalePreference(value);
   };
   const handleSectionIntent = (id: Parameters<typeof handleSectionClick>[0]) => {
     if (isAdvancedSettingsSection(id)) preloadSettingsAdvancedSections();
@@ -180,11 +180,12 @@ export function SettingsScreen() {
                 <div className="grid gap-6">
                   <div className="grid gap-2">
                     <Label htmlFor="locale">{t("settings.language")}</Label>
-                    <Select value={settings.locale} onValueChange={handleLocaleChange}>
+                    <Select value={settings.localePreference} onValueChange={handleLocaleChange}>
                       <SelectTrigger id="locale" className="w-full border-border bg-secondary sm:w-[min(14rem,100%)]">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="auto">{t("locale.auto")}</SelectItem>
                         <SelectItem value="zh-CN">{t("locale.zhCN")}</SelectItem>
                         <SelectItem value="en-US">{t("locale.enUS")}</SelectItem>
                       </SelectContent>

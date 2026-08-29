@@ -4,6 +4,7 @@ import { normalizeSettings } from "./settings-service";
 describe("settings service normalization", () => {
   it("recovers invalid stored notification message enums without dropping other fields", () => {
     const settings = normalizeSettings({
+      localePreference: "auto",
       telegramMessageFormat: "markdown",
       dingtalkMessageType: "actionCard",
       dingtalkTitleTemplate: "x".repeat(501),

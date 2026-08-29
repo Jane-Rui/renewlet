@@ -304,7 +304,7 @@ func TestSetupRouteHonorsSetupEnabledAndCreatedStatus(t *testing.T) {
 	}
 }
 
-func TestSetupRouteCreatesInitialSettingsFromRequestLocale(t *testing.T) {
+func TestSetupRouteCreatesAutoSettingsRegardlessOfRequestLocale(t *testing.T) {
 	app := newSchemaTestApp(t)
 	if err := ensureSchema(app); err != nil {
 		t.Fatal(err)
@@ -320,8 +320,8 @@ func TestSetupRouteCreatesInitialSettingsFromRequestLocale(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected setup admin user: %v", err)
 	}
-	if got := settingsRecordLocale(t, app, admin.Id); got != string(localeZhCN) {
-		t.Fatalf("expected setup settings locale zh-CN, got %q", got)
+	if got := settingsRecordLocalePreference(t, app, admin.Id); got != string(autoLocalePreference) {
+		t.Fatalf("expected setup settings locale preference auto, got %q", got)
 	}
 }
 

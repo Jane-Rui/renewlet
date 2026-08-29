@@ -40,7 +40,7 @@ export function SettingsManagerDialogFrame({
       layout="frame"
       closeLabel={t("common.close")}
       className={cn(
-        "flex h-[min(calc(var(--app-viewport-height)-2rem),44rem)] min-h-0 max-w-3xl flex-col gap-0 overflow-hidden border-border bg-card p-0",
+        "h5-dialog-frame h5-settings-manager-dialog-panel min-h-0 max-w-3xl gap-0 overflow-hidden border-border bg-card p-0",
         contentClassName,
       )}
     >

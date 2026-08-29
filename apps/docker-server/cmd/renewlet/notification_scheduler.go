@@ -346,7 +346,12 @@ func processNotificationCronUser(app core.App, options notificationCronOptions, 
 		// demo 账号允许浏览通知概览，但 cron 不能代表访客向真实渠道发送消息或写入历史扰动。
 		return notificationCronUserResult{UserID: userID, Action: "skipped", Reason: "demo_user"}, nil
 	}
-	settings := settingsFromRecord(row)
+	settings, err := settingsFromRecord(row)
+	if err != nil {
+		return notificationCronUserResult{}, err
+	}
+	// Cron 没有设备/请求上下文；明确账号偏好生效，auto 固定按英文生成正文和历史 locale。
+	contentLocale := accountContentLocale(settings)
 	schedule := getLocalScheduleDecision(options.Now, settings.Timezone, settings.NotificationTimeLocal, options.WindowMinutes, options.Force)
 	var repeatCandidates []notificationSubscription
 	if !schedule.Due && !options.Force {
@@ -420,7 +425,7 @@ func processNotificationCronUser(app core.App, options notificationCronOptions, 
 	if err != nil {
 		return notificationCronUserResult{}, err
 	}
-	due := buildDueNotificationForSchedule(schedule.localScheduleOccurrence, options.Now, settings, subscriptions, true)
+	due := buildDueNotificationForSchedule(schedule.localScheduleOccurrence, options.Now, settings, subscriptions, true, contentLocale)
 
 	finalReason := ""
 	if len(settings.EnabledChannels) == 0 {
@@ -467,7 +472,7 @@ func processNotificationCronUser(app core.App, options notificationCronOptions, 
 
 	if finalReason != "" {
 		// 即使没有可发送内容也写入 skipped job，前端历史才能解释“本次 cron 已检查但无提醒”。
-		result := createJobResult(finalReason, schedule.localScheduleOccurrence, settings, due, options, jobChannels{})
+		result := createJobResult(finalReason, schedule.localScheduleOccurrence, settings, contentLocale, due, options, jobChannels{})
 		if err := finalizeNotificationJob(app, existingJob, userID, schedule, notificationStatusSkipped, "", result); err != nil {
 			return notificationCronUserResult{}, err
 		}
@@ -479,7 +484,7 @@ func processNotificationCronUser(app core.App, options notificationCronOptions, 
 
 	if noRetryableChannels {
 		channels := mergeChannelResults(previousChannels, sendSummary{}, settings.EnabledChannels)
-		result := createJobResult("", schedule.localScheduleOccurrence, settings, due, options, channels)
+		result := createJobResult("", schedule.localScheduleOccurrence, settings, contentLocale, due, options, channels)
 		if err := finalizeNotificationJob(app, existingJob, userID, schedule, notificationStatusSent, "", result); err != nil {
 			return notificationCronUserResult{}, err
 		}
@@ -489,7 +494,7 @@ func processNotificationCronUser(app core.App, options notificationCronOptions, 
 		return notificationCronUserResult{UserID: userID, Action: "sent"}, nil
 	}
 
-	summary := sendToChannels(app, channelsToSend, settings, due)
+	summary := sendToChannels(app, channelsToSend, settings, due, contentLocale)
 	channels := mergeChannelResults(previousChannels, summary, settings.EnabledChannels)
 	status := notificationStatusSent
 	lastError := ""
@@ -503,7 +508,7 @@ func processNotificationCronUser(app core.App, options notificationCronOptions, 
 		}
 		lastError = strings.Join(parts, " | ")
 	}
-	result := createJobResult(reason, schedule.localScheduleOccurrence, settings, due, options, channels)
+	result := createJobResult(reason, schedule.localScheduleOccurrence, settings, contentLocale, due, options, channels)
 	if err := finalizeNotificationJob(app, existingJob, userID, schedule, status, lastError, result); err != nil {
 		return notificationCronUserResult{}, err
 	}

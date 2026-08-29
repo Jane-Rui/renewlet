@@ -13,7 +13,7 @@ import (
 func TestBuildEmailHTMLMessageRendersModernLightOnlyReminderTemplate(t *testing.T) {
 	t.Setenv("APP_URL", "")
 	settings := defaultAppSettings()
-	settings.Locale = string(localeZhCN)
+	settings.LocalePreference = string(preferenceZhCN)
 	settings.ShowExpired = true
 	settings.Timezone = "Asia/Shanghai"
 	settings.ThemeVariant = "ocean"
@@ -23,7 +23,7 @@ func TestBuildEmailHTMLMessageRendersModernLightOnlyReminderTemplate(t *testing.
 		{ID: "renewal", Name: "Renewal", Price: "18", Currency: "CNY", Status: "active", NextBillingDate: "2026-05-17", ReminderDays: 3},
 		{ID: "trial", Name: "Trial", Price: "9.9", Currency: "USD", Status: "trial", NextBillingDate: "2026-06-01", TrialEndDate: "2026-05-15", ReminderDays: 1},
 		{ID: "expired", Name: "Expired", Price: "12", Currency: "EUR", Status: "active", NextBillingDate: "2026-05-01", ReminderDays: 7},
-	}, true)
+	}, true, accountContentLocale(settings))
 
 	body := mustBuildEmailHTML(t, settings, message)
 
@@ -98,7 +98,7 @@ func TestBuildEmailHTMLMessageRendersModernLightOnlyReminderTemplate(t *testing.
 func TestBuildEmailHTMLMessageRendersLongReminderListAsCompactLedgerRows(t *testing.T) {
 	t.Setenv("APP_URL", "")
 	settings := defaultAppSettings()
-	settings.Locale = string(localeZhCN)
+	settings.LocalePreference = string(preferenceZhCN)
 
 	items := make([]notificationContentItem, 0, 43)
 	for i := 1; i <= 43; i++ {
@@ -151,7 +151,7 @@ func TestBuildEmailHTMLMessageRendersLongReminderListAsCompactLedgerRows(t *test
 func TestBuildEmailHTMLMessageRendersCostSharingCollectionReminder(t *testing.T) {
 	t.Setenv("APP_URL", "")
 	settings := defaultAppSettings()
-	settings.Locale = string(localeZhCN)
+	settings.LocalePreference = string(preferenceZhCN)
 	message := notificationMessage{
 		Title:     "Renewlet 订阅提醒",
 		Content:   "家庭共享收款：Family Plan",
@@ -185,10 +185,10 @@ func TestBuildEmailHTMLMessageRendersCostSharingCollectionReminder(t *testing.T)
 func TestBuildEmailHTMLMessageRendersEnglishTestNotification(t *testing.T) {
 	t.Setenv("APP_URL", "")
 	settings := defaultAppSettings()
-	settings.Locale = string(localeEnUS)
+	settings.LocalePreference = string(preferenceEnUS)
 	settings.Timezone = "UTC"
 
-	message := buildTestNotification(time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC), settings)
+	message := buildTestNotification(time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC), settings, accountContentLocale(settings))
 	body := mustBuildEmailHTML(t, settings, message)
 
 	assertContainsAll(t, body,
@@ -207,8 +207,8 @@ func TestBuildEmailHTMLMessageRendersEnglishTestNotification(t *testing.T) {
 func TestBuildEmailHTMLMessageRendersTestStatusWithoutDuplicateMessagePanel(t *testing.T) {
 	t.Setenv("APP_URL", "")
 	settings := defaultAppSettings()
-	settings.Locale = string(localeZhCN)
-	message := buildTestNotification(time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC), settings)
+	settings.LocalePreference = string(preferenceZhCN)
+	message := buildTestNotification(time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC), settings, accountContentLocale(settings))
 	body := mustBuildEmailHTML(t, settings, message)
 
 	assertContainsAll(t, body, "<title>Renewlet 测试通知</title>", "配置检查", `>0 <span`, "如果你收到了这条消息")
@@ -220,10 +220,10 @@ func TestBuildEmailHTMLMessageRendersTestStatusWithoutDuplicateMessagePanel(t *t
 func TestBuildEmailHTMLMessageRendersReminderCTAFromAppURL(t *testing.T) {
 	t.Setenv("APP_URL", "https://renewlet.example/app/")
 	settings := defaultAppSettings()
-	settings.Locale = string(localeZhCN)
+	settings.LocalePreference = string(preferenceZhCN)
 	message := buildDueNotificationForLocalDate("2026-05-14", time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC), settings, []notificationSubscription{
 		{ID: "renewal", Name: "Renewal", Price: "18", Currency: "CNY", Status: "active", NextBillingDate: "2026-05-17", ReminderDays: 3},
-	}, true)
+	}, true, accountContentLocale(settings))
 
 	body := mustBuildEmailHTML(t, settings, message)
 
@@ -237,8 +237,8 @@ func TestBuildEmailHTMLMessageRendersReminderCTAFromAppURL(t *testing.T) {
 func TestBuildEmailHTMLMessageRendersSettingsCTAForTestNotification(t *testing.T) {
 	t.Setenv("APP_URL", "https://renewlet.example")
 	settings := defaultAppSettings()
-	settings.Locale = string(localeEnUS)
-	message := buildTestNotification(time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC), settings)
+	settings.LocalePreference = string(preferenceEnUS)
+	message := buildTestNotification(time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC), settings, accountContentLocale(settings))
 
 	body := mustBuildEmailHTML(t, settings, message)
 
@@ -252,8 +252,8 @@ func TestBuildEmailHTMLMessageRendersSettingsCTAForTestNotification(t *testing.T
 func TestBuildEmailHTMLMessageOmitsCTAForInvalidAppURL(t *testing.T) {
 	t.Setenv("APP_URL", "javascript:alert(1)")
 	settings := defaultAppSettings()
-	settings.Locale = string(localeZhCN)
-	message := buildTestNotification(time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC), settings)
+	settings.LocalePreference = string(preferenceZhCN)
+	message := buildTestNotification(time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC), settings, accountContentLocale(settings))
 
 	body := mustBuildEmailHTML(t, settings, message)
 
@@ -265,7 +265,7 @@ func TestBuildEmailHTMLMessageOmitsCTAForInvalidAppURL(t *testing.T) {
 func TestBuildEmailHTMLMessageEscapesUserContentAndOmitsLogoURL(t *testing.T) {
 	t.Setenv("APP_URL", "")
 	settings := defaultAppSettings()
-	settings.Locale = string(localeZhCN)
+	settings.LocalePreference = string(preferenceZhCN)
 	message := notificationMessage{
 		Title:     `<script>alert("title")</script>`,
 		Content:   "Line <b>one</b>\nLine two",
@@ -312,7 +312,7 @@ func TestBuildEmailHTMLMessageEscapesPlainContentLines(t *testing.T) {
 func TestBuildEmailHTMLMessageRendersEmptyNotificationContent(t *testing.T) {
 	t.Setenv("APP_URL", "")
 	settings := defaultAppSettings()
-	settings.Locale = string(localeEnUS)
+	settings.LocalePreference = string(preferenceEnUS)
 	message := notificationMessage{
 		Title:      "Renewlet subscription reminder",
 		Content:    "No subscriptions need reminders today.",
@@ -337,7 +337,7 @@ func TestBuildEmailHTMLMessageRendersEmptyNotificationContent(t *testing.T) {
 func TestBuildEmailHTMLMessageCapsLargeHTMLBody(t *testing.T) {
 	t.Setenv("APP_URL", "")
 	settings := defaultAppSettings()
-	settings.Locale = string(localeZhCN)
+	settings.LocalePreference = string(preferenceZhCN)
 	// 邮件客户端常按体积截断 HTML；超长通知必须降级到 compact 视图，而不是继续膨胀完整列表。
 	items := make([]notificationContentItem, 0, 800)
 	for i := 0; i < 800; i++ {
@@ -397,7 +397,7 @@ func TestEmailThemesRenderWithoutTemplateCSSSanitizerFailures(t *testing.T) {
 			if variant == "custom" {
 				settings.ThemeCustomColor = themeCustomColor{H: 210, S: 90, L: 45}
 			}
-			body := mustBuildEmailHTML(t, settings, buildTestNotification(time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC), settings))
+			body := mustBuildEmailHTML(t, settings, buildTestNotification(time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC), settings, accountContentLocale(settings)))
 
 			assertContainsAll(t, body, emailThemeFromSettings(settings).Primary)
 			assertNotContainsAny(t, body, "ZgotmplZ")
@@ -442,7 +442,7 @@ func TestEmailPlainTextFallbackContentRemainsAvailable(t *testing.T) {
 
 func mustBuildEmailHTML(t *testing.T, settings appSettings, message notificationMessage) string {
 	t.Helper()
-	body, err := buildEmailHTMLMessage(settings, message)
+	body, err := buildEmailHTMLMessage(settings, message, accountContentLocale(settings))
 	if err != nil {
 		t.Fatal(err)
 	}

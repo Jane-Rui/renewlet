@@ -151,8 +151,7 @@ func effectiveReminderDays(sub notificationSubscription, settings appSettings) (
 }
 
 // buildTestNotification 构造测试通知内容。
-func buildTestNotification(now time.Time, settings appSettings) notificationMessage {
-	locale := normalizeAppLocale(settings.Locale)
+func buildTestNotification(now time.Time, settings appSettings, locale appLocale) notificationMessage {
 	return notificationMessage{
 		Title:      serverText(locale, "notification.content.testTitle"),
 		Content:    serverText(locale, "notification.content.testBody"),
@@ -163,21 +162,21 @@ func buildTestNotification(now time.Time, settings appSettings) notificationMess
 }
 
 // buildDueNotification 根据当前时间和用户时区构造到期提醒。
-func buildDueNotification(now time.Time, settings appSettings, subscriptions []notificationSubscription, includeExpired bool) notificationMessage {
+func buildDueNotification(now time.Time, settings appSettings, subscriptions []notificationSubscription, includeExpired bool, locale appLocale) notificationMessage {
 	localDate := todayDateOnly(now, settings.Timezone)
 	items := collectNotificationItems(localDate, settings, subscriptions, includeExpired)
-	return buildNotificationContent(now, settings, items)
+	return buildNotificationContent(now, settings, items, locale)
 }
 
 // buildDueNotificationForLocalDate 按指定本地日期构造提醒。
-func buildDueNotificationForLocalDate(localDate string, now time.Time, settings appSettings, subscriptions []notificationSubscription, includeExpired bool) notificationMessage {
+func buildDueNotificationForLocalDate(localDate string, now time.Time, settings appSettings, subscriptions []notificationSubscription, includeExpired bool, locale appLocale) notificationMessage {
 	items := collectNotificationItems(localDate, settings, subscriptions, includeExpired)
-	return buildNotificationContent(now, settings, items)
+	return buildNotificationContent(now, settings, items, locale)
 }
 
-func buildDueNotificationForSchedule(schedule localScheduleOccurrence, now time.Time, settings appSettings, subscriptions []notificationSubscription, includeExpired bool) notificationMessage {
+func buildDueNotificationForSchedule(schedule localScheduleOccurrence, now time.Time, settings appSettings, subscriptions []notificationSubscription, includeExpired bool, locale appLocale) notificationMessage {
 	items := collectNotificationItemsForSchedule(schedule, settings, subscriptions, includeExpired)
-	return buildNotificationContent(now, settings, items)
+	return buildNotificationContent(now, settings, items, locale)
 }
 
 func collectNotificationItemsForSchedule(schedule localScheduleOccurrence, settings appSettings, subscriptions []notificationSubscription, includeExpired bool) []notificationContentItem {
@@ -432,8 +431,7 @@ func repeatReminderOccurrenceMatches(scheduledInstant time.Time, settings appSet
 }
 
 // buildNotificationContent 将提醒项分组为可读消息。
-func buildNotificationContent(now time.Time, settings appSettings, items []notificationContentItem) notificationMessage {
-	locale := normalizeAppLocale(settings.Locale)
+func buildNotificationContent(now time.Time, settings appSettings, items []notificationContentItem, locale appLocale) notificationMessage {
 	renewals := []string{}
 	expiries := []string{}
 	trials := []string{}

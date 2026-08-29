@@ -5,7 +5,7 @@ import {
   appSettingsSchema,
   DINGTALK_CONTENT_TEMPLATE_MAX_LENGTH,
   DINGTALK_TITLE_TEMPLATE_MAX_LENGTH,
-  persistedSettingsBackupSchema,
+  persistedAppSettingsSchema,
   settingsUpdateBodySchema,
   type ApiAppSettings,
 } from "./schemas/settings";
@@ -77,9 +77,7 @@ export function mergeAppSettingsPatch(current: ApiAppSettings, patch: ApiAppSett
 }
 
 export function normalizeSettingsValue(value: unknown, defaults: ApiAppSettings): ApiAppSettings {
-  const parsed = persistedSettingsBackupSchema.safeParse(normalizeStoredSettingsPatch(value));
-  if (!parsed.success) return defaults;
-  const patch = parsed.data;
+  const patch = persistedAppSettingsSchema.parse(normalizeStoredSettingsPatch(value));
   // 持久化读取包含 write-only secret，不能复用浏览器 PATCH schema；嵌套来源配置仍按同一合并规则补历史默认值。
   return appSettingsSchema.parse({
     ...defaults,

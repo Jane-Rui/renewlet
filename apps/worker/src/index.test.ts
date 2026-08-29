@@ -9,6 +9,7 @@ const phaseMocks = vi.hoisted(() => ({
   renewAutoSubscriptionsForAllUsers: vi.fn<ScheduledTask>(),
   runScheduledNotifications: vi.fn<ScheduledTask>(),
   runDueCloudBackups: vi.fn<ScheduledTask>(),
+  consumeBuiltInIconIndexRefreshQueue: vi.fn(),
 }));
 
 vi.mock("./subscription-renewal", () => ({
@@ -33,27 +34,37 @@ vi.mock("./cloud-backup", () => ({
   updateCloudBackupConfig: vi.fn(),
 }));
 
-function envFixture(): Env {
+vi.mock("./media-icon-index-refresh-queue", () => ({
+  consumeBuiltInIconIndexRefreshQueue: phaseMocks.consumeBuiltInIconIndexRefreshQueue,
+}));
+
+function envFixture(overrides: Partial<Env> = {}): Env {
   return {
     DB: {} as D1Database,
     ASSETS: {} as Fetcher,
     ASSETS_BUCKET: {} as R2Bucket,
+    ...overrides,
   };
 }
 
-async function runScheduled(): Promise<void> {
+async function runScheduled(env: Env = envFixture()): Promise<void> {
   if (!worker.scheduled) throw new Error("Expected scheduled handler");
   await worker.scheduled({
     scheduledTime: Date.parse("2026-06-17T00:00:00.000Z"),
     cron: "* * * * *",
     noRetry: vi.fn(),
-  }, envFixture(), {} as ExecutionContext);
+  }, env, {} as ExecutionContext);
 }
 
-async function fetchWorker(request: Request): Promise<Response> {
+async function fetchWorker(request: Request, env: Env = envFixture()): Promise<Response> {
   if (!worker.fetch) throw new Error("Expected fetch handler");
   // Wrangler handler 的 Request 类型带 cf 元数据；单元测试只需要普通 Request 覆盖路由分派。
-  return await worker.fetch(request as Parameters<NonNullable<typeof worker.fetch>>[0], envFixture(), {} as ExecutionContext);
+  return await worker.fetch(request as Parameters<NonNullable<typeof worker.fetch>>[0], env, {} as ExecutionContext);
+}
+
+async function runQueue(batch: MessageBatch, env: Env = envFixture()): Promise<void> {
+  if (!worker.queue) throw new Error("Expected queue handler");
+  await worker.queue(batch, env, {} as ExecutionContext);
 }
 
 describe("Cloudflare worker scheduled entrypoint", () => {
@@ -62,6 +73,7 @@ describe("Cloudflare worker scheduled entrypoint", () => {
     phaseMocks.renewAutoSubscriptionsForAllUsers.mockReset();
     phaseMocks.runScheduledNotifications.mockReset();
     phaseMocks.runDueCloudBackups.mockReset();
+    phaseMocks.consumeBuiltInIconIndexRefreshQueue.mockReset();
     phaseMocks.renewAutoSubscriptionsForAllUsers.mockResolvedValue(undefined);
     phaseMocks.runScheduledNotifications.mockResolvedValue(undefined);
     phaseMocks.runDueCloudBackups.mockResolvedValue(undefined);
@@ -114,6 +126,43 @@ describe("Cloudflare worker scheduled entrypoint", () => {
       phase: "notifications",
       error: { name: "Error", message: "notify failed [redacted]" },
     }));
+  });
+
+  it("skips every scheduled phase while maintenance mode is active", async () => {
+    await runScheduled(envFixture({ RENEWLET_MAINTENANCE_MODE: "true" }));
+
+    expect(phaseMocks.renewAutoSubscriptionsForAllUsers).not.toHaveBeenCalled();
+    expect(phaseMocks.runScheduledNotifications).not.toHaveBeenCalled();
+    expect(phaseMocks.runDueCloudBackups).not.toHaveBeenCalled();
+  });
+});
+
+describe("Cloudflare worker maintenance entrypoints", () => {
+  it("returns a non-cacheable 503 before API routing", async () => {
+    const response = await fetchWorker(
+      new Request("https://renewlet.example/api/app/ready"),
+      envFixture({ RENEWLET_MAINTENANCE_MODE: "true" }),
+    );
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("900");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "MAINTENANCE_MODE",
+        message: "Renewlet is temporarily unavailable during a database upgrade.",
+      },
+    });
+  });
+
+  it("retries a race-delivered Queue batch without consuming it", async () => {
+    const retryAll = vi.fn();
+    const batch = { messages: [], queue: "refresh", retryAll, ackAll: vi.fn() } as unknown as MessageBatch;
+
+    await runQueue(batch, envFixture({ RENEWLET_MAINTENANCE_MODE: "true" }));
+
+    expect(retryAll).toHaveBeenCalledWith({ delaySeconds: 900 });
+    expect(phaseMocks.consumeBuiltInIconIndexRefreshQueue).not.toHaveBeenCalled();
   });
 });
 

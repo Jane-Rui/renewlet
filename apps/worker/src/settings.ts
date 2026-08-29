@@ -23,7 +23,7 @@ import type { Env } from "./types";
  */
 export async function readSettings(request: Request, env: Env): Promise<Response> {
   const auth = await requireAuth(request, env);
-  const settings = await ensureSettings(env, auth.user.id, requestLocale(request));
+  const settings = await ensureSettings(env, auth.user.id);
   return successJson(settingsResponse(settings));
 }
 
@@ -36,7 +36,7 @@ export async function updateSettings(request: Request, env: Env): Promise<Respon
   const locale = requestLocale(request);
   const auth = await requireAuth(request, env);
   const patch = await readJson(request, settingsUpdateBodySchema, locale);
-  const current = await ensureSettings(env, auth.user.id, locale);
+  const current = await ensureSettings(env, auth.user.id);
   const { secretUpdates, ...publicPatch } = patch;
   // HTTP patch 不含 secret 字段；先合并公开配置，再在内存应用判别联合，最终统一过完整持久化 schema。
   const withPublicPatch = mergeAppSettingsPatch(current, publicPatch);

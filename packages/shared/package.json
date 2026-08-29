@@ -2,7 +2,7 @@
   "name": "@renewlet/shared",
   "private": true,
   "license": "MIT",
-  "version": "0.3.22",
+  "version": "0.3.23",
   "type": "module",
   "exports": {
     "./schemas/api": "./src/schemas/api.ts",
@@ -45,6 +45,7 @@
     "./online-icon-sources": "./src/online-icon-sources.ts",
     "./email-template": "./src/email-template.ts",
     "./ics": "./src/ics.ts",
+    "./i18n-config": "./src/i18n-config.ts",
     "./subscription-billing": "./src/subscription-billing.ts",
     "./subscription-renewal": "./src/subscription-renewal.ts",
     "./settings-normalization": "./src/settings-normalization.ts",

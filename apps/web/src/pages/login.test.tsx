@@ -95,6 +95,8 @@ function getShouldPersistSession(options: unknown): (session: unknown) => boolea
 
 describe("Login page", () => {
   beforeEach(() => {
+    Object.defineProperty(globalThis.navigator, "languages", { configurable: true, value: ["en-US"] });
+    Object.defineProperty(globalThis.navigator, "language", { configurable: true, value: "en-US" });
     // 登录页的条件式 Passkey UI 是浏览器级异步能力；这里固定为不可用，避免它抢跑密码/MFA 路径断言。
     Object.defineProperty(window, "PublicKeyCredential", {
       configurable: true,

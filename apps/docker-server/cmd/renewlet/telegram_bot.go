@@ -102,7 +102,7 @@ type telegramChatID string
 
 func handleTelegramBotCommandsStatus(app core.App, e *core.RequestEvent) error {
 	locale := requestLocale(e.Request)
-	_, settings, err := settingsRecordOrDefault(app, e.Auth.Id, locale)
+	_, settings, err := settingsRecordOrDefault(app, e.Auth.Id)
 	if err != nil {
 		return e.InternalServerError(serverText(locale, "common.internalError"), err)
 	}
@@ -123,7 +123,7 @@ func handleTelegramBotCommandsInstall(app core.App, e *core.RequestEvent) error 
 	if err != nil || origin.Scheme != "https" {
 		return telegramBotBadRequest(e, "TELEGRAM_BOT_HTTPS_REQUIRED", serverText(locale, "common.invalidRequestParameters"), err)
 	}
-	_, settings, err := settingsRecordOrDefault(app, e.Auth.Id, locale)
+	_, settings, err := settingsRecordOrDefault(app, e.Auth.Id)
 	if err != nil {
 		return e.InternalServerError(serverText(locale, "common.internalError"), err)
 	}
@@ -163,7 +163,8 @@ func handleTelegramBotCommandsInstall(app core.App, e *core.RequestEvent) error 
 	}
 
 	webhookURL := telegramBotWebhookURL(origin, binding.Id)
-	telegramLocale := normalizeAppLocale(settings.Locale)
+	// Telegram 菜单和后续 Bot 对话没有浏览器设备上下文，只能使用账号内容语言。
+	telegramLocale := accountContentLocale(settings)
 	if err := telegramBotInstallRemote(botToken, chatID, webhookURL, secret, telegramLocale); err != nil {
 		telegramBotBestEffortRemoteCleanup(botToken, chatID, locale)
 		_ = app.Delete(binding)
@@ -189,7 +190,7 @@ func handleTelegramBotCommandsDelete(app core.App, e *core.RequestEvent) error {
 	if err != nil {
 		return e.NotFoundError(serverText(locale, "common.notFound"), err)
 	}
-	_, settings, err := settingsRecordOrDefault(app, e.Auth.Id, locale)
+	_, settings, err := settingsRecordOrDefault(app, e.Auth.Id)
 	if err != nil {
 		return e.InternalServerError(serverText(locale, "common.internalError"), err)
 	}
@@ -237,11 +238,12 @@ func handleTelegramWebhook(app core.App, e *core.RequestEvent) error {
 	}
 	userID := binding.GetString("user")
 	// 只有目标 chat 的真实命令才读取 settings；foreign chat/非命令 no-op 不推进 update，避免低价值写入掩盖后续合法命令。
-	_, settings, err := settingsRecordOrDefault(app, userID, locale)
+	_, settings, err := settingsRecordOrDefault(app, userID)
 	if err != nil || !telegramBotBindingMatchesSettings(binding, settings) {
 		return telegramWebhookOK(e)
 	}
-	telegramLocale := normalizeAppLocale(settings.Locale)
+	// Webhook 的 Accept-Language 来自 Telegram 基础设施，不能覆盖 owner 的账号偏好。
+	telegramLocale := accountContentLocale(settings)
 	reply := telegramBotCommandReply(app, userID, settings, command, arg, telegramLocale)
 	botToken := strings.TrimSpace(settings.TelegramBotToken)
 	if reply != "" {

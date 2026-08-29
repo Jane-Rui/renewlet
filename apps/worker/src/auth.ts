@@ -134,7 +134,7 @@ export async function createInitialAdmin(request: Request, env: Env): Promise<Re
     created_at: timestamp,
     updated_at: timestamp,
   };
-  if (!(await createUserWithInitialState(env, user, locale, true))) {
+  if (!(await createUserWithInitialState(env, user, true))) {
     throw new HttpError(403, serverText(locale, "auth.setupAlreadyInitialized"));
   }
   return ok(201);
@@ -153,7 +153,7 @@ export async function login(request: Request, env: Env): Promise<Response> {
   if (user.banned === 1) {
     throw new HttpError(403, serverText(locale, "auth.accountDisabled"));
   }
-  await ensureSettings(env, user.id, locale);
+  await ensureSettings(env, user.id);
   const mfaMethods = await authenticatorMfaMethodsForUser(env, user.id);
   if (mfaMethods.length > 0) {
     // MFA 用户密码正确后只签短期 ticket，不签产品 session；第二因素完成前前端仍是未登录态。
@@ -398,18 +398,17 @@ export async function adminCreateUser(request: Request, env: Env): Promise<Respo
     created_at: timestamp,
     updated_at: timestamp,
   };
-  await createUserWithInitialState(env, user, locale, false);
+  await createUserWithInitialState(env, user, false);
   return successJson(adminUserPayloadSchema.parse({ user: toAdminUser(user) }), { status: 201 });
 }
 
 async function createUserWithInitialState(
   env: Env,
   user: UserRow,
-  locale: AppLocale,
   initialSetup: boolean,
 ): Promise<boolean> {
   // D1 batch 是账号创建的唯一事务边界；setup loser 的 user id 不存在，后三条 SELECT INSERT 因而全部零写入。
-  const queries = buildInitialUserStateQueries(user, locale, initialSetup);
+  const queries = buildInitialUserStateQueries(user, initialSetup);
   const results = await env.DB.batch(queries.map((query) => env.DB.prepare(query.sql).bind(...query.bindings)));
   return results[0]?.meta.changes === 1;
 }

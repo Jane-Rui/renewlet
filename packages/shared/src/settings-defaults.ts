@@ -2,16 +2,15 @@ import type { ApiAppSettings } from "./schemas/settings";
 import { DEFAULT_BUILT_IN_ICON_SOURCES } from "./built-in-icons";
 import { DEFAULT_ONLINE_ICON_SOURCES } from "./online-icon-sources";
 import { DEFAULT_NOTIFICATION_REMINDER_DAYS } from "./runtime";
+import { DEFAULT_LOCALE_PREFERENCE } from "./i18n-config";
 
-/** 首次写入或空库读取时允许由运行面注入 locale/timezone，其它默认值保持产品一致。 */
 export interface DefaultSettingsOptions {
-  locale?: ApiAppSettings["locale"];
   timezone?: string;
 }
 
 export const DEFAULT_CUSTOM_THEME_COLOR = { h: 160, s: 84, l: 39 } as const;
 
-/** 生成完整设置对象；调用方不应手写部分 defaults 后再让 schema 静默补齐。 */
+/** 生成完整设置对象；语言固定为 auto，调用方不得手写部分 defaults 或注入请求语言。 */
 export function createDefaultAppSettings(options: DefaultSettingsOptions = {}): ApiAppSettings {
   // 默认设置同时服务 PocketBase 首次写入和 D1 空库读取；不能依赖某一端私有字段。
   return {
@@ -19,7 +18,7 @@ export function createDefaultAppSettings(options: DefaultSettingsOptions = {}): 
     themeMode: "dark",
     themeVariant: "emerald",
     themeCustomColor: DEFAULT_CUSTOM_THEME_COLOR,
-    locale: options.locale ?? "en-US",
+    localePreference: DEFAULT_LOCALE_PREFERENCE,
     showExpired: true,
     defaultCurrency: "CNY",
     publicStatusCurrency: "inherit",

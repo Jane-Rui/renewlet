@@ -28,7 +28,7 @@ function clearLegacyWebhookExample(value: string, legacyExample: string) {
 /**
  * 将远端 settings JSON 收敛为前端完整设置。
  *
- * 该函数同时服务产品 API 返回值和历史 settings JSON；不要在页面里绕过它直接消费远端值。
+ * 该函数只接受排他迁移后的持久化契约；不要在页面里绕过它直接消费远端值或兼容旧 locale 字段。
  */
 export function normalizeSettings(value: unknown): AppSettings {
   const defaults = { ...DEFAULT_SETTINGS, timezone: getSystemTimeZone("UTC") };

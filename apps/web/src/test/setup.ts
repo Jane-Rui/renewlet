@@ -1,7 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
-import { EXPLICIT_LOCALE_PREFERENCE_KEY } from "@/i18n/locales";
 import { activateLoadedLocale, loadLocaleCatalog } from "@/i18n/messages";
 
 const [zhCNMessages] = await Promise.all([
@@ -74,7 +73,8 @@ function rejectUnexpectedConsoleCall(level: "warn" | "error") {
 vi.stubGlobal("ResizeObserver", ResizeObserverMock);
 installStorage("localStorage");
 installStorage("sessionStorage");
-localStorage.setItem(EXPLICIT_LOCALE_PREFERENCE_KEY, "zh-CN");
+Object.defineProperty(globalThis.navigator, "languages", { configurable: true, value: ["zh-CN"] });
+Object.defineProperty(globalThis.navigator, "language", { configurable: true, value: "zh-CN" });
 Element.prototype.scrollIntoView = vi.fn();
 // Vaul 依赖浏览器 Pointer Events 的 capture API；jsdom 未实现，测试环境只需要保留同一事件 API 边界。
 if (!Element.prototype.hasPointerCapture) {
@@ -88,6 +88,10 @@ if (!Element.prototype.releasePointerCapture) {
 }
 
 beforeEach(() => {
+  Object.defineProperty(globalThis.navigator, "languages", { configurable: true, value: ["zh-CN"] });
+  Object.defineProperty(globalThis.navigator, "language", { configurable: true, value: "zh-CN" });
+  activateLoadedLocale("zh-CN", zhCNMessages);
+  document.documentElement.lang = "zh-CN";
   // 预期故障日志必须由对应测试局部接管并断言；其余 React、Radix 或业务告警都属于回归。
   vi.spyOn(console, "warn").mockImplementation(rejectUnexpectedConsoleCall("warn"));
   vi.spyOn(console, "error").mockImplementation(rejectUnexpectedConsoleCall("error"));
@@ -100,6 +104,5 @@ afterEach(() => {
   installStorage("localStorage");
   installStorage("sessionStorage");
   localStorage.clear();
-  localStorage.setItem(EXPLICIT_LOCALE_PREFERENCE_KEY, "zh-CN");
   sessionStorage.clear();
 });

@@ -6,17 +6,11 @@
  *
  * 注意： date-only、本地时间和 custom 周期是核心不变量；新增字段时要同步 Go schema/hooks 与前端 schema。
  */
-import type { CustomThemeColor, ThemeMode, ThemeVariant } from './theme';
-import type { BuiltInIconSourceSettings } from "@renewlet/shared/built-in-icons";
-import type { OnlineIconSourceSettings } from "@renewlet/shared/online-icon-sources";
-import type { AiRecognitionSettings } from "@renewlet/shared/schemas/ai-recognition";
 import type { ApiAppSettings } from "@renewlet/shared/schemas/settings";
 import { labelsFromCatalog } from "@/i18n/label-messages";
-import { getInitialLocale, labels, type Locale, type LocalizedLabels } from '@/i18n/locales';
+import { labels, type LocalizedLabels } from '@/i18n/locales';
 import { SUPPORTED_EXCHANGE_RATE_CURRENCIES, getIntlCurrencyOptionLabel } from '@/lib/currency-data';
-import type { ExchangeRateProvider } from '@/lib/api/schemas/exchange-rates';
 import type { DateOnly } from '@/lib/time/date-only';
-import type { LocalTime } from '@/lib/time/local-time';
 import type { CostSharing } from '@renewlet/shared/cost-sharing';
 import { createDefaultAppSettings } from "@renewlet/shared/settings-defaults";
 import {
@@ -240,131 +234,7 @@ export interface SubscriptionStats {
 export type PublicStatusCurrency = "inherit" | (string & {});
 export type SubscriptionPriceReferenceCurrency = "default" | (string & {});
 
-export interface AppSettings {
-  // 管理员展示信息
-  /** 管理员用户名（用于界面展示/未来扩展）。 */
-  adminUsername: string;
-  
-  // 显示与本地化
-  /** 明暗模式（light/dark/system，对应本地 ThemeProvider）。 */
-  themeMode: ThemeMode;
-  /** 主题风格（emerald/ocean/...，对应 html[data-theme]）。 */
-  themeVariant: ThemeVariant;
-  /** 自定义主题色（仅 themeVariant=custom 时生效）。 */
-  themeCustomColor: CustomThemeColor;
-  /** 界面、错误和通知使用的语言。 */
-  locale: Locale;
-  /** 通知内容中是否包含已过期订阅。 */
-  showExpired: boolean;
-  /** 默认货币（用于统计/展示换算）。 */
-  defaultCurrency: string;
-  /** 公开页金额汇总货币；inherit 表示跟随 defaultCurrency。 */
-  publicStatusCurrency: PublicStatusCurrency;
-  /** 是否在单订阅价格下展示参考货币折算。 */
-  subscriptionPriceReferenceEnabled: boolean;
-  /** 单订阅参考货币；default 表示跟随 defaultCurrency。 */
-  subscriptionPriceReferenceCurrency: SubscriptionPriceReferenceCurrency;
-  /** 首选汇率来源；其他远端来源和内置快照仍作为兜底。 */
-  exchangeRateProvider: ExchangeRateProvider;
-  /** 内置 Logo/Icon 来源配置；影响搜索候选和导入自动匹配。 */
-  builtInIconSources: BuiltInIconSourceSettings;
-  /** 在线 App 图标来源配置；只影响用户手动 Logo 搜索。 */
-  onlineIconSources: OnlineIconSourceSettings;
-  /** AI 识别订阅导入使用的第三方模型配置。 */
-  aiRecognition: AiRecognitionSettings;
-  
-  // 预算
-  /** 月度预算；和订阅金额一样使用 canonical decimal string。 */
-  monthlyBudget: string;
-  
-  // 时区
-  /** 用户时区（用于后续定时任务/通知展示）。 */
-  timezone: string;
-  
-  // 通知总开关
-  /** 每天发送通知的本地墙上时间（格式 HH:mm，需结合 timezone 解释）。 */
-  notificationTimeLocal: LocalTime;
-  /** 订阅选择“继承全局”时使用的提前提醒天数。 */
-  notificationReminderDays: number;
-  /** 启用的通知渠道（可多选）。 */
-  enabledChannels: NotificationChannel[];
-  /** 第三方 API 测试号码（部分渠道测试用）。 */
-  testPhone: string;
-  
-  // 以下渠道配置会被原样提交到后端/Worker 做真实发送；前端只负责表单形态，不在本地校验 token 可用性。
-  /** Telegram Bot Token。 */
-  telegramBotToken: string;
-  /** Telegram Chat ID。 */
-  telegramChatId: string;
-  /** Telegram 消息正文样式。 */
-  telegramMessageFormat: ApiAppSettings["telegramMessageFormat"];
-  /** Notifyx API Key。 */
-  notifyxApiKey: string;
-  /** Webhook URL。 */
-  webhookUrl: string;
-  /** Webhook 请求方法。 */
-  webhookMethod: 'GET' | 'POST';
-  /** Webhook Headers（JSON 字符串）。 */
-  webhookHeaders: string;
-  /** Webhook Payload（模板字符串/JSON 字符串）。 */
-  webhookPayload: string;
-  /** 钉钉机器人 Webhook URL。 */
-  dingtalkWebhookUrl: string;
-  /** 钉钉机器人加签密钥。 */
-  dingtalkSecret: string;
-  /** 钉钉机器人自定义关键词。 */
-  dingtalkKeyword: string;
-  /** 钉钉消息类型。 */
-  dingtalkMessageType: ApiAppSettings["dingtalkMessageType"];
-  /** 钉钉消息标题模板。 */
-  dingtalkTitleTemplate: string;
-  /** 钉钉消息正文模板。 */
-  dingtalkContentTemplate: string;
-  /** 企业微信机器人 Webhook URL。 */
-  wechatWebhookUrl: string;
-  /** 企业微信消息类型。 */
-  wechatMessageType: 'text' | 'markdown';
-  /** 企业微信消息是否追加模式标签。 */
-  wechatAddModeTag: boolean;
-  /** 企业微信 @ 手机号（逗号分隔）。 */
-  wechatAtPhones: string;
-  /** 企业微信是否 @ 全体。 */
-  wechatAtAll: boolean;
-  /** SMTP 服务器地址。 */
-  smtpHost: string;
-  /** SMTP 端口。 */
-  smtpPort: string;
-  /** SMTP 是否使用 TLS 直连。 */
-  smtpSecure: boolean;
-  /** SMTP 用户名。 */
-  smtpUser: string;
-  /** SMTP 密码。 */
-  smtpPassword: string;
-  /** SMTP 发件人。 */
-  smtpFrom: string;
-  /** SMTP 回复地址。 */
-  smtpReplyTo: string;
-  /** 是否支持多收件人。 */
-  notifyMultipleAddresses: boolean;
-  /** 收件人邮箱。 */
-  recipientEmail: string;
-  /** Bark 服务器地址。 */
-  barkServerUrl: string;
-  /** Bark 设备 Key。 */
-  barkDeviceKey: string;
-  /** Bark 是否静音推送。 */
-  barkSilentPush: boolean;
-  /** Server酱 SendKey。 */
-  serverchanSendKey: string;
-  /** Discord Webhook URL。 */
-  discordWebhookUrl: string;
-  /** Discord Webhook 覆盖用户名。 */
-  discordBotUsername: string;
-  /** Discord Webhook 覆盖头像 URL。 */
-  discordBotAvatarUrl: string;
-  /** PushPlus token。 */
-  pushplusToken: string;
-}
+export type AppSettings = ApiAppSettings;
 
 export const CATEGORY_LABELS: Record<BuiltInCategory, LocalizedLabels> = {
   productivity: labelsFromCatalog("category.productivity"),
@@ -557,4 +427,4 @@ export const REPEAT_REMINDER_WINDOW_OPTIONS = [
   { value: 'full', labels: labelsFromCatalog("repeat.windowFull") },
 ] as const satisfies readonly RepeatReminderWindowOption[];
 
-export const DEFAULT_SETTINGS: AppSettings = createDefaultAppSettings({ locale: getInitialLocale() });
+export const DEFAULT_SETTINGS: AppSettings = createDefaultAppSettings();

@@ -316,7 +316,10 @@ func publicAPIStatusForUser(app core.App, userID string) (publicAPIStatusRespons
 }
 
 func publicAPIDueForUser(app core.App, userID string, days int) (publicAPIDueResponse, error) {
-	settings := publicStatusSettingsForUser(app, userID)
+	settings, err := publicStatusSettingsForUser(app, userID)
+	if err != nil {
+		return publicAPIDueResponse{}, err
+	}
 	return publicAPIDueForUserWithSettings(app, userID, days, settings)
 }
 

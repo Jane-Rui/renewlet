@@ -4,7 +4,6 @@ import { EMAIL_MAX_HTML_BYTES, buildNotificationEmail, type NotificationEmailIte
 
 function settings(overrides: Partial<NotificationEmailSettings> = {}): NotificationEmailSettings {
   return {
-    locale: "zh-CN",
     themeVariant: "emerald",
     themeCustomColor: { h: 160, s: 84, l: 39 },
     ...overrides,
@@ -24,7 +23,7 @@ describe("buildNotificationEmail", () => {
         item("trial", "Trial", "9.9", "USD", "2026-05-15", 1),
         item("expired", "Expired", "12", "EUR", "2026-05-01", 7),
       ],
-    }, { appUrl: "https://renewlet.example/app/" });
+    }, { locale: "zh-CN", appUrl: "https://renewlet.example/app/" });
 
     expect(email.subject).toBe("Renewlet 订阅提醒");
     expect(email.text).toContain("即将续费：Renewlet");
@@ -101,7 +100,7 @@ describe("buildNotificationEmail", () => {
       timestamp: "2026-05-14 08:00:00 Asia/Shanghai",
       hasPayload: true,
       items,
-    });
+    }, { locale: "zh-CN" });
 
     expect(new TextEncoder().encode(email.html).length).toBeLessThan(EMAIL_MAX_HTML_BYTES);
     expect(email.html.match(/Ledger Subscription/g)).toHaveLength(43);
@@ -134,7 +133,7 @@ describe("buildNotificationEmail", () => {
           currency: "USD",
         },
       }],
-    });
+    }, { locale: "zh-CN" });
 
     expect(email.text).toContain("家庭共享收款");
     expect(email.html).toContain("家庭共享收款");
@@ -144,13 +143,13 @@ describe("buildNotificationEmail", () => {
   });
 
   it("renders en-US test notifications and settings CTA", () => {
-    const email = buildNotificationEmail(settings({ locale: "en-US" }), {
+    const email = buildNotificationEmail(settings(), {
       title: "Renewlet test notification",
       content: "If you received this message, the channel is ready.",
       timestamp: "2026-05-14 08:00:00 UTC",
       hasPayload: true,
       items: [],
-    }, { appUrl: "https://renewlet.example" });
+    }, { locale: "en-US", appUrl: "https://renewlet.example" });
 
     expect(email.html).toContain('<html lang="en-US">');
     expect(email.html).toContain("<title>Renewlet test notification</title>");
@@ -174,15 +173,15 @@ describe("buildNotificationEmail", () => {
       timestamp: "2026-05-14 08:00:00 Asia/Shanghai",
       hasPayload: true,
       items: [item("renewal", "Renewal", "18", "CNY", "2026-05-17", 3)],
-    });
-    const testStatus = buildNotificationEmail(settings(), testMessage());
-    const empty = buildNotificationEmail(settings({ locale: "en-US" }), {
+    }, { locale: "zh-CN" });
+    const testStatus = buildNotificationEmail(settings(), testMessage(), { locale: "zh-CN" });
+    const empty = buildNotificationEmail(settings(), {
       title: "Renewlet subscription reminder",
       content: "No subscriptions need reminders today.",
       timestamp: "2026-05-14 08:00:00 UTC",
       hasPayload: false,
       items: [],
-    });
+    }, { locale: "en-US" });
 
     for (const html of [reminder.html, testStatus.html, empty.html]) {
       expect(html).toContain("padding-bottom:36px");
@@ -191,13 +190,13 @@ describe("buildNotificationEmail", () => {
   });
 
   it("keeps the message panel for empty reminder notifications", () => {
-    const email = buildNotificationEmail(settings({ locale: "en-US" }), {
+    const email = buildNotificationEmail(settings(), {
       title: "Renewlet subscription reminder",
       content: "No subscriptions need reminders today.",
       timestamp: "2026-05-14 08:00:00 UTC",
       hasPayload: false,
       items: [],
-    });
+    }, { locale: "en-US" });
 
     expect(email.html).toContain("No reminders");
     expect(email.html).toContain("class=\"email-message-panel\"");
@@ -217,7 +216,7 @@ describe("buildNotificationEmail", () => {
         ...item("renewal", "<img src=x onerror=alert(1)>", "8", "<USD>", "2026-05-17", 3),
         logoUrl: "https://cdn.example.com/private-logo.png",
       }],
-    });
+    }, { locale: "zh-CN" });
 
     expect(email.html).toContain("&lt;script&gt;alert(&quot;title&quot;)&lt;/script&gt;");
     expect(email.html).toContain("&lt;img src=x onerror=alert(1)&gt;");
@@ -231,7 +230,7 @@ describe("buildNotificationEmail", () => {
     const email = buildNotificationEmail(settings({
       themeVariant: "custom",
       themeCustomColor: { h: 210, s: 90, l: 45 },
-    }), testMessage(), { appUrl: "https://renewlet.example" });
+    }), testMessage(), { locale: "zh-CN", appUrl: "https://renewlet.example" });
 
     expect(email.html).toContain("#0B73DA");
     expect(email.html).toContain("color-scheme: light only");
@@ -249,7 +248,7 @@ describe("buildNotificationEmail", () => {
       timestamp: "2026-05-14 08:00:00 UTC",
       hasPayload: true,
       items,
-    });
+    }, { locale: "zh-CN" });
 
     expect(new TextEncoder().encode(email.html).length).toBeLessThan(EMAIL_MAX_HTML_BYTES);
     expect(email.html).toContain("内容较长");

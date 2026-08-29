@@ -143,7 +143,7 @@ func handleAIModelsList(app core.App, e *core.RequestEvent) error {
 	if err := body.Validate(locale); err != nil {
 		return e.BadRequestError(validationErrorMessage(locale, "common.invalidPayload", err), err)
 	}
-	current, err := currentUserSettings(app, e.Auth, nil)
+	current, err := currentUserSettings(app, e.Auth)
 	if err != nil {
 		return e.InternalServerError(serverText(locale, "common.internalError"), err)
 	}

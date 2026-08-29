@@ -5,7 +5,7 @@ package main
 // 架构位置：PocketBase JSON 字段、测试请求中的临时 patch 都必须先经过这里，
 // 再进入消息构建或渠道发送，避免动态 JSON 在业务层扩散。
 //
-// 注意： sanitizeSettings 只做可恢复兜底；route body 的未知字段和非法类型仍应在 strict decoder 阶段失败。
+// 注意： sanitizeSettings 只处理独立的历史脏字段；route body 和已迁移语言契约仍在 strict decoder 阶段失败。
 import (
 	"bytes"
 	"database/sql"
@@ -22,25 +22,20 @@ import (
 
 var settingsCurrencyRe = regexp.MustCompile(`^[A-Z]{3}$`)
 
-func defaultAppSettingsForLocale(locale appLocale) appSettings {
-	settings := defaultAppSettings()
-	settings.Locale = string(locale)
-	return settings
-}
-
 func findSettingsRecord(app core.App, userID string) (*core.Record, error) {
 	return app.FindFirstRecordByFilter("settings", "user = {:user}", dbx.Params{"user": userID})
 }
 
-func settingsRecordOrDefault(app core.App, userID string, locale appLocale) (*core.Record, appSettings, error) {
+func settingsRecordOrDefault(app core.App, userID string) (*core.Record, appSettings, error) {
 	record, err := findSettingsRecord(app, userID)
 	if err == nil && record != nil {
-		return record, settingsFromRecord(record), nil
+		settings, parseErr := settingsFromRecord(record)
+		return record, settings, parseErr
 	}
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, appSettings{}, err
 	}
-	return nil, defaultAppSettingsForLocale(locale), nil
+	return nil, defaultAppSettings(), nil
 }
 
 func createSettingsRecord(app core.App, userID string, settings appSettings) (*core.Record, error) {
@@ -57,54 +52,68 @@ func createSettingsRecord(app core.App, userID string, settings appSettings) (*c
 	return record, nil
 }
 
-func ensureSettingsRecord(app core.App, userID string, locale appLocale) (*core.Record, appSettings, error) {
-	record, settings, err := settingsRecordOrDefault(app, userID, locale)
+func ensureSettingsRecord(app core.App, userID string) (*core.Record, appSettings, error) {
+	record, settings, err := settingsRecordOrDefault(app, userID)
 	if err != nil || record != nil {
 		return record, settings, err
 	}
-	// 首次读取设置会落账号语言；之后 settings 行是唯一真相源，不能再被请求 header 覆盖。
 	record, err = createSettingsRecord(app, userID, settings)
 	if err != nil {
 		if existing, findErr := findSettingsRecord(app, userID); findErr == nil && existing != nil {
-			return existing, settingsFromRecord(existing), nil
+			existingSettings, parseErr := settingsFromRecord(existing)
+			return existing, existingSettings, parseErr
 		}
 		return nil, appSettings{}, err
 	}
-	return record, settingsFromRecord(record), nil
+	stored, err := settingsFromRecord(record)
+	return record, stored, err
 }
 
-// currentUserSettings 读取当前用户设置，并合并请求级临时 patch。
-// 注意： 该函数服务于通知测试/手动运行；不要在这里持久化 patch。
-func currentUserSettings(app core.App, user *core.Record, patch json.RawMessage) (appSettings, error) {
+func currentUserSettings(app core.App, user *core.Record) (appSettings, error) {
 	settings := defaultAppSettings()
 	if user == nil {
 		return settings, nil
 	}
 	record, err := app.FindFirstRecordByFilter("settings", "user = {:user}", dbx.Params{"user": user.Id})
-	if err == nil && record != nil {
-		settings = settingsFromRecord(record)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return settings, nil
+		}
+		return appSettings{}, err
+	}
+	return settingsFromRecord(record)
+}
+
+// 请求级设置覆盖只服务通知测试/手动运行；校验文案跟随当前请求，临时 patch 绝不写回账号设置。
+func currentUserSettingsWithPatch(app core.App, user *core.Record, patch json.RawMessage, locale appLocale) (appSettings, error) {
+	settings, err := currentUserSettings(app, user)
+	if err != nil {
+		return settings, err
 	}
 	if len(bytes.TrimSpace(patch)) == 0 {
 		return settings, nil
 	}
-	return mergeSettingsRequest(settings, patch)
+	return mergeSettingsRequest(settings, patch, locale)
 }
 
-// settingsFromRecord 从 PocketBase settings 记录读取强类型设置。
-func settingsFromRecord(record *core.Record) appSettings {
-	settings, err := settingsFromValue(record.Get("settings"))
-	if err != nil {
-		return defaultAppSettings()
-	}
-	return settings
+func settingsFromRecord(record *core.Record) (appSettings, error) {
+	// 排他迁移后，存在的 settings 记录必须满足数据库契约；静默回落会掩盖漂移并以默认值执行后台任务。
+	return settingsFromValue(record.Get("settings"))
 }
 
-// settingsFromValue 将 PocketBase JSON 字段转换为 appSettings。
 func settingsFromValue(value interface{}) (appSettings, error) {
 	settings := defaultAppSettings()
 	data, err := jsonBytesFromValue(value)
-	if err != nil || len(bytes.TrimSpace(data)) == 0 {
-		return settings, err
+	if err != nil {
+		return appSettings{}, err
+	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		return appSettings{}, errors.New("APP_SETTINGS_REQUIRED")
+	}
+	if _, present, err := explicitSettingsStringPatch(data, "localePreference"); err != nil {
+		return appSettings{}, err
+	} else if !present {
+		return appSettings{}, errors.New("APP_LOCALE_PREFERENCE_REQUIRED")
 	}
 	return mergeSettings(settings, json.RawMessage(data))
 }
@@ -112,39 +121,37 @@ func settingsFromValue(value interface{}) (appSettings, error) {
 // mergeSettings 将 patch 严格解码到默认/当前设置上。
 // 使用完整 appSettings 目标而非 map，是为了让未知字段和非法类型在边界失败。
 func mergeSettings(base appSettings, patch json.RawMessage) (appSettings, error) {
-	return mergeSettingsWithOptions(base, patch, false)
+	return mergeSettingsWithOptions(base, patch, false, defaultAppLocale)
 }
 
 func mergeSettingsForWrite(base appSettings, patch json.RawMessage) (appSettings, error) {
-	return mergeSettingsWithOptions(base, patch, true)
+	return mergeSettingsWithOptions(base, patch, true, defaultAppLocale)
 }
 
-func mergeSettingsWithOptions(base appSettings, patch json.RawMessage, rejectUnsupportedLocale bool) (appSettings, error) {
+func mergeSettingsWithOptions(base appSettings, patch json.RawMessage, validateWriteFields bool, validationLocale appLocale) (appSettings, error) {
 	if len(bytes.TrimSpace(patch)) == 0 {
 		return base, nil
 	}
-	if !rejectUnsupportedLocale {
+	if !validateWriteFields {
 		patch = normalizeRecoverableStoredSettingsPatch(patch)
 	}
 	settings := base
-	sourcePatch, err := decodeBuiltInIconSourcePatch(patch, base.Locale)
+	sourcePatch, err := decodeBuiltInIconSourcePatch(patch, string(validationLocale))
 	if err != nil {
 		return base, err
 	}
-	onlineSourcePatch, err := decodeOnlineIconSourcePatch(patch, base.Locale)
+	onlineSourcePatch, err := decodeOnlineIconSourcePatch(patch, string(validationLocale))
 	if err != nil {
 		return base, err
 	}
-	if err := decodeStrictJSONBytesInto(patch, &settings, normalizeAppLocale(base.Locale), false); err != nil {
+	if err := decodeStrictJSONBytesInto(patch, &settings, validationLocale, false); err != nil {
 		return base, err
 	}
-	if rejectUnsupportedLocale {
-		// settings.locale 是跨 Go/Worker/shared schema 的账号契约；写入边界拒绝未知值，坏库值才交给 sanitizeSettings 恢复。
-		if locale, ok, err := explicitSettingsLocalePatch(patch); err != nil {
-			return base, err
-		} else if ok && !isSupportedAppLocale(locale) {
-			return base, errors.New("APP_LOCALE_UNSUPPORTED")
-		}
+	// 旧语言值只归一次性 migration 所有；运行时读取与写入都必须拒绝迁移后的契约漂移。
+	if !isSupportedLocalePreference(settings.LocalePreference) {
+		return base, errors.New("APP_LOCALE_PREFERENCE_UNSUPPORTED")
+	}
+	if validateWriteFields {
 		// Telegram 消息样式是跨运行面枚举；写入边界拒绝未知值，坏库值才允许在 sanitizeSettings 回落 plain。
 		if format, ok, err := explicitSettingsStringPatch(patch, "telegramMessageFormat"); err != nil {
 			return base, err
@@ -188,10 +195,6 @@ func mergeSettingsWithOptions(base appSettings, patch json.RawMessage, rejectUns
 		return base, errors.New("BUILT_IN_ICON_SOURCE_REQUIRED")
 	}
 	return sanitizeSettings(settings), nil
-}
-
-func explicitSettingsLocalePatch(raw json.RawMessage) (string, bool, error) {
-	return explicitSettingsStringPatch(raw, "locale")
 }
 
 func explicitSettingsStringPatch(raw json.RawMessage, key string) (string, bool, error) {
@@ -256,9 +259,6 @@ func normalizeRecoverableStoredSettingsPatch(raw json.RawMessage) json.RawMessag
 // sanitizeSettings 对可恢复的设置值做保守归一。
 // 注意： 这里只修复默认值/枚举兜底，不应吞掉 route body 的严格校验职责。
 func sanitizeSettings(settings appSettings) appSettings {
-	if !isSupportedAppLocale(settings.Locale) {
-		settings.Locale = string(normalizeAppLocale(settings.Locale))
-	}
 	if settings.ExchangeRateProvider != "frankfurter" && settings.ExchangeRateProvider != "floatrates" && settings.ExchangeRateProvider != "exchange-api" {
 		// 只有历史/手改坏库值回落到新默认；已保存的旧 provider 是用户选择，不能在读取时强迁移。
 		settings.ExchangeRateProvider = "frankfurter"

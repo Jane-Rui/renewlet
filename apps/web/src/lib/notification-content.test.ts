@@ -128,10 +128,10 @@ describe("notification-content", () => {
     expect(content.items).toEqual([]);
   });
 
-  it("builds English notification content when settings locale is English", () => {
+  it("builds English notification content when the account preference is English", () => {
     const content = buildDueNotification(
       new Date("2026-01-10T00:00:00.000Z"),
-      { ...DEFAULT_SETTINGS, locale: "en-US", timezone: "UTC", showExpired: false },
+      { ...DEFAULT_SETTINGS, localePreference: "en-US", timezone: "UTC", showExpired: false },
       [
         {
           id: "sub-1",

@@ -13,7 +13,7 @@ const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const distRoot = join(workspaceRoot, "dist");
 const manifest = JSON.parse(readFileSync(join(distRoot, ".vite/manifest.json"), "utf8"));
 const moduleGraph = JSON.parse(readFileSync(join(distRoot, ".vite/module-graph.json"), "utf8"));
-const locales = ["en-US", "zh-CN"];
+const locales = JSON.parse(readFileSync(resolve(workspaceRoot, "../../packages/shared/data/i18n-config.json"), "utf8")).supportedLocales;
 const catalogEntryKey = (locale) => `src/i18n/catalog-loaders/${locale}.ts`;
 const privateRouteKeys = new Set([
   "src/pages/dashboard.tsx",

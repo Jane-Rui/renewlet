@@ -109,6 +109,10 @@ msgid "media.variant.lockupDark"
 msgstr "Lockup Dark"
 
 #. js-lingui-explicit-id
+msgid "media.icon"
+msgstr "Icon"
+
+#. js-lingui-explicit-id
 #: src/i18n/descriptors/notification.ts:8
 msgid "media.logo"
 msgstr "Logo"

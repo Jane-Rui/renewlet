@@ -1,15 +1,18 @@
 // locale 测试保护浏览器探测、显式偏好和 LocalizedLabels 读取，新增语言时这里应同步扩展。
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  EXPLICIT_LOCALE_PREFERENCE_KEY,
+  clearAccountLocaleProjection,
   detectBrowserLocale,
   getInitialLocale,
+  localeForPreference,
   normalizeLocale,
-  readExplicitLocalePreference,
-  writeExplicitLocalePreference,
+  readAccountLocaleProjection,
+  writeAccountLocaleProjection,
 } from "./locales";
+import { ACCOUNT_LOCALE_PROJECTION_KEY } from "./account-locale-projection";
 import { pb } from "@/lib/pocketbase";
 import { setApiLocale } from "./api-locale";
+import { writeProductSession } from "@/services/product-session";
 
 let restoreNavigator: (() => void) | null = null;
 
@@ -31,9 +34,18 @@ function stubNavigatorLanguages(languages: string[], language = languages[0] ?? 
 
 afterEach(() => {
   restoreNavigator?.();
+  vi.restoreAllMocks();
 });
 
 describe("locales", () => {
+  function signIn(userId = "user-1") {
+    writeProductSession({
+      type: "session",
+      session: { expiresAt: "2026-12-31T00:00:00.000Z" },
+      user: { id: userId, email: `${userId}@example.com`, name: userId, role: "admin", banned: false },
+    });
+  }
+
   it("normalizes supported language tags", () => {
     expect(normalizeLocale("zh")).toBe("zh-CN");
     expect(normalizeLocale("zh-Hant-HK")).toBe("zh-CN");
@@ -56,12 +68,13 @@ describe("locales", () => {
     expect(detectBrowserLocale()).toBe("en-US");
   });
 
-  it("falls back to English for unknown browser languages", () => {
+  it("falls back to English when the first browser language is not Chinese", () => {
     localStorage.clear();
-    stubNavigatorLanguages(["fr-FR", "ja-JP"], "fr-FR");
+    stubNavigatorLanguages(["fr-FR", "zh-CN"], "fr-FR");
 
     expect(detectBrowserLocale()).toBe("en-US");
     expect(getInitialLocale()).toBe("en-US");
+    expect(localeForPreference("auto")).toBe("en-US");
   });
 
   it("ignores the retired renewlet_locale key", () => {
@@ -69,22 +82,62 @@ describe("locales", () => {
     localStorage.setItem("renewlet_locale", "zh-CN");
     stubNavigatorLanguages(["en-US"]);
 
-    expect(readExplicitLocalePreference()).toBeNull();
+    expect(readAccountLocaleProjection("user-1")).toBeNull();
     expect(getInitialLocale()).toBe("en-US");
   });
 
-  it("uses and writes only the explicit locale preference key", () => {
+  it("uses a strict locale projection only for its matching product session", () => {
     localStorage.clear();
-    localStorage.setItem(EXPLICIT_LOCALE_PREFERENCE_KEY, "zh-CN");
+    signIn();
+    writeAccountLocaleProjection("user-1", "zh-CN");
     stubNavigatorLanguages(["en-US"]);
 
-    expect(readExplicitLocalePreference()).toBe("zh-CN");
+    expect(readAccountLocaleProjection("user-1")).toBe("zh-CN");
+    expect(readAccountLocaleProjection("user-2")).toBeNull();
     expect(getInitialLocale()).toBe("zh-CN");
 
-    writeExplicitLocalePreference("en-US");
+    writeAccountLocaleProjection("user-1", "en-US");
 
-    expect(localStorage.getItem(EXPLICIT_LOCALE_PREFERENCE_KEY)).toBe("en-US");
+    expect(JSON.parse(localStorage.getItem(ACCOUNT_LOCALE_PROJECTION_KEY) ?? "null")).toEqual({
+      version: 1,
+      userId: "user-1",
+      locale: "en-US",
+    });
     expect(localStorage.getItem("renewlet_locale")).toBeNull();
+  });
+
+  it("clears the explicit cache when returning to auto", () => {
+    writeAccountLocaleProjection("user-1", "zh-CN");
+
+    clearAccountLocaleProjection("user-1");
+
+    expect(localStorage.getItem(ACCOUNT_LOCALE_PROJECTION_KEY)).toBeNull();
+  });
+
+  it("ignores the retired string-shaped account locale cache", () => {
+    signIn();
+    localStorage.setItem(ACCOUNT_LOCALE_PROJECTION_KEY, "zh-CN");
+    stubNavigatorLanguages(["en-US"]);
+
+    expect(readAccountLocaleProjection("user-1")).toBeNull();
+    expect(getInitialLocale()).toBe("en-US");
+  });
+
+  it("keeps device detection usable when localStorage throws", () => {
+    stubNavigatorLanguages(["zh-CN"]);
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("storage unavailable");
+    });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("storage unavailable");
+    });
+    vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => {
+      throw new Error("storage unavailable");
+    });
+
+    expect(getInitialLocale()).toBe("zh-CN");
+    expect(() => writeAccountLocaleProjection("user-1", "en-US")).not.toThrow();
+    expect(() => clearAccountLocaleProjection()).not.toThrow();
   });
 });
 

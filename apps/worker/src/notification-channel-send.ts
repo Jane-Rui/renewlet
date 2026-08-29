@@ -156,7 +156,7 @@ async function sendEmail(env: Env, settings: ApiAppSettings, message: Notificati
   let to = splitList(settings.recipientEmail);
   if (!settings.notifyMultipleAddresses && to.length > 1) to = to.slice(0, 1);
   if (to.length === 0) throw new Error(serverText(locale, "smtp.recipientEmpty"));
-  const email = buildNotificationEmail(settings, message, appUrl ? { appUrl } : {});
+  const email = buildNotificationEmail(settings, message, { locale, ...(appUrl ? { appUrl } : {}) });
   const smtpConfig = notificationSmtpConfig(settings, locale);
   try {
     await sendSmtpEmail(smtpConfig, { to, subject: email.subject, text: email.text, html: email.html }, locale);

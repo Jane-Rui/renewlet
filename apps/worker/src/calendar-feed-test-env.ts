@@ -34,14 +34,14 @@ export interface CalendarFeedTestOptions {
   calendarFeedsTableExists?: boolean;
   customConfigJson?: string | null;
   feeds?: CalendarFeedRow[];
-  locale?: "zh-CN" | "en-US";
+  localePreference?: "auto" | "zh-CN" | "en-US";
   subscriptions?: SubscriptionRow[];
 }
 
 export async function createCalendarFeedTestEnv(options: CalendarFeedTestOptions = {}): Promise<CalendarFeedTestEnv> {
   const settings = {
     ...createDefaultAppSettings(),
-    locale: options.locale ?? "en-US" as const,
+    localePreference: options.localePreference ?? "en-US" as const,
     timezone: "UTC",
     notificationReminderDays: 5,
   };
