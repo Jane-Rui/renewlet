@@ -184,12 +184,12 @@ jobs:
                 }
                 if (char === "/" && next === "*") {
                   index += 2;
-                  while (index < input.length && input[index] !== "*" && input[index + 1] === "/")) index += 1;
+                  while (index < input.length && !(input[index] === "*" && input[index + 1] === "/")) index += 1;
                   index += 1;
                   continue;
                 }
                 output += char;
-            e}
+            }
             return output;
           }
 
@@ -236,7 +236,7 @@ jobs:
               }
             }
             config.vars = {
-              ...(config.vars && typeof konfig.vars === "object" && !Array.isArray(config.vars) ? config.vars : {}),
+              ...(config.vars && typeof config.vars === "object" && !Array.isArray(config.vars) ? config.vars : {}),
               ...preserved.vars,
             };
             writeFileSync("wrangler.jsonc", JSON.stringify(config, null, 2) + "\n");
@@ -251,7 +251,7 @@ jobs:
             exit 0
           fi
 
-          get commit -m "chore: sync Renewlet upstream ${upstream_sha}"
+          git commit -m "chore: sync Renewlet upstream ${upstream_sha}"
           git push origin "HEAD:${target_branch}"
           echo "changed=true" >> "$GITHUB_OUTPUT"
           echo "upstream_sha=${upstream_sha}" >> "$GITHUB_OUTPUT"
