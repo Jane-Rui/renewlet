@@ -110,7 +110,7 @@ export function renderSubscriptionCard(
       <SubscriptionCard
         subscription={createSubscription(overrides)}
         {...(options.viewMode ? { viewMode: options.viewMode } : {})}
-        timeZone="Asia/Shanghai"
+        today={assertDateOnly("2026-05-18")}
         inheritedReminderDays={5}
         currencyConvert={options.currencyConvert ?? ((amount, from, to) => {
           const value = moneyToNumber(amount);

@@ -4,7 +4,7 @@ import { toast } from "@/components/ui/sonner";
 import type { Locale } from "@/i18n/locales";
 import { localizedLabel } from "@/i18n/locales";
 import { translate } from "@/i18n/messages";
-import { todayDateOnlyInTimeZone } from "@/lib/time/date-only";
+import { todayDateOnlyInTimeZone, type DateOnly } from "@/lib/time/date-only";
 import { downloadFile } from "@/shared/browser/download-file";
 import { exchangeRateSnapshotService } from "@/services/exchange-rate-snapshot-service";
 import { subscriptionService } from "@/services/subscription-service";
@@ -30,7 +30,7 @@ export function useSubscriptionExport(
   settings: AppSettings,
   locale: Locale,
   selectSubscriptionsForExport: SelectSubscriptionsForExport,
-  timeZone = "UTC",
+  today: DateOnly = todayDateOnlyInTimeZone(new Date(), "UTC"),
   costSharingCurrencyConvert?: CostSharingCurrencyConverter | undefined,
 ) {
   const [exporting, setExporting] = useState(false);
@@ -102,7 +102,7 @@ export function useSubscriptionExport(
         categoryLabelByValue,
         statusLabelByValue,
         locale,
-        today: todayDateOnlyInTimeZone(new Date(), timeZone),
+        today,
         costSharingCalculation: { convert: costSharingCurrencyConvert },
       });
       downloadFile(new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8" }), "subscriptions.csv");
@@ -114,7 +114,7 @@ export function useSubscriptionExport(
     runExport,
     selectSubscriptionsForExport,
     statusLabelByValue,
-    timeZone,
+    today,
   ]);
 
   return { exportToJSON, exportToJSONWithSecrets, exportToCSV, exporting };

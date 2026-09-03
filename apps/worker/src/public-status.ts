@@ -12,7 +12,8 @@ import {
 } from "@renewlet/shared/schemas/public-status";
 import { customConfigSchema, type ApiCustomConfig } from "@renewlet/shared/schemas/custom-config";
 import type { ApiSubscription } from "@renewlet/shared/schemas/subscriptions";
-import { getCustomConfig, getSettings, intToBool, newId, nowIso, SUBSCRIPTION_COLUMNS, toApiSubscription } from "./db";
+import { isOneTimeBuyout, isOneTimeFixedTerm } from "@renewlet/shared/subscription-billing";
+import { getCustomConfig, getSettings, intToBool, newId, nowIso, toApiSubscription } from "./db";
 import { randomToken } from "./crypto";
 import { requireAuth } from "./auth";
 import { HttpError, ok, readJson, requestLocale, successJson } from "./http";
@@ -21,6 +22,7 @@ import { calendarFeedBuiltInCategoryLabelKey } from "./calendar-feed-built-in-la
 import { getExchangeRatePublicBasis } from "./exchange-rate-snapshots";
 import { requestOrigin } from "./request-origin";
 import type { AssetRow, Env, PublicStatusPageRow, SubscriptionRow } from "./types";
+import { publicStatusSubscriptionQueryPlan } from "./subscription-list-filters";
 
 const PUBLIC_STATUS_LIMIT = 500;
 const publicStatusTokenPattern = /^[A-Za-z0-9_-]{43}$/;
@@ -85,8 +87,9 @@ export async function readPublicStatus(request: Request, env: Env, token: string
   const settings = await getSettings(env, page.user_id);
   // 公开状态页属于访客界面；分类标签跟随本次请求，不继承页面 owner 的账号内容语言。
   const resolver = await newPublicStatusCategoryResolver(env, page.user_id, locale);
-  const { rows, truncated } = await listPublicStatusSubscriptions(env, page.user_id);
-  const today = todayDateOnly(settings.timezone);
+  const now = new Date();
+  const today = todayDateOnly(settings.timezone, now);
+  const { rows, truncated } = await listPublicStatusSubscriptions(env, page.user_id, today);
   const showPrices = intToBool(page.show_prices);
   const response = publicStatusPayloadSchema.parse({
     page: {
@@ -94,7 +97,9 @@ export async function readPublicStatus(request: Request, env: Env, token: string
       showPrices,
       ...(showPrices ? { currency: effectivePublicStatusCurrency(settings) } : {}),
       ...(showPrices ? { exchangeRateBasis: await getExchangeRatePublicBasis(env, page.user_id) } : {}),
-      generatedAt: nowIso(),
+      // asOf 是 owner 账号时区下的 date-only；匿名前端不得从 UTC generatedAt 猜测业务日期。
+      asOf: today,
+      generatedAt: now.toISOString(),
       truncated,
     },
     subscriptions: rows.map((row) => publicStatusSubscription(row, request, page, resolver, today)),
@@ -169,15 +174,10 @@ async function getPublicStatusPageByToken(env: Env, token: string): Promise<Publ
   `).bind(token).first<PublicStatusPageRow>();
 }
 
-async function listPublicStatusSubscriptions(env: Env, userId: string): Promise<{ rows: SubscriptionRow[]; truncated: boolean }> {
-  // 公开页顺序跟订阅列表默认口径一致；created/id 只参与内部排序，不能进入公开 allowlist。
-  const result = await env.DB.prepare(`
-    SELECT ${SUBSCRIPTION_COLUMNS}
-    FROM subscriptions
-    WHERE user_id = ? AND public_hidden = 0
-    ORDER BY pinned DESC, created_at DESC, id DESC
-    LIMIT ?
-  `).bind(userId, PUBLIC_STATUS_LIMIT + 1).all<SubscriptionRow>();
+async function listPublicStatusSubscriptions(env: Env, userId: string, today: string): Promise<{ rows: SubscriptionRow[]; truncated: boolean }> {
+  // 公开页复用私有默认集合顺序，但响应仍只经过公开 allowlist 投影。
+  const plan = publicStatusSubscriptionQueryPlan(userId, today, PUBLIC_STATUS_LIMIT + 1);
+  const result = await env.DB.prepare(plan.sql).bind(...plan.params).all<SubscriptionRow>();
   const rows = result.results.slice(0, PUBLIC_STATUS_LIMIT);
   return { rows, truncated: result.results.length > PUBLIC_STATUS_LIMIT };
 }
@@ -197,7 +197,9 @@ function publicStatusSubscription(
     category: resolver.category(subscription.category),
     status: publicStatusEffectiveStatus(subscription, today),
     startDate: subscription.startDate,
-    nextBillingDate: subscription.nextBillingDate,
+    nextBillingDate: isOneTimeBuyout(subscription)
+      ? null
+      : subscription.nextBillingDate,
     updatedAt: subscription.updatedAt ?? nowIso(),
     ...priceFields,
   };
@@ -211,7 +213,7 @@ function publicStatusPriceProjection(subscription: ReturnType<typeof toApiSubscr
     billingCycle: subscription.billingCycle,
     ...(subscription.customDays ? { customDays: subscription.customDays } : {}),
     ...(subscription.customCycleUnit ? { customCycleUnit: subscription.customCycleUnit } : {}),
-    ...(subscription.oneTimeTermCount && subscription.oneTimeTermUnit ? {
+    ...(isOneTimeFixedTerm(subscription) && subscription.oneTimeTermUnit ? {
       oneTimeTermCount: subscription.oneTimeTermCount,
       oneTimeTermUnit: subscription.oneTimeTermUnit,
     } : {}),
@@ -227,7 +229,7 @@ function effectivePublicStatusCurrency(settings: Awaited<ReturnType<typeof getSe
 
 function publicStatusEffectiveStatus(subscription: ApiSubscription, today: string): ApiSubscription["status"] {
   if (subscription.status === "expired") return "expired";
-  if (subscription.billingCycle === "one-time" && !subscription.oneTimeTermCount) return subscription.status;
+  if (isOneTimeBuyout(subscription)) return subscription.status;
   // 公开页是状态面板，沿用站内“有效状态”口径；兼容旧 active/trial 过期数据但不回写 D1。
   if ((subscription.status === "active" || subscription.status === "trial") && subscription.nextBillingDate < today) {
     return "expired";
@@ -235,14 +237,14 @@ function publicStatusEffectiveStatus(subscription: ApiSubscription, today: strin
   return subscription.status;
 }
 
-function todayDateOnly(timezone: string): string {
+function todayDateOnly(timezone: string, now: Date): string {
   try {
     const parts = new Intl.DateTimeFormat("en-US", {
       timeZone: timezone,
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
-    }).formatToParts(new Date());
+    }).formatToParts(now);
     const value = (type: string) => parts.find((part) => part.type === type)?.value;
     const year = value("year");
     const month = value("month");
@@ -251,7 +253,7 @@ function todayDateOnly(timezone: string): string {
   } catch {
     // 用户设置中的时区坏值只影响公开页状态投影；回落 UTC，避免公开 API 因单个设置值不可用而整体 500。
   }
-  return new Date().toISOString().slice(0, 10);
+  return now.toISOString().slice(0, 10);
 }
 
 function publicStatusLogoUrl(request: Request, token: string, logo: string): string {

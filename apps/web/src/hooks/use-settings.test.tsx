@@ -100,6 +100,21 @@ describe("useSettings query contract", () => {
     expect(queryClient.getQueryData<SettingsReadModel>(SETTINGS_QUERY_KEY)?.settings.defaultCurrency).toBe("USD");
   });
 
+  it("resets subscription collections when the account timezone changes", async () => {
+    const queryClient = createQueryClient();
+    queryClient.setQueryData(SETTINGS_QUERY_KEY, settingsEnvelope({ timezone: "UTC" }));
+    mocks.settingsUpdate.mockResolvedValue(settingsEnvelope({ timezone: "Asia/Shanghai" }));
+    const resetQueries = vi.spyOn(queryClient, "resetQueries");
+    const { result } = renderHook(() => useUpdateSettings(), { wrapper: createWrapper(queryClient) });
+
+    await act(async () => {
+      await result.current.mutateAsync({ timezone: "Asia/Shanghai" });
+    });
+
+    expect(resetQueries).toHaveBeenNthCalledWith(1, { queryKey: ["subscriptions", "collections", "page"] });
+    expect(resetQueries).toHaveBeenNthCalledWith(2, { queryKey: ["subscriptions", "collections", "index"] });
+  });
+
   it("refetches settings after explicit invalidation", async () => {
     const queryClient = createQueryClient();
     mocks.settingsGet

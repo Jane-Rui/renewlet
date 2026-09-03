@@ -4,8 +4,16 @@ import {
   type SubscriptionPerformanceRecord,
 } from "@renewlet/shared/contract-fixtures";
 import { createDefaultAppSettings } from "@renewlet/shared/settings-defaults";
+import { BILLING_CYCLES } from "@renewlet/shared/runtime";
+import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { subscriptionDerivedMutationPlan, type SubscriptionDerivedMutation } from "./subscription-derived-state";
+import {
+  boundedSubscriptionCollectionQueryPlan,
+  listBoundedSubscriptionsForQuery,
+  listSubscriptionsForQuery,
+  subscriptionCollectionPageQueryPlan,
+} from "./subscription-list-filters";
 import type { Env, SubscriptionRow } from "./types";
 
 class PerformanceD1Database {
@@ -63,6 +71,168 @@ describe.each(subscriptionPerformanceFixture.scenarios)("Worker derived mutation
   });
 });
 
+const subscriptionReadPerformanceScenarios = subscriptionPerformanceFixture.scenarios
+  .filter(({ size }) => size === 1_000 || size === 5_000);
+
+describe.each(subscriptionReadPerformanceScenarios)("Worker collection read budget: $size", (scenario) => {
+  it("uses one private-page query, two bounded-index queries, and indexed fact lookups", async () => {
+    const db = openSubscriptionReadDatabase();
+    try {
+      const { final } = buildSubscriptionPerformanceScenario(scenario.size);
+      seedSubscriptionReadRows(db, final);
+      const database = new SubscriptionReadD1Database(db);
+      const env = {
+        DB: database as unknown as D1Database,
+        ASSETS: {} as Fetcher,
+        ASSETS_BUCKET: {} as R2Bucket,
+      } satisfies Env;
+
+      const privatePage = await listSubscriptionsForQuery(
+        env,
+        "subscription-perf-owner",
+        { limit: 50 },
+        "2026-08-17",
+        null,
+      );
+      expect(privatePage.total).toBe(scenario.expected.total);
+      expect(privatePage.rows).toHaveLength(Math.min(51, scenario.expected.total));
+      expect(database.readQueries).toBe(1);
+
+      database.readQueries = 0;
+      const boundedPage = await listBoundedSubscriptionsForQuery(
+        env,
+        "subscription-perf-owner",
+        {},
+        "2026-08-17",
+        scenario.size,
+      );
+
+      expect(boundedPage).toMatchObject({ total: scenario.expected.total, exceeded: false });
+      expect(boundedPage.rows).toHaveLength(scenario.expected.total);
+      expect(database.readQueries).toBe(scenario.operationBudget.listReadQueries);
+
+      const queryPlanFilters = [
+        {},
+        { paymentType: "auto" as const },
+        { paymentType: "manual" as const },
+        { paymentType: "one-time-buyout" as const },
+        { paymentType: "one-time-fixed-term" as const },
+      ];
+      for (const filters of queryPlanFilters) {
+        const plan = subscriptionCollectionPageQueryPlan(
+          "subscription-perf-owner",
+          filters,
+          "2026-08-17",
+          scenario.size + 1,
+        );
+        const details = db.prepare(`EXPLAIN QUERY PLAN ${plan.sql}`)
+          .all(...(plan.params as SQLInputValue[])) as Array<{ detail: string }>;
+        const label = filters.paymentType ?? "default";
+        expect(details.some(({ detail }) => /SEARCH idx\b/u.test(detail)), label).toBe(true);
+        expect(details.some(({ detail }) => /SEARCH sub\b/u.test(detail)), label).toBe(true);
+        expect(details.some(({ detail }) => /SCAN (?:idx|subscription_list_index)\b/u.test(detail)), label).toBe(false);
+        expect(details.some(({ detail }) => /SCAN (?:sub|subscriptions)\b/u.test(detail)), label).toBe(false);
+      }
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe("Worker collection SQL limits", () => {
+  it("rejects 5001 rows after one projection read", async () => {
+    const db = openSubscriptionReadDatabase();
+    try {
+      const { final } = buildSubscriptionPerformanceScenario(5_000);
+      const first = final[0];
+      if (!first) throw new Error("Missing 5000-row performance fixture");
+      seedSubscriptionReadRows(db, [...final, { ...first, id: "sub_performance_overflow", index: 5_001 }]);
+      const database = new SubscriptionReadD1Database(db);
+      const env = {
+        DB: database as unknown as D1Database,
+        ASSETS: {} as Fetcher,
+        ASSETS_BUCKET: {} as R2Bucket,
+      } satisfies Env;
+
+      const page = await listBoundedSubscriptionsForQuery(
+        env,
+        "subscription-perf-owner",
+        {},
+        "2026-08-17",
+        5_000,
+      );
+
+      expect(page).toEqual({ rows: [], total: 5_001, exceeded: true });
+      expect(database.readQueries).toBe(1);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("executes the maximum multi-select shape with fewer than 100 bindings", () => {
+    const db = openSubscriptionReadDatabase();
+    try {
+      const filters = {
+        category: Array.from({ length: 50 }, (_, index) => `category-${index}`),
+        tag: Array.from({ length: 100 }, (_, index) => `tag-${index}`),
+        billingCycle: [...BILLING_CYCLES],
+        currency: Array.from({ length: 50 }, (_, index) => `C${String(index).padStart(2, "0")}`),
+        paymentMethod: Array.from({ length: 200 }, (_, index) => `payment-${index}`),
+        status: "active" as const,
+        paymentType: "auto" as const,
+        nextBillingFrom: "2026-01-01" as const,
+        nextBillingTo: "2026-12-31" as const,
+        pinned: true,
+        publicHidden: false,
+        reminderMode: "disabled" as const,
+        repeatReminder: true,
+        q: "search",
+      };
+      const page = subscriptionCollectionPageQueryPlan("subscription-perf-owner", filters, "2026-08-17", 51);
+      const bounded = boundedSubscriptionCollectionQueryPlan("subscription-perf-owner", filters, "2026-08-17", 5_001);
+
+      for (const plan of [page, bounded.preflight, bounded.facts]) {
+        expect(plan.params.length).toBeLessThan(100);
+        expect(() => db.prepare(plan.sql).all(...(plan.params as SQLInputValue[]))).not.toThrow();
+      }
+    } finally {
+      db.close();
+    }
+  });
+
+  it("matches Unicode-normalized tags while preserving exact display casing", () => {
+    const db = openSubscriptionReadDatabase();
+    try {
+      const { final } = buildSubscriptionPerformanceScenario(10);
+      const record = final[0];
+      if (!record) throw new Error("Missing tag query fixture");
+      seedSubscriptionReadRows(db, [record]);
+      db.prepare(`INSERT INTO subscription_tags (user_id, subscription_id, tag_norm, tag)
+        VALUES (?, ?, ?, ?)`).run("subscription-perf-owner", record.id, "äi", "ÄI");
+
+      const exact = subscriptionCollectionPageQueryPlan(
+        "subscription-perf-owner",
+        { tag: ["ÄI"] },
+        "2026-08-17",
+        51,
+      );
+      const wrongCase = subscriptionCollectionPageQueryPlan(
+        "subscription-perf-owner",
+        { tag: ["äi"] },
+        "2026-08-17",
+        51,
+      );
+
+      expect(db.prepare(exact.sql).all(...(exact.params as SQLInputValue[])))
+        .toEqual([expect.objectContaining({ id: record.id, collection_total: 1 })]);
+      expect(db.prepare(wrongCase.sql).all(...(wrongCase.params as SQLInputValue[])))
+        .toEqual([expect.objectContaining({ id: null, collection_total: 0 })]);
+    } finally {
+      db.close();
+    }
+  });
+});
+
 function performanceMutations(
   initial: SubscriptionPerformanceRecord[],
   final: SubscriptionPerformanceRecord[],
@@ -84,7 +254,9 @@ function requiredRow(rows: Map<number, SubscriptionRow>, index: number): Subscri
   return row;
 }
 
-function toSubscriptionRow(record: SubscriptionPerformanceRecord): SubscriptionRow {
+function toSubscriptionRow(
+  record: SubscriptionPerformanceRecord,
+): SubscriptionRow & { cost_sharing_json: string } {
   return {
     id: record.id,
     user_id: "subscription-perf-owner",
@@ -121,4 +293,138 @@ function toSubscriptionRow(record: SubscriptionPerformanceRecord): SubscriptionR
     created_at: record.createdAt,
     updated_at: record.updatedAt,
   };
+}
+
+function openSubscriptionReadDatabase(): DatabaseSync {
+  const db = new DatabaseSync(":memory:");
+  db.exec(`
+    CREATE TABLE subscriptions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      logo TEXT,
+      price TEXT NOT NULL,
+      currency TEXT NOT NULL,
+      billing_cycle TEXT NOT NULL,
+      custom_days INTEGER,
+      custom_cycle_unit TEXT,
+      one_time_term_count INTEGER,
+      one_time_term_unit TEXT,
+      category TEXT NOT NULL,
+      status TEXT NOT NULL,
+      pinned INTEGER NOT NULL,
+      public_hidden INTEGER NOT NULL,
+      payment_method TEXT,
+      start_date TEXT,
+      next_billing_date TEXT NOT NULL,
+      auto_renew INTEGER NOT NULL,
+      auto_calculate_next_billing_date INTEGER NOT NULL,
+      trial_end_date TEXT,
+      reminder_days INTEGER NOT NULL,
+      cost_sharing_json TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE subscription_list_index (
+      subscription_id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      name TEXT NOT NULL DEFAULT '',
+      website TEXT NOT NULL DEFAULT '',
+      notes TEXT NOT NULL DEFAULT '',
+      search_text_lower TEXT NOT NULL DEFAULT '',
+      category TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL,
+      billing_cycle TEXT NOT NULL,
+      currency TEXT NOT NULL DEFAULT '',
+      payment_method TEXT NOT NULL DEFAULT '',
+      one_time_term_count INTEGER,
+      next_billing_date TEXT NOT NULL,
+      pinned INTEGER NOT NULL,
+      public_hidden INTEGER NOT NULL DEFAULT 0,
+      trial_end_date TEXT,
+      auto_renew INTEGER NOT NULL DEFAULT 0,
+      reminder_days INTEGER NOT NULL DEFAULT -1,
+      repeat_reminder_enabled INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT ''
+    );
+    CREATE TABLE subscription_tags (
+      user_id TEXT NOT NULL,
+      subscription_id TEXT NOT NULL,
+      tag_norm TEXT NOT NULL,
+      tag TEXT NOT NULL,
+      PRIMARY KEY (user_id, subscription_id, tag_norm)
+    );
+    CREATE INDEX idx_subscription_list_index_user_pinned_order
+      ON subscription_list_index (user_id, pinned DESC, created_at DESC, subscription_id DESC);
+  `);
+  return db;
+}
+
+function seedSubscriptionReadRows(db: DatabaseSync, records: SubscriptionPerformanceRecord[]): void {
+  const insertFact = db.prepare(`INSERT INTO subscriptions (
+    id, user_id, name, logo, price, currency, billing_cycle, custom_days, custom_cycle_unit,
+    one_time_term_count, one_time_term_unit, category, status, pinned, public_hidden, payment_method,
+    start_date, next_billing_date, auto_renew, auto_calculate_next_billing_date, trial_end_date,
+    reminder_days, cost_sharing_json, created_at
+  ) VALUES (${Array.from({ length: 24 }, () => "?").join(", ")})`);
+  const insertIndex = db.prepare(`INSERT INTO subscription_list_index (
+    subscription_id, user_id, status, billing_cycle, one_time_term_count, next_billing_date, pinned, created_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+  db.exec("BEGIN");
+  try {
+    for (const record of records) {
+      const row = toSubscriptionRow(record);
+      insertFact.run(
+        row.id, row.user_id, row.name, row.logo, row.price, row.currency, row.billing_cycle,
+        row.custom_days, row.custom_cycle_unit, row.one_time_term_count, row.one_time_term_unit,
+        row.category, row.status, row.pinned, row.public_hidden, row.payment_method, row.start_date,
+        row.next_billing_date, row.auto_renew, row.auto_calculate_next_billing_date, row.trial_end_date,
+        row.reminder_days, row.cost_sharing_json, row.created_at,
+      );
+      insertIndex.run(
+        row.id, row.user_id, row.status, row.billing_cycle, row.one_time_term_count,
+        row.next_billing_date, row.pinned, row.created_at,
+      );
+    }
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+class SubscriptionReadD1Database {
+  readQueries = 0;
+
+  constructor(private readonly db: DatabaseSync) {}
+
+  prepare(sql: string): D1PreparedStatement {
+    return new SubscriptionReadD1PreparedStatement(this, this.db, sql) as unknown as D1PreparedStatement;
+  }
+}
+
+class SubscriptionReadD1PreparedStatement {
+  private params: SQLInputValue[] = [];
+
+  constructor(
+    private readonly owner: SubscriptionReadD1Database,
+    private readonly db: DatabaseSync,
+    private readonly sql: string,
+  ) {}
+
+  bind(...params: unknown[]): this {
+    this.params = params as SQLInputValue[];
+    return this;
+  }
+
+  async first<T>(): Promise<T | null> {
+    this.owner.readQueries += 1;
+    return (this.db.prepare(this.sql).get(...this.params) as T | undefined) ?? null;
+  }
+
+  async all<T>(): Promise<D1Result<T>> {
+    this.owner.readQueries += 1;
+    const results = this.db.prepare(this.sql).all(...this.params) as T[];
+    return { results, success: true, meta: {} } as D1Result<T>;
+  }
 }

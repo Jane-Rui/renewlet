@@ -23,7 +23,7 @@ describe("contract fixtures", () => {
   });
 
   it("loads subscription performance fixtures", () => {
-    expect(subscriptionPerformanceFixture.scenarios.map(({ size }) => size)).toEqual([10, 100, 1000]);
+    expect(subscriptionPerformanceFixture.scenarios.map(({ size }) => size)).toEqual([10, 100, 1000, 5000]);
   });
 
   it("loads the subscription collection boundary fixture", () => {

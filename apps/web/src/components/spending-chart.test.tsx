@@ -105,17 +105,28 @@ describe("SpendingChart", () => {
     mocks.rechartsTooltipProps.length = 0;
   });
 
-  function renderSpendingChart(subscriptions: Subscription[]) {
+  function renderSpendingChart(
+    subscriptions: Subscription[],
+    convert: (amount: number | string, fromCurrency: string, toCurrency: string) => number = (amount) => Number(amount),
+  ) {
     return render(
       <SpendingChart
         subscriptions={subscriptions}
         categories={DEFAULT_CUSTOM_CONFIG.categories}
         defaultCurrency="CNY"
-        timeZone="Asia/Shanghai"
-        convert={(amount) => (typeof amount === "number" ? amount : Number(amount))}
+        today="2026-05-18"
+        convert={convert}
       />,
     );
   }
+
+  it("excludes buyouts before currency conversion", () => {
+    const convert = vi.fn((amount: number | string) => Number(amount));
+    renderSpendingChart([subscription({ billingCycle: "one-time" })], convert);
+
+    expect(screen.getByText("暂无订阅数据")).toBeInTheDocument();
+    expect(convert).not.toHaveBeenCalled();
+  });
 
   it("disables tooltip animation while keeping the custom content", () => {
     renderSpendingChart([subscription()]);

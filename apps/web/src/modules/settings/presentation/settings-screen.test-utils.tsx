@@ -15,6 +15,7 @@ import type {
 } from "@/lib/api/schemas/exchange-rates";
 import type { ReportExchangeRateBasisStatus } from "@/hooks/use-report-exchange-rates";
 import type { BuiltInIconIndexStatus } from "@/lib/api/schemas/media";
+import type { RawErrorResponseDetails } from "@/lib/raw-error-response";
 import { EMPTY_SETTINGS_SECRET_STATUS } from "@/services/settings-service";
 import { DEFAULT_SETTINGS, type AppSettings, type NotificationChannel } from "@/types/subscription";
 import type { ThemeMode } from "@/types/theme";
@@ -471,6 +472,9 @@ export function createControllerState(overrides: {
   };
   rates?: ExchangeRates;
   activeRateProvider?: ExchangeRateSource;
+  ratesRefreshPending?: boolean;
+  ratesError?: string | null;
+  ratesErrorDetails?: RawErrorResponseDetails | null;
   ratesWarning?: ExchangeRateCoverageWarning | null;
   reportBasisStatus?: ReportExchangeRateBasisStatus;
   externalIntegrationsDisabled?: boolean;
@@ -535,10 +539,10 @@ export function createControllerState(overrides: {
     categoryUsageCount: new Map(),
     rates: overrides.rates ?? {},
     activeRateProvider: overrides.activeRateProvider ?? "frankfurter",
-    ratesLoading: false,
+    ratesRefreshPending: overrides.ratesRefreshPending ?? false,
     lastUpdated: null,
-    ratesError: null,
-    ratesErrorDetails: null,
+    ratesError: overrides.ratesError ?? null,
+    ratesErrorDetails: overrides.ratesErrorDetails ?? null,
     ratesWarning: overrides.ratesWarning ?? null,
     reportBasisStatus: overrides.reportBasisStatus ?? {
       month: "2026-08",

@@ -26,8 +26,8 @@ import {
   listSubscriptionsPage,
   newId,
   nowIso,
-  parseSubscriptionCursor,
-  subscriptionCursor,
+  parsePublicSubscriptionCursor,
+  publicSubscriptionCursor,
   toPublicApiSubscription,
 } from "./db";
 import { getSubscriptionStats, getSubscriptionTotal } from "./subscription-derived-state";
@@ -153,13 +153,13 @@ export async function readPublicApiSubscriptionsForUser(
   userId: string,
   options: PublicApiSubscriptionsOptions,
 ): Promise<z.infer<typeof publicApiSubscriptionsListPayloadSchema>> {
-  if (options.cursor && !parseSubscriptionCursor(options.cursor)) {
+  if (options.cursor && !parsePublicSubscriptionCursor(options.cursor)) {
     throw new HttpError(400, serverText(options.locale, "common.invalidRequestParameters"), "INVALID_CURSOR");
   }
   const rows = await listSubscriptionsPage(env, userId, { limit: options.limit + 1, cursor: options.cursor });
   const pageRows = rows.slice(0, options.limit);
   const lastPageRow = pageRows.at(-1);
-  const nextCursor = rows.length > options.limit && lastPageRow ? subscriptionCursor(lastPageRow) : null;
+  const nextCursor = rows.length > options.limit && lastPageRow ? publicSubscriptionCursor(lastPageRow) : null;
   return publicApiSubscriptionsListPayloadSchema.parse({
     subscriptions: pageRows.map(toPublicApiSubscription),
     nextCursor,

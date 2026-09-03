@@ -246,7 +246,7 @@ describe("subscription service API calls", () => {
       paymentMethod: ["paypal", "__none"],
       currency: ["USD"],
       status: "active",
-      renewal: "auto",
+      paymentType: "auto",
       nextBillingFrom: "2999-08-01",
       nextBillingTo: "2999-08-31",
       pinned: true,
@@ -256,7 +256,7 @@ describe("subscription service API calls", () => {
     });
 
     expect(mocks.apiFetch).toHaveBeenCalledWith(
-      "/api/app/subscriptions?limit=25&q=cursor&category=developer_tools&category=ai&tag=Team&billingCycle=monthly&paymentMethod=paypal&paymentMethod=__none&currency=USD&status=active&renewal=auto&nextBillingFrom=2999-08-01&nextBillingTo=2999-08-31&pinned=true&publicHidden=false&reminderMode=custom&repeatReminder=true",
+      "/api/app/subscriptions?limit=25&q=cursor&category=developer_tools&category=ai&tag=Team&billingCycle=monthly&paymentMethod=paypal&paymentMethod=__none&currency=USD&status=active&paymentType=auto&nextBillingFrom=2999-08-01&nextBillingTo=2999-08-31&pinned=true&publicHidden=false&reminderMode=custom&repeatReminder=true",
       expect.anything(),
       undefined,
     );

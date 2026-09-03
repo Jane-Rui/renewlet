@@ -82,7 +82,7 @@ async function readBoundedCollection(
   userId: string,
   query: SubscriptionCollectionFilters,
 ): Promise<{ rows: SubscriptionCollectionRow[]; total: number }> {
-  const today = query.status ? dateOnlyInZone(new Date(), (await getSettings(env, userId)).timezone) : "";
+  const today = dateOnlyInZone(new Date(), (await getSettings(env, userId)).timezone);
   const page = await listBoundedSubscriptionsForQuery(env, userId, query, today, SUBSCRIPTION_INDEX_LIMIT);
   if (page.exceeded) {
     // 5001 只用于发现超限；不能把前 5000 条作为“完整结果”返回给搜索或统计。

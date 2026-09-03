@@ -66,6 +66,7 @@ export function renderSubscriptionsPage() {
 
   return {
     ...renderResult,
+    queryClient,
     rerenderSubscriptionsPage: () => renderResult.rerender(
       <div id="root" style={{ height: 800, overflowY: "auto" }}>
         <QueryClientProvider client={queryClient}>

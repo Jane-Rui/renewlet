@@ -2,7 +2,7 @@
   "name": "renewlet",
   "private": true,
   "license": "MIT",
-  "version": "0.3.23",
+  "version": "0.3.24",
   "packageManager": "pnpm@11.20.0",
   "engines": {
     "node": ">=24.19.0 <25 || >=26.5.0 <27"
@@ -57,7 +57,7 @@
     "check:deploy": "node scripts/check-deploy-config.mjs && pnpm test:scripts",
     "check:website": "pnpm --filter @renewlet/website lint && pnpm --filter @renewlet/website test && pnpm --filter @renewlet/website build",
     "release": "node scripts/release.mjs",
-    "check:release": "node --test scripts/release.test.mjs",
+    "check:release": "node --test scripts/release.test.mjs scripts/check-workflow-contracts.test.mjs",
     "check:cloudflare": "pnpm check:media-resolver-config && pnpm check:ai-recognition-prompt && pnpm check:built-in-config-labels && pnpm check:server-i18n && pnpm check:i18n && pnpm check:worker-types && pnpm typecheck:scripts && pnpm --filter @renewlet/shared typecheck && pnpm --filter @renewlet/cloudflare typecheck && pnpm --filter @renewlet/cloudflare test:run && VITE_RENEWLET_RUNTIME=cloudflare pnpm --filter @renewlet/client typecheck && pnpm --filter @renewlet/client typecheck:all",
     "check:file-lines": "node scripts/check-file-lines.mjs",
     "cloudflare:config:ci": "tsx scripts/generate-cloudflare-wrangler-config.ts",

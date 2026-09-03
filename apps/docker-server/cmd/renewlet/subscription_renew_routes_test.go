@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/pocketbase/pocketbase/core"
 )
@@ -15,22 +16,32 @@ func TestSubscriptionRenewRouteAdvancesManualSubscription(t *testing.T) {
 	}
 	registerRecordHooks(app)
 	user, token := createRouteTestUser(t, app, "renew")
+	today := todayDateOnly(time.Now().UTC(), "UTC")
+	originalStartDate := addDateOnly(today, -42)
+	originalNextBillingDate := addDateOnly(today, -14)
+	expectedNextBillingDate := addDateOnly(today, 7)
 	record := createRouteTestSubscription(t, app, user.Id, map[string]interface{}{
-		"name":            "Manual Renew",
-		"status":          "expired",
-		"startDate":       "2026-01-31",
-		"nextBillingDate": "2026-02-28",
-		"autoRenew":       false,
+		"name":                         "Manual Renew",
+		"status":                       "expired",
+		"billingCycle":                 "weekly",
+		"startDate":                    originalStartDate,
+		"nextBillingDate":              originalNextBillingDate,
+		"autoRenew":                    false,
+		"autoCalculateNextBillingDate": false,
 	})
 
-	res := serveTestRequest(t, app, http.MethodPost, "/api/app/subscriptions/"+record.Id+"/renew", `{
-		"mode":"continue",
-		"price":"15.500000",
-		"currency":"EUR",
-		"startDate":null,
-		"nextBillingDate":"2026-08-12",
-		"autoCalculateNextBillingDate":false
-	}`, token)
+	requestBody, err := json.Marshal(map[string]interface{}{
+		"mode":                         "continue",
+		"price":                        "15.500000",
+		"currency":                     "EUR",
+		"startDate":                    nil,
+		"nextBillingDate":              expectedNextBillingDate,
+		"autoCalculateNextBillingDate": false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := serveTestRequest(t, app, http.MethodPost, "/api/app/subscriptions/"+record.Id+"/renew", string(requestBody), token)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected renew 200, got %d: %s", res.Code, res.Body.String())
 	}
@@ -39,7 +50,7 @@ func TestSubscriptionRenewRouteAdvancesManualSubscription(t *testing.T) {
 	if subscription["status"] != "active" {
 		t.Fatalf("expected expired manual subscription to become active, got %#v", subscription["status"])
 	}
-	if subscription["nextBillingDate"] != "2026-08-31" {
+	if subscription["nextBillingDate"] != expectedNextBillingDate {
 		t.Fatalf("expected continue renewal to advance original anchor, got %#v", subscription)
 	}
 	if subscription["price"] != "15.5" || subscription["currency"] != "EUR" {
@@ -55,7 +66,7 @@ func TestSubscriptionRenewRouteAdvancesManualSubscription(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reloaded.GetString("status") != "active" || reloaded.GetString("nextBillingDate") != "2026-08-31" || reloaded.GetString("price") != "15.5" || reloaded.GetString("currency") != "EUR" {
+	if reloaded.GetString("status") != "active" || reloaded.GetString("nextBillingDate") != expectedNextBillingDate || reloaded.GetString("price") != "15.5" || reloaded.GetString("currency") != "EUR" {
 		t.Fatalf("expected record to be renewed, status=%s next=%s", reloaded.GetString("status"), reloaded.GetString("nextBillingDate"))
 	}
 }

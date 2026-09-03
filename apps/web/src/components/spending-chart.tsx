@@ -12,10 +12,10 @@ import { PieChart, Pie, Cell, Tooltip } from 'recharts';
 import type { ConfigItem } from '@/types/config';
 import type { SubscriptionCollectionItem } from '@/types/subscription';
 import { RechartsFrame } from '@/components/recharts-frame';
-import { toMonthlyAmount } from '@/lib/subscription-billing';
+import { isOneTimeBuyout, toMonthlyAmount } from '@/lib/subscription-billing';
 import { useMemo } from 'react';
 import { useI18n } from '@/i18n/I18nProvider';
-import { todayDateOnlyInTimeZone } from '@/lib/time/date-only';
+import type { DateOnly } from '@/lib/time/date-only';
 import { isEffectivelyActiveSubscription } from '@/modules/subscriptions/domain/subscription-status';
 
 export interface SpendingChartProps {
@@ -23,7 +23,7 @@ export interface SpendingChartProps {
   subscriptions: SubscriptionCollectionItem[];
   categories: readonly ConfigItem[];
   defaultCurrency: string;
-  timeZone: string;
+  today: DateOnly | string;
   convert: (amount: number | string, fromCurrency: string, toCurrency: string) => number;
 }
 
@@ -71,10 +71,8 @@ function readChartTooltipProps(value: unknown): ChartTooltipProps {
 }
 
 /** 支出分布图（按分类）。 */
-export function SpendingChart({ subscriptions, categories, defaultCurrency, timeZone, convert }: SpendingChartProps) {
+export function SpendingChart({ subscriptions, categories, defaultCurrency, today, convert }: SpendingChartProps) {
   const { t, label, formatCurrency } = useI18n();
-  const today = todayDateOnlyInTimeZone(new Date(), timeZone);
-
   const categoryByValue = useMemo(() => {
     return new Map(categories.map((c) => [c.value, c]));
   }, [categories]);
@@ -85,6 +83,7 @@ export function SpendingChart({ subscriptions, categories, defaultCurrency, time
 
     const categorySpending = activeSubscriptions.reduce(
       (acc, sub) => {
+        if (isOneTimeBuyout(sub)) return acc;
         // 先把单次扣费金额换算到统计货币，再折算为“月度金额”（与统计页/仪表盘一致）
         const amountInDefault = convert(sub.price, sub.currency, defaultCurrency);
         const monthly = toMonthlyAmount(

@@ -5,6 +5,7 @@ package main
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -83,6 +84,153 @@ func TestSubscriptionDerivedSchemaRejectsMissingStatsChecks(t *testing.T) {
 	}
 	if current {
 		t.Fatal("stats table without non-negative and status-sum checks must be rebuilt")
+	}
+}
+
+func TestEnsureSchemaUpgradesHistoricalPaymentTypesAndRebuildsDerivedState(t *testing.T) {
+	app := newSchemaTestApp(t)
+	if err := ensureSchema(app); err != nil {
+		t.Fatal(err)
+	}
+	user := createSchemaTestUser(t, app, "schema-payment-type-upgrade@example.com")
+	auto := createSchemaTestSubscriptionNoValidate(t, app, user.Id, map[string]interface{}{
+		"name": "Historical Auto Plan", "price": "12", "autoRenew": true,
+		"startDate": "2026-07-27", "nextBillingDate": "2026-08-27",
+	})
+	manual := createSchemaTestSubscriptionNoValidate(t, app, user.Id, map[string]interface{}{
+		"name": "Historical Manual Plan", "price": "30", "autoRenew": false,
+		"startDate": "2026-07-20", "nextBillingDate": "2026-08-20",
+	})
+	buyout := createSchemaTestSubscriptionNoValidate(t, app, user.Id, map[string]interface{}{
+		"name": "Historical Lifetime License", "price": "199", "billingCycle": "one-time",
+		"oneTimeTermCount": 0, "oneTimeTermUnit": "", "autoRenew": false, "autoCalculateNextBillingDate": false,
+		"startDate": "2026-08-10", "nextBillingDate": "2026-08-10",
+	})
+	fixed := createSchemaTestSubscriptionNoValidate(t, app, user.Id, map[string]interface{}{
+		"name": "Historical Fixed Service", "price": "180", "billingCycle": "one-time",
+		"oneTimeTermCount": 6, "oneTimeTermUnit": "month", "autoRenew": false, "autoCalculateNextBillingDate": false,
+		"startDate": "2026-02-15", "nextBillingDate": "2026-08-15",
+	})
+
+	type factSnapshot struct {
+		ID               string `db:"id"`
+		Price            string `db:"price"`
+		BillingCycle     string `db:"billingCycle"`
+		StartDate        string `db:"startDate"`
+		NextBillingDate  string `db:"nextBillingDate"`
+		OneTimeTermCount int    `db:"oneTimeTermCount"`
+		OneTimeTermUnit  string `db:"oneTimeTermUnit"`
+		AutoRenew        bool   `db:"autoRenew"`
+	}
+	readFacts := func() []factSnapshot {
+		var rows []factSnapshot
+		if err := app.DB().NewQuery(`SELECT id, price, billingCycle, startDate, nextBillingDate,
+			oneTimeTermCount, oneTimeTermUnit, autoRenew
+			FROM subscriptions WHERE user = {:user} ORDER BY id`).
+			Bind(dbx.Params{"user": user.Id}).All(&rows); err != nil {
+			t.Fatal(err)
+		}
+		return rows
+	}
+	factsBeforeUpgrade := readFacts()
+
+	if _, err := app.DB().NewQuery(`DELETE FROM ` + schemaDataMigrationsTable + `
+		WHERE name = 'subscription_cycle_fields_v1'`).Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.DB().NewQuery("DROP TABLE subscription_list_index").Execute(); err != nil {
+		t.Fatal(err)
+	}
+	// 旧签名只用于模拟跳版本数据库；启动必须把整组派生缓存替换，不能在热路径兼容缺列表。
+	if _, err := app.DB().NewQuery(`CREATE TABLE subscription_list_index (
+		subscription_id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		billing_cycle TEXT NOT NULL,
+		next_billing_date TEXT NOT NULL,
+		created_at TEXT NOT NULL
+	)`).Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.DB().NewQuery(`INSERT INTO subscription_list_index
+		(subscription_id, user_id, billing_cycle, next_billing_date, created_at)
+		VALUES ('stale-upgrade-row', {:user}, 'monthly', '1999-01-01', '')`).
+		Bind(dbx.Params{"user": user.Id}).Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ensureSchema(app); err != nil {
+		t.Fatal(err)
+	}
+	if factsAfterUpgrade := readFacts(); !reflect.DeepEqual(factsAfterUpgrade, factsBeforeUpgrade) {
+		t.Fatalf("startup upgrade rewrote subscription facts:\nbefore=%#v\nafter=%#v", factsBeforeUpgrade, factsAfterUpgrade)
+	}
+	if current, err := subscriptionDerivedSchemaCurrent(app); err != nil || !current {
+		t.Fatalf("derived schema current=%v err=%v, want true nil", current, err)
+	}
+
+	assertFiltered := func(query subscriptionListQuery, expected ...string) {
+		t.Helper()
+		query.Limit = 10
+		rows, total, err := projectedSubscriptionPage(app, user.Id, query, "2026-08-25", subscriptionProjectionExactPage, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		actual := make(map[string]bool, len(rows))
+		for _, id := range subscriptionProjectionIDs(rows) {
+			actual[id] = true
+		}
+		if total != int64(len(expected)) || len(actual) != len(expected) {
+			t.Fatalf("filtered projection total=%d ids=%#v, want %#v", total, actual, expected)
+		}
+		for _, id := range expected {
+			if !actual[id] {
+				t.Fatalf("filtered projection ids=%#v, missing %q", actual, id)
+			}
+		}
+	}
+	assertFiltered(subscriptionListQuery{PaymentType: "auto"}, auto.Id)
+	assertFiltered(subscriptionListQuery{PaymentType: "manual"}, manual.Id)
+	assertFiltered(subscriptionListQuery{PaymentType: "one-time-buyout"}, buyout.Id)
+	assertFiltered(subscriptionListQuery{PaymentType: "one-time-fixed-term"}, fixed.Id)
+	assertFiltered(subscriptionListQuery{
+		BillingCycles: []string{"one-time"}, PaymentType: "one-time-fixed-term",
+		NextBillingFrom: "2026-08-01", NextBillingTo: "2026-08-31",
+	}, fixed.Id)
+	assertFiltered(subscriptionListQuery{NextBillingFrom: "2026-08-01", NextBillingTo: "2026-08-31"}, auto.Id, manual.Id, fixed.Id)
+
+	type projectionSnapshot struct {
+		SubscriptionID   string `db:"subscription_id"`
+		BillingCycle     string `db:"billing_cycle"`
+		OneTimeTermCount int    `db:"one_time_term_count"`
+		AutoRenew        int    `db:"auto_renew"`
+		NextBillingDate  string `db:"next_billing_date"`
+	}
+	readProjection := func() []projectionSnapshot {
+		var rows []projectionSnapshot
+		if err := app.DB().NewQuery(`SELECT subscription_id, billing_cycle, one_time_term_count,
+			auto_renew, next_billing_date FROM subscription_list_index
+			WHERE user_id = {:user} ORDER BY subscription_id`).
+			Bind(dbx.Params{"user": user.Id}).All(&rows); err != nil {
+			t.Fatal(err)
+		}
+		return rows
+	}
+	firstProjection := readProjection()
+	if len(firstProjection) != 4 {
+		t.Fatalf("rebuilt projection rows=%#v, want four facts and no stale row", firstProjection)
+	}
+	if applied, err := schemaDataMigrationApplied(app, "subscription_cycle_fields_v1"); err != nil || !applied {
+		t.Fatalf("cycle migration marker applied=%v err=%v, want true nil", applied, err)
+	}
+
+	if err := ensureSchema(app); err != nil {
+		t.Fatal(err)
+	}
+	if secondProjection := readProjection(); !reflect.DeepEqual(secondProjection, firstProjection) {
+		t.Fatalf("second startup changed rebuilt projection:\nfirst=%#v\nsecond=%#v", firstProjection, secondProjection)
+	}
+	if factsAfterSecondStart := readFacts(); !reflect.DeepEqual(factsAfterSecondStart, factsBeforeUpgrade) {
+		t.Fatalf("second startup changed subscription facts: %#v", factsAfterSecondStart)
 	}
 }
 

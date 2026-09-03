@@ -12,7 +12,8 @@
  * - 页面保留视图模式和布局，不承载业务规则。
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Header } from '@/components/header';
 import { BackToTopFloatButton } from '@/components/back-to-top-float-button';
 import { SubscriptionGrid } from '@/components/subscription-grid';
@@ -59,7 +60,7 @@ import { useSettingsEnvelope } from '@/hooks/use-settings';
 import { useSubscriptionCrud } from '@/modules/subscriptions/application/use-subscription-crud';
 import { useSubscriptionExport } from '@/modules/subscriptions/application/use-subscription-export';
 import { useSubscriptionFilters } from '@/modules/subscriptions/application/use-subscription-filters';
-import { SUBSCRIPTION_PAYMENT_METHOD_NONE_VALUE, type SubscriptionRenewalFilter, type SubscriptionSortOption } from '@/modules/subscriptions/domain/subscription-filters';
+import { SUBSCRIPTION_PAYMENT_METHOD_NONE_VALUE, type SubscriptionPaymentTypeFilter, type SubscriptionSortOption } from '@/modules/subscriptions/domain/subscription-filters';
 import { resolveSubscriptionPriceReferenceCurrency } from '@/modules/subscriptions/domain/subscription-price-reference';
 import { useExchangeRates } from '@/hooks/use-exchange-rates';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -68,7 +69,8 @@ import { useMediaQuery } from '@/hooks/use-media-query';
 import { useSubscriptionDetailDialog } from '@/hooks/use-subscription-detail-dialog';
 import { useSubscriptionCalendarDialog } from '@/hooks/use-subscription-calendar-dialog';
 import { useManagedCurrencyOptions } from '@/hooks/use-managed-currency-options';
-import { todayDateOnlyInTimeZone } from '@/lib/time/date-only';
+import { useZonedToday } from '@/hooks/use-zoned-today';
+import { syncSubscriptionCollectionBoundary } from '@/hooks/subscription-query-cache';
 import {
   SubscriptionTagFilterDrawer,
   SubscriptionTagFilterPopover,
@@ -91,21 +93,29 @@ const SORT_OPTION_LABEL_KEYS: Record<SubscriptionSortOption, MessageKey> = {
   name_desc: "subscriptions.sort.nameDesc",
 };
 
-const RENEWAL_FILTER_LABEL_KEYS: Record<SubscriptionRenewalFilter, MessageKey> = {
-  all: "subscriptions.renewalFilter.all",
-  auto: "subscriptions.renewalFilter.auto",
-  manual: "subscriptions.renewalFilter.manual",
-  "one-time": "subscriptions.renewalFilter.oneTime",
+const PAYMENT_TYPE_FILTER_LABEL_KEYS: Record<SubscriptionPaymentTypeFilter, MessageKey> = {
+  all: "subscriptions.paymentTypeFilter.all",
+  auto: "subscriptions.paymentTypeFilter.auto",
+  manual: "subscriptions.paymentTypeFilter.manual",
+  "one-time-buyout": "subscriptions.paymentTypeFilter.buyout",
+  "one-time-fixed-term": "subscriptions.paymentTypeFilter.fixedTerm",
 };
 
 /** 订阅列表页组件。 */
 const Subscriptions = () => {
+  const settingsQuery = useSettingsEnvelope();
+  const timeZone = settingsQuery.data?.settings.timezone ?? "UTC";
+  const today = useZonedToday(timeZone);
+  const queryClient = useQueryClient();
+  const collectionBoundary = settingsQuery.data ? `${timeZone}:${today}` : null;
+  useEffect(() => {
+    if (collectionBoundary) void syncSubscriptionCollectionBoundary(queryClient, collectionBoundary);
+  }, [collectionBoundary, queryClient]);
+
   const subscriptionsQuery = useInfiniteSubscriptions();
   const subscriptions = subscriptionsQuery.subscriptions ?? EMPTY_SUBSCRIPTIONS;
   const facetsQuery = useSubscriptionFacets();
   const { fetchNextPage } = subscriptionsQuery;
-  const settingsQuery = useSettingsEnvelope();
-  const timeZone = settingsQuery.data?.settings.timezone ?? "UTC";
   const defaultCurrency = settingsQuery.data?.settings.defaultCurrency ?? "CNY";
   const exchangeRateProvider = settingsQuery.data?.settings.exchangeRateProvider;
   const inheritedReminderDays = settingsQuery.data?.settings.notificationReminderDays ?? DEFAULT_NOTIFICATION_REMINDER_DAYS;
@@ -141,8 +151,8 @@ const Subscriptions = () => {
     setSelectedCategories,
     statusFilter,
     setStatusFilter,
-    renewalFilter,
-    setRenewalFilter,
+    paymentTypeFilter,
+    setPaymentTypeFilter,
     sortOption,
     setSortOption,
     selectedTags,
@@ -155,7 +165,7 @@ const Subscriptions = () => {
     selectSubscriptionsForExport,
     subscriptionListFilters,
     hasActiveFilters,
-    hasActiveControls,
+    needsCollectionIndex,
     toggleCategory,
     clearSelectedCategories,
     toggleTag,
@@ -164,20 +174,22 @@ const Subscriptions = () => {
     defaultCurrency,
     convert,
     locale,
-    timeZone,
+    today,
     availableTags: facetsQuery.data?.tags ?? [],
   });
-  const indexQuery = useSubscriptionIndex(subscriptionListFilters, hasActiveControls);
+  const indexQuery = useSubscriptionIndex(subscriptionListFilters, needsCollectionIndex);
   const indexedSubscriptions = indexQuery.data?.subscriptions ?? EMPTY_SUBSCRIPTIONS;
-  const displaySourceSubscriptions = hasActiveControls ? indexedSubscriptions : subscriptions;
+  const displaySourceSubscriptions = needsCollectionIndex ? indexedSubscriptions : subscriptions;
   // index 已经是全库筛选真相源；客户端只应用用户选择的排序，不再读取轻量 DTO 中不存在的详情字段。
   const filteredSubscriptions = useMemo(
-    () => hasActiveControls ? sortSubscriptionsForDisplay(displaySourceSubscriptions) : localFilteredSubscriptions,
-    [displaySourceSubscriptions, hasActiveControls, localFilteredSubscriptions, sortSubscriptionsForDisplay],
+    () => needsCollectionIndex ? sortSubscriptionsForDisplay(displaySourceSubscriptions) : localFilteredSubscriptions,
+    [displaySourceSubscriptions, localFilteredSubscriptions, needsCollectionIndex, sortSubscriptionsForDisplay],
   );
-  const isDisplayPending = hasActiveControls && indexQuery.isPending;
-  const displayError = hasActiveControls ? indexQuery.error : subscriptionsQuery.error;
-  const retryDisplayQuery = hasActiveControls ? indexQuery.refetch : subscriptionsQuery.refetch;
+  const isDisplayPending = needsCollectionIndex && indexQuery.isPending;
+  const displayError = needsCollectionIndex ? indexQuery.error : subscriptionsQuery.error;
+  const retryDisplayQuery = needsCollectionIndex ? indexQuery.refetch : subscriptionsQuery.refetch;
+  const displayedTotal = needsCollectionIndex ? (indexQuery.data?.total ?? 0) : subscriptionsQuery.total;
+  const unfilteredTotal = hasActiveFilters ? facetsQuery.data?.total : undefined;
   const {
     editingSubscription,
     editingCollectionItem,
@@ -212,8 +224,7 @@ const Subscriptions = () => {
   const settings = settingsQuery.data?.settings ?? DEFAULT_SETTINGS;
   const priceReferenceCurrency = resolveSubscriptionPriceReferenceCurrency(settings);
   const { exportToJSON, exportToJSONWithSecrets, exportToCSV, exporting } =
-    useSubscriptionExport(config, settings, locale, selectSubscriptionsForExport, timeZone, convert);
-  const today = useMemo(() => todayDateOnlyInTimeZone(new Date(), timeZone), [timeZone]);
+    useSubscriptionExport(config, settings, locale, selectSubscriptionsForExport, today, convert);
   const {
     detailDialogOpen,
     selectedDetailSubscription,
@@ -229,7 +240,7 @@ const Subscriptions = () => {
     : selectedStatus
       ? label(selectedStatus.labels)
       : statusFilter;
-  const renewalFilterLabel = t(RENEWAL_FILTER_LABEL_KEYS[renewalFilter]);
+  const paymentTypeFilterLabel = t(PAYMENT_TYPE_FILTER_LABEL_KEYS[paymentTypeFilter]);
   const sortOptionLabel = t(SORT_OPTION_LABEL_KEYS[sortOption]);
   const removeSelectedTag = useCallback((tag: string) => {
     setSelectedTags((current) => current.filter((item) => item !== tag));
@@ -287,8 +298,8 @@ const Subscriptions = () => {
           <div>
             <h1 className="text-2xl font-bold text-foreground">{t("subscriptions.title")}</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              {t("subscriptions.count", { count: filteredSubscriptions.length })}
-              {hasActiveFilters && ` ${t("subscriptions.filteredCount", { count: displaySourceSubscriptions.length })}`}
+              {t("subscriptions.count", { count: displayedTotal })}
+              {unfilteredTotal !== undefined && ` ${t("subscriptions.filteredCount", { count: unfilteredTotal })}`}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -380,16 +391,17 @@ const Subscriptions = () => {
                 </Select>
               </div>
 
-              <div className="grid grid-cols-2 gap-3" data-testid="mobile-renewal-sort-row">
-                <Select value={renewalFilter} onValueChange={(v) => setRenewalFilter(v as SubscriptionRenewalFilter)}>
-                  <SelectTrigger className="h-11 min-w-0 border-border bg-secondary" tooltipContent={renewalFilterLabel}>
-                    <SelectValue placeholder={t("subscriptions.renewalFilter.label")} />
+              <div className="grid grid-cols-2 gap-3" data-testid="mobile-payment-type-sort-row">
+                <Select value={paymentTypeFilter} onValueChange={(v) => setPaymentTypeFilter(v as SubscriptionPaymentTypeFilter)}>
+                  <SelectTrigger className="h-11 min-w-0 border-border bg-secondary" tooltipContent={paymentTypeFilterLabel}>
+                    <SelectValue placeholder={t("subscriptions.paymentTypeFilter.label")} />
                   </SelectTrigger>
-                  <SelectContent mobileTitle={t("subscriptions.renewalFilter.label")}>
-                    <SelectItem value="all">{t("subscriptions.renewalFilter.all")}</SelectItem>
-                    <SelectItem value="auto">{t("subscriptions.renewalFilter.auto")}</SelectItem>
-                    <SelectItem value="manual">{t("subscriptions.renewalFilter.manual")}</SelectItem>
-                    <SelectItem value="one-time">{t("subscriptions.renewalFilter.oneTime")}</SelectItem>
+                  <SelectContent mobileTitle={t("subscriptions.paymentTypeFilter.label")}>
+                    <SelectItem value="all">{t("subscriptions.paymentTypeFilter.all")}</SelectItem>
+                    <SelectItem value="auto">{t("subscriptions.paymentTypeFilter.auto")}</SelectItem>
+                    <SelectItem value="manual">{t("subscriptions.paymentTypeFilter.manual")}</SelectItem>
+                    <SelectItem value="one-time-buyout">{t("subscriptions.paymentTypeFilter.buyout")}</SelectItem>
+                    <SelectItem value="one-time-fixed-term">{t("subscriptions.paymentTypeFilter.fixedTerm")}</SelectItem>
                   </SelectContent>
                 </Select>
 
@@ -443,7 +455,7 @@ const Subscriptions = () => {
                 billingCycleOptions={billingCycleOptions}
                 paymentMethodOptions={paymentMethodFilterOptions}
                 currencyOptions={currencyFilterOptions}
-                hasActiveControls={hasActiveControls}
+                hasActiveFilters={hasActiveFilters}
                 onClearFilters={clearFilters}
                 tagTestId="mobile-selected-tags"
                 advancedTestId="mobile-selected-advanced-filters"
@@ -489,15 +501,16 @@ const Subscriptions = () => {
                   </SelectContent>
                 </Select>
 
-                <Select value={renewalFilter} onValueChange={(v) => setRenewalFilter(v as SubscriptionRenewalFilter)}>
-                  <SelectTrigger className={subscriptionFilterLayout.desktopRenewalTrigger} tooltipContent={renewalFilterLabel}>
-                    <SelectValue placeholder={t("subscriptions.renewalFilter.label")} />
+                <Select value={paymentTypeFilter} onValueChange={(v) => setPaymentTypeFilter(v as SubscriptionPaymentTypeFilter)}>
+                  <SelectTrigger className={subscriptionFilterLayout.desktopPaymentTypeTrigger} tooltipContent={paymentTypeFilterLabel}>
+                    <SelectValue placeholder={t("subscriptions.paymentTypeFilter.label")} />
                   </SelectTrigger>
-                  <SelectContent mobileTitle={t("subscriptions.renewalFilter.label")}>
-                    <SelectItem value="all">{t("subscriptions.renewalFilter.all")}</SelectItem>
-                    <SelectItem value="auto">{t("subscriptions.renewalFilter.auto")}</SelectItem>
-                    <SelectItem value="manual">{t("subscriptions.renewalFilter.manual")}</SelectItem>
-                    <SelectItem value="one-time">{t("subscriptions.renewalFilter.oneTime")}</SelectItem>
+                  <SelectContent mobileTitle={t("subscriptions.paymentTypeFilter.label")}>
+                    <SelectItem value="all">{t("subscriptions.paymentTypeFilter.all")}</SelectItem>
+                    <SelectItem value="auto">{t("subscriptions.paymentTypeFilter.auto")}</SelectItem>
+                    <SelectItem value="manual">{t("subscriptions.paymentTypeFilter.manual")}</SelectItem>
+                    <SelectItem value="one-time-buyout">{t("subscriptions.paymentTypeFilter.buyout")}</SelectItem>
+                    <SelectItem value="one-time-fixed-term">{t("subscriptions.paymentTypeFilter.fixedTerm")}</SelectItem>
                   </SelectContent>
                 </Select>
 
@@ -549,7 +562,7 @@ const Subscriptions = () => {
                 billingCycleOptions={billingCycleOptions}
                 paymentMethodOptions={paymentMethodFilterOptions}
                 currencyOptions={currencyFilterOptions}
-                hasActiveControls={hasActiveControls}
+                hasActiveFilters={hasActiveFilters}
                 onClearFilters={clearFilters}
                 tagTestId="desktop-selected-tags"
                 advancedTestId="desktop-selected-advanced-filters"
@@ -598,7 +611,7 @@ const Subscriptions = () => {
             <SubscriptionGrid
               subscriptions={filteredSubscriptions}
               viewMode={viewMode}
-              timeZone={timeZone}
+              today={today}
               inheritedReminderDays={inheritedReminderDays}
               currencyConvert={convert}
               currencyRatesReady={currencyRatesReady}
@@ -615,7 +628,7 @@ const Subscriptions = () => {
               onAddToCalendar={calendarDialog.show}
               onPrefetchDetails={handlePrefetchSubscription}
             />
-            {!hasActiveControls && subscriptionsQuery.hasNextPage && (
+            {!needsCollectionIndex && subscriptionsQuery.hasNextPage && (
               <div className="mt-6 flex justify-center [overflow-anchor:none]" data-testid="subscriptions-load-more-row">
                 <Button
                   type="button"

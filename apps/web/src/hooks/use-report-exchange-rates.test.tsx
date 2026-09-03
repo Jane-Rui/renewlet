@@ -1,7 +1,7 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExchangeRateSnapshotBody, ExchangeRateSnapshotV1 } from "@/lib/api/schemas/exchange-rates";
-import type { ExchangeRateStore } from "./exchange-rate-store";
+import type { ExchangeRateSnapshot, ExchangeRateStore } from "./exchange-rate-store";
 import { createUseReportExchangeRates } from "./use-report-exchange-rates";
 
 const serviceMocks = vi.hoisted(() => ({
@@ -96,6 +96,95 @@ describe("useReportExchangeRates", () => {
     await waitFor(() => expect(result.current.reportBasisStatus.locked).toBe(true));
     expect(result.current.convert("6", "CNY", "USD")).toBe(1);
     expect(serviceMocks.capture).not.toHaveBeenCalled();
+  });
+
+  it("keeps loading false while exposing manual refresh progress for a locked snapshot", async () => {
+    const lockedSnapshot: ExchangeRateSnapshotV1 = {
+      schemaVersion: 1,
+      month: currentMonth,
+      base: "USD",
+      rates: { USD: 1, CNY: 6 },
+      requestedProvider: "frankfurter",
+      provider: "frankfurter",
+      sourceDate: "2026-08-01",
+      capturedAt: "2026-08-06T00:00:00.000Z",
+    };
+    const liveSnapshot: ExchangeRateSnapshot = {
+      rates: lockedSnapshot.rates,
+      baseRate: "USD",
+      activeProvider: "frankfurter",
+      warning: null,
+      sourceDate: lockedSnapshot.sourceDate,
+      lastUpdated: new Date(lockedSnapshot.capturedAt),
+    };
+    let resolveRemote!: (snapshot: ExchangeRateSnapshot) => void;
+    serviceMocks.list.mockResolvedValue([lockedSnapshot]);
+    const store: ExchangeRateStore = {
+      readCachedSnapshot: () => liveSnapshot,
+      loadRemoteSnapshot: vi.fn(() => new Promise<ExchangeRateSnapshot>((resolve) => {
+        resolveRemote = resolve;
+      })),
+    };
+    const useReportExchangeRates = createUseReportExchangeRates(store);
+    const { result } = renderHook(() => useReportExchangeRates("frankfurter"));
+
+    await waitFor(() => expect(result.current.reportBasisStatus.locked).toBe(true));
+    let refreshPromise!: ReturnType<typeof result.current.refresh>;
+    act(() => {
+      refreshPromise = result.current.refresh();
+    });
+
+    expect(result.current.loading).toBe(false);
+    expect(result.current.isRefreshing).toBe(true);
+
+    await act(async () => {
+      resolveRemote(liveSnapshot);
+      await refreshPromise;
+    });
+    expect(result.current.loading).toBe(false);
+    expect(result.current.isRefreshing).toBe(false);
+  });
+
+  it("waits for a manual refresh to finish before capturing an unlocked report snapshot", async () => {
+    const liveSnapshot: ExchangeRateSnapshot = {
+      rates: { USD: 1, CNY: 7 },
+      baseRate: "USD",
+      activeProvider: "frankfurter",
+      warning: null,
+      sourceDate: "2026-08-01",
+      lastUpdated: new Date("2026-08-06T00:00:00.000Z"),
+    };
+    let resolveList!: (snapshots: ExchangeRateSnapshotV1[]) => void;
+    let resolveRemote!: (snapshot: ExchangeRateSnapshot) => void;
+    serviceMocks.list.mockImplementation(() => new Promise((resolve) => {
+      resolveList = resolve;
+    }));
+    const store: ExchangeRateStore = {
+      readCachedSnapshot: () => liveSnapshot,
+      loadRemoteSnapshot: vi.fn(() => new Promise<ExchangeRateSnapshot>((resolve) => {
+        resolveRemote = resolve;
+      })),
+    };
+    const useReportExchangeRates = createUseReportExchangeRates(store);
+    const { result } = renderHook(() => useReportExchangeRates("frankfurter"));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    let refreshPromise!: ReturnType<typeof result.current.refresh>;
+    act(() => {
+      refreshPromise = result.current.refresh();
+    });
+    await act(async () => {
+      resolveList([]);
+    });
+
+    expect(result.current.isRefreshing).toBe(true);
+    expect(serviceMocks.capture).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveRemote(liveSnapshot);
+      await refreshPromise;
+    });
+    await waitFor(() => expect(serviceMocks.capture).toHaveBeenCalledTimes(1));
   });
 
   it("does not persist builtin fallback rates as a report snapshot", async () => {

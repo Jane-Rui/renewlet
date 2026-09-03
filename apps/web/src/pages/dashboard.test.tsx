@@ -33,7 +33,7 @@ const mocks = vi.hoisted(() => ({
   handleTogglePublicHiddenSubscription: vi.fn(),
   handleSaveSubscription: vi.fn(),
   ratesLoading: false,
-  upcomingRenewalsCalls: [] as Array<{ count: number; timeZone: string; notificationReminderDays: number }>,
+  upcomingRenewalsCalls: [] as Array<{ count: number; today: string; notificationReminderDays: number }>,
   useSettings: vi.fn(),
   useSubscriptionAnalytics: vi.fn<() => MockSubscriptionAnalyticsResult>(),
   useSubscriptionDetail: vi.fn<(id: string | null) => MockSubscriptionDetailResult>(),
@@ -57,12 +57,14 @@ vi.mock("@/components/loading-skeleton", () => ({
 vi.mock("@/components/subscription-card", () => ({
   SubscriptionCard: ({
     subscription,
+    today,
     inheritedReminderDays,
     priceReferenceCurrency,
     onTogglePublicHidden,
     onViewDetails,
   }: {
     subscription: SubscriptionCollectionItem;
+    today: string;
     inheritedReminderDays: number;
     priceReferenceCurrency: string | null;
     onTogglePublicHidden?: (id: string) => void;
@@ -72,6 +74,7 @@ vi.mock("@/components/subscription-card", () => ({
       {subscription.name}
       <span data-testid="subscription-card-reminder">{inheritedReminderDays}</span>
       <span data-testid="subscription-card-reference">{priceReferenceCurrency ?? "off"}</span>
+      <span data-testid="subscription-card-today">{today}</span>
       <button type="button" onClick={() => onViewDetails?.(subscription.id)}>
         查看 {subscription.name} 的详情
       </button>
@@ -83,9 +86,9 @@ vi.mock("@/components/subscription-card", () => ({
 }));
 
 vi.mock("@/components/subscription-detail-dialog", () => ({
-  SubscriptionDetailDialog: ({ open, subscription, priceReferenceCurrency }: { open: boolean; subscription: Subscription | null; priceReferenceCurrency: string | null }) => (
+  SubscriptionDetailDialog: ({ open, subscription, today, priceReferenceCurrency }: { open: boolean; subscription: Subscription | null; today: string; priceReferenceCurrency: string | null }) => (
     <div data-testid="subscription-detail-dialog">
-      {open && subscription ? <span>{subscription.name} 详情 {priceReferenceCurrency ?? "off"}</span> : null}
+      {open && subscription ? <span>{subscription.name} 详情 {priceReferenceCurrency ?? "off"} {today}</span> : null}
     </div>
   ),
 }));
@@ -94,16 +97,16 @@ vi.mock("@/components/spending-chart-loader", () => ({
   DeferredSpendingChart: ({
     subscriptions,
     defaultCurrency,
-    timeZone,
+    today,
     convert,
   }: {
     subscriptions: SubscriptionCollectionItem[];
     defaultCurrency: string;
-    timeZone: string;
+    today: string;
     convert: (amount: number | string, fromCurrency: string, toCurrency: string) => number;
   }) => (
     <div data-testid="spending-chart">
-      {subscriptions.length}:{defaultCurrency}:{timeZone}:{convert("1", "USD", "CNY")}
+      {subscriptions.length}:{defaultCurrency}:{today}:{convert("1", "USD", "CNY")}
     </div>
   ),
 }));
@@ -111,14 +114,14 @@ vi.mock("@/components/spending-chart-loader", () => ({
 vi.mock("@/components/upcoming-renewals", () => ({
   UpcomingRenewals: ({
     subscriptions,
-    timeZone,
+    today,
     notificationReminderDays,
   }: {
     subscriptions: SubscriptionCollectionItem[];
-    timeZone: string;
+    today: string;
     notificationReminderDays: number;
   }) => {
-    mocks.upcomingRenewalsCalls.push({ count: subscriptions.length, timeZone, notificationReminderDays });
+    mocks.upcomingRenewalsCalls.push({ count: subscriptions.length, today, notificationReminderDays });
     return <div data-testid="upcoming-renewals">{subscriptions.length}</div>;
   },
 }));
@@ -147,6 +150,10 @@ vi.mock("@/hooks/use-report-exchange-rates", () => ({
 
 vi.mock("@/hooks/use-settings", () => ({
   useSettings: mocks.useSettings,
+}));
+
+vi.mock("@/hooks/use-zoned-today", () => ({
+  useZonedToday: () => "2026-06-15",
 }));
 
 vi.mock("@/hooks/use-subscriptions", () => ({
@@ -276,12 +283,13 @@ describe("Dashboard page loading state", () => {
     expect(screen.getByText("Codex Pro")).toBeInTheDocument();
     expect(screen.getByTestId("subscription-card-reminder")).toHaveTextContent("5");
     expect(screen.getByTestId("subscription-card-reference")).toHaveTextContent("USD");
+    expect(screen.getByTestId("subscription-card-today")).toHaveTextContent("2026-06-15");
     expect(mocks.upcomingRenewalsCalls[mocks.upcomingRenewalsCalls.length - 1]).toEqual({
       count: 1,
-      timeZone: "Asia/Shanghai",
+      today: "2026-06-15",
       notificationReminderDays: 5,
     });
-    expect(screen.getByTestId("spending-chart")).toHaveTextContent("1:CNY:Asia/Shanghai:7");
+    expect(screen.getByTestId("spending-chart")).toHaveTextContent("1:CNY:2026-06-15:7");
     expect(screen.getByText("日均 ¥46.67 · 汇率加载中...")).toBeInTheDocument();
   });
 
@@ -314,7 +322,7 @@ describe("Dashboard page loading state", () => {
     expect(screen.getAllByRole("heading", { name: "从第一个订阅开始" })).toHaveLength(1);
     expect(screen.getByText("添加订阅后，这里会汇总支出、续费和提醒。")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "添加第一个订阅" })).toBeInTheDocument();
-    expect(screen.getByTestId("spending-chart")).toHaveTextContent("0:CNY:Asia/Shanghai:7");
+    expect(screen.getByTestId("spending-chart")).toHaveTextContent("0:CNY:2026-06-15:7");
     expect(screen.getByTestId("upcoming-renewals")).toHaveTextContent("0");
   });
 
@@ -342,7 +350,7 @@ describe("Dashboard page loading state", () => {
 
     await user.click(screen.getByRole("button", { name: "查看 Codex Pro 的详情" }));
 
-    expect(screen.getByText("Codex Pro 详情 USD")).toBeInTheDocument();
+    expect(screen.getByText("Codex Pro 详情 USD 2026-06-15")).toBeInTheDocument();
   });
 
   it("wires public visibility toggles from recent subscription cards", async () => {

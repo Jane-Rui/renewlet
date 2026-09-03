@@ -72,6 +72,13 @@ func TestPublicStatusPageLifecycleAndPublicRoute(t *testing.T) {
 		Status:          "active",
 		NextBillingDate: "2000-01-01",
 	})
+	createCalendarFeedTestSubscription(t, app, user.Id, calendarFeedTestSubscription{
+		Name:            "Lifetime License",
+		Price:           "199",
+		BillingCycle:    "one-time",
+		Status:          "active",
+		NextBillingDate: "2099-01-01",
+	})
 	unreferencedAssetID := createPublicStatusTestAsset(t, app, token, "unused.svg")
 
 	statusRes := serveTestRequest(t, app, http.MethodGet, "/api/app/public-status-page", "", token)
@@ -106,10 +113,10 @@ func TestPublicStatusPageLifecycleAndPublicRoute(t *testing.T) {
 	}
 	publicBody := decodeAPISuccessDataForTest[map[string]any](t, publicRes.Body.Bytes())
 	subscriptions := publicBody["subscriptions"].([]any)
-	if len(subscriptions) != 3 {
-		t.Fatalf("expected exactly three visible subscriptions, got %#v", subscriptions)
+	if len(subscriptions) != 4 {
+		t.Fatalf("expected exactly four visible subscriptions, got %#v", subscriptions)
 	}
-	if names := publicStatusTestSubscriptionNames(subscriptions); strings.Join(names, ",") != "Pinned Plan,Legacy Overdue,Visible Plan" {
+	if names := publicStatusTestSubscriptionNames(subscriptions); strings.Join(names, ",") != "Pinned Plan,Lifetime License,Visible Plan,Legacy Overdue" {
 		t.Fatalf("public subscriptions should follow list default order, got %#v", names)
 	}
 	item := publicStatusTestSubscriptionByName(t, subscriptions, "Visible Plan")
@@ -122,6 +129,15 @@ func TestPublicStatusPageLifecycleAndPublicRoute(t *testing.T) {
 	}
 	if publicStatusTestSubscriptionByName(t, subscriptions, "Legacy Overdue")["status"] != "expired" {
 		t.Fatalf("expected legacy overdue active subscription to be exposed as expired: %#v", subscriptions)
+	}
+	buyout := publicStatusTestSubscriptionByName(t, subscriptions, "Lifetime License")
+	if buyout["startDate"] != "2099-01-01" || buyout["nextBillingDate"] != nil {
+		t.Fatalf("expected buyout to expose only its purchase date, got %#v", buyout)
+	}
+	for _, forbidden := range []string{"price", "currency", "billingCycle", "oneTimeTermCount", "oneTimeTermUnit"} {
+		if _, ok := buyout[forbidden]; ok {
+			t.Fatalf("price-hidden buyout leaked %s: %#v", forbidden, buyout)
+		}
 	}
 	if _, ok := item["price"]; ok {
 		t.Fatalf("price must be hidden by default: %#v", item)
@@ -162,6 +178,8 @@ func TestPublicStatusPageLifecycleAndPublicRoute(t *testing.T) {
 		t.Fatalf("expected explicit public status currency, got %#v", pricedBody["page"])
 	} else if basis, ok := page["exchangeRateBasis"].(map[string]any); !ok || basis["status"] != "locked" || basis["month"] != currentMonth || basis["base"] != "USD" {
 		t.Fatalf("expected locked public exchange rate basis, got %#v", page["exchangeRateBasis"])
+	} else if asOf, ok := page["asOf"].(string); !ok || !isValidDateOnly(asOf) {
+		t.Fatalf("expected account-timezone asOf date, got %#v", page["asOf"])
 	}
 	pricedSubscriptions := pricedBody["subscriptions"].([]any)
 	pricedItem := publicStatusTestSubscriptionByName(t, pricedSubscriptions, "Visible Plan")

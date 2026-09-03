@@ -350,6 +350,13 @@ describe("subscription renew request contract", () => {
 });
 
 describe("subscriptions list query contract", () => {
+  it.each(["auto", "manual", "one-time-buyout", "one-time-fixed-term"] as const)(
+    "accepts paymentType=%s",
+    (paymentType) => {
+      expect(subscriptionsListQuerySchema.parse({ paymentType }).paymentType).toBe(paymentType);
+    },
+  );
+
   it("accepts repeated custom filter values and strict boolean query strings", () => {
     const query = subscriptionsListQuerySchema.parse({
       limit: "25",
@@ -360,7 +367,7 @@ describe("subscriptions list query contract", () => {
       paymentMethod: [SUBSCRIPTION_PAYMENT_METHOD_NONE, "paypal"],
       currency: ["USD", "CNY"],
       status: "active",
-      renewal: "auto",
+      paymentType: "auto",
       nextBillingFrom: "2026-07-01",
       nextBillingTo: "2026-12-31",
       pinned: "false",
@@ -382,6 +389,8 @@ describe("subscriptions list query contract", () => {
     expect(subscriptionsListQuerySchema.safeParse({ pinned: "nope" }).success).toBe(false);
     expect(subscriptionsListQuerySchema.safeParse({ currency: ["usd"] }).success).toBe(false);
     expect(subscriptionsListQuerySchema.safeParse({ billingCycle: ["forever"] }).success).toBe(false);
+    expect(subscriptionsListQuerySchema.safeParse({ paymentType: "one-time" }).success).toBe(false);
+    expect(subscriptionsListQuerySchema.safeParse({ renewal: "one-time" }).success).toBe(false);
     expect(subscriptionsListQuerySchema.safeParse({
       nextBillingFrom: "2026-12-31",
       nextBillingTo: "2026-01-01",

@@ -4,16 +4,25 @@ import {
 } from "@renewlet/shared/schemas/subscriptions";
 import { DISABLED_REMINDER_DAYS, INHERIT_REMINDER_DAYS } from "@renewlet/shared/runtime";
 import {
+  SUBSCRIPTION_COLUMN_NAMES,
   SUBSCRIPTION_COLLECTION_COLUMN_NAMES,
-  listSubscriptionCollectionPage,
-  parseSubscriptionCursor,
 } from "./db";
-import { getSubscriptionTotal } from "./subscription-derived-state";
 import type { Env, SubscriptionCollectionRow } from "./types";
 
 const SUBSCRIPTION_COLLECTION_COLUMNS_FROM_FACT = SUBSCRIPTION_COLLECTION_COLUMN_NAMES
   .map((column) => `sub.${column}`)
   .join(", ");
+const SUBSCRIPTION_COLUMNS_FROM_FACT = SUBSCRIPTION_COLUMN_NAMES.map((column) => `sub.${column}`).join(", ");
+const DEFAULT_SUBSCRIPTION_ORDER_SQL = "idx.pinned DESC, idx.inactive ASC, idx.created_at DESC, idx.subscription_id DESC";
+
+export interface PrivateSubscriptionCursor {
+  v: 1;
+  asOf: string;
+  pinned: 0 | 1;
+  inactive: 0 | 1;
+  createdAt: string;
+  id: string;
+}
 
 export type SubscriptionCollectionFilters = Omit<SubscriptionsListQuery, "cursor" | "limit">;
 
@@ -22,8 +31,8 @@ export interface SubscriptionSqlQueryPlan {
   params: unknown[];
 }
 
-export interface SubscriptionCollectionQueryPlan {
-  count: SubscriptionSqlQueryPlan;
+export interface BoundedSubscriptionCollectionQueryPlan {
+  preflight: SubscriptionSqlQueryPlan;
   facts: SubscriptionSqlQueryPlan;
 }
 
@@ -37,16 +46,11 @@ export async function listSubscriptionsForQuery(
   userId: string,
   query: SubscriptionsListQuery,
   today: string,
+  cursor: PrivateSubscriptionCursor | null,
 ): Promise<{ rows: SubscriptionCollectionRow[]; total: number }> {
-  if (!subscriptionListQueryHasFilters(query)) {
-    // 两个读取互不依赖；并发执行避免无筛选首页形成固定 D1 waterfall。
-    const [rows, total] = await Promise.all([
-      listSubscriptionCollectionPage(env, userId, { limit: query.limit + 1, cursor: query.cursor }),
-      getSubscriptionTotal(env, userId),
-    ]);
-    return { rows, total };
-  }
-  return await collectFilteredSubscriptions(env, userId, query, today);
+  // 私有页无论是否筛选都走 owner-scoped 投影，确保 Worker 与 Docker 使用同一生命周期顺序和 cursor 键。
+  const plan = subscriptionCollectionPageQueryPlan(userId, query, today, query.limit + 1, cursor);
+  return await readSubscriptionCollectionPage(env, plan);
 }
 
 /** 完整集合先在投影层确认上限，再读取轻量事实列；超限请求不会触碰 subscriptions facts。 */
@@ -57,8 +61,8 @@ export async function listBoundedSubscriptionsForQuery(
   today: string,
   maxItems: number,
 ): Promise<{ rows: SubscriptionCollectionRow[]; total: number; exceeded: boolean }> {
-  const plan = subscriptionCollectionQueryPlan(userId, query, today, maxItems + 1);
-  const total = await countSubscriptionProjection(env, plan.count);
+  const plan = boundedSubscriptionCollectionQueryPlan(userId, query, today, maxItems + 1);
+  const total = await countSubscriptionProjection(env, plan.preflight);
   if (total > maxItems) return { rows: [], total, exceeded: true };
 
   // count 与读取之间若发生并发写入，额外一行仍会把请求收敛为 422，不能返回伪完整集合。
@@ -68,46 +72,181 @@ export async function listBoundedSubscriptionsForQuery(
   return { rows, total: rows.length, exceeded: false };
 }
 
-async function collectFilteredSubscriptions(env: Env, userId: string, query: SubscriptionsListQuery, today: string): Promise<{ rows: SubscriptionCollectionRow[]; total: number }> {
-  const cursor = parseSubscriptionCursor(query.cursor);
-  const plan = subscriptionCollectionQueryPlan(userId, query, today, query.limit + 1, cursor);
-  // count 不带业务 cursor，保证 total 描述完整过滤集；事实表 JOIN 避免先收集数千 ID 再构造超大 IN。
-  const [total, rows] = await Promise.all([
-    countSubscriptionProjection(env, plan.count),
-    readSubscriptionCollectionFacts(env, plan.facts),
-  ]);
-  return { rows, total };
-}
-
 type SubscriptionProjectionQuery = { where: string; params: unknown[] };
 
-export function subscriptionCollectionQueryPlan(
+export function subscriptionCollectionPageQueryPlan(
   userId: string,
   query: SubscriptionCollectionFilters,
   today: string,
   limit: number,
-  cursor?: { createdAt: string; id: string } | null,
-): SubscriptionCollectionQueryPlan {
+  cursor?: PrivateSubscriptionCursor | null,
+): SubscriptionSqlQueryPlan {
   const base = subscriptionListBaseQuery(userId, query, today);
-  const cursorCondition = cursor ? "AND (idx.created_at < ? OR (idx.created_at = ? AND idx.subscription_id < ?))" : "";
-  const cursorParams = cursor ? [cursor.createdAt, cursor.createdAt, cursor.id] : [];
+  const cursorCondition = cursor ? `AND (
+    idx.pinned < ?
+    OR (idx.pinned = ? AND idx.inactive > ?)
+    OR (idx.pinned = ? AND idx.inactive = ? AND idx.created_at < ?)
+    OR (idx.pinned = ? AND idx.inactive = ? AND idx.created_at = ? AND idx.subscription_id < ?)
+  )` : "";
+  const cursorParams = cursor ? [
+    cursor.pinned,
+    cursor.pinned, cursor.inactive,
+    cursor.pinned, cursor.inactive, cursor.createdAt,
+    cursor.pinned, cursor.inactive, cursor.createdAt, cursor.id,
+  ] : [];
   return {
-    count: {
-      sql: `SELECT COUNT(*) AS total FROM subscription_list_index AS idx WHERE ${base.where}`,
-      params: base.params,
+    // D1 单库逐条处理查询；热分页把 exact total 和 page facts 合并，避免 count/facts 双重扫描 owner 投影。
+    sql: `
+      WITH filtered AS (
+        SELECT idx.subscription_id, idx.user_id, idx.pinned, idx.created_at,
+          ${subscriptionInactiveRankSql("idx")} AS inactive
+        FROM subscription_list_index AS idx
+        WHERE ${base.where}
+      ), page AS (
+        SELECT *
+        FROM filtered AS idx
+        WHERE 1 = 1 ${cursorCondition}
+        ORDER BY ${DEFAULT_SUBSCRIPTION_ORDER_SQL}
+        LIMIT ?
+      ), totals AS (
+        SELECT COUNT(*) AS collection_total FROM filtered
+      )
+      SELECT totals.collection_total, page.subscription_id AS collection_subscription_id,
+        ${SUBSCRIPTION_COLLECTION_COLUMNS_FROM_FACT}
+      FROM totals
+      LEFT JOIN page ON 1 = 1
+      LEFT JOIN subscriptions AS sub ON sub.user_id = page.user_id AND sub.id = page.subscription_id
+      ORDER BY page.pinned DESC, page.inactive ASC, page.created_at DESC, page.subscription_id DESC
+    `,
+    params: [today, ...base.params, ...cursorParams, limit],
+  };
+}
+
+export function boundedSubscriptionCollectionQueryPlan(
+  userId: string,
+  query: SubscriptionCollectionFilters,
+  today: string,
+  limit: number,
+): BoundedSubscriptionCollectionQueryPlan {
+  const base = subscriptionListBaseQuery(userId, query, today);
+  return {
+    preflight: {
+      sql: `SELECT COUNT(*) AS total FROM (
+        SELECT 1 FROM subscription_list_index AS idx WHERE ${base.where} LIMIT ?
+      )`,
+      params: [...base.params, limit],
     },
     facts: {
       sql: `
+        WITH filtered AS (
+          SELECT idx.subscription_id, idx.user_id, idx.pinned, idx.created_at,
+            ${subscriptionInactiveRankSql("idx")} AS inactive
+          FROM subscription_list_index AS idx
+          WHERE ${base.where}
+          ORDER BY idx.pinned DESC, inactive ASC, idx.created_at DESC, idx.subscription_id DESC
+          LIMIT ?
+        )
         SELECT ${SUBSCRIPTION_COLLECTION_COLUMNS_FROM_FACT}
-        FROM subscription_list_index AS idx
+        FROM filtered AS idx
         INNER JOIN subscriptions AS sub ON sub.user_id = idx.user_id AND sub.id = idx.subscription_id
-        WHERE ${base.where} ${cursorCondition}
-        ORDER BY idx.created_at DESC, idx.subscription_id DESC
-        LIMIT ?
+        ORDER BY ${DEFAULT_SUBSCRIPTION_ORDER_SQL}
       `,
-      params: [...base.params, ...cursorParams, limit],
+      params: [today, ...base.params, limit],
     },
   };
+}
+
+export function publicStatusSubscriptionQueryPlan(
+  userId: string,
+  today: string,
+  limit: number,
+): SubscriptionSqlQueryPlan {
+  return {
+    sql: `
+      WITH ranked AS (
+        SELECT idx.subscription_id, idx.user_id, idx.pinned, idx.created_at,
+          ${subscriptionInactiveRankSql("idx")} AS inactive
+        FROM subscription_list_index AS idx
+        WHERE idx.user_id = ? AND idx.public_hidden = 0
+      ), page AS MATERIALIZED (
+        SELECT *
+        FROM ranked AS idx
+        ORDER BY ${DEFAULT_SUBSCRIPTION_ORDER_SQL}
+        LIMIT ?
+      )
+      SELECT ${SUBSCRIPTION_COLUMNS_FROM_FACT}
+      FROM page AS idx
+      INNER JOIN subscriptions AS sub ON sub.user_id = idx.user_id AND sub.id = idx.subscription_id
+      ORDER BY ${DEFAULT_SUBSCRIPTION_ORDER_SQL}
+    `,
+    params: [today, userId, limit],
+  };
+}
+
+function subscriptionInactiveRankSql(alias: string): string {
+  return `CASE
+    WHEN ${alias}.status IN ('expired', 'paused', 'cancelled') THEN 1
+    WHEN ${alias}.billing_cycle = 'one-time' AND COALESCE(${alias}.one_time_term_count, 0) <= 0 THEN 0
+    WHEN ${alias}.status IN ('active', 'trial') AND ${alias}.next_billing_date < ? THEN 1
+    ELSE 0
+  END`;
+}
+
+export function isSubscriptionCollectionInactive(
+  row: Pick<SubscriptionCollectionRow, "status" | "billing_cycle" | "one_time_term_count" | "next_billing_date">,
+  asOf: string,
+): 0 | 1 {
+  if (row.status === "expired" || row.status === "paused" || row.status === "cancelled") return 1;
+  if (row.billing_cycle === "one-time" && (row.one_time_term_count ?? 0) <= 0) return 0;
+  return (row.status === "active" || row.status === "trial") && row.next_billing_date < asOf ? 1 : 0;
+}
+
+export function privateSubscriptionCursor(
+  row: Pick<SubscriptionCollectionRow, "id" | "pinned" | "status" | "billing_cycle" | "one_time_term_count" | "next_billing_date" | "created_at">,
+  asOf: string,
+): string {
+  // 私有 cursor 冻结日界线并携带完整排序元组；Public API 的旧 cursor 由 db.ts 独立维护。
+  const payload: PrivateSubscriptionCursor = {
+    v: 1,
+    asOf,
+    pinned: row.pinned === 1 ? 1 : 0,
+    inactive: isSubscriptionCollectionInactive(row, asOf),
+    createdAt: row.created_at,
+    id: row.id,
+  };
+  return btoa(JSON.stringify(payload)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
+}
+
+export function parsePrivateSubscriptionCursor(value?: string): PrivateSubscriptionCursor | null {
+  if (!value || !/^[A-Za-z0-9_-]+$/u.test(value)) return null;
+  try {
+    const base64 = value.replaceAll("-", "+").replaceAll("_", "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
+    const parsed = JSON.parse(atob(base64)) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const record = parsed as Record<string, unknown>;
+    if (Object.keys(record).sort().join(",") !== "asOf,createdAt,id,inactive,pinned,v") return null;
+    if (record["v"] !== 1 || !isDateOnly(record["asOf"])) return null;
+    if (record["pinned"] !== 0 && record["pinned"] !== 1) return null;
+    if (record["inactive"] !== 0 && record["inactive"] !== 1) return null;
+    if (typeof record["createdAt"] !== "string" || record["createdAt"].trim() === "") return null;
+    if (typeof record["id"] !== "string" || record["id"].trim() === "") return null;
+    return {
+      v: 1,
+      asOf: record["asOf"],
+      pinned: record["pinned"],
+      inactive: record["inactive"],
+      createdAt: record["createdAt"],
+      id: record["id"],
+    };
+  } catch {
+    return null;
+  }
+}
+
+function isDateOnly(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/u.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
 async function countSubscriptionProjection(env: Env, plan: SubscriptionSqlQueryPlan): Promise<number> {
@@ -125,6 +264,26 @@ async function readSubscriptionCollectionFacts(
   return page.results;
 }
 
+type NullableSubscriptionCollectionRow = {
+  [Key in keyof SubscriptionCollectionRow]: SubscriptionCollectionRow[Key] | null;
+};
+
+type SubscriptionCollectionPageResult = NullableSubscriptionCollectionRow & {
+  collection_total: number;
+  collection_subscription_id: string | null;
+};
+
+async function readSubscriptionCollectionPage(
+  env: Env,
+  plan: SubscriptionSqlQueryPlan,
+): Promise<{ rows: SubscriptionCollectionRow[]; total: number }> {
+  const result = await env.DB.prepare(plan.sql).bind(...plan.params).all<SubscriptionCollectionPageResult>();
+  const total = result.results[0]?.collection_total ?? 0;
+  const rows = result.results.flatMap(({ collection_total: _total, collection_subscription_id, ...row }) =>
+    collection_subscription_id && typeof row.id === "string" ? [row as SubscriptionCollectionRow] : []);
+  return { rows, total };
+}
+
 function subscriptionListBaseQuery(
   userId: string,
   query: SubscriptionCollectionFilters,
@@ -133,12 +292,16 @@ function subscriptionListBaseQuery(
   // 所有筛选都在 owner-scoped 投影中完成；事实表 JOIN 只负责返回规范化 DTO 所需字段。
   const conditions = ["idx.user_id = ?"];
   const params: unknown[] = [userId];
-  appendSqlInCondition(conditions, params, "idx.category", query.category);
-  appendSqlInCondition(conditions, params, "idx.billing_cycle", query.billingCycle);
-  appendSqlInCondition(conditions, params, "idx.currency", query.currency);
+  appendSqlJsonArrayCondition(conditions, params, "idx.category", query.category);
+  appendSqlJsonArrayCondition(conditions, params, "idx.billing_cycle", query.billingCycle);
+  appendSqlJsonArrayCondition(conditions, params, "idx.currency", query.currency);
   appendPaymentMethodCondition(conditions, params, query.paymentMethod);
-  appendRenewalCondition(conditions, query.renewal);
+  appendPaymentTypeCondition(conditions, query.paymentType);
   appendTagCondition(conditions, params, query.tag);
+  if (query.nextBillingFrom || query.nextBillingTo) {
+    // D1 用 NULL 表示长期买断服务期；日期范围只描述真实续费/到期事件，固定服务期仍正常参与。
+    conditions.push("NOT (idx.billing_cycle = 'one-time' AND COALESCE(idx.one_time_term_count, 0) <= 0)");
+  }
   if (query.nextBillingFrom) {
     conditions.push("idx.next_billing_date >= ?");
     params.push(query.nextBillingFrom);
@@ -176,10 +339,11 @@ function subscriptionListBaseQuery(
   return { where: conditions.join(" AND "), params };
 }
 
-function appendSqlInCondition(conditions: string[], params: unknown[], column: string, values: readonly string[] | undefined): void {
+function appendSqlJsonArrayCondition(conditions: string[], params: unknown[], column: string, values: readonly string[] | undefined): void {
   if (!values?.length) return;
-  conditions.push(`${column} IN (${values.map(() => "?").join(", ")})`);
-  params.push(...values);
+  // D1 每条 SQL 最多 100 个绑定参数；每个多选维度必须压成一个 JSON 参数再由 JSON1 展开。
+  conditions.push(`${column} IN (SELECT CAST(value AS TEXT) FROM json_each(?))`);
+  params.push(JSON.stringify(values));
 }
 
 function appendPaymentMethodCondition(conditions: string[], params: unknown[], values: readonly string[] | undefined): void {
@@ -188,39 +352,48 @@ function appendPaymentMethodCondition(conditions: string[], params: unknown[], v
   const parts: string[] = [];
   if (values.includes(SUBSCRIPTION_PAYMENT_METHOD_NONE)) parts.push("(idx.payment_method IS NULL OR idx.payment_method = '')");
   if (concrete.length > 0) {
-    parts.push(`idx.payment_method IN (${concrete.map(() => "?").join(", ")})`);
-    params.push(...concrete);
+    parts.push("idx.payment_method IN (SELECT CAST(value AS TEXT) FROM json_each(?))");
+    params.push(JSON.stringify(concrete));
   }
   conditions.push(`(${parts.join(" OR ")})`);
 }
 
-function appendRenewalCondition(conditions: string[], renewal: SubscriptionsListQuery["renewal"]): void {
-  switch (renewal) {
+function appendPaymentTypeCondition(conditions: string[], paymentType: SubscriptionsListQuery["paymentType"]): void {
+  switch (paymentType) {
     case "auto":
       conditions.push("idx.billing_cycle != 'one-time' AND idx.auto_renew = 1");
       break;
     case "manual":
       conditions.push("idx.billing_cycle != 'one-time' AND idx.auto_renew = 0");
       break;
-    case "one-time":
-      conditions.push("idx.billing_cycle = 'one-time'");
+    case "one-time-buyout":
+      // D1 历史买断可能保存 NULL；COALESCE 后与 Docker 空数字字段落为 0 的分类语义一致。
+      conditions.push("idx.billing_cycle = 'one-time' AND COALESCE(idx.one_time_term_count, 0) <= 0");
+      break;
+    case "one-time-fixed-term":
+      conditions.push("idx.billing_cycle = 'one-time' AND COALESCE(idx.one_time_term_count, 0) > 0");
       break;
   }
 }
 
 function appendTagCondition(conditions: string[], params: unknown[], values: readonly string[] | undefined): void {
-  const tags = values?.filter((value) => value.trim() !== "") ?? [];
+  const tags = values
+    ?.map((rawValue) => rawValue.trim())
+    .filter((value) => value !== "") ?? [];
   if (tags.length === 0) return;
-  // tag_norm 用来命中索引，tag 原文用来保留旧 JSON tags.includes 的大小写敏感语义。
+  const selectedTags = tags.map((value) => ({ key: value.toLowerCase(), value }));
+  // tag_norm 在应用层完成 Unicode 归一，tag 原文保留大小写精确语义；整维仍只占一个 D1 参数。
   conditions.push(`
     EXISTS (
       SELECT 1 FROM subscription_tags AS tag
+      INNER JOIN json_each(?) AS selected
+        ON tag.tag_norm = CAST(json_extract(selected.value, '$.key') AS TEXT)
+        AND tag.tag = CAST(json_extract(selected.value, '$.value') AS TEXT)
       WHERE tag.user_id = idx.user_id
         AND tag.subscription_id = idx.subscription_id
-        AND (${tags.map(() => "(tag.tag_norm = ? AND tag.tag = ?)").join(" OR ")})
     )
   `);
-  params.push(...tags.flatMap((tag) => [tag.trim().toLowerCase(), tag]));
+  params.push(JSON.stringify(selectedTags));
 }
 
 function appendReminderModeCondition(
@@ -241,23 +414,4 @@ function appendReminderModeCondition(
       conditions.push("idx.reminder_days >= 0");
       break;
   }
-}
-
-function subscriptionListQueryHasFilters(query: SubscriptionCollectionFilters): boolean {
-  return Boolean(
-    query.q ||
-    query.category?.length ||
-    query.tag?.length ||
-    query.billingCycle?.length ||
-    query.paymentMethod?.length ||
-    query.currency?.length ||
-    query.status ||
-    query.renewal ||
-    query.nextBillingFrom ||
-    query.nextBillingTo ||
-    query.pinned !== undefined ||
-    query.publicHidden !== undefined ||
-    query.reminderMode ||
-    query.repeatReminder !== undefined,
-  );
 }

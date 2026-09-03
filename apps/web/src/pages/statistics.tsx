@@ -21,14 +21,16 @@ import { DeferredRenewSubscriptionDialog } from '@/components/renew-subscription
 import { Header } from '@/components/header';
 import { StatisticsPageSkeleton } from '@/components/loading-skeleton';
 import { QueryErrorState } from '@/components/query-error-state';
+import { ExchangeRateErrorFeedback } from '@/components/exchange-rate-error-feedback';
+import { ExchangeRateRefreshButton } from '@/components/exchange-rate-refresh-button';
 import { SubscriptionDetailDialog } from '@/components/subscription-detail-dialog';
 import { DeferredStatisticsCharts } from '@/components/statistics-charts-loader';
-import { CircleHelp, RefreshCw } from 'lucide-react';
+import { CircleHelp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatCompactCurrencyAmount } from '@/lib/currency';
 import { useReportExchangeRates } from '@/hooks/use-report-exchange-rates';
 import { moneyToNumber } from "@renewlet/shared/money";
-import { Button } from '@/components/ui/button';
+import { toast } from '@/components/ui/sonner';
 import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSubscriptionAnalytics, useSubscriptionFacets } from '@/hooks/use-subscriptions';
@@ -109,7 +111,17 @@ const Statistics = () => {
   const { locale, t, formatCurrency, formatDateTime } = useI18n();
   const [personalCostBasis, setPersonalCostBasis] = useState(false);
 
-  const { convert, loading: ratesLoading, refresh: refreshRates, lastUpdated, error: ratesError, sourceDate: ratesSourceDate } = useReportExchangeRates(settings?.exchangeRateProvider);
+  const {
+    convert,
+    loading: ratesLoading,
+    isRefreshing: ratesRefreshing,
+    refresh: refreshRates,
+    lastUpdated,
+    error: ratesError,
+    errorDetails: ratesErrorDetails,
+    sourceDate: ratesSourceDate,
+  } = useReportExchangeRates(settings?.exchangeRateProvider);
+  const ratesRefreshPending = ratesLoading || ratesRefreshing;
   const currencyRatesReady = Boolean(ratesSourceDate) && !ratesLoading;
   const stats = useStatisticsModel(subscriptions, config, monthlyBudget, defaultCurrency, convert, timeZone, locale, personalCostBasis ? "personal" : "total");
   const {
@@ -145,6 +157,12 @@ const Statistics = () => {
   const handleEditFromDetail = useCallback((subscription: Subscription) => {
     handleEditSubscription(subscription.id);
   }, [handleEditSubscription]);
+  const handleRefreshRates = useCallback(async () => {
+    const result = await refreshRates();
+    if (result.status === "succeeded") {
+      toast.success(t("exchangeRates.updated"));
+    }
+  }, [refreshRates, t]);
 
   // 汇率 hook 有内置 fallback；远端刷新中继续渲染统计内容，避免切页后因为第三方汇率慢而整页回退骨架。
   if (subscriptionsQuery.isPending || settingsQuery.isPending) {
@@ -183,23 +201,17 @@ const Statistics = () => {
               </p>
             ) : null}
           </div>
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={() => void refreshRates()}
-            disabled={ratesLoading}
-            className="w-full gap-2 sm:w-auto"
-          >
-            <RefreshCw className={cn("h-4 w-4", ratesLoading && "animate-spin")} />
-            {t("statistics.refreshRates")}
-          </Button>
+          <ExchangeRateRefreshButton
+            label={t("statistics.refreshRates")}
+            pending={ratesRefreshPending}
+            onRefresh={handleRefreshRates}
+            className="w-full sm:w-auto"
+          />
         </div>
 
-        {ratesError && (
-          <div className="mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-600 text-sm">
-            {t("statistics.ratesError", { error: ratesError })}
-          </div>
-        )}
+        {ratesError ? (
+          <ExchangeRateErrorFeedback error={ratesError} details={ratesErrorDetails} />
+        ) : null}
 
         {/* 总体统计 */}
         <section className="mb-8">

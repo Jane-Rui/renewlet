@@ -4,6 +4,7 @@ import {
   calculateOneTimeTermEndDate,
   isOneTimeBuyout,
   isOneTimeFixedTerm,
+  projectSubscriptionDailyCost,
   toDailyAmountFromMonthly,
   toMonthlyAmount,
   toSubscriptionMonthlyAmount,
@@ -32,7 +33,11 @@ describe("subscription-billing", () => {
     expect(toMonthlyAmount(120, "one-time", undefined, "day", 3, "month")).toBe(40);
     expect(toMonthlyAmount(360, "one-time", undefined, "day", 3, "year")).toBe(10);
     expect(isOneTimeFixedTerm({ billingCycle: "one-time", oneTimeTermCount: 3, oneTimeTermUnit: "month" })).toBe(true);
+    expect(isOneTimeFixedTerm({ billingCycle: "one-time", oneTimeTermCount: 3, oneTimeTermUnit: undefined })).toBe(true);
     expect(isOneTimeBuyout({ billingCycle: "one-time", oneTimeTermCount: undefined, oneTimeTermUnit: undefined })).toBe(true);
+    expect(isOneTimeBuyout({ billingCycle: "one-time", oneTimeTermCount: 0, oneTimeTermUnit: undefined })).toBe(true);
+    expect(isOneTimeBuyout({ billingCycle: "one-time", oneTimeTermCount: -1, oneTimeTermUnit: "month" })).toBe(true);
+    expect(toMonthlyAmount(199, "one-time", undefined, undefined, -1, "month")).toBe(0);
   });
 
   it("converts subscription-shaped billing fields", () => {
@@ -68,6 +73,64 @@ describe("subscription-billing", () => {
     }
     expect(toDailyAmountFromMonthly(toMonthlyAmount(199, "one-time"))).toBe(0);
     expect(toDailyAmountFromMonthly(0)).toBe(0);
+  });
+
+  it("projects recurring and fixed-term daily costs on the normalized basis", () => {
+    expect(projectSubscriptionDailyCost("30", { billingCycle: "monthly" }, "2026-03-08")).toEqual({
+      amount: "1",
+      basis: "normalized",
+    });
+    expect(projectSubscriptionDailyCost("90", {
+      billingCycle: "one-time",
+      startDate: "2026-01-01",
+      oneTimeTermCount: 90,
+      oneTimeTermUnit: "day",
+    }, "2026-03-08")).toEqual({ amount: "1", basis: "normalized" });
+  });
+
+  it("projects buyout cost over ownership date-only days", () => {
+    expect(projectSubscriptionDailyCost("100", {
+      billingCycle: "one-time",
+      startDate: "2026-03-08",
+    }, "2026-03-08")).toEqual({ amount: "100", basis: "ownership-to-date" });
+    expect(projectSubscriptionDailyCost("31", {
+      billingCycle: "one-time",
+      startDate: "2026-01-31",
+    }, "2026-03-01")).toEqual({ amount: "1.033333", basis: "ownership-to-date" });
+    expect(projectSubscriptionDailyCost("3", {
+      billingCycle: "one-time",
+      startDate: "2024-02-28",
+    }, "2024-03-01")).toEqual({ amount: "1", basis: "ownership-to-date" });
+  });
+
+  it("keeps ownership projection independent from DST instants and handles edge inputs", () => {
+    expect(projectSubscriptionDailyCost("20", {
+      billingCycle: "one-time",
+      startDate: "2026-03-08",
+    }, "2026-03-09")).toEqual({ amount: "10", basis: "ownership-to-date" });
+    expect(projectSubscriptionDailyCost("0", {
+      billingCycle: "one-time",
+      startDate: "2026-03-08",
+    }, "2026-03-09")).toEqual({ amount: "0", basis: "ownership-to-date" });
+    expect(projectSubscriptionDailyCost("1", {
+      billingCycle: "one-time",
+      startDate: "2026-03-08",
+    }, "2026-03-10")).toEqual({ amount: "0.333333", basis: "ownership-to-date" });
+    expect(projectSubscriptionDailyCost("20", { billingCycle: "one-time" }, "2026-03-09")).toBeNull();
+    expect(projectSubscriptionDailyCost("20", {
+      billingCycle: "one-time",
+      startDate: "not-a-date",
+    }, "2026-03-09")).toBeNull();
+    expect(projectSubscriptionDailyCost("20", {
+      billingCycle: "one-time",
+      startDate: "2026-03-10",
+    }, "2026-03-09")).toBeNull();
+    expect(projectSubscriptionDailyCost("20", {
+      billingCycle: "one-time",
+      oneTimeTermCount: -1,
+      oneTimeTermUnit: "month",
+      startDate: "2026-03-08",
+    }, "2026-03-09")).toEqual({ amount: "10", basis: "ownership-to-date" });
   });
 
   it("uses date-only renewal semantics for next billing and one-time term end dates", () => {

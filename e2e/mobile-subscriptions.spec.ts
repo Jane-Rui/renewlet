@@ -102,24 +102,24 @@ test("mobile subscription tag drawer and tag input layout", async ({ page }, tes
     tags: manyTags,
   });
 
-  const mobileRenewalSortRow = page.getByTestId("mobile-renewal-sort-row");
+  const mobilePaymentTypeSortRow = page.getByTestId("mobile-payment-type-sort-row");
   const mobileAdvancedTagRow = page.getByTestId("mobile-advanced-tag-row");
-  await expect(mobileRenewalSortRow).toBeVisible();
+  await expect(mobilePaymentTypeSortRow).toBeVisible();
   await expect(mobileAdvancedTagRow).toBeVisible();
-  const mobileRenewalControl = mobileRenewalSortRow.getByRole("combobox").filter({ hasText: "所有续订" });
-  const mobileSortControl = mobileRenewalSortRow.getByRole("combobox", { name: "排序" });
+  const mobilePaymentTypeControl = mobilePaymentTypeSortRow.getByRole("combobox").filter({ hasText: "所有付费类型" });
+  const mobileSortControl = mobilePaymentTypeSortRow.getByRole("combobox", { name: "排序" });
   const mobileAdvancedControl = mobileAdvancedTagRow.getByRole("button", { name: "更多筛选" });
   const mobileTagButton = mobileAdvancedTagRow.getByRole("button", { name: "标签" });
   await expect(page.getByTestId("mobile-selected-tags")).toHaveCount(0);
-  const [mobileRenewalBox, mobileSortBox, mobileAdvancedBox, mobileTagBox] = await Promise.all([
-    getRequiredLocatorBoundingBox(mobileRenewalControl, "mobile renewal filter"),
+  const [mobilePaymentTypeBox, mobileSortBox, mobileAdvancedBox, mobileTagBox] = await Promise.all([
+    getRequiredLocatorBoundingBox(mobilePaymentTypeControl, "mobile payment type filter"),
     getRequiredLocatorBoundingBox(mobileSortControl, "mobile sort filter"),
     getRequiredLocatorBoundingBox(mobileAdvancedControl, "mobile advanced filter"),
     getRequiredLocatorBoundingBox(mobileTagButton, "mobile tag filter"),
   ]);
-  expect(Math.abs(mobileRenewalBox.y - mobileSortBox.y), "mobile renewal and sort controls should share a row").toBeLessThan(8);
-  expect(mobileSortBox.x, "mobile sort filter should sit to the right of renewal").toBeGreaterThan(
-    mobileRenewalBox.x + mobileRenewalBox.width - 1,
+  expect(Math.abs(mobilePaymentTypeBox.y - mobileSortBox.y), "mobile payment type and sort controls should share a row").toBeLessThan(8);
+  expect(mobileSortBox.x, "mobile sort filter should sit to the right of payment type").toBeGreaterThan(
+    mobilePaymentTypeBox.x + mobilePaymentTypeBox.width - 1,
   );
   expect(Math.abs(mobileAdvancedBox.y - mobileTagBox.y), "mobile advanced and tag controls should share a row").toBeLessThan(8);
   expect(mobileTagBox.x, "mobile tag button should sit to the right of advanced filters").toBeGreaterThan(
@@ -175,12 +175,14 @@ test("mobile subscription card keeps date metadata naturally on the first availa
   await expect(page.getByRole("heading", { name: "订阅列表" })).toBeVisible();
 
   const subscriptionName = uniqueE2EName(testInfo, "Netflix Pro");
+  const now = Date.now();
+  const dateOnlyFromNow = (days: number) => new Date(now + days * 86_400_000).toISOString().slice(0, 10);
   await createSubscriptionLayoutRecord(page, {
     name: subscriptionName,
     category: "hosting_domains",
     paymentMethod: "google_pay",
-    startDate: "2026-02-20",
-    nextBillingDate: "2026-05-31",
+    startDate: dateOnlyFromNow(-30),
+    nextBillingDate: dateOnlyFromNow(30),
   });
   await page.reload();
 

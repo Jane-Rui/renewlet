@@ -7,6 +7,9 @@ allowBuilds:
   esbuild: true
   sharp: true
   workerd: true
+# pnpm 11.20 无法定向更新未直接声明的传递依赖；只将 Browserslist 漏洞范围重定向到官方修复线，不能用 audit ignore 绕过。
+overrides:
+  "browserslist@<=4.28.6": "^4.28.7"
 # pnpm 11 默认拦截发布不足 24 小时的包；本轮明确升级到 same-day latest 时只放行精确版本，避免用 minimumReleaseAge: 0 关闭整个供应链冷却期。
 minimumReleaseAgeExclude:
   - '@ai-sdk/anthropic@4.0.33'

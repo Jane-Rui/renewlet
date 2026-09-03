@@ -155,7 +155,7 @@ const subscriptionPerformanceFixtureSchema = z.object({
       derivedWriteBase: z.number().int().positive(),
       listReadQueries: z.number().int().positive(),
     }).strict(),
-  }).strict()).length(3),
+  }).strict()).length(4),
 }).strict();
 
 const subscriptionRouteFixtureSchema = z.object({

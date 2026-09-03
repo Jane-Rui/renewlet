@@ -19,8 +19,14 @@ import {
   exchangeRateErrorDetailsFromError,
   getExchangeRateErrorMessageKey,
   reportExchangeRateFetchError,
+  type ExchangeRateSnapshot,
   type ExchangeRateStore,
 } from "./exchange-rate-store";
+
+export type ExchangeRateRefreshResult =
+  | { status: "succeeded"; warning: ExchangeRateCoverageWarning | null }
+  | { status: "failed"; error: string; errorDetails: RawErrorResponseDetails | null }
+  | { status: "superseded" };
 
 /**
  * 汇率 Hook（Frankfurter / FloatRates / exchange-api）。
@@ -34,6 +40,7 @@ export function createUseExchangeRates(store: ExchangeRateStore) {
     const [baseRate, setBaseRate] = useState<string>("USD");
     const [activeProvider, setActiveProvider] = useState<ExchangeRateSource>("builtin");
     const [loading, setLoading] = useState(true);
+    const [isRefreshing, setIsRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [errorDetails, setErrorDetails] = useState<RawErrorResponseDetails | null>(null);
     const [warning, setWarning] = useState<ExchangeRateCoverageWarning | null>(null);
@@ -58,60 +65,71 @@ export function createUseExchangeRates(store: ExchangeRateStore) {
       setLastUpdated(snapshot.lastUpdated);
     }, []);
 
-    const fetchRates = useCallback((
+    const fetchRates = useCallback(async (
       forceRefresh = false,
       providerOverride?: ExchangeRateProvider,
-    ): Promise<void> => {
+    ): Promise<ExchangeRateRefreshResult> => {
       const requestedProvider = providerOverride ?? preferredProvider;
       const requestSeq = requestSeqRef.current + 1;
       requestSeqRef.current = requestSeq;
 
-      setLoading(true);
+      if (forceRefresh) {
+        setIsRefreshing(true);
+      } else {
+        setLoading(true);
+      }
       setError(null);
       setErrorDetails(null);
       // warning 是 partial 成功态，不是错误态；新请求开始时先清空，避免旧缺币提示跟新 provider 混在一起。
       setWarning(null);
 
-      if (!forceRefresh) {
-        const cached = store.readCachedSnapshot(requestedProvider);
-        if (cached) {
-          applySnapshot(cached);
+      try {
+        if (!forceRefresh) {
+          const cached = store.readCachedSnapshot(requestedProvider);
+          if (cached) {
+            applySnapshot(cached);
+            return { status: "succeeded", warning: cached.warning };
+          }
+        }
+
+        const snapshot: ExchangeRateSnapshot = await store.loadRemoteSnapshot(requestedProvider);
+        if (!mountedRef.current || requestSeqRef.current !== requestSeq) return { status: "superseded" };
+        applySnapshot(snapshot);
+        setError(null);
+        setErrorDetails(null);
+        // partial 成功只透出 warning；只有 catch 路径才上报错误并切到内置备用汇率。
+        setWarning(snapshot.warning);
+        return { status: "succeeded", warning: snapshot.warning };
+      } catch (e) {
+        if (!mountedRef.current || requestSeqRef.current !== requestSeq) return { status: "superseded" };
+        reportExchangeRateFetchError(e);
+        const kind = errorKindFromProviderError(e);
+        const nextError = translate(
+          getApiLocale(),
+          getExchangeRateErrorMessageKey(kind),
+        );
+        const nextErrorDetails = exchangeRateErrorDetailsFromError(e);
+        setError(nextError);
+        setErrorDetails(nextErrorDetails);
+        // 汇率失败不能拖垮仪表盘；内置快照牺牲实时性，保留跨币种统计的可解释性。
+        setRates(FALLBACK_RATES);
+        setBaseRate("USD");
+        setActiveProvider("builtin");
+        setWarning(null);
+        setSourceDate(null);
+        return { status: "failed", error: nextError, errorDetails: nextErrorDetails };
+      } finally {
+        if (mountedRef.current && requestSeqRef.current === requestSeq) {
           setLoading(false);
-          return Promise.resolve();
+          setIsRefreshing(false);
         }
       }
-
-      return store.loadRemoteSnapshot(requestedProvider)
-        .then((snapshot) => {
-          if (!mountedRef.current || requestSeqRef.current !== requestSeq) return;
-          applySnapshot(snapshot);
-          setError(null);
-          setErrorDetails(null);
-          // partial 成功只透出 warning；只有 catch 路径才上报错误并切到内置备用汇率。
-          setWarning(snapshot.warning);
-        })
-        .catch((e) => {
-          if (!mountedRef.current || requestSeqRef.current !== requestSeq) return;
-          reportExchangeRateFetchError(e);
-          const kind = errorKindFromProviderError(e);
-          setError(translate(
-            getApiLocale(),
-            getExchangeRateErrorMessageKey(kind),
-          ));
-          setErrorDetails(exchangeRateErrorDetailsFromError(e));
-          // 汇率失败不能拖垮仪表盘；内置快照牺牲实时性，保留跨币种统计的可解释性。
-          setRates(FALLBACK_RATES);
-          setBaseRate("USD");
-          setActiveProvider("builtin");
-          setWarning(null);
-          setSourceDate(null);
-        })
-        .finally(() => {
-          if (mountedRef.current && requestSeqRef.current === requestSeq) {
-            setLoading(false);
-          }
-        });
     }, [applySnapshot, preferredProvider]);
+
+    const refresh = useCallback(
+      (providerOverride?: ExchangeRateProvider) => fetchRates(true, providerOverride),
+      [fetchRates],
+    );
 
     useEffect(() => {
       mountedRef.current = true;
@@ -162,6 +180,7 @@ export function createUseExchangeRates(store: ExchangeRateStore) {
       baseRate,
       activeProvider,
       loading,
+      isRefreshing,
       error,
       errorDetails,
       warning,
@@ -170,7 +189,7 @@ export function createUseExchangeRates(store: ExchangeRateStore) {
       convert,
       getCurrencySymbol,
       formatAmount,
-      refresh: (providerOverride?: ExchangeRateProvider) => fetchRates(true, providerOverride),
+      refresh,
     };
   };
 }

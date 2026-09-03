@@ -24,6 +24,7 @@ type SubscriptionBaseFixture = Omit<Subscription, "billingCycle" | "customDays" 
 type SubscriptionOverrides = SubscriptionFixtureOverrides<Subscription>;
 interface MockInfiniteSubscriptionsResult {
   subscriptions?: Subscription[];
+  total?: number;
   isPending: boolean;
 }
 type MockSettingsEnvelopeResult = { data?: SettingsReadModel };
@@ -363,6 +364,22 @@ describe("Subscriptions page category filters", () => {
       expect(visibleSubscriptionNames()).toEqual(["Docs Notes", "Budget Vault", "Finance Sheet", "Music Box"]);
     });
     expect(within(desktopCategoryFilter).getByRole("button", { name: "分类" })).toBeInTheDocument();
+  });
+
+  it("uses page, index, and facets totals for their distinct count meanings", async () => {
+    const user = userEvent.setup();
+    const page = mocks.useInfiniteSubscriptions();
+    mocks.useInfiniteSubscriptions.mockReturnValue({ ...page, total: 120 });
+    mocks.useSubscriptionFacets.mockReturnValue({
+      ...subscriptionFacetsQueryFixture(page.subscriptions ?? []),
+      data: { ...subscriptionFacetsQueryFixture(page.subscriptions ?? []).data, total: 120 },
+    });
+    mockMobileTagFilterMatch(false);
+    renderSubscriptionsPage();
+
+    expect(screen.getByText("共 120 个订阅")).toBeInTheDocument();
+    await user.type(screen.getByRole("searchbox"), "Docs");
+    expect(await screen.findByText("共 1 个订阅 （从 120 个中筛选）")).toBeInTheDocument();
   });
 
   it("applies mobile category drawer selections after confirmation", async () => {

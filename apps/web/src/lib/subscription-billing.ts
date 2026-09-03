@@ -17,6 +17,7 @@ import {
   calculateOneTimeTermEndDate as calculateSharedOneTimeTermEndDate,
   isOneTimeBuyout,
   isOneTimeFixedTerm,
+  projectSubscriptionDailyCost,
   toDailyAmountFromMonthly,
   toMonthlyAmount,
   toSubscriptionMonthlyAmount,
@@ -26,6 +27,7 @@ import { requireCustomBillingCycle } from "@renewlet/shared/subscription-renewal
 export {
   isOneTimeBuyout,
   isOneTimeFixedTerm,
+  projectSubscriptionDailyCost,
   toDailyAmountFromMonthly,
   toMonthlyAmount,
   toSubscriptionMonthlyAmount,
@@ -66,7 +68,18 @@ export function customCycleUnitLabelKey(unit: CustomCycleUnit): `subscription.cu
   return `subscription.customCycleUnit.${unit}`;
 }
 
-export function formatBillingCycleLabel(subscription: { billingCycle: BillingCycle; customDays?: number | undefined; customCycleUnit?: CustomCycleUnit | undefined }, locale: Locale): string {
+export function formatBillingCycleLabel(subscription: {
+  billingCycle: BillingCycle;
+  customDays?: number | undefined;
+  customCycleUnit?: CustomCycleUnit | undefined;
+  oneTimeTermCount?: number | undefined;
+  oneTimeTermUnit?: CustomCycleUnit | undefined;
+}, locale: Locale): string {
+  if (subscription.billingCycle === "one-time") {
+    return translate(locale, isOneTimeFixedTerm(subscription)
+      ? "subscription.oneTimeMode.term"
+      : "subscription.oneTimeMode.buyout");
+  }
   if (subscription.billingCycle !== "custom") {
     return localizedLabel(CYCLE_LABELS[subscription.billingCycle], locale);
   }

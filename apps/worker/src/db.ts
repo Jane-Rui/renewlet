@@ -159,7 +159,6 @@ const telegramBotBindingColumnNames = [
 export const USER_COLUMNS = userColumnNames.join(", ");
 export const USER_COLUMNS_FROM_USERS = userColumnNames.map((column) => `users.${column} AS ${column}`).join(", ");
 export const SUBSCRIPTION_COLUMNS = SUBSCRIPTION_COLUMN_NAMES.join(", ");
-export const SUBSCRIPTION_COLLECTION_COLUMNS = SUBSCRIPTION_COLLECTION_COLUMN_NAMES.join(", ");
 
 export function subscriptionRowValues(row: SubscriptionRow): unknown[] {
   return SUBSCRIPTION_COLUMN_NAMES.map((column) => row[column]);
@@ -327,6 +326,15 @@ export async function putCustomConfig(env: Env, userId: string, config: unknown)
   return config;
 }
 
+function apiOneTimeTermFields(row: Pick<SubscriptionRow, "one_time_term_count" | "one_time_term_unit">) {
+  // D1 历史 NULL/非正服务期都表示买断；必须在 DTO 总入口收敛，避免非法数量穿过 shared 正整数契约。
+  if (row.one_time_term_count === null || row.one_time_term_count <= 0 || !row.one_time_term_unit) return {};
+  return {
+    oneTimeTermCount: row.one_time_term_count,
+    oneTimeTermUnit: row.one_time_term_unit,
+  };
+}
+
 export function toApiSubscriptionCollectionItem(row: SubscriptionCollectionRow): ApiSubscriptionCollectionItem {
   // cost_sharing_json 是 D1 唯一持久化形态，出站必须重新过 shared schema，防止 Worker 与 Docker costSharing 漂移。
   const costSharing = parseJsonObject(row.cost_sharing_json ?? "{}");
@@ -339,7 +347,7 @@ export function toApiSubscriptionCollectionItem(row: SubscriptionCollectionRow):
     billingCycle: row.billing_cycle,
     ...(row.custom_days === null ? {} : { customDays: row.custom_days }),
     ...(row.custom_cycle_unit === null ? {} : { customCycleUnit: row.custom_cycle_unit }),
-    ...(row.one_time_term_count && row.one_time_term_unit ? { oneTimeTermCount: row.one_time_term_count, oneTimeTermUnit: row.one_time_term_unit } : {}),
+    ...apiOneTimeTermFields(row),
     category: row.category,
     status: row.status,
     pinned: intToBool(row.pinned),
@@ -387,9 +395,7 @@ export function toPublicApiSubscription(row: SubscriptionRow) {
     billingCycle: row.billing_cycle,
     ...(row.custom_days === null ? {} : { customDays: row.custom_days }),
     ...(row.custom_cycle_unit === null ? {} : { customCycleUnit: row.custom_cycle_unit }),
-    ...(row.one_time_term_count && row.one_time_term_unit
-      ? { oneTimeTermCount: row.one_time_term_count, oneTimeTermUnit: row.one_time_term_unit }
-      : {}),
+    ...apiOneTimeTermFields(row),
     category: row.category,
     status: row.status,
     pinned: intToBool(row.pinned),
@@ -434,7 +440,7 @@ export async function listSubscriptions(env: Env, userId: string): Promise<Subsc
     if (page.length < 100) return rows;
     const last = page.at(-1);
     if (!last) return rows;
-    cursor = subscriptionCursor(last);
+    cursor = publicSubscriptionCursor(last);
   }
 }
 
@@ -496,7 +502,7 @@ export async function listSubscriptionsPage(
   userId: string,
   options: { limit: number; cursor?: string | undefined },
 ): Promise<SubscriptionRow[]> {
-  const cursor = parseSubscriptionCursor(options.cursor);
+  const cursor = parsePublicSubscriptionCursor(options.cursor);
   const limit = Math.max(1, Math.min(options.limit, 101));
   if (!cursor) {
     const result = await env.DB.prepare(`SELECT ${SUBSCRIPTION_COLUMNS} FROM subscriptions WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`)
@@ -514,34 +520,12 @@ export async function listSubscriptionsPage(
   return result.results;
 }
 
-export async function listSubscriptionCollectionPage(
-  env: Env,
-  userId: string,
-  options: { limit: number; cursor?: string | undefined },
-): Promise<SubscriptionCollectionRow[]> {
-  const cursor = parseSubscriptionCursor(options.cursor);
-  const limit = Math.max(1, Math.min(options.limit, 101));
-  if (!cursor) {
-    const result = await env.DB.prepare(`SELECT ${SUBSCRIPTION_COLLECTION_COLUMNS} FROM subscriptions WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`)
-      .bind(userId, limit)
-      .all<SubscriptionCollectionRow>();
-    return result.results;
-  }
-  const result = await env.DB.prepare(`
-    SELECT ${SUBSCRIPTION_COLLECTION_COLUMNS} FROM subscriptions
-    WHERE user_id = ? AND (created_at < ? OR (created_at = ? AND id < ?))
-    ORDER BY created_at DESC, id DESC
-    LIMIT ?
-  `).bind(userId, cursor.createdAt, cursor.createdAt, cursor.id, limit).all<SubscriptionCollectionRow>();
-  return result.results;
-}
-
-export function subscriptionCursor(row: Pick<SubscriptionRow, "created_at" | "id">): string {
+export function publicSubscriptionCursor(row: Pick<SubscriptionRow, "created_at" | "id">): string {
   return btoa(JSON.stringify({ createdAt: row.created_at, id: row.id }));
 }
 
 /** 游标只是分页位置，不是权限凭据；解析失败时调用方按 bad request 处理。 */
-export function parseSubscriptionCursor(value?: string): { createdAt: string; id: string } | null {
+export function parsePublicSubscriptionCursor(value?: string): { createdAt: string; id: string } | null {
   if (!value) return null;
   try {
     const parsed = JSON.parse(atob(value)) as unknown;

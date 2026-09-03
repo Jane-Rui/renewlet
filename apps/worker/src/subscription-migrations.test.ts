@@ -2,10 +2,11 @@
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readSuccessData } from "./api-test-helpers";
-import { SUBSCRIPTION_COLUMNS } from "./db";
+import { SUBSCRIPTION_COLUMN_NAMES, SUBSCRIPTION_COLUMNS } from "./db";
 import { readSubscriptions } from "./subscriptions";
+import { parsePrivateSubscriptionCursor } from "./subscription-list-filters";
 import {
   readSubscriptionAnalytics,
   readSubscriptionCalendar,
@@ -32,6 +33,10 @@ describe("Cloudflare D1 subscription migrations", () => {
       user: { id: USER_ID },
       session: { id: "ses_migration" },
     });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("rebuilds subscriptions after the old local 0034 schema was already recorded", () => {
@@ -102,6 +107,7 @@ describe("Cloudflare D1 subscription migrations", () => {
       });
       applyMigration(db, "0035_rebuild_cost_sharing_collection_reminder_schema.sql");
       applyMigration(db, "0036_subscription_derived_state_v2.sql");
+      applyMigration(db, "0039_rebuild_subscription_collection_projections.sql");
 
       const response = await readSubscriptions(new Request("https://renewlet.test/api/app/subscriptions?limit=10"), {
         DB: new SqliteD1Database(db) as unknown as D1Database,
@@ -119,6 +125,15 @@ describe("Cloudflare D1 subscription migrations", () => {
           collectionReminder: { enabled: true, reminderDays: 1 },
         },
       });
+
+      const oldCursor = btoa(JSON.stringify({ createdAt: timestamp, id: "sub_migrated" }));
+      await expect(readSubscriptions(new Request(
+        `https://renewlet.test/api/app/subscriptions?limit=10&cursor=${encodeURIComponent(oldCursor)}`,
+      ), {
+        DB: new SqliteD1Database(db) as unknown as D1Database,
+        ASSETS: {} as Fetcher,
+        ASSETS_BUCKET: {} as R2Bucket,
+      } satisfies Env)).rejects.toMatchObject({ status: 400, code: "INVALID_CURSOR" });
     } finally {
       db.close();
     }
@@ -247,6 +262,55 @@ describe("Cloudflare D1 subscription migrations", () => {
     }
   });
 
+  it("paginates across pinned and lifecycle groups without duplicates", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-17T23:59:00.000Z"));
+    const db = openSubscriptionMigrationDatabase();
+    try {
+      insertCostSharingSubscription(db, {
+        costSharingJson: JSON.stringify(costSharingJson({})),
+        billingCycle: "monthly",
+      });
+      db.prepare("UPDATE subscriptions SET next_billing_date = ? WHERE id = ?").run("2999-09-01", "sub_migrated");
+      applyMigration(db, "0034_cost_sharing_collection_reminders.sql");
+      applyMigration(db, "0035_rebuild_cost_sharing_collection_reminder_schema.sql");
+      applyMigration(db, "0036_subscription_derived_state_v2.sql");
+      insertSubscriptionClone(db, { id: "sub_pinned_active", name: "Pinned Active", pinned: 1, status: "active" });
+      insertSubscriptionClone(db, { id: "sub_pinned_inactive", name: "Pinned Inactive", pinned: 1, status: "cancelled" });
+      insertSubscriptionClone(db, { id: "sub_regular_active_tie", name: "Regular Active Tie", pinned: 0, status: "active" });
+      insertSubscriptionClone(db, { id: "sub_regular_inactive", name: "Regular Inactive", pinned: 0, status: "expired" });
+      applyMigration(db, "0039_rebuild_subscription_collection_projections.sql");
+
+      const env = {
+        DB: new SqliteD1Database(db) as unknown as D1Database,
+        ASSETS: {} as Fetcher,
+        ASSETS_BUCKET: {} as R2Bucket,
+      } satisfies Env;
+      const names: string[] = [];
+      let cursor: string | null = null;
+      for (let page = 0; page < 5; page += 1) {
+        const query = new URLSearchParams({ limit: "1" });
+        if (cursor) query.set("cursor", cursor);
+        const response = await readSubscriptions(new Request(`https://renewlet.test/api/app/subscriptions?${query}`), env);
+        const body = await readSuccessData<{ subscriptions: Array<{ name: string }>; nextCursor: string | null }>(response);
+        names.push(body.subscriptions[0]?.name ?? "");
+        cursor = body.nextCursor;
+        if (page === 0) {
+          expect(parsePrivateSubscriptionCursor(cursor ?? undefined)).toMatchObject({ asOf: "2026-08-17" });
+          vi.setSystemTime(new Date("2026-08-18T00:01:00.000Z"));
+        } else if (cursor) {
+          expect(parsePrivateSubscriptionCursor(cursor)).toMatchObject({ asOf: "2026-08-17" });
+        }
+      }
+
+      expect(names).toEqual(["Pinned Active", "Pinned Inactive", "Regular Active Tie", "Netflix", "Regular Inactive"]);
+      expect(new Set(names).size).toBe(5);
+      expect(cursor).toBeNull();
+    } finally {
+      db.close();
+    }
+  });
+
   it("moves legacy custom units into a one-time migration instead of runtime fallbacks", () => {
     const db = openSubscriptionMigrationDatabase();
     try {
@@ -364,6 +428,10 @@ function openSubscriptionMigrationDatabase(): DatabaseSync {
       extra_json TEXT NOT NULL DEFAULT '{}',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
+    );
+    CREATE TABLE settings (
+      user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      settings_json TEXT NOT NULL
     );
     CREATE TABLE subscription_list_index (
       subscription_id TEXT PRIMARY KEY REFERENCES subscriptions(id) ON DELETE CASCADE,
@@ -499,6 +567,18 @@ function insertCostSharingSubscription(
     timestamp,
     timestamp,
   );
+}
+
+function insertSubscriptionClone(
+  db: DatabaseSync,
+  overrides: { id: string; name: string; pinned: number; status: string },
+): void {
+  const source = db.prepare(`SELECT ${SUBSCRIPTION_COLUMNS} FROM subscriptions WHERE id = ?`).get("sub_migrated");
+  if (!source) throw new Error("Missing source subscription");
+  const row: Record<string, SQLInputValue> = { ...source, ...overrides, next_billing_date: "2999-09-01" };
+  const placeholders = SUBSCRIPTION_COLUMN_NAMES.map(() => "?").join(", ");
+  db.prepare(`INSERT INTO subscriptions (${SUBSCRIPTION_COLUMNS}) VALUES (${placeholders})`)
+    .run(...SUBSCRIPTION_COLUMN_NAMES.map((column) => row[column] ?? null));
 }
 
 function costSharingJson(options: { intervalMonths?: number }) {

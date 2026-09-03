@@ -90,7 +90,7 @@ function appendSubscriptionListFilters(params: URLSearchParams, filters?: Subscr
   for (const value of filters.paymentMethod ?? []) params.append("paymentMethod", value);
   for (const value of filters.currency ?? []) params.append("currency", value);
   if (filters.status) params.set("status", filters.status);
-  if (filters.renewal) params.set("renewal", filters.renewal);
+  if (filters.paymentType) params.set("paymentType", filters.paymentType);
   if (filters.nextBillingFrom) params.set("nextBillingFrom", filters.nextBillingFrom);
   if (filters.nextBillingTo) params.set("nextBillingTo", filters.nextBillingTo);
   if (filters.pinned !== undefined) params.set("pinned", String(filters.pinned));

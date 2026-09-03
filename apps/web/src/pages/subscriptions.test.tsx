@@ -26,6 +26,7 @@ import {
 
 type MockInfiniteSubscriptionsResult = {
   subscriptions?: Subscription[];
+  total?: number;
   isPending: boolean;
   hasNextPage?: boolean;
   isFetchingNextPage?: boolean;
@@ -56,7 +57,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/hooks/use-subscriptions", () => ({
   prefetchSubscriptionDetail: vi.fn(),
-  useInfiniteSubscriptions: mocks.useInfiniteSubscriptions,
+  useInfiniteSubscriptions: () => {
+    const result = mocks.useInfiniteSubscriptions();
+    return { ...result, total: result.total ?? result.subscriptions?.length ?? 0 };
+  },
   useSubscriptionIndex: mocks.useSubscriptionIndex,
   useSubscriptionFacets: mocks.useSubscriptionFacets,
   useSubscriptionDetail: (id: string | null) => ({
@@ -245,9 +249,12 @@ vi.mock("@/components/subscription-dialog", () => ({
   SubscriptionDialog: () => null,
 }));
 
-function mockDefaultSubscriptionsPageSettings() {
+function mockSubscriptionsPageSettings(timezone = DEFAULT_SUBSCRIPTIONS_PAGE_SETTINGS.settings.timezone) {
   mocks.useSettingsEnvelope.mockReturnValue({
-    data: DEFAULT_SUBSCRIPTIONS_PAGE_SETTINGS,
+    data: {
+      ...DEFAULT_SUBSCRIPTIONS_PAGE_SETTINGS,
+      settings: { ...DEFAULT_SUBSCRIPTIONS_PAGE_SETTINGS.settings, timezone },
+    },
   });
 }
 
@@ -264,7 +271,7 @@ describe("Subscriptions page sorting", () => {
 
   beforeEach(() => {
     mockMobileTagFilterMatch(false);
-    mockDefaultSubscriptionsPageSettings();
+    mockSubscriptionsPageSettings();
     mocks.useInfiniteSubscriptions.mockReturnValue({
       subscriptions: [
         subscription({ id: "annual-usd", name: "Annual USD", price: "120", currency: "USD", billingCycle: "annual" }),
@@ -354,7 +361,28 @@ describe("Subscriptions page sorting", () => {
     expect(refetch).toHaveBeenCalledTimes(1);
   });
 
-  it("sorts visible cards and clears sorting without marking the count as filtered", async () => {
+  it("resets collection queries when the account timezone changes", async () => {
+    const rendered = renderSubscriptionsPage();
+    const resetQueries = vi.spyOn(rendered.queryClient, "resetQueries");
+    mockSubscriptionsPageSettings("America/Los_Angeles");
+    rendered.rerenderSubscriptionsPage();
+    await waitFor(() => expect(resetQueries).toHaveBeenNthCalledWith(1, { queryKey: ["subscriptions", "collections", "page"] }));
+    expect(resetQueries).toHaveBeenNthCalledWith(2, { queryKey: ["subscriptions", "collections", "index"] });
+  });
+
+  it("does not commit a temporary UTC boundary while settings are still loading", async () => {
+    mocks.useSettingsEnvelope.mockReturnValue({});
+    const rendered = renderSubscriptionsPage();
+    const resetQueries = vi.spyOn(rendered.queryClient, "resetQueries");
+
+    expect(rendered.queryClient.getQueryData(["subscriptions", "collection-boundary"])).toBeUndefined();
+    mockSubscriptionsPageSettings("Asia/Shanghai");
+    rendered.rerenderSubscriptionsPage();
+    await waitFor(() => expect(rendered.queryClient.getQueryData<string>(["subscriptions", "collection-boundary"])).toMatch(/^Asia\/Shanghai:\d{4}-\d{2}-\d{2}$/u));
+    expect(resetQueries).not.toHaveBeenCalled();
+  });
+
+  it("keeps sort-only out of filter feedback and preserves sorting when filters are cleared", async () => {
     const user = userEvent.setup();
     renderSubscriptionsPage();
 
@@ -363,17 +391,16 @@ describe("Subscriptions page sorting", () => {
     await user.click(screen.getByRole("combobox", { name: "排序" }));
     await user.click(await screen.findByRole("option", { name: "月成本最高" }));
     expect(screen.getByRole("combobox", { name: "排序" }).compareDocumentPosition(screen.getByRole("button", { name: "更多筛选" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(within(screen.getByTestId("desktop-filter-feedback")).getByRole("button", { name: "清除筛选" })).toBeInTheDocument();
+    expect(screen.queryByTestId("desktop-filter-feedback")).not.toBeInTheDocument();
     expect(within(screen.getByTestId("desktop-filter-toolbar")).queryByRole("button", { name: "清除筛选" })).not.toBeInTheDocument();
-    await waitFor(() => {
-      expect(visibleSubscriptionNames()).toEqual(["Monthly CNY", "Annual USD", "Quarterly CNY"]);
-    });
+    await waitFor(() => expect(visibleSubscriptionNames()).toEqual(["Monthly CNY", "Annual USD", "Quarterly CNY"]));
     expect(screen.queryByText(/从 3 个中筛选/)).not.toBeInTheDocument();
+
+    await user.type(screen.getByRole("searchbox"), "Annual");
+    expect(await screen.findByTestId("desktop-filter-feedback")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "清除筛选" }));
-    await waitFor(() => {
-      expect(visibleSubscriptionNames()).toEqual(["Annual USD", "Monthly CNY", "Quarterly CNY"]);
-    });
-    expect(screen.getByRole("combobox", { name: "排序" })).toHaveTextContent("默认顺序");
+    await waitFor(() => expect(visibleSubscriptionNames()).toEqual(["Monthly CNY", "Annual USD", "Quarterly CNY"]));
+    expect(screen.getByRole("combobox", { name: "排序" })).toHaveTextContent("月成本最高");
   });
 
   it("keeps pinned subscriptions ahead and wires the pin action", async () => {
@@ -451,7 +478,7 @@ describe("Subscriptions page sorting", () => {
     expect(searchInput).toHaveAttribute("type", "search");
     expect(searchInput).toHaveAttribute("name", "subscription-search");
     expect(searchInput).toHaveAttribute("enterkeyhint", "search");
-    expect(within(screen.getByTestId("mobile-renewal-sort-row")).getByRole("combobox", { name: "排序" }).compareDocumentPosition(within(screen.getByTestId("mobile-advanced-tag-row")).getByRole("button", { name: "更多筛选" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(within(screen.getByTestId("mobile-payment-type-sort-row")).getByRole("combobox", { name: "排序" }).compareDocumentPosition(within(screen.getByTestId("mobile-advanced-tag-row")).getByRole("button", { name: "更多筛选" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
   it("keeps the AI add shortcut accessible, compact, and wired to the recognition dialog", async () => {
@@ -524,7 +551,7 @@ describe("Subscriptions page desktop tag filters", () => {
 
   beforeEach(() => {
     mockMobileTagFilterMatch(false);
-    mockDefaultSubscriptionsPageSettings();
+    mockSubscriptionsPageSettings();
     mocks.useInfiniteSubscriptions.mockReturnValue({
       subscriptions: [
         subscription({ id: "cloud", name: "Tagged Cloud", tags: ["工作", "云服务", "Security"] }),
@@ -592,7 +619,7 @@ describe("Subscriptions page mobile tag filters", () => {
 
   beforeEach(() => {
     mockMobileTagFilterMatch(true);
-    mockDefaultSubscriptionsPageSettings();
+    mockSubscriptionsPageSettings();
     mocks.useInfiniteSubscriptions.mockReturnValue({
       subscriptions: [
         subscription({ id: "cloud", name: "Tagged Cloud", tags: ["工作", "云服务", "Security"] }),
@@ -612,12 +639,12 @@ describe("Subscriptions page mobile tag filters", () => {
     expect(screen.queryByTestId("desktop-tag-filter")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Security" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("mobile-selected-tags")).not.toBeInTheDocument();
-    const renewalSortRow = screen.getByTestId("mobile-renewal-sort-row");
+    const paymentTypeSortRow = screen.getByTestId("mobile-payment-type-sort-row");
     const advancedTagRow = screen.getByTestId("mobile-advanced-tag-row");
     const mobileSelects = screen.getAllByRole("combobox");
     expect(mobileSelects[0]).toHaveTextContent("所有状态");
-    expect(mobileSelects[1]).toHaveTextContent("所有续订");
-    expect(within(renewalSortRow).getByRole("combobox", { name: "排序" })).toHaveTextContent("默认顺序");
+    expect(mobileSelects[1]).toHaveTextContent("所有付费类型");
+    expect(within(paymentTypeSortRow).getByRole("combobox", { name: "排序" })).toHaveTextContent("默认顺序");
     expect(within(advancedTagRow).getByRole("button", { name: "标签" })).toBeInTheDocument();
     expect(visibleSubscriptionNames()).toEqual(["Tagged Cloud", "Docs Notes", "Design Suite", "Plain Service"]);
     await user.click(within(advancedTagRow).getByRole("button", { name: "标签" }));
@@ -682,7 +709,7 @@ describe("Subscriptions page virtualization", () => {
 
   beforeEach(() => {
     mockMobileTagFilterMatch(false, 1280);
-    mockDefaultSubscriptionsPageSettings();
+    mockSubscriptionsPageSettings();
     mocks.useInfiniteSubscriptions.mockReturnValue({
       subscriptions: manySubscriptions(90),
       isPending: false,

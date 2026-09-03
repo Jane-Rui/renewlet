@@ -145,6 +145,7 @@ vi.mock("@/hooks/use-report-exchange-rates", () => ({
     rates: {},
     activeProvider: "floatrates",
     loading: false,
+    isRefreshing: false,
     lastUpdated: null,
     refresh: mocks.refreshRates,
     error: null,
@@ -375,7 +376,7 @@ describe("useSettingsFormController integrations", () => {
     mocks.appStatus = { setupRequired: false, setupEnabled: true, demoMode: false, turnstile: { enabled: false, siteKey: "" }, isLoading: false };
     mocks.updateSettingsMutateAsync.mockImplementation(async (command: SettingsMutationCommand) => settingsMutationResult(command));
     mocks.saveConfig.mockImplementation(async (config: CustomConfig) => config);
-    mocks.refreshRates.mockResolvedValue(undefined);
+    mocks.refreshRates.mockResolvedValue({ status: "succeeded", warning: null });
     mocks.createPublicStatusPageMutateAsync.mockResolvedValue({
       enabled: true,
       createdAt: "2026-06-07T00:00:00Z",

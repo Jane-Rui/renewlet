@@ -4,6 +4,7 @@ import { VirtualizedList } from "@/components/ui/virtualized-list";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { cn } from "@/lib/utils";
 import type { SubscriptionCollectionItem } from "@/types/subscription";
+import type { DateOnly } from "@/lib/time/date-only";
 
 const SUBSCRIPTION_GRID_ROW_GAP = 16;
 const SUBSCRIPTION_GRID_ROW_ESTIMATE = 220;
@@ -12,7 +13,7 @@ const SUBSCRIPTION_LIST_ROW_ESTIMATE = 174;
 type SubscriptionGridProps = {
   subscriptions: SubscriptionCollectionItem[];
   viewMode: "grid" | "list";
-  timeZone: string;
+  today: DateOnly | string;
   inheritedReminderDays: number;
   currencyConvert: (amount: number | string, fromCurrency: string, toCurrency: string) => number;
   currencyRatesReady: boolean;
@@ -52,7 +53,7 @@ function chunkSubscriptions(subscriptions: SubscriptionCollectionItem[], columnC
 export function SubscriptionGrid({
   subscriptions,
   viewMode,
-  timeZone,
+  today,
   inheritedReminderDays,
   currencyConvert,
   currencyRatesReady,
@@ -87,7 +88,7 @@ export function SubscriptionGrid({
         <SubscriptionCard
           subscription={subscription}
           viewMode={viewMode}
-          timeZone={timeZone}
+          today={today}
           inheritedReminderDays={inheritedReminderDays}
           currencyConvert={currencyConvert}
           currencyRatesReady={currencyRatesReady}
@@ -123,7 +124,7 @@ export function SubscriptionGrid({
     paymentMethodByValue,
     priceReferenceCurrency,
     rows,
-    timeZone,
+    today,
     viewMode,
   ]);
 

@@ -17,6 +17,7 @@ import {
 } from "./subscription-collections";
 import type { SubscriptionFacetsResult } from "./subscription-facets";
 import type { Env } from "./types";
+import { dateOnlyInZone } from "./subscription-renewal";
 
 const mocks = vi.hoisted(() => ({
   getSettings: vi.fn(),
@@ -100,7 +101,7 @@ describe("Cloudflare subscription collection routes", () => {
     expect(mocks.listBoundedSubscriptionsForQuery).toHaveBeenCalledWith(env, USER_ID, {
       q: "collection",
       category: ["productivity"],
-    }, "", subscriptionCollectionContractFixture.collectionLimit);
+    }, dateOnlyInZone(new Date(), "UTC"), subscriptionCollectionContractFixture.collectionLimit);
   });
 
   it("accepts total 5000 and rejects 5001 for every complete collection route", async () => {

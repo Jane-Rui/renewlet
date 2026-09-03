@@ -20,7 +20,11 @@ export function getEffectiveSubscriptionStatus(
 ): SubscriptionStatus {
   if (subscription.status === "expired") return "expired";
   // one-time 买断记录没有权益到期边界；固定服务期则继续使用 nextBillingDate 进入 expired 兼容状态。
-  if (subscription.billingCycle === "one-time" && !subscription.oneTimeTermCount) {
+  if (subscription.billingCycle === "one-time" && isOneTimeBuyout({
+    billingCycle: subscription.billingCycle,
+    oneTimeTermCount: subscription.oneTimeTermCount,
+    oneTimeTermUnit: subscription.oneTimeTermUnit,
+  })) {
     return subscription.status;
   }
 

@@ -17,7 +17,8 @@ import { EMPTY_SETTINGS_SECRET_STATUS, normalizeSettings, settingsService } from
 import type { SettingsReadModel } from "@/services/settings-service";
 import type { SettingsSecretUpdates } from "@/lib/api/schemas/settings";
 import { SETTINGS_QUERY_KEY } from "@/hooks/settings-query-key";
-import { invalidateSubscriptionCollections } from "@/hooks/subscription-query-cache";
+import { syncSubscriptionCollectionBoundary } from "@/hooks/subscription-query-cache";
+import { todayDateOnlyInTimeZone } from "@/lib/time/date-only";
 
 export { normalizeSettings };
 
@@ -59,8 +60,9 @@ export function useUpdateSettings() {
       // 设置页保存后直接写缓存，避免等待 refetch 时 UI 回跳到旧值。
       queryClient.setQueryData(SETTINGS_QUERY_KEY, settings);
       if (previousTimeZone && previousTimeZone !== settings.settings.timezone) {
-        // 有效状态、提醒窗口和日历范围都按账号时区派生；时区切换只失效 collections，不触碰完整 detail。
-        void invalidateSubscriptionCollections(queryClient);
+        // 时区会改变有效状态和 cursor 的 asOf；先提交新 boundary，再丢弃旧分页链，避免页面 effect 重复 reset。
+        const nextBoundary = `${settings.settings.timezone}:${todayDateOnlyInTimeZone(new Date(), settings.settings.timezone)}`;
+        void syncSubscriptionCollectionBoundary(queryClient, nextBoundary, { resetOnInitialize: true });
       }
     },
   });

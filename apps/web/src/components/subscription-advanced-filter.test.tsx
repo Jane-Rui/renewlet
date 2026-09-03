@@ -494,7 +494,7 @@ describe("SubscriptionAdvancedFilter", () => {
 
     await user.click(within(screen.getByTestId("mobile-advanced-filter")).getByRole("button"));
     const workspace = screen.getByTestId("mobile-advanced-filter-workspace");
-    await user.click(within(workspace).getByRole("button", { name: /Next billing|续费日期/ }));
+    await user.click(within(workspace).getByRole("button", { name: /Renewal \/ expiry date|续费\/到期日期/ }));
     const dialog = screen.getByTestId("advanced-next-billing-dialog");
 
     expect(dialog).toHaveClass("h5-dialog-panel", "rounded-none");

@@ -41,7 +41,7 @@ export const SUBSCRIPTION_STATUSES = SHARED_SUBSCRIPTION_STATUSES;
 export type SubscriptionStatus = SharedSubscriptionStatus;
 
 export const BILLING_CYCLES = SHARED_BILLING_CYCLES;
-/** 扣费周期（用于计算月度/年度支出与续费日期；one-time 表示买断/一次性购买）。 */
+/** 扣费周期；one-time 由服务期字段进一步区分长期有效与固定服务期。 */
 export type BillingCycle = SharedBillingCycle;
 
 export const CUSTOM_CYCLE_UNITS = SHARED_CUSTOM_CYCLE_UNITS;

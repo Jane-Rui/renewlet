@@ -24,6 +24,8 @@
   "invalidQueryRoutes": [
     "/api/app/subscriptions/index?limit=50",
     "/api/app/subscriptions/index?cursor=cursor",
+    "/api/app/subscriptions/index?paymentType=one-time",
+    "/api/app/subscriptions?renewal=one-time",
     "/api/app/subscriptions/calendar?from=2026-01-01&to=2026-12-31&limit=50",
     "/api/app/subscriptions/calendar?from=2026-01-01&from=2026-02-01&to=2026-12-31"
   ],

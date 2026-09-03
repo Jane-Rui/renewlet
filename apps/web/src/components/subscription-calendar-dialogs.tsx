@@ -6,31 +6,21 @@
  *
  * 注意： 弹窗中的金额、周期和状态标签必须继续复用 subscription domain 常量，避免日历视图口径分叉。
  */
-import type { SubscriptionCollectionItem, SubscriptionStatus } from '@/types/subscription';
-import { STATUS_LABELS } from '@/types/subscription';
+import type { SubscriptionCollectionItem } from '@/types/subscription';
 import { Button } from '@/components/ui/button';
 import { CalendarDays } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { MobileBottomDrawerContent, MobileDrawerRoot } from '@/components/ui/mobile-drawer';
-import { Badge } from '@/components/ui/badge';
 import { TruncatedTooltipText } from '@/components/ui/truncated-tooltip-text';
 import { useCustomConfigState } from '@/contexts/CustomConfigContext';
 import { useI18n } from '@/i18n/I18nProvider';
-import { cn } from '@/lib/utils';
 import type { DateOnly } from '@/lib/time/date-only';
 import { getEffectiveSubscriptionStatus } from '@/modules/subscriptions/domain/subscription-status';
 import { SubscriptionLogo } from '@/components/subscription-logo';
 import { formatBillingCycleLabel } from '@/lib/subscription-billing';
+import { SubscriptionStatusBadge } from '@/components/subscription-status-badge';
 
 const DEFAULT_LOGO_FALLBACK_COLOR = "hsl(var(--primary))";
-
-const statusBadgeClassNames = {
-  trial: "border-warning/20 bg-warning/10 text-warning",
-  active: "border-success/20 bg-success/10 text-success",
-  expired: "border-destructive/20 bg-destructive/10 text-destructive",
-  paused: "border-muted bg-muted text-muted-foreground",
-  cancelled: "border-destructive/20 bg-destructive/10 text-destructive",
-} satisfies Record<SubscriptionStatus, string>;
 
 interface CalendarSubscriptionLogoProps {
   subscription: SubscriptionCollectionItem;
@@ -66,7 +56,7 @@ interface DaySubscriptionsListProps {
 
 function DaySubscriptionsList({ subscriptions, onSelectSubscription, onPrefetchSubscription, today }: DaySubscriptionsListProps) {
   const { config } = useCustomConfigState();
-  const { locale, label, formatCurrency } = useI18n();
+  const { locale, formatCurrency } = useI18n();
 
   return (
     <div className="grid min-w-0 max-w-full grid-cols-1 gap-2" data-testid="calendar-day-subscription-list">
@@ -101,12 +91,7 @@ function DaySubscriptionsList({ subscriptions, onSelectSubscription, onPrefetchS
               <p className="truncate font-semibold text-foreground">
                 {formatCurrency(sub.price, sub.currency)}
               </p>
-              <Badge
-                variant="outline"
-                className={cn("max-w-full truncate text-xs", statusBadgeClassNames[effectiveStatus])}
-              >
-                {label(STATUS_LABELS[effectiveStatus])}
-              </Badge>
+              <SubscriptionStatusBadge status={effectiveStatus} className="max-w-full truncate" />
             </div>
           </button>
         );

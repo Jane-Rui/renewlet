@@ -70,8 +70,10 @@ vi.mock("@/i18n/I18nProvider", () => ({
         "publicStatus.monthlyTotal": "月均总价",
         "publicStatus.monthlyTotalSubtitle": `日均 ${String(params?.["amount"] ?? "")} · ${String(params?.["basis"] ?? "")}`,
         "publicStatus.ratesLoading": "汇率更新中",
+        "publicStatus.purchaseDate": `购买：${String(params?.["date"] ?? "")}`,
         "publicStatus.startDate": `开始：${String(params?.["date"] ?? "")}`,
         "publicStatus.subscriptionDailyAverage": `日均 ${String(params?.["amount"] ?? "")}`,
+        "publicStatus.subscriptionDailyCostToDate": `持有日均 ${String(params?.["amount"] ?? "")}`,
         "publicStatus.title": "订阅状态",
         "publicStatus.truncated": "订阅数量较多，仅展示前 500 条。",
         "publicStatus.upcomingCount": "未来 7 天",
@@ -99,6 +101,7 @@ const baseResponse: PublicStatusResponse = {
   page: {
     title: "Renewlet",
     showPrices: false,
+    asOf: "2026-06-07",
     generatedAt: "2026-06-07T00:00:00.000Z",
     truncated: false,
   },
@@ -181,6 +184,30 @@ describe("PublicStatusPage", () => {
     expect(screen.queryByText(/日均/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "切换主题" })).toBeInTheDocument();
     expect(mocks.useExchangeRates).not.toHaveBeenCalled();
+  });
+
+  it("keeps the buyout purchase date visible when price and billing fields are hidden", () => {
+    mocks.usePublicStatus.mockReturnValue({
+      isPending: false,
+      isError: false,
+      data: {
+        ...baseResponse,
+        subscriptions: [{
+          ...baseResponse.subscriptions[0]!,
+          name: "Lifetime License",
+          nextBillingDate: null,
+        }],
+      },
+    });
+
+    renderPage();
+
+    const card = screen.getByText("Lifetime License").closest("article");
+    if (!card) throw new Error("Missing price-hidden buyout card");
+    expect(within(card).getByText("购买：2026-05-01")).toBeInTheDocument();
+    expect(within(card).queryByText("开始：2026-05-01")).not.toBeInTheDocument();
+    expect(within(card).queryByText(/日均/)).not.toBeInTheDocument();
+    expect(within(card).queryByText("长期有效")).not.toBeInTheDocument();
   });
 
   it("opens a compact theme menu with light, dark, and system choices", async () => {
@@ -282,7 +309,7 @@ describe("PublicStatusPage", () => {
     expect(convert).toHaveBeenCalledTimes(1);
   });
 
-  it("hides buyout daily cost and shows fixed-term amortization", () => {
+  it("shows ownership-to-date buyout cost and fixed-term amortization", () => {
     mocks.usePublicStatus.mockReturnValue({
       isPending: false,
       isError: false,
@@ -302,7 +329,14 @@ describe("PublicStatusPage", () => {
           },
         },
         subscriptions: [
-          { ...baseResponse.subscriptions[0]!, name: "Buyout", price: "199", currency: "USD", billingCycle: "one-time" },
+          {
+            ...baseResponse.subscriptions[0]!,
+            name: "Buyout",
+            price: "199",
+            currency: "USD",
+            billingCycle: "one-time",
+            nextBillingDate: null,
+          },
           {
             ...baseResponse.subscriptions[1]!,
             name: "Fixed term",
@@ -323,9 +357,17 @@ describe("PublicStatusPage", () => {
     const fixedTermCard = screen.getByText("Fixed term").closest("article");
     const freeRecurringCard = screen.getByText("Free recurring").closest("article");
     if (!buyoutCard || !fixedTermCard || !freeRecurringCard) throw new Error("Missing public subscription cards");
-    expect(within(buyoutCard).queryByText(/日均/)).not.toBeInTheDocument();
+    expect(within(buyoutCard).getByText("持有日均 $5.24")).toBeInTheDocument();
+    expect(within(buyoutCard).getByText("购买：2026-05-01")).toBeInTheDocument();
+    expect(within(buyoutCard).queryByText(/到期\/续费/)).not.toBeInTheDocument();
+    expect(within(buyoutCard).getByText("长期有效")).toBeInTheDocument();
     expect(within(fixedTermCard).getByText("日均 $1")).toBeInTheDocument();
+    expect(within(fixedTermCard).getByText("固定服务期")).toBeInTheDocument();
     expect(within(freeRecurringCard).getByText("日均 $0")).toBeInTheDocument();
+    expect(screen.getByText("其中 1 个计入金额")).toBeInTheDocument();
+    const upcomingCard = screen.getByText("未来 7 天").closest<HTMLDivElement>("div.relative");
+    if (!upcomingCard) throw new Error("Missing upcoming public summary card");
+    expect(within(upcomingCard).getByText("1")).toBeInTheDocument();
     expect(mocks.useExchangeRates).not.toHaveBeenCalled();
   });
 

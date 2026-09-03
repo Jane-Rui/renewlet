@@ -17,7 +17,7 @@ interface SubscriptionFilterFeedbackProps {
   billingCycleOptions: Array<SubscriptionAdvancedFilterOption<BillingCycle>>;
   paymentMethodOptions: SubscriptionAdvancedFilterOption[];
   currencyOptions: SubscriptionAdvancedFilterOption[];
-  hasActiveControls: boolean;
+  hasActiveFilters: boolean;
   onClearFilters: () => void;
   tagTestId: string;
   advancedTestId: string;
@@ -33,7 +33,7 @@ export function SubscriptionFilterFeedback({
   billingCycleOptions,
   paymentMethodOptions,
   currencyOptions,
-  hasActiveControls,
+  hasActiveFilters,
   onClearFilters,
   tagTestId,
   advancedTestId,
@@ -42,7 +42,7 @@ export function SubscriptionFilterFeedback({
 }: SubscriptionFilterFeedbackProps) {
   const { t } = useI18n();
 
-  if (!hasActiveControls) return null;
+  if (!hasActiveFilters) return null;
 
   return (
     <div data-testid={testId} className={cn("flex min-w-0 items-start gap-3", className)}>

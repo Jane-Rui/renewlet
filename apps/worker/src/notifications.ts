@@ -16,6 +16,7 @@ import { appSettingsSchema, applySettingsSecretUpdates, settingsUpdateBodySchema
 import type { ApiSubscription } from "@renewlet/shared/schemas/subscriptions";
 import { divideMoney, type MoneyString } from "@renewlet/shared/money";
 import { costSharingCollectionReminderOccurrencesForDate } from "@renewlet/shared/cost-sharing";
+import { isOneTimeBuyout } from "@renewlet/shared/subscription-billing";
 import { cleanBuiltInIconSourceSettingsPatch, mergeBuiltInIconSourceSettings } from "@renewlet/shared/built-in-icons";
 import { cleanOnlineIconSourceSettingsPatch, mergeOnlineIconSourceSettings } from "@renewlet/shared/online-icon-sources";
 import {
@@ -551,9 +552,9 @@ function collectItems(localDate: string, settings: ApiAppSettings, subscriptions
   const items: NotificationEmailItem[] = [];
   for (const sub of subscriptions) {
     const daysUntilNext = daysBetween(localDate, sub.nextBillingDate);
-    const isOneTimeBuyout = sub.billingCycle === "one-time" && !sub.oneTimeTermCount;
+    const buyout = isOneTimeBuyout(sub);
     const reminderDays = effectiveReminderDays(sub.reminderDays, settings.notificationReminderDays);
-    if (!isDisabledReminderDays(sub.reminderDays) && reminderDays !== undefined && !isOneTimeBuyout) {
+    if (!isDisabledReminderDays(sub.reminderDays) && reminderDays !== undefined && !buyout) {
       if (sub.billingCycle === "one-time") {
         if (daysUntilNext === reminderDays) items.push(item("expiry", sub, sub.nextBillingDate, daysUntilNext, reminderDays));
         if (daysUntilNext < 0 && settings.showExpired && options.includeExpired) items.push(item("expired", sub, sub.nextBillingDate, daysUntilNext, reminderDays));
@@ -566,7 +567,7 @@ function collectItems(localDate: string, settings: ApiAppSettings, subscriptions
         if (daysUntilTrial === reminderDays) items.push(item("trial", sub, sub.trialEndDate, daysUntilTrial, reminderDays));
       }
     }
-    if (!isOneTimeBuyout) {
+    if (!buyout) {
       items.push(...collectCostSharingCollectionItems(sub, settings, localDate));
     }
   }

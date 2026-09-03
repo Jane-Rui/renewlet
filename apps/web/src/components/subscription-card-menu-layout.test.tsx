@@ -41,7 +41,7 @@ function renderCard() {
     <TooltipProvider delayDuration={0}>
       <SubscriptionCard
         subscription={subscription}
-        timeZone="Asia/Shanghai"
+        today="2026-05-18"
         inheritedReminderDays={5}
         categoryByValue={new Map([
           ["hosting_domains", {

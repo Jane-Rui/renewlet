@@ -135,8 +135,76 @@ func TestSubscriptionDerivedStatePerformanceBudget(t *testing.T) {
 			if listOperations.ReadQueries != scenario.OperationBudget.ListReadQueries {
 				t.Fatalf("list read queries = %d, want %d\n%s", listOperations.ReadQueries, scenario.OperationBudget.ListReadQueries, listOperations.ReadSQL)
 			}
+
+			boundedOperations, err := measureSubscriptionDBOperations(app, func() error {
+				page, exceeded, listErr := boundedSubscriptionRecordsForQuery(
+					app, user.Id, subscriptionListQuery{}, "2026-08-17", scenario.Size,
+				)
+				if listErr == nil && (exceeded || len(page.Rows) != scenario.Expected.Total || page.Total != int64(scenario.Expected.Total)) {
+					return fmt.Errorf("bounded collection = rows:%d total:%d exceeded:%t", len(page.Rows), page.Total, exceeded)
+				}
+				return listErr
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if boundedOperations.ReadQueries != scenario.OperationBudget.ListReadQueries {
+				t.Fatalf("bounded read queries = %d, want %d\n%s", boundedOperations.ReadQueries, scenario.OperationBudget.ListReadQueries, boundedOperations.ReadSQL)
+			}
+			if scenario.Size == 1000 || scenario.Size == 5000 {
+				assertSubscriptionProjectionQueryPlan(t, app, user.Id)
+			}
 			assertGoSubscriptionPerformanceOracle(t, app, user.Id, final, scenario)
 		})
+	}
+}
+
+func assertSubscriptionProjectionQueryPlan(t *testing.T, app core.App, userID string) {
+	t.Helper()
+	var rows []struct {
+		Detail string `db:"detail"`
+	}
+	assertOwnerIndexed := func(query subscriptionListQuery) {
+		base := subscriptionProjectionBaseQuery(userID, query)
+		base.params["today"] = "2026-08-17"
+		plan := buildSubscriptionProjectionPagePlan(base, 51, nil, subscriptionProjectionExactPage, 0)
+		if strings.Contains(plan.SQL, "search_text_lower") || strings.Contains(plan.SQL, "next_billing_date AS") {
+			t.Fatalf("subscription page CTE must materialize only pagination keys:\n%s", plan.SQL)
+		}
+		rows = rows[:0]
+		if err := app.DB().NewQuery("EXPLAIN QUERY PLAN " + plan.SQL).Bind(plan.Params).All(&rows); err != nil {
+			t.Fatal(err)
+		}
+		details := make([]string, 0, len(rows))
+		for _, row := range rows {
+			details = append(details, row.Detail)
+		}
+		joined := strings.Join(details, "\n")
+		if !strings.Contains(joined, "SEARCH idx") || strings.Contains(joined, "SCAN idx") ||
+			strings.Contains(joined, "SCAN subscription_list_index") {
+			t.Fatalf("subscription projection must stay owner-indexed for paymentType=%q:\n%s", query.PaymentType, joined)
+		}
+	}
+	assertOwnerIndexed(subscriptionListQuery{})
+	for _, paymentType := range []string{"auto", "manual", "one-time-buyout", "one-time-fixed-term"} {
+		assertOwnerIndexed(subscriptionListQuery{PaymentType: paymentType})
+	}
+
+	factPlan := `SELECT id FROM subscriptions
+		WHERE user = {:user} AND id IN ({:factID0}, {:factID1})`
+	factRows := rows[:0]
+	if err := app.DB().NewQuery("EXPLAIN QUERY PLAN " + factPlan).Bind(dbx.Params{
+		"user": userID, "factID0": "fact-plan-0", "factID1": "fact-plan-1",
+	}).All(&factRows); err != nil {
+		t.Fatal(err)
+	}
+	factDetails := make([]string, 0, len(factRows))
+	for _, row := range factRows {
+		factDetails = append(factDetails, row.Detail)
+	}
+	factJoined := strings.Join(factDetails, "\n")
+	if !strings.Contains(factJoined, "SEARCH subscriptions") || strings.Contains(factJoined, "SCAN subscriptions") {
+		t.Fatalf("subscription facts must stay primary-key indexed:\n%s", factJoined)
 	}
 }
 

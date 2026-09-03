@@ -73,7 +73,7 @@ const publicStatusSubscriptionSchema = z.object({
   }).strict(),
   status: z.enum(SUBSCRIPTION_STATUSES),
   startDate: z.string().refine(isValidDateOnly).nullable(),
-  nextBillingDate: z.string().refine(isValidDateOnly),
+  nextBillingDate: z.string().refine(isValidDateOnly).nullable(),
   updatedAt: z.string().trim().min(1),
   price: moneyStringSchema.optional(),
   currency: z.string().trim().regex(/^[A-Z]{3}$/).optional(),
@@ -121,6 +121,7 @@ export const publicStatusPayloadSchema = z.object({
     showPrices: z.boolean(),
     currency: z.string().trim().regex(/^[A-Z]{3}$/).optional(),
     exchangeRateBasis: exchangeRateSnapshotPublicBasisSchema.optional(),
+    asOf: z.string().refine(isValidDateOnly),
     generatedAt: z.string().trim().min(1),
     truncated: z.boolean(),
   }).strict(),
@@ -175,6 +176,16 @@ export const publicStatusPayloadSchema = z.object({
         path: ["subscriptions", index, "price"],
         message: "Price projection must be hidden when prices are not exposed",
       });
+    }
+    if (subscription.billingCycle !== undefined) {
+      const buyout = subscription.billingCycle === "one-time" && subscription.oneTimeTermCount === undefined;
+      if (buyout !== (subscription.nextBillingDate === null)) {
+        context.addIssue({
+          code: "custom",
+          path: ["subscriptions", index, "nextBillingDate"],
+          message: "Only one-time buyouts omit the next billing date",
+        });
+      }
     }
   });
 });

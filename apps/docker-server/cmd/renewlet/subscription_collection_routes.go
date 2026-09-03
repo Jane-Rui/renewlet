@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -70,6 +71,9 @@ func handleSubscriptionsList(app core.App, e *core.RequestEvent) error {
 	locale := requestLocale(e.Request)
 	query, err := parseSubscriptionListQuery(e.Request.URL.Query())
 	if err != nil {
+		if errors.Is(err, errInvalidPrivateSubscriptionCursor) {
+			return apiErrorJSON(e, http.StatusBadRequest, "INVALID_CURSOR", serverText(locale, "common.invalidRequestParameters"), nil)
+		}
 		return e.BadRequestError(serverText(locale, "common.invalidRequestParameters"), err)
 	}
 	page, err := listSubscriptionRecordsForQuery(app, e.Auth.Id, query, subscriptionQueryToday(app, e.Auth, query))
@@ -223,8 +227,9 @@ func handleSubscriptionsFacets(app core.App, e *core.RequestEvent) error {
 }
 
 func subscriptionQueryToday(app core.App, user *core.Record, query subscriptionListQuery) string {
-	if query.Status == "" {
-		return ""
+	if query.Cursor != nil {
+		// 后续页必须沿用首屏的日界线；跨午夜重新判定会让同一记录换组，导致 cursor 链漏项或重复。
+		return query.Cursor.AsOf
 	}
 	return todayDateOnly(time.Now(), currentUserSettingsTimezone(app, user))
 }

@@ -82,7 +82,7 @@ const optionalLogoReferenceSchema = logoReferenceSchema.nullable().optional();
 const tagsSchema = z.array(z.string().trim().min(1).max(40)).max(100).optional();
 const extraSchema = z.record(z.string(), z.unknown()).optional();
 export const SUBSCRIPTION_PAYMENT_METHOD_NONE = "__none";
-export const SUBSCRIPTION_QUERY_RENEWALS = ["auto", "manual", "one-time"] as const;
+export const SUBSCRIPTION_PAYMENT_TYPES = ["auto", "manual", "one-time-buyout", "one-time-fixed-term"] as const;
 export const SUBSCRIPTION_REMINDER_MODES = ["disabled", "inherit", "custom"] as const;
 export const SUBSCRIPTION_RENEW_MODES = ["continue", "restart"] as const;
 const queryBooleanSchema = z.preprocess((value) => {
@@ -177,7 +177,10 @@ export function costSharingCollectionReminderMatchesBillingCycle(value: {
   costSharing?: z.infer<typeof costSharingSchema> | null | undefined;
 }): boolean {
   // 买断记录没有可推进的家庭收款周期；启用状态必须在写入边界拒绝，而不是让 cron 镜像生成无效候选。
-  if (value.billingCycle !== "one-time" || value.oneTimeTermCount) return true;
+  if (
+    value.billingCycle !== "one-time"
+    || (typeof value.oneTimeTermCount === "number" && value.oneTimeTermCount > 0)
+  ) return true;
   return value.costSharing?.collectionReminder?.enabled !== true;
 }
 
@@ -489,7 +492,7 @@ const subscriptionCollectionFilterShape = {
   paymentMethod: z.array(z.string().trim().min(1).max(80)).max(200).optional(),
   currency: z.array(z.string().trim().regex(/^[A-Z]{3}$/)).max(50).optional(),
   status: z.enum(SUBSCRIPTION_STATUSES).optional(),
-  renewal: z.enum(SUBSCRIPTION_QUERY_RENEWALS).optional(),
+  paymentType: z.enum(SUBSCRIPTION_PAYMENT_TYPES).optional(),
   nextBillingFrom: dateInputSchema.optional(),
   nextBillingTo: dateInputSchema.optional(),
   pinned: queryBooleanSchema.optional(),

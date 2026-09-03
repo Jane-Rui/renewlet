@@ -214,7 +214,7 @@ function SubscriptionsContentSkeleton() {
           <SkeletonBox className={subscriptionFilterLayout.skeletonSearch} />
           <SkeletonBox className={subscriptionFilterLayout.skeletonCategory} />
           <SkeletonBox className={subscriptionFilterLayout.skeletonStatus} />
-          <SkeletonBox className={subscriptionFilterLayout.skeletonRenewal} />
+          <SkeletonBox className={subscriptionFilterLayout.skeletonPaymentType} />
           <SkeletonBox className={subscriptionFilterLayout.skeletonSort} />
           <SkeletonBox className="h-10 w-24 rounded-md" />
         </div>

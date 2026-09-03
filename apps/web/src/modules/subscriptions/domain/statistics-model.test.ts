@@ -85,15 +85,22 @@ describe("subscription statistics models", () => {
   it("keeps one-time purchases active but excludes them from recurring spend and upcoming renewals", () => {
     const oneTime = subscription({
       id: "lifetime",
+      category: "other",
       price: "199",
       status: "active",
       billingCycle: "one-time",
       nextBillingDate: assertDateOnly("2026-01-02"),
       autoCalculateNextBillingDate: false,
     });
+    const recurring = subscription({
+      id: "monthly",
+      category: "productivity",
+      price: "10",
+      nextBillingDate: assertDateOnly("2026-02-01"),
+    });
 
     const model = buildStatisticsModel({
-      subscriptions: [oneTime],
+      subscriptions: [oneTime, recurring],
       config: DEFAULT_CUSTOM_CONFIG,
       monthlyBudget: "0",
       defaultCurrency: "USD",
@@ -101,19 +108,23 @@ describe("subscription statistics models", () => {
       now: new Date("2026-01-10T00:00:00.000Z"),
     });
     const dashboard = buildDashboardStats({
-      subscriptions: [oneTime],
+      subscriptions: [oneTime, recurring],
       defaultCurrency: "USD",
       convert,
-      now: new Date("2026-01-01T00:00:00.000Z"),
+      today: assertDateOnly("2026-01-01"),
     });
 
-    expect(model.activeCount).toBe(1);
-    expect(model.totalMonthly).toBe(0);
-    expect(model.totalDaily).toBe(0);
+    expect(model.activeCount).toBe(2);
+    expect(model.totalMonthly).toBe(10);
+    expect(model.totalDaily).toBe(1 / 3);
+    expect(model.avgMonthlyPerSub).toBe(10);
+    expect(model.categoryData).toEqual([
+      expect.objectContaining({ name: "Productivity", value: 10 }),
+    ]);
     expect(model.inactiveCount).toBe(0);
-    expect(dashboard.activeSubscriptions).toHaveLength(1);
-    expect(dashboard.totalMonthly).toBe(0);
-    expect(dashboard.totalDaily).toBe(0);
+    expect(dashboard.activeSubscriptions).toHaveLength(2);
+    expect(dashboard.totalMonthly).toBe(10);
+    expect(dashboard.totalDaily).toBe(1 / 3);
     expect(dashboard.upcomingCount).toBe(0);
   });
 
@@ -142,7 +153,7 @@ describe("subscription statistics models", () => {
       subscriptions: [fixedTerm],
       defaultCurrency: "USD",
       convert,
-      now: new Date("2026-01-01T00:00:00.000Z"),
+      today: assertDateOnly("2026-01-01"),
     });
 
     expect(model.totalMonthly).toBe(20);
@@ -454,7 +465,7 @@ describe("subscription statistics models", () => {
       defaultCurrency: "USD",
       convert,
       notificationReminderDays: 30,
-      now: new Date("2026-06-15T00:00:00.000Z"),
+      today: assertDateOnly("2026-06-15"),
     });
 
     expect(stats.upcomingCount).toBe(2);
@@ -490,7 +501,7 @@ describe("subscription statistics models", () => {
         }),
       ],
       notificationReminderDays: 30,
-      now: new Date("2026-06-15T00:00:00.000Z"),
+      today: assertDateOnly("2026-06-15"),
     });
 
     expect(items.map((item) => [item.subscription.id, item.daysUntil, item.kind, item.reminderDays])).toEqual([
@@ -511,7 +522,7 @@ describe("subscription statistics models", () => {
       ],
       defaultCurrency: "USD",
       convert,
-      now: new Date("2026-01-01T00:00:00.000Z"),
+      today: assertDateOnly("2026-01-01"),
     });
 
     expect(stats.upcomingCount).toBe(1);

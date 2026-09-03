@@ -29,7 +29,7 @@ describe.each(subscriptionPerformanceFixture.scenarios)("subscription performanc
 
 describe("subscription performance fixture coverage", () => {
   it("covers the required scales, mutations, filters, and field cycles", () => {
-    expect(subscriptionPerformanceFixture.scenarios.map(({ size }) => size)).toEqual([10, 100, 1000]);
+    expect(subscriptionPerformanceFixture.scenarios.map(({ size }) => size)).toEqual([10, 100, 1000, 5000]);
     expect(subscriptionPerformanceFixture.mutations.map(({ kind }) => kind)).toEqual(["update", "renew", "delete", "create"]);
 
     const { initial } = buildSubscriptionPerformanceScenario(1000);

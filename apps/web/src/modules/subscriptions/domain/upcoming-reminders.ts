@@ -1,5 +1,6 @@
 import { effectiveReminderDays } from "@renewlet/shared/runtime";
-import { daysBetweenDateOnly, todayDateOnlyInTimeZone } from "@/lib/time/date-only";
+import { daysBetweenDateOnly, type DateOnly } from "@/lib/time/date-only";
+import { isOneTimeBuyout } from "@/lib/subscription-billing";
 import type { SubscriptionCollectionItem } from "@/types/subscription";
 import { isEffectivelyActiveSubscription } from "./subscription-status";
 
@@ -15,23 +16,20 @@ export interface UpcomingReminderItem {
 interface BuildUpcomingReminderItemsInput {
   subscriptions: readonly SubscriptionCollectionItem[];
   notificationReminderDays: number;
-  now?: Date;
-  timeZone?: string;
+  today: DateOnly | string;
 }
 
 /** 构建首页“即将续费/到期”提醒窗口条目。 */
 export function buildUpcomingReminderItems({
   subscriptions,
   notificationReminderDays,
-  now = new Date(),
-  timeZone = "UTC",
+  today,
 }: BuildUpcomingReminderItemsInput): UpcomingReminderItem[] {
-  const today = todayDateOnlyInTimeZone(now, timeZone);
   const items: UpcomingReminderItem[] = [];
 
   for (const subscription of subscriptions) {
     if (!isEffectivelyActiveSubscription(subscription, today)) continue;
-    if (subscription.billingCycle === "one-time" && !subscription.oneTimeTermCount) continue;
+    if (isOneTimeBuyout(subscription)) continue;
 
     // 首页可视窗口复用 reminderDays 的哨兵契约，但这里只决定是否展示，不代表 Cron 发送时刻。
     const reminderDays = effectiveReminderDays(subscription.reminderDays, notificationReminderDays);

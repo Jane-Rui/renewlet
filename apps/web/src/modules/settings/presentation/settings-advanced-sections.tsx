@@ -57,7 +57,7 @@ export function SettingsAdvancedSections({
     categoryUsageCount,
     rates,
     activeRateProvider,
-    ratesLoading,
+    ratesRefreshPending,
     lastUpdated,
     ratesError,
     ratesErrorDetails,
@@ -307,7 +307,7 @@ export function SettingsAdvancedSections({
         customConfig={customConfig}
         rates={rates}
         activeRateProvider={activeRateProvider}
-        ratesLoading={ratesLoading}
+        ratesRefreshPending={ratesRefreshPending}
         ratesError={ratesError}
         ratesErrorDetails={ratesErrorDetails}
         ratesWarning={ratesWarning}

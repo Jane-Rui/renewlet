@@ -36,8 +36,7 @@ import {
   formatBillingCycleLabel,
   isOneTimeBuyout,
   isOneTimeFixedTerm,
-  toDailyAmountFromMonthly,
-  toSubscriptionMonthlyAmount,
+  projectSubscriptionDailyCost,
 } from "@/lib/subscription-billing";
 import {
   getSubscriptionPriceReference,
@@ -96,16 +95,16 @@ function DetailRow({
 
 function resolveDetailLoadingStructure(
   preview: SubscriptionCollectionItem | null,
+  today: DateOnly | string,
 ): SubscriptionDetailLoadingStructure {
-  const buyout = preview?.billingCycle === "one-time"
-    && !("oneTimeTermCount" in preview && typeof preview.oneTimeTermCount === "number");
+  const buyout = preview !== null && isOneTimeBuyout(preview);
   return {
     showCalendarAction: preview !== null && !buyout,
     showCostSharing: preview?.costSharing?.enabled === true,
-    showDailyAverage: preview !== null && !buyout,
+    showDailyAverage: preview !== null && projectSubscriptionDailyCost(preview.price, preview, today) !== null,
     showNextBillingDate: preview !== null && (!buyout || preview.startDate !== null),
     showPaymentMethod: Boolean(preview?.paymentMethod),
-    showStartDate: preview?.startDate !== null && preview?.startDate !== undefined,
+    showStartDate: !buyout && preview?.startDate !== null && preview?.startDate !== undefined,
     showTrialEndDate: preview?.trialEndDate !== undefined,
   };
 }
@@ -128,7 +127,7 @@ function SubscriptionDetailContent({
   const { t, locale, label, formatDateOnly, formatCurrency } = useI18n();
   if (loading) {
     const loadingSlots = createSubscriptionDetailLoadingSlots({
-      structure: resolveDetailLoadingStructure(loadingPreview),
+      structure: resolveDetailLoadingStructure(loadingPreview, today),
       canEdit: Boolean(onEditSubscription),
       canRenew: Boolean(
         loadingPreview
@@ -156,10 +155,7 @@ function SubscriptionDetailContent({
   const inheritedReminderDays = settings?.notificationReminderDays ?? DEFAULT_NOTIFICATION_REMINDER_DAYS;
   const isBuyout = isOneTimeBuyout(subscription);
   const isFixedTermOneTime = isOneTimeFixedTerm(subscription);
-  const isOneTime = subscription.billingCycle === "one-time";
-  const dailyAmount = isBuyout
-    ? null
-    : toDailyAmountFromMonthly(toSubscriptionMonthlyAmount(subscription.price, subscription));
+  const dailyCost = projectSubscriptionDailyCost(subscription.price, subscription, today);
   const canManualRenew = Boolean(onRenewSubscription) && isManualRenewEligible(subscription);
   const costSharingSummary = calculateCostSharingSummary(subscription.costSharing, subscription.price, {
     baseCurrency: subscription.currency,
@@ -177,8 +173,10 @@ function SubscriptionDetailContent({
     : t("subscription.priceReference", {
         amount: formatCurrency(priceReference.amount, priceReference.currency),
       });
-  const renewalLabel = isOneTime
-    ? t("subscription.renewal.oneTime")
+  const renewalLabel = isBuyout
+    ? t("subscription.oneTimeMode.buyout")
+    : isFixedTermOneTime
+      ? t("subscription.oneTimeMode.term")
     : subscription.autoRenew
       ? t("subscription.renewal.auto")
       : t("subscription.renewal.manual");
@@ -239,10 +237,12 @@ function SubscriptionDetailContent({
       )}
       facts={(
         <>
-          {dailyAmount !== null ? (
-            <DetailRow label={t("subscription.detail.dailyAverage")}>
+          {dailyCost !== null ? (
+            <DetailRow label={t(dailyCost.basis === "ownership-to-date"
+              ? "subscription.detail.dailyCostToDate"
+              : "subscription.detail.dailyAverage")}>
               <span className="tabular-nums">
-                {formatCompactCurrencyAmount(dailyAmount, subscription.currency, locale)}
+                {formatCompactCurrencyAmount(dailyCost.amount, subscription.currency, locale)}
               </span>
             </DetailRow>
           ) : null}
@@ -281,7 +281,7 @@ function SubscriptionDetailContent({
               {formatDateOnly(subscription.nextBillingDate, "full")}
             </DetailRow>
           )}
-          {subscription.startDate ? (
+          {subscription.startDate && !isBuyout ? (
             <DetailRow label={t("subscription.detail.startDate")}>
               {formatDateOnly(subscription.startDate, "full")}
             </DetailRow>
@@ -294,8 +294,8 @@ function SubscriptionDetailContent({
           <DetailRow label={t("subscription.detail.reminder")}>
             {reminderLabel}
           </DetailRow>
-          <DetailRow label={t("subscription.detail.renewalType")}>
-            <Badge variant={isOneTime ? "secondary" : subscription.autoRenew ? "outline" : "secondary"} className="w-fit sm:ml-auto">
+          <DetailRow label={t("subscription.detail.paymentType")}>
+            <Badge variant={subscription.billingCycle === "one-time" ? "secondary" : subscription.autoRenew ? "outline" : "secondary"} className="w-fit sm:ml-auto">
               {renewalLabel}
             </Badge>
           </DetailRow>

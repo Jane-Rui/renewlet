@@ -6,7 +6,7 @@
  * - 纯函数便于后续补单测，避免搜索/标签/排序逻辑散落在列表页 JSX 中。
  */
 import { DEFAULT_LOCALE, type Locale } from "@/i18n/locales";
-import { toMonthlyAmount } from "@/lib/subscription-billing";
+import { isOneTimeBuyout, isOneTimeFixedTerm, toMonthlyAmount } from "@/lib/subscription-billing";
 import { assertDateOnly, compareDateOnly, type DateOnly } from "@/lib/time/date-only";
 import type { SubscriptionListFilters } from "@/services/subscription-service";
 import type {
@@ -19,13 +19,16 @@ import type {
 import { compareMoney } from "@renewlet/shared/money";
 import { SUBSCRIPTION_PAYMENT_METHOD_NONE } from "@renewlet/shared/schemas/subscriptions";
 import { DISABLED_REMINDER_DAYS, INHERIT_REMINDER_DAYS } from "@renewlet/shared/runtime";
-import { getEffectiveSubscriptionStatus } from "./subscription-status";
+import {
+  getEffectiveSubscriptionStatus,
+  isEffectivelyInactiveSubscription,
+} from "./subscription-status";
 
 export interface SubscriptionFilterState {
   searchQuery: string;
   selectedCategories: Category[];
   statusFilter: SubscriptionStatus | "all";
-  renewalFilter: SubscriptionRenewalFilter;
+  paymentTypeFilter: SubscriptionPaymentTypeFilter;
   selectedTags: string[];
 }
 
@@ -77,11 +80,18 @@ export const SUBSCRIPTION_SORT_OPTIONS = [
 /** 订阅列表排序选项。 */
 export type SubscriptionSortOption = (typeof SUBSCRIPTION_SORT_OPTIONS)[number];
 
-export const SUBSCRIPTION_RENEWAL_FILTERS = ["all", "auto", "manual", "one-time"] as const;
-export type SubscriptionRenewalFilter = (typeof SUBSCRIPTION_RENEWAL_FILTERS)[number];
+export const SUBSCRIPTION_PAYMENT_TYPE_FILTERS = [
+  "all",
+  "auto",
+  "manual",
+  "one-time-buyout",
+  "one-time-fixed-term",
+] as const;
+export type SubscriptionPaymentTypeFilter = (typeof SUBSCRIPTION_PAYMENT_TYPE_FILTERS)[number];
 
 export interface SubscriptionSortContext {
   sortOption: SubscriptionSortOption;
+  today: DateOnly | string;
   defaultCurrency: string;
   convert: (amount: number | string, from: string, to: string) => number;
   locale?: Locale;
@@ -119,13 +129,16 @@ export function filterSubscriptions(
       return false;
     }
 
-    if (filters.renewalFilter === "one-time" && subscription.billingCycle !== "one-time") {
+    if (filters.paymentTypeFilter === "one-time-buyout" && !isOneTimeBuyout(subscription)) {
       return false;
     }
-    if (filters.renewalFilter === "auto" && (subscription.billingCycle === "one-time" || !subscription.autoRenew)) {
+    if (filters.paymentTypeFilter === "one-time-fixed-term" && !isOneTimeFixedTerm(subscription)) {
       return false;
     }
-    if (filters.renewalFilter === "manual" && (subscription.billingCycle === "one-time" || subscription.autoRenew)) {
+    if (filters.paymentTypeFilter === "auto" && (subscription.billingCycle === "one-time" || !subscription.autoRenew)) {
+      return false;
+    }
+    if (filters.paymentTypeFilter === "manual" && (subscription.billingCycle === "one-time" || subscription.autoRenew)) {
       return false;
     }
 
@@ -164,7 +177,7 @@ export function filterSubscriptionsByListFilters(
     searchQuery: filters?.q ?? "",
     selectedCategories: filters?.category ?? [],
     statusFilter: filters?.status ?? "all",
-    renewalFilter: filters?.renewal ?? "all",
+    paymentTypeFilter: filters?.paymentType ?? "all",
     selectedTags: filters?.tag ?? [],
   }, context);
 
@@ -172,6 +185,7 @@ export function filterSubscriptionsByListFilters(
     if (!matchesOptionalValues(filters?.billingCycle, subscription.billingCycle)) return false;
     if (!matchesPaymentMethod(filters?.paymentMethod, subscription.paymentMethod)) return false;
     if (!matchesOptionalValues(filters?.currency, subscription.currency)) return false;
+    if ((filters?.nextBillingFrom || filters?.nextBillingTo) && isOneTimeBuyout(subscription)) return false;
     if (filters?.nextBillingFrom && subscription.nextBillingDate < filters.nextBillingFrom) return false;
     if (filters?.nextBillingTo && subscription.nextBillingDate > filters.nextBillingTo) return false;
     if (filters?.pinned !== undefined && subscription.pinned !== filters.pinned) return false;
@@ -192,7 +206,8 @@ function calculateMonthlyCost(
   subscription: SubscriptionCollectionItem,
   defaultCurrency: string,
   convert: (amount: number | string, from: string, to: string) => number,
-): number {
+): number | null {
+  if (isOneTimeBuyout(subscription)) return null;
   const amountInDefault = convert(subscription.price, subscription.currency, defaultCurrency);
   return toMonthlyAmount(
     amountInDefault,
@@ -209,49 +224,93 @@ function comparePinnedFirst(left: SubscriptionCollectionItem, right: Subscriptio
   return left.pinned ? -1 : 1;
 }
 
-/** 按指定选项对订阅排序；置顶分组永远优先，相同排序值保持传入顺序，避免列表无意义跳动。 */
+function nextAttentionDate(
+  subscription: SubscriptionCollectionItem,
+  today: DateOnly | string,
+  inactive: boolean,
+): DateOnly | string | null {
+  if (isOneTimeBuyout(subscription)) return null;
+  if (inactive) return subscription.nextBillingDate;
+  if (subscription.status !== "trial") return subscription.nextBillingDate;
+
+  const candidates = [subscription.trialEndDate, subscription.nextBillingDate]
+    .filter((date): date is DateOnly => date !== undefined && compareDateOnly(date, today) >= 0);
+  return candidates.reduce<DateOnly | string | null>(
+    (earliest, date) => earliest === null || compareDateOnly(date, earliest) < 0 ? date : earliest,
+    null,
+  );
+}
+
+function compareNullableDateOnly(
+  left: DateOnly | string | null,
+  right: DateOnly | string | null,
+  direction: 1 | -1,
+): number {
+  if (left === null) return right === null ? 0 : 1;
+  if (right === null) return -1;
+  return compareDateOnly(left, right) * direction;
+}
+
+function compareNullableNumber(left: number | null, right: number | null, direction: 1 | -1): number {
+  if (left === null) return right === null ? 0 : 1;
+  if (right === null) return -1;
+  return (left - right) * direction;
+}
+
+/** 按指定选项对订阅排序；相同排序值保持传入顺序，避免列表无意义跳动。 */
 export function sortSubscriptions<T extends SubscriptionCollectionItem>(
   subscriptions: readonly T[],
-  { sortOption, defaultCurrency, convert, locale = DEFAULT_LOCALE }: SubscriptionSortContext,
+  { sortOption, today, defaultCurrency, convert, locale = DEFAULT_LOCALE }: SubscriptionSortContext,
 ): T[] {
-  if (sortOption === "default") {
-    return Array.from(subscriptions).sort((left, right) => comparePinnedFirst(left, right));
-  }
-
   const direction = getSortDirection(sortOption);
-  const collator = new Intl.Collator(locale, { sensitivity: "base", numeric: true });
-  const decorated = subscriptions.map((subscription, index) => ({
-    subscription,
-    index,
-    monthlyCost:
-      sortOption === "monthly_cost_asc" || sortOption === "monthly_cost_desc"
-        ? calculateMonthlyCost(subscription, defaultCurrency, convert)
-        : null,
-  }));
+  const sortsByAttentionDate = sortOption === "renewal_asc" || sortOption === "renewal_desc";
+  const collator = sortOption === "name_asc" || sortOption === "name_desc"
+    ? new Intl.Collator(locale, { sensitivity: "base", numeric: true })
+    : null;
+  const decorated = subscriptions.map((subscription, index) => {
+    const inactive = isEffectivelyInactiveSubscription(subscription, today);
+    return {
+      subscription,
+      index,
+      inactive,
+      attentionDate: sortsByAttentionDate ? nextAttentionDate(subscription, today, inactive) : null,
+      monthlyCost:
+        sortOption === "monthly_cost_asc" || sortOption === "monthly_cost_desc"
+          ? calculateMonthlyCost(subscription, defaultCurrency, convert)
+          : null,
+    };
+  });
 
   return decorated
     .sort((left, right) => {
       const pinnedComparison = comparePinnedFirst(left.subscription, right.subscription);
       if (pinnedComparison !== 0) return pinnedComparison;
 
+      // 置顶是用户的人工覆盖意图；只在同一置顶组内按生命周期分组，不能把置顶的非活跃项压到未置顶项之后。
+      if (left.inactive !== right.inactive) return left.inactive ? 1 : -1;
+
       let comparison = 0;
 
       switch (sortOption) {
+        case "default":
+          break;
         case "renewal_asc":
         case "renewal_desc":
-          comparison = compareDateOnly(left.subscription.nextBillingDate, right.subscription.nextBillingDate);
-          break;
+          return compareNullableDateOnly(
+            left.attentionDate,
+            right.attentionDate,
+            direction,
+          ) || left.index - right.index;
         case "monthly_cost_asc":
         case "monthly_cost_desc":
-          comparison = (left.monthlyCost ?? 0) - (right.monthlyCost ?? 0);
-          break;
+          return compareNullableNumber(left.monthlyCost, right.monthlyCost, direction) || left.index - right.index;
         case "price_asc":
         case "price_desc":
           comparison = compareMoney(left.subscription.price, right.subscription.price);
           break;
         case "name_asc":
         case "name_desc":
-          comparison = collator.compare(left.subscription.name, right.subscription.name);
+          comparison = collator?.compare(left.subscription.name, right.subscription.name) ?? 0;
           break;
       }
 
@@ -264,10 +323,10 @@ export function sortSubscriptions<T extends SubscriptionCollectionItem>(
 /** 判断当前是否存在任何筛选条件。 */
 export function hasActiveSubscriptionFilters(filters: SubscriptionFilterState): boolean {
   return Boolean(
-    filters.searchQuery ||
+    filters.searchQuery.trim() ||
       filters.selectedCategories.length > 0 ||
       filters.statusFilter !== "all" ||
-      filters.renewalFilter !== "all" ||
+      filters.paymentTypeFilter !== "all" ||
       filters.selectedTags.length > 0,
   );
 }
@@ -286,15 +345,6 @@ export function hasActiveSubscriptionAdvancedFilters(filters: SubscriptionAdvanc
   );
 }
 
-/** 判断当前筛选条控件是否偏离默认状态（包含排序）。 */
-export function hasActiveSubscriptionControls(
-  filters: SubscriptionFilterState,
-  sortOption: SubscriptionSortOption,
-  advancedFilters: SubscriptionAdvancedFilterState = DEFAULT_SUBSCRIPTION_ADVANCED_FILTERS,
-): boolean {
-  return hasActiveSubscriptionFilters(filters) || hasActiveSubscriptionAdvancedFilters(advancedFilters) || sortOption !== "default";
-}
-
 function booleanFilterToQuery(value: SubscriptionBooleanFilter): boolean | undefined {
   if (value === "yes") return true;
   if (value === "no") return false;
@@ -311,7 +361,7 @@ export function buildSubscriptionListFilters(
   if (filters.selectedCategories.length > 0) query.category = filters.selectedCategories;
   if (filters.selectedTags.length > 0) query.tag = filters.selectedTags;
   if (filters.statusFilter !== "all") query.status = filters.statusFilter;
-  if (filters.renewalFilter !== "all") query.renewal = filters.renewalFilter;
+  if (filters.paymentTypeFilter !== "all") query.paymentType = filters.paymentTypeFilter;
   if (advancedFilters.selectedBillingCycles.length > 0) query.billingCycle = advancedFilters.selectedBillingCycles;
   if (advancedFilters.selectedPaymentMethods.length > 0) query.paymentMethod = advancedFilters.selectedPaymentMethods;
   if (advancedFilters.selectedCurrencies.length > 0) query.currency = advancedFilters.selectedCurrencies;

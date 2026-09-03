@@ -30,7 +30,7 @@ export interface SettingsFormController {
   categoryUsageCount: Map<string, number>;
   rates: ExchangeRates;
   activeRateProvider: ExchangeRateProvider | "builtin";
-  ratesLoading: boolean;
+  ratesRefreshPending: boolean;
   lastUpdated: Date | null;
   ratesError: string | null;
   ratesErrorDetails: RawErrorResponseDetails | null;

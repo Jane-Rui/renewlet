@@ -583,7 +583,8 @@ function subscriptionCalendarEvents(
 }
 
 function isOneTimeBuyout(subscription: CalendarSubscription): boolean {
-  return subscription.billingCycle === "one-time" && !subscription.oneTimeTermCount;
+  return subscription.billingCycle === "one-time"
+    && (subscription.oneTimeTermCount ?? 0) <= 0;
 }
 
 function calendarEvent(

@@ -9,23 +9,23 @@
 
 import type { SubscriptionCollectionItem } from '@/types/subscription';
 import { cn } from '@/lib/utils';
-import { formatDateOnlyMonthDay } from '@/lib/time/date-only';
+import { formatDateOnlyMonthDay, type DateOnly } from '@/lib/time/date-only';
 import { useI18n } from '@/i18n/I18nProvider';
 import { buildUpcomingReminderItems } from '@/modules/subscriptions/domain/upcoming-reminders';
 
 interface UpcomingRenewalsProps {
   /** 订阅列表（前端 domain 类型）。 */
   subscriptions: SubscriptionCollectionItem[];
-  /** 用户 IANA 时区，用于计算本地“今天”。 */
-  timeZone: string;
+  /** Dashboard 页面级账号业务日期。 */
+  today: DateOnly | string;
   /** 设置页默认提前提醒天数，用于解析继承型订阅。 */
   notificationReminderDays: number;
 }
 
 /** 即将续费列表组件。 */
-export function UpcomingRenewals({ subscriptions, timeZone, notificationReminderDays }: UpcomingRenewalsProps) {
+export function UpcomingRenewals({ subscriptions, today, notificationReminderDays }: UpcomingRenewalsProps) {
   const { t, formatCurrency, locale } = useI18n();
-  const upcoming = buildUpcomingReminderItems({ subscriptions, timeZone, notificationReminderDays }).slice(0, 5);
+  const upcoming = buildUpcomingReminderItems({ subscriptions, today, notificationReminderDays }).slice(0, 5);
 
   if (upcoming.length === 0) {
     return (

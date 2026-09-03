@@ -5,10 +5,10 @@
  *
  * 注意： 默认货币和启用货币会影响全站金额换算，展示层不能绕过 controller 直接修改配置。
  */
-import { useState } from "react";
-import { ExternalLink, RefreshCw, TrendingUp } from 'lucide-react';
+import { ExternalLink, TrendingUp } from 'lucide-react';
+import { ExchangeRateErrorFeedback } from "@/components/exchange-rate-error-feedback";
+import { ExchangeRateRefreshButton } from "@/components/exchange-rate-refresh-button";
 import { Button } from '@/components/ui/button';
-import { RawErrorResponseDialog } from "@/components/raw-error-response-dialog";
 import { Label } from '@/components/ui/label';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import type { SearchableSelectOption } from '@/components/ui/searchable-select';
@@ -40,7 +40,7 @@ export interface ExchangeRatesSectionProps {
   customConfig: Pick<CustomConfig, 'currencies'>;
   rates: ExchangeRates;
   activeRateProvider: ExchangeRateSource;
-  ratesLoading: boolean;
+  ratesRefreshPending: boolean;
   ratesError: string | null;
   ratesErrorDetails: RawErrorResponseDetails | null;
   ratesWarning: ExchangeRateCoverageWarning | null;
@@ -64,7 +64,7 @@ export function ExchangeRatesSection({
   customConfig,
   rates,
   activeRateProvider,
-  ratesLoading,
+  ratesRefreshPending,
   ratesError,
   ratesErrorDetails,
   ratesWarning,
@@ -81,7 +81,6 @@ export function ExchangeRatesSection({
   handleExchangeRateProviderChange,
 }: ExchangeRatesSectionProps) {
   const { t, formatDateTime, formatNumber } = useI18n();
-  const [detailsOpen, setDetailsOpen] = useState(false);
   const previewCurrencies = getExchangeRatePreviewCurrencies(customConfig.currencies, settings.defaultCurrency);
   const getProviderLabel = (provider: ExchangeRateSource) => {
     if (provider === "builtin") return t("settings.exchangeRateProvider.builtin");
@@ -124,35 +123,16 @@ export function ExchangeRatesSection({
           <TrendingUp className="h-5 w-5 text-primary" />
           <h2 className="text-lg font-semibold text-foreground">{t("settings.exchange")}</h2>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleRefreshRates}
-          disabled={ratesLoading}
-          className="gap-2"
-        >
-          <RefreshCw className={cn("h-4 w-4", ratesLoading && "animate-spin")} />
-          {ratesLoading ? t("settings.ratesUpdating") : t("settings.refreshRates")}
-        </Button>
+        <ExchangeRateRefreshButton
+          label={t("settings.refreshRates")}
+          pending={ratesRefreshPending}
+          onRefresh={handleRefreshRates}
+        />
       </div>
 
-      {/* partial warning 已有完整汇率可用，只提示缺币补齐来源；错误详情入口只属于全失败排障。 */}
-      {ratesError && (
-        <div className="mb-4 flex flex-col gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-600 sm:flex-row sm:items-center sm:justify-between">
-          <span>{t("settings.ratesError", { error: ratesError })}</span>
-          {ratesErrorDetails ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="w-full border-amber-500/30 bg-transparent text-amber-700 hover:bg-amber-500/10 dark:text-amber-300 sm:w-auto"
-              onClick={() => setDetailsOpen(true)}
-            >
-              {t("rawErrorResponse.open")}
-            </Button>
-          ) : null}
-        </div>
-      )}
+      {ratesError ? (
+        <ExchangeRateErrorFeedback error={ratesError} details={ratesErrorDetails} />
+      ) : null}
 
       {!ratesError && ratesWarning && (
         <div className="mb-4 rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-300">
@@ -347,12 +327,6 @@ export function ExchangeRatesSection({
 
         <p className="text-xs text-muted-foreground">{t("settings.ratesInfo")}</p>
       </div>
-      <RawErrorResponseDialog
-        open={detailsOpen}
-        details={ratesErrorDetails}
-        onOpenChange={setDetailsOpen}
-        testId="exchange-rates-raw-error-response-dialog"
-      />
     </section>
   );
 }

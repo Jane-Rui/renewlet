@@ -1,4 +1,5 @@
-import type { BillingCycle, CustomCycleUnit, DateOnly } from "./runtime";
+import { Temporal } from "@js-temporal/polyfill";
+import { isValidDateOnly, type BillingCycle, type CustomCycleUnit, type DateOnly } from "./runtime";
 import { divideMoney, moneyToNumber, multiplyMoneyRatio, type MoneyString } from "./money";
 import {
   addBillingCycles,
@@ -14,6 +15,17 @@ export interface SubscriptionBillingFields {
   customCycleUnit?: CustomCycleUnit | null | undefined;
   oneTimeTermCount?: number | null | undefined;
   oneTimeTermUnit?: CustomCycleUnit | null | undefined;
+}
+
+export type SubscriptionDailyCostBasis = "normalized" | "ownership-to-date";
+
+export interface SubscriptionDailyCostProjection {
+  amount: MoneyString;
+  basis: SubscriptionDailyCostBasis;
+}
+
+export interface SubscriptionDailyCostFields extends SubscriptionBillingFields {
+  startDate?: string | null | undefined;
 }
 
 /**
@@ -46,7 +58,7 @@ export function toMonthlyAmount(
     }
     case "one-time": {
       // one-time 无服务期是买断，不进入月均；固定服务期才把整段预付权益按月摊销。
-      if (!oneTimeTermCount) return 0;
+      if (typeof oneTimeTermCount !== "number" || oneTimeTermCount <= 0) return 0;
       const term = requireCustomBillingCycle(oneTimeTermCount, oneTimeTermUnit);
       return customCycleToMonthlyAmount(amount, term.count, term.unit);
     }
@@ -73,6 +85,29 @@ export function toDailyAmountFromMonthly(monthlyAmount: number): number {
   return monthlyAmount / AVERAGE_DAYS_PER_MONTH;
 }
 
+/**
+ * 返回单条订阅唯一的日均投影：周期/固定服务期按标准月摊销，长期买断按实际持有自然日摊销。
+ *
+ * today 和购买日都是账号时区下的 date-only；未来、缺失或非法购买日没有已发生成本，返回 null。
+ */
+export function projectSubscriptionDailyCost(
+  amount: MoneyString | number,
+  subscription: SubscriptionDailyCostFields,
+  today: string,
+): SubscriptionDailyCostProjection | null {
+  if (isOneTimeBuyout(subscription)) {
+    if (!subscription.startDate || !isValidDateOnly(subscription.startDate) || !isValidDateOnly(today)) return null;
+    const purchaseDate = Temporal.PlainDate.from(subscription.startDate);
+    const asOf = Temporal.PlainDate.from(today);
+    if (Temporal.PlainDate.compare(purchaseDate, asOf) > 0) return null;
+    const ownershipDays = purchaseDate.until(asOf, { largestUnit: "day" }).days + 1;
+    return { amount: divideMoney(amount, ownershipDays), basis: "ownership-to-date" };
+  }
+
+  const monthlyAmount = toSubscriptionMonthlyAmount(amount, subscription);
+  return { amount: divideMoney(monthlyAmount, AVERAGE_DAYS_PER_MONTH), basis: "normalized" };
+}
+
 function customCycleToMonthlyAmount(amount: MoneyString | number, count: number, unit: CustomCycleUnit): number {
   switch (unit) {
     case "week":
@@ -87,7 +122,9 @@ function customCycleToMonthlyAmount(amount: MoneyString | number, count: number,
 }
 
 export function isOneTimeFixedTerm(subscription: Pick<SubscriptionBillingFields, "billingCycle" | "oneTimeTermCount" | "oneTimeTermUnit">): boolean {
-  return subscription.billingCycle === "one-time" && Boolean(subscription.oneTimeTermCount && subscription.oneTimeTermUnit);
+  return subscription.billingCycle === "one-time"
+    && typeof subscription.oneTimeTermCount === "number"
+    && subscription.oneTimeTermCount > 0;
 }
 
 export function isOneTimeBuyout(subscription: Pick<SubscriptionBillingFields, "billingCycle" | "oneTimeTermCount" | "oneTimeTermUnit">): boolean {

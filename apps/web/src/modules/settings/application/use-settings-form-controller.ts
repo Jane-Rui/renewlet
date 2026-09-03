@@ -101,6 +101,7 @@ export function useSettingsFormController(): SettingsFormController {
     rates,
     activeProvider: activeRateProvider,
     loading: ratesLoading,
+    isRefreshing: ratesRefreshing,
     lastUpdated,
     refresh: refreshRates,
     error: ratesError,
@@ -109,6 +110,7 @@ export function useSettingsFormController(): SettingsFormController {
     reportBasisStatus,
     getCurrencySymbol,
   } = useReportExchangeRates(savedSettings.exchangeRateProvider);
+  const ratesRefreshPending = ratesLoading || ratesRefreshing;
   const { t, commitLocalePreference, syncRemoteLocalePreference } = useI18n();
   const appStatus = useSetupStatus();
   const externalIntegrationsDisabled = appStatus.isLoading || appStatus.demoMode;
@@ -300,8 +302,10 @@ export function useSettingsFormController(): SettingsFormController {
   }, []);
 
   const handleRefreshRates = useCallback(async () => {
-    await refreshRates(savedSettings.exchangeRateProvider);
-    toast.success(t("settings.ratesUpdated"));
+    const result = await refreshRates(savedSettings.exchangeRateProvider);
+    if (result.status === "succeeded") {
+      toast.success(t("exchangeRates.updated"));
+    }
   }, [refreshRates, savedSettings.exchangeRateProvider, t]);
 
   const handleUpdateCurrencies = useCallback(
@@ -393,12 +397,8 @@ export function useSettingsFormController(): SettingsFormController {
         // Bot 命令安装状态读取的是已保存凭据；保存 token/chat 后要主动刷新，不能等低频 query 自然过期。
         void refetchTelegramBotCommands();
         if (providerChanged) {
-          try {
-            // 汇率刷新必须使用服务端已接受的 provider；草稿值可能因后端旧版本或保存失败没有真正生效。
-            await refreshRates(saved.exchangeRateProvider);
-          } catch (e) {
-            console.warn("Failed to refresh exchange rates after saving settings:", e);
-          }
+          // 汇率刷新必须使用服务端已接受的 provider；草稿值可能因后端旧版本或保存失败没有真正生效。
+          void refreshRates(saved.exchangeRateProvider);
         }
       } else if (settingsResult.status === "rejected") {
         failedScopes.push(t("settings.appSettingsScope"));
@@ -549,7 +549,7 @@ export function useSettingsFormController(): SettingsFormController {
     categoryUsageCount,
     rates,
     activeRateProvider,
-    ratesLoading,
+    ratesRefreshPending,
     lastUpdated,
     ratesError,
     ratesErrorDetails,

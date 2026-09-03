@@ -12,7 +12,7 @@
  *   -> StatBox / PieChart view model
  * ```
  */
-import { toDailyAmountFromMonthly, toMonthlyAmount } from "@/lib/subscription-billing";
+import { isOneTimeBuyout, toDailyAmountFromMonthly, toMonthlyAmount } from "@/lib/subscription-billing";
 import { compareDateOnly, fromPlainDate, isSameMonthDateOnly, todayDateOnlyInTimeZone, toPlainDate, type DateOnly } from "@/lib/time/date-only";
 import { DEFAULT_LOCALE, localizedLabel, type Locale } from "@/i18n/locales";
 import { translate } from "@/i18n/messages";
@@ -256,6 +256,8 @@ export function buildStatisticsModel({
   // 统计页是成本口径入口，必须用有效状态统一 active/trial/expired 的兼容语义，避免图表和列表筛选结果对不上。
   const activeSubscriptions = subscriptions.filter((subscription) => isEffectivelyActiveSubscription(subscription, today));
   const inactiveSubscriptions = subscriptions.filter((subscription) => isEffectivelyInactiveSubscription(subscription, today));
+  const activeCostSubscriptions = activeSubscriptions.filter((subscription) => !isOneTimeBuyout(subscription));
+  const inactiveCostSubscriptions = inactiveSubscriptions.filter((subscription) => !isOneTimeBuyout(subscription));
   const monthlyBudgetAmount = moneyToNumber(monthlyBudget);
 
   // costBasis 是统计页的金额口径开关；一旦选 personal，月均、日均、当月现金流、分类和趋势都必须使用个人份额。
@@ -280,11 +282,11 @@ export function buildStatisticsModel({
     );
   };
 
-  const totalMonthly = activeSubscriptions.reduce((sum, subscription) => sum + calculateMonthlyAmount(subscription), 0);
+  const totalMonthly = activeCostSubscriptions.reduce((sum, subscription) => sum + calculateMonthlyAmount(subscription), 0);
   const totalDaily = toDailyAmountFromMonthly(totalMonthly);
   const totalAnnual = totalMonthly * 12;
-  const avgMonthlyPerSub = activeSubscriptions.length > 0 ? totalMonthly / activeSubscriptions.length : 0;
-  const mostExpensive = activeSubscriptions.reduce<SubscriptionCollectionItem | null>((max, subscription) => {
+  const avgMonthlyPerSub = activeCostSubscriptions.length > 0 ? totalMonthly / activeCostSubscriptions.length : 0;
+  const mostExpensive = activeCostSubscriptions.reduce<SubscriptionCollectionItem | null>((max, subscription) => {
     // 使用月折算金额比较，而不是原始价格，避免年付订阅被低估。
     const currentMonthly = calculateMonthlyAmount(subscription);
     const maxMonthly = max ? calculateMonthlyAmount(max) : 0;
@@ -295,13 +297,13 @@ export function buildStatisticsModel({
     .reduce((sum, subscription) => sum + convertToDefault(amountForStats(subscription), subscription.currency), 0);
   const budgetUsedPercent = monthlyBudgetAmount > 0 ? (totalMonthly / monthlyBudgetAmount) * 100 : 0;
   const budgetRemaining = monthlyBudgetAmount - totalMonthly;
-  const inactiveSavings = inactiveSubscriptions.reduce(
+  const inactiveSavings = inactiveCostSubscriptions.reduce(
     (sum, subscription) => sum + calculateMonthlyAmount(subscription),
     0,
   );
 
   const categoryData = Object.entries(
-    activeSubscriptions.reduce((acc, subscription) => {
+    activeCostSubscriptions.reduce((acc, subscription) => {
       const amount = calculateMonthlyAmount(subscription);
       acc[subscription.category] = (acc[subscription.category] || 0) + amount;
       return acc;
@@ -334,7 +336,7 @@ export function buildStatisticsModel({
     { name: translate(locale, "statistics.budgetUsed"), value: Math.min(totalMonthly, monthlyBudgetAmount), color: "hsl(350 75% 55%)" },
     { name: translate(locale, "statistics.budgetRemaining"), value: Math.max(budgetRemaining, 0), color: "hsl(200 80% 50%)" },
   ];
-  const trendData = buildTrendData(activeSubscriptions, today, locale, convertToDefault, amountForStats, calculateMonthlyAmount);
+  const trendData = buildTrendData(activeCostSubscriptions, today, locale, convertToDefault, amountForStats, calculateMonthlyAmount);
 
   // TODO：若未来支持多预算周期，可把 monthlyBudget 和 budgetChartData 抽成独立预算 domain。
   return {

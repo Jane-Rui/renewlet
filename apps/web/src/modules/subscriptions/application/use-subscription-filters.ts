@@ -7,7 +7,7 @@
  */
 import { useCallback, useDeferredValue, useMemo, useState } from "react";
 import { DEFAULT_LOCALE, type Locale } from "@/i18n/locales";
-import { todayDateOnlyInTimeZone } from "@/lib/time/date-only";
+import { todayDateOnlyInTimeZone, type DateOnly } from "@/lib/time/date-only";
 import type { Category, Subscription, SubscriptionCollectionItem, SubscriptionStatus } from "@/types/subscription";
 import { moneyToNumber } from "@renewlet/shared/money";
 import {
@@ -15,20 +15,19 @@ import {
   buildSubscriptionListFilters,
   filterSubscriptionsByListFilters,
   hasActiveSubscriptionAdvancedFilters,
-  hasActiveSubscriptionControls,
   hasActiveSubscriptionFilters,
   sortSubscriptions,
   type SubscriptionAdvancedFilterState,
   type SubscriptionSortOption,
   type SubscriptionFilterState,
-  type SubscriptionRenewalFilter,
+  type SubscriptionPaymentTypeFilter,
 } from "../domain/subscription-filters";
 
 interface UseSubscriptionFiltersOptions {
   defaultCurrency?: string;
   convert?: (amount: number | string, from: string, to: string) => number;
   locale?: Locale;
-  timeZone?: string;
+  today?: DateOnly | string;
   availableTags?: readonly string[] | undefined;
 }
 
@@ -41,28 +40,27 @@ export function useSubscriptionFilters(
     defaultCurrency = "CNY",
     convert = IDENTITY_CONVERT,
     locale = DEFAULT_LOCALE,
-    timeZone = "UTC",
+    today = todayDateOnlyInTimeZone(new Date(), "UTC"),
     availableTags = [],
   }: UseSubscriptionFiltersOptions = {},
 ) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategories, setSelectedCategories] = useState<Category[]>([]);
   const [statusFilter, setStatusFilter] = useState<SubscriptionStatus | "all">("all");
-  const [renewalFilter, setRenewalFilter] = useState<SubscriptionRenewalFilter>("all");
+  const [paymentTypeFilter, setPaymentTypeFilter] = useState<SubscriptionPaymentTypeFilter>("all");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [advancedFilters, setAdvancedFilters] = useState<SubscriptionAdvancedFilterState>(DEFAULT_SUBSCRIPTION_ADVANCED_FILTERS);
   const [sortOption, setSortOption] = useState<SubscriptionSortOption>("default");
   const deferredSearchQuery = useDeferredValue(searchQuery);
 
   const filters: SubscriptionFilterState = useMemo(
-    () => ({ searchQuery: deferredSearchQuery, selectedCategories, statusFilter, renewalFilter, selectedTags }),
-    [deferredSearchQuery, renewalFilter, selectedCategories, selectedTags, statusFilter],
+    () => ({ searchQuery: deferredSearchQuery, selectedCategories, statusFilter, paymentTypeFilter, selectedTags }),
+    [deferredSearchQuery, paymentTypeFilter, selectedCategories, selectedTags, statusFilter],
   );
   const activeControlFilters: SubscriptionFilterState = useMemo(
-    () => ({ searchQuery, selectedCategories, statusFilter, renewalFilter, selectedTags }),
-    [renewalFilter, searchQuery, selectedCategories, selectedTags, statusFilter],
+    () => ({ searchQuery, selectedCategories, statusFilter, paymentTypeFilter, selectedTags }),
+    [paymentTypeFilter, searchQuery, selectedCategories, selectedTags, statusFilter],
   );
-  const today = useMemo(() => todayDateOnlyInTimeZone(new Date(), timeZone), [timeZone]);
   const subscriptionListFilters = useMemo(
     () => buildSubscriptionListFilters(filters, advancedFilters),
     [advancedFilters, filters],
@@ -72,18 +70,19 @@ export function useSubscriptionFilters(
     [activeControlFilters, advancedFilters],
   );
   const sortedSubscriptions = useMemo(
-    () => sortSubscriptions(subscriptions, { sortOption, defaultCurrency, convert, locale }),
-    [convert, defaultCurrency, locale, sortOption, subscriptions],
+    () => sortSubscriptions(subscriptions, { sortOption, today, defaultCurrency, convert, locale }),
+    [convert, defaultCurrency, locale, sortOption, subscriptions, today],
   );
   const sortSubscriptionsForDisplay = useCallback(
     <T extends SubscriptionCollectionItem>(items: readonly T[]) =>
-      sortSubscriptions(items, { sortOption, defaultCurrency, convert, locale }),
-    [convert, defaultCurrency, locale, sortOption],
+      sortSubscriptions(items, { sortOption, today, defaultCurrency, convert, locale }),
+    [convert, defaultCurrency, locale, sortOption, today],
   );
   const selectSubscriptionsForExport = useCallback(
     (items: readonly Subscription[]) =>
       sortSubscriptions(filterSubscriptionsByListFilters(items, activeSubscriptionListFilters, { today }), {
         sortOption,
+        today,
         defaultCurrency,
         convert,
         locale,
@@ -93,8 +92,10 @@ export function useSubscriptionFilters(
   // 搜索输入立即响应，列表筛选延后到 deferred query，避免大列表每个键入帧都重排虚拟行。
   const hasActiveAdvancedFilters = hasActiveSubscriptionAdvancedFilters(advancedFilters);
   const hasActiveFilters = hasActiveSubscriptionFilters(activeControlFilters) || hasActiveAdvancedFilters;
+  const hasDeferredFilters = hasActiveSubscriptionFilters(filters) || hasActiveAdvancedFilters;
+  const hasCustomSort = sortOption !== "default";
   // index 的启用条件与 query key 必须来自同一份 deferred filters；否则首个字符会先发无筛选全量请求，再发真实搜索请求。
-  const hasActiveControls = hasActiveSubscriptionControls(filters, sortOption, advancedFilters);
+  const needsCollectionIndex = hasDeferredFilters || hasCustomSort;
 
   const toggleTag = (tag: string) => {
     setSelectedTags((prev) =>
@@ -114,10 +115,9 @@ export function useSubscriptionFilters(
     setSearchQuery("");
     setSelectedCategories([]);
     setStatusFilter("all");
-    setRenewalFilter("all");
+    setPaymentTypeFilter("all");
     setSelectedTags([]);
     setAdvancedFilters(DEFAULT_SUBSCRIPTION_ADVANCED_FILTERS);
-    setSortOption("default");
   };
 
   return {
@@ -127,8 +127,8 @@ export function useSubscriptionFilters(
     setSelectedCategories,
     statusFilter,
     setStatusFilter,
-    renewalFilter,
-    setRenewalFilter,
+    paymentTypeFilter,
+    setPaymentTypeFilter,
     sortOption,
     setSortOption,
     selectedTags,
@@ -142,7 +142,8 @@ export function useSubscriptionFilters(
     subscriptionListFilters,
     hasActiveFilters,
     hasActiveAdvancedFilters,
-    hasActiveControls,
+    hasCustomSort,
+    needsCollectionIndex,
     toggleCategory,
     clearSelectedCategories,
     toggleTag,

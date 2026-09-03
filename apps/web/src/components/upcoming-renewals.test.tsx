@@ -74,7 +74,7 @@ describe("UpcomingRenewals", () => {
     render(
       <UpcomingRenewals
         subscriptions={[subscription()]}
-        timeZone="UTC"
+        today="2026-06-15"
         notificationReminderDays={3}
       />,
     );
@@ -88,7 +88,7 @@ describe("UpcomingRenewals", () => {
     render(
       <UpcomingRenewals
         subscriptions={[subscription({ reminderDays: 14 })]}
-        timeZone="UTC"
+        today="2026-06-15"
         notificationReminderDays={3}
       />,
     );

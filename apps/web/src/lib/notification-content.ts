@@ -26,6 +26,7 @@ import { DEFAULT_LOCALE, localeForPreference, type Locale } from "@/i18n/locales
 import { translate, type MessageKey, type MessageParams } from "@/i18n/messages";
 import { divideMoney, moneyToNumber, type MoneyString } from "@renewlet/shared/money";
 import { costSharingCollectionReminderOccurrencesForDate } from "@renewlet/shared/cost-sharing";
+import { isOneTimeBuyout } from "@/lib/subscription-billing";
 
 /**
  * 生成通知内容（不负责发送）。
@@ -251,10 +252,14 @@ export function collectNotificationItemsForLocalDate(
     const reminderDays = effectiveReminderDays(sub.reminderDays, settings.notificationReminderDays);
     const daysUntilNext = daysBetweenDateOnly(localDate, sub.nextBillingDate);
     const isOneTime = sub.billingCycle === "one-time";
-    const isOneTimeBuyout = isOneTime && !sub.oneTimeTermCount;
+    const buyout = isOneTime && isOneTimeBuyout({
+      billingCycle: "one-time",
+      oneTimeTermCount: sub.oneTimeTermCount,
+      oneTimeTermUnit: sub.oneTimeTermUnit,
+    });
 
     if (!isDisabledReminderDays(sub.reminderDays) && reminderDays !== undefined) {
-      if (isOneTimeBuyout) {
+      if (buyout) {
         // one-time 买断没有权益到期边界；购买日不能被本地预览解释成续费或过期。
       } else if (daysUntilNext < 0) {
         if (settings.showExpired && includeExpired) {
@@ -303,7 +308,7 @@ export function collectNotificationItemsForLocalDate(
         }
       }
     }
-    items.push(...collectCostSharingCollectionItems(sub, settings, localDate, isOneTimeBuyout));
+    items.push(...collectCostSharingCollectionItems(sub, settings, localDate, buyout));
   }
 
   return items;

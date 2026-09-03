@@ -12,8 +12,8 @@ import {
   subscriptionsListQuerySchema,
   subscriptionUpdateBodySchema,
 } from "@renewlet/shared/schemas/subscriptions";
-import { boolToInt, getSettings, getSubscription, newId, nowIso, parseJsonObject, parseStringArray, parseSubscriptionCursor, SUBSCRIPTION_COLUMNS, subscriptionCursor, subscriptionRowValues, toApiSubscription, toApiSubscriptionCollectionItem } from "./db";
-import { listSubscriptionsForQuery } from "./subscription-list-filters";
+import { boolToInt, getSettings, getSubscription, newId, nowIso, parseJsonObject, parseStringArray, SUBSCRIPTION_COLUMNS, subscriptionRowValues, toApiSubscription, toApiSubscriptionCollectionItem } from "./db";
+import { listSubscriptionsForQuery, parsePrivateSubscriptionCursor, privateSubscriptionCursor } from "./subscription-list-filters";
 import { subscriptionCollectionQueryInput } from "./subscription-query";
 import { advanceSubscriptionRenewal, dateOnlyInZone } from "./subscription-renewal";
 import type { SubscriptionRenewalResult } from "@renewlet/shared/subscription-renewal";
@@ -36,14 +36,16 @@ export async function readSubscriptions(request: Request, env: Env): Promise<Res
   const auth = await requireAuth(request, env);
   const url = new URL(request.url);
   const parsed = subscriptionsListQuerySchema.parse(subscriptionCollectionQueryInput(url.searchParams));
-  if (parsed.cursor && !parseSubscriptionCursor(parsed.cursor)) {
+  const cursor = parsePrivateSubscriptionCursor(parsed.cursor);
+  if (parsed.cursor && !cursor) {
     throw new HttpError(400, serverText(requestLocale(request), "common.invalidRequestParameters"), "INVALID_CURSOR");
   }
-  const today = parsed.status ? dateOnlyInZone(new Date(), (await getSettings(env, auth.user.id)).timezone) : "";
-  const page = await listSubscriptionsForQuery(env, auth.user.id, parsed, today);
+  // 首屏按账号时区取 asOf，后续页只能沿用 cursor 值；跨午夜重新计算会让记录换组并破坏 keyset 分页。
+  const today = cursor?.asOf ?? dateOnlyInZone(new Date(), (await getSettings(env, auth.user.id)).timezone);
+  const page = await listSubscriptionsForQuery(env, auth.user.id, parsed, today, cursor);
   const pageRows = page.rows.slice(0, parsed.limit);
   const lastPageRow = pageRows.at(-1);
-  const nextCursor = page.rows.length > parsed.limit && lastPageRow ? subscriptionCursor(lastPageRow) : null;
+  const nextCursor = page.rows.length > parsed.limit && lastPageRow ? privateSubscriptionCursor(lastPageRow, today) : null;
   return successJson(subscriptionsListPayloadSchema.parse({
     subscriptions: pageRows.map(toApiSubscriptionCollectionItem),
     nextCursor,

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Docker Hub README 同步脚本。
+ * Docker Hub Overview 手工维护辅助脚本。
  *
- * 触发时机：发布前或 Docker Hub overview 检查；输入是仓库 README.md，输出是所有相对资源都改成 GitHub 绝对 URL 的 Markdown。
+ * 触发时机：维护者通过 Docker Hub 官方 UI 更新 Overview；输入是仓库 README.md，输出是所有相对资源都改成 GitHub 绝对 URL 的 Markdown。
  * 参数：`--ref` 指向 tag/branch/commit，`--output` 写文件，`--check` 只验证没有残留相对引用。
  *
  * 注意：脚本不访问网络，只做文本转换；Docker Hub 没有仓库上下文，未转换的相对图片会在镜像页全部失效。
@@ -139,7 +139,7 @@ if (problems.length > 0) {
 }
 
 if (args.output) {
-  // Release workflow 会把结果写到临时目录或产物目录；父目录不存在时由脚本负责创建。
+  // 供官方 UI 粘贴的文件通常写入临时目录；父目录不存在时由脚本负责创建。
   mkdirSync(dirname(resolve(repoRoot, args.output)), { recursive: true });
   writeFileSync(resolve(repoRoot, args.output), overview);
 }

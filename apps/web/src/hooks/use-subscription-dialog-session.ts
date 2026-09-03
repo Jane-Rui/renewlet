@@ -15,6 +15,7 @@ import { useDeferredDialogCleanup } from "@/hooks/use-deferred-dialog-cleanup";
 import type { Subscription } from "@/types/subscription";
 import { DISABLED_REMINDER_DAYS, INHERIT_REMINDER_DAYS, REMINDER_DAYS_OPTIONS } from "@/types/subscription";
 import { createSubscriptionFormState, type SubscriptionFormState } from "@/types/subscription-form";
+import { isOneTimeFixedTerm } from "@/lib/subscription-billing";
 
 type SubscriptionDialogSessionMode = "create" | "edit";
 
@@ -219,6 +220,7 @@ function subscriptionToFormState(subscription: Subscription): SubscriptionFormSt
   const isDisabledReminder = subscription.reminderDays === DISABLED_REMINDER_DAYS;
   const isInheritReminder = subscription.reminderDays === INHERIT_REMINDER_DAYS;
   const isPresetReminder = REMINDER_DAYS_OPTIONS.some((opt) => opt.value === subscription.reminderDays);
+  const isFixedTerm = isOneTimeFixedTerm(subscription);
 
   return {
     name: subscription.name,
@@ -228,8 +230,8 @@ function subscriptionToFormState(subscription: Subscription): SubscriptionFormSt
     billingCycle: subscription.billingCycle,
     customDays: subscription.customDays?.toString() || "",
     customCycleUnit: subscription.billingCycle === "custom" ? subscription.customCycleUnit : "day",
-    oneTimeMode: subscription.billingCycle === "one-time" && subscription.oneTimeTermCount && subscription.oneTimeTermUnit ? "term" : "buyout",
-    oneTimeTermCount: subscription.billingCycle === "one-time" && subscription.oneTimeTermCount ? subscription.oneTimeTermCount.toString() : "1",
+    oneTimeMode: isFixedTerm ? "term" : "buyout",
+    oneTimeTermCount: isFixedTerm ? String(subscription.oneTimeTermCount) : "1",
     oneTimeTermUnit: subscription.billingCycle === "one-time" ? subscription.oneTimeTermUnit ?? "month" : "month",
     category: subscription.category,
     status: subscription.status,

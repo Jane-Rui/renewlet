@@ -298,7 +298,8 @@ export function nextCostSharingCollectionReminderDate(input: CostSharingCollecti
 }
 
 function isCostSharingCollectionOneTimeBuyout(input: Pick<CostSharingCollectionReminderCalculationInput, "billingCycle" | "oneTimeTermCount" | "oneTimeTermUnit">): boolean {
-  return input.billingCycle === "one-time" && !(input.oneTimeTermCount && input.oneTimeTermUnit);
+  return input.billingCycle === "one-time"
+    && (typeof input.oneTimeTermCount !== "number" || input.oneTimeTermCount <= 0);
 }
 
 function initialCostSharingCollectionCycleCount(

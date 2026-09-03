@@ -261,7 +261,7 @@ func publicAPISubscriptionsForUser(app core.App, userID string, limit int, rawCu
 	filter := "user = {:user}"
 	params := dbx.Params{"user": userID}
 	if cursorText := strings.TrimSpace(rawCursor); cursorText != "" {
-		cursor, err := parseSubscriptionCursorPayload(cursorText)
+		cursor, err := parsePublicSubscriptionCursorPayload(cursorText)
 		if err != nil {
 			return publicAPISubscriptionsResponse{}, errPublicAPIInvalidCursor
 		}
@@ -277,7 +277,7 @@ func publicAPISubscriptionsForUser(app core.App, userID string, limit int, rawCu
 	var nextCursor *string
 	if len(rows) > limit {
 		pageRows = rows[:limit]
-		cursor := encodeSubscriptionCursor(pageRows[len(pageRows)-1])
+		cursor := encodePublicSubscriptionCursor(pageRows[len(pageRows)-1])
 		nextCursor = &cursor
 	}
 	subscriptions := make([]publicAPISubscriptionResponse, 0, len(pageRows))

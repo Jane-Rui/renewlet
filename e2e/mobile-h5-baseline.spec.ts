@@ -578,13 +578,17 @@ test("mobile option sheets use consistent detents and do not leak backdrop event
   await expect(subscriptionsStatusSheet).toHaveAttribute("data-mobile-detent", "compact");
   await dragMobileSheetHandleToClose(page, subscriptionsStatusSheet, "subscriptions status filter sheet");
 
-  await page.getByRole("combobox").filter({ hasText: "所有续订" }).click();
-  const subscriptionsRenewalSheet = page.locator(".h5-mobile-sheet-content").filter({ hasText: "手动续订" }).last();
-  await expect(subscriptionsRenewalSheet).toBeVisible();
-  await expect(subscriptionsRenewalSheet).toHaveAttribute("data-mobile-detent", "compact");
-  await dragMobileSheetHandleToClose(page, subscriptionsRenewalSheet, "subscriptions renewal filter sheet");
+  await page.getByRole("combobox").filter({ hasText: "所有付费类型" }).click();
+  const subscriptionsPaymentTypeSheet = page.locator(".h5-mobile-sheet-content").filter({ hasText: "固定服务期" }).last();
+  await expect(subscriptionsPaymentTypeSheet).toBeVisible();
+  await expect(subscriptionsPaymentTypeSheet).toHaveAttribute("data-mobile-detent", "compact");
+  await expect(subscriptionsPaymentTypeSheet.getByRole("option", { name: "自动续费" })).toBeVisible();
+  await expect(subscriptionsPaymentTypeSheet.getByRole("option", { name: "手动续费" })).toBeVisible();
+  await expect(subscriptionsPaymentTypeSheet.getByRole("option", { name: "长期有效" })).toBeVisible();
+  await expect(subscriptionsPaymentTypeSheet.getByRole("option", { name: "固定服务期" })).toBeVisible();
+  await dragMobileSheetHandleToClose(page, subscriptionsPaymentTypeSheet, "subscriptions payment type filter sheet");
 
-  await page.getByTestId("mobile-renewal-sort-row").getByRole("combobox", { name: "排序" }).click();
+  await page.getByTestId("mobile-payment-type-sort-row").getByRole("combobox", { name: "排序" }).click();
   const subscriptionsSortSheet = page.locator(".h5-mobile-sheet-content").filter({ hasText: "到期最近" }).last();
   await expect(subscriptionsSortSheet).toBeVisible();
   await expect(subscriptionsSortSheet).toHaveAttribute("data-mobile-detent", "compact");

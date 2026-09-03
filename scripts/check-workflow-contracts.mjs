@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 function workflowTriggerBlock(content, trigger) {
@@ -7,6 +7,7 @@ function workflowTriggerBlock(content, trigger) {
 }
 
 export function checkWorkflowContracts(repoRoot) {
+  const workflowsDir = join(repoRoot, ".github/workflows");
   const workflows = [
     { path: ".github/workflows/ci.yml", name: "CI" },
     { path: ".github/workflows/build-smoke.yml", name: "Build Smoke" },
@@ -57,47 +58,26 @@ export function checkWorkflowContracts(repoRoot) {
     }
   }
 
-  // 不可变发布制品与可变 Docker Hub 页面元数据必须隔离，避免 Overview 故障跳过 GitHub Release。
-  for (const blockedSnippet of [
-    "scripts/dockerhub-overview.mjs",
+  const overviewWorkflowPath = join(workflowsDir, "dockerhub-overview.yml");
+  if (existsSync(overviewWorkflowPath)) {
+    throw new Error("dockerhub-overview.yml must not exist; Docker Hub Overview is maintained through the official UI.");
+  }
+
+  // Docker 官方公开 OpenAPI 没有仓库描述写入口，页面元数据不得重新进入 Actions 或发布失败域。
+  const unsupportedOverviewIntegrations = [
     "peter-evans/dockerhub-description",
-    "Update Docker Hub overview",
-  ]) {
-    if (releaseWorkflow.includes(blockedSnippet)) {
-      throw new Error(`release-publish.yml must not contain Docker Hub Overview integration: ${blockedSnippet}`);
-    }
-  }
-
-  const overviewWorkflow = readFileSync(join(repoRoot, ".github/workflows/dockerhub-overview.yml"), "utf8");
-  const overviewPushBlock = workflowTriggerBlock(overviewWorkflow, "push");
-  for (const snippet of [
-    "      - main",
-    "      - README.md",
-    "      - scripts/dockerhub-overview.mjs",
-    "      - .github/workflows/dockerhub-overview.yml",
-  ]) {
-    if (!overviewPushBlock.includes(snippet)) {
-      throw new Error(`Docker Hub Overview push trigger must keep snippet: ${snippet.trim()}`);
-    }
-  }
-  for (const snippet of [
-    "  workflow_dispatch:",
-    "  group: dockerhub-overview",
-    "  cancel-in-progress: false",
-  ]) {
-    if (!overviewWorkflow.includes(snippet)) {
-      throw new Error(`Docker Hub Overview workflow must keep snippet: ${snippet.trim()}`);
-    }
-  }
-
-  const expectedDescriptionActionSha = "1b9a80c056b620d92cedb9d9b5a223409c68ddfa";
-  const descriptionActionRefs = [
-    ...overviewWorkflow.matchAll(/uses:\s*peter-evans\/dockerhub-description@(?<ref>\S+)/g),
+    "scripts/dockerhub-overview.mjs",
+    "hub.docker.com/v2/repositories",
   ];
-  if (
-    descriptionActionRefs.length !== 1 ||
-    descriptionActionRefs[0].groups?.ref !== expectedDescriptionActionSha
-  ) {
-    throw new Error("Docker Hub Overview workflow must pin peter-evans/dockerhub-description v5 to its full commit SHA.");
+  for (const entry of readdirSync(workflowsDir, { withFileTypes: true })) {
+    if (!entry.isFile() || !/\.ya?ml$/.test(entry.name)) {
+      continue;
+    }
+    const content = readFileSync(join(workflowsDir, entry.name), "utf8");
+    for (const snippet of unsupportedOverviewIntegrations) {
+      if (content.includes(snippet)) {
+        throw new Error(`${entry.name} must not automate Docker Hub Overview through unsupported integration: ${snippet}`);
+      }
+    }
   }
 }

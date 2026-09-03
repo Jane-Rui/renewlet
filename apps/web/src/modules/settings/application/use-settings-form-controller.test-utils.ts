@@ -54,6 +54,8 @@ const mocks = vi.hoisted(() => ({
   },
   updateSettingsMutateAsync: vi.fn<(command: SettingsMutationCommand) => Promise<unknown>>(),
   refreshRates: vi.fn(),
+  ratesLoading: false,
+  ratesRefreshing: false,
   remoteSettings: undefined as unknown,
   remoteSecretStatus: undefined as unknown,
   customConfig: undefined as unknown,
@@ -142,7 +144,8 @@ vi.mock("@/hooks/use-report-exchange-rates", () => ({
   useReportExchangeRates: () => ({
     rates: {},
     activeProvider: "frankfurter",
-    loading: false,
+    loading: mocks.ratesLoading,
+    isRefreshing: mocks.ratesRefreshing,
     lastUpdated: null,
     refresh: mocks.refreshRates,
     error: null,
@@ -271,6 +274,7 @@ vi.mock("@/i18n/I18nProvider", () => {
     "settings.builtInIconIndexUpdateQueued": ({ source }) => `${source} 会在后台更新；完成或失败后状态会自动停止轮询。`,
     "settings.builtInIconIndexRefreshFailed": "图标索引更新失败",
     "settings.builtInIconIndexRefreshFailedDescription": ({ source }) => `无法更新 ${source}，请稍后重试。`,
+    "exchangeRates.updated": "最新汇率数据已获取",
     "settings.builtInIconSourceShort.thesvg": "TheSVG",
     "settings.builtInIconSourceShort.selfhst": "selfh.st",
     "settings.builtInIconSourceShort.dashboardIcons": "Dashboard",
@@ -365,6 +369,8 @@ export function setupSettingsFormControllerTestEnvironment() {
     mocks.toast.error.mockReset();
     mocks.updateSettingsMutateAsync.mockReset();
     mocks.refreshRates.mockReset();
+    mocks.ratesLoading = false;
+    mocks.ratesRefreshing = false;
     mocks.saveConfig.mockReset();
     mocks.setTheme.mockReset();
     mocks.clearThemeModeOverride.mockReset();
@@ -429,7 +435,7 @@ export function setupSettingsFormControllerTestEnvironment() {
     mocks.testAuthSecurityTurnstileMutateAsync.mockResolvedValue({ verified: true });
     mocks.testAuthSecurityTurnstileIsPending = false;
     mocks.saveConfig.mockImplementation(async (config: CustomConfig) => config);
-    mocks.refreshRates.mockResolvedValue(undefined);
+    mocks.refreshRates.mockResolvedValue({ status: "succeeded", warning: null });
     mocks.createPublicStatusPageMutateAsync.mockResolvedValue({
       enabled: true,
       createdAt: "2026-06-07T00:00:00Z",

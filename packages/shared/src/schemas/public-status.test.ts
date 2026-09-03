@@ -14,6 +14,7 @@ describe("public status schemas", () => {
       page: {
         title: "Renewlet",
         showPrices: false,
+        asOf: "2026-06-07",
         generatedAt: "2026-06-07T00:00:00.000Z",
         truncated: false,
       },
@@ -28,7 +29,7 @@ describe("public status schemas", () => {
       }],
     })).data.subscriptions[0]?.price).toBeUndefined();
     expect(publicStatusResponseSchema.safeParse({
-      page: { title: "Renewlet", showPrices: false, generatedAt: "2026-06-07T00:00:00.000Z", truncated: false },
+      page: { title: "Renewlet", showPrices: false, asOf: "not-a-date", generatedAt: "2026-06-07T00:00:00.000Z", truncated: false },
       subscriptions: [],
     }).success).toBe(false);
   });
@@ -38,6 +39,7 @@ describe("public status schemas", () => {
       page: {
         title: "Renewlet",
         showPrices: false,
+        asOf: "2026-06-07",
         generatedAt: "2026-06-07T00:00:00.000Z",
         truncated: false,
       },
@@ -59,6 +61,7 @@ describe("public status schemas", () => {
         title: "Renewlet",
         showPrices: true,
         currency: "USD",
+        asOf: "2026-06-07",
         generatedAt: "2026-06-07T00:00:00.000Z",
         truncated: false,
       },
@@ -88,6 +91,7 @@ describe("public status schemas", () => {
           sourceDate: "2026-06-06",
           capturedAt: "2026-06-07T00:00:00.000Z",
         },
+        asOf: "2026-06-07",
         generatedAt: "2026-06-07T00:00:00.000Z",
         truncated: false,
       },
@@ -109,6 +113,7 @@ describe("public status schemas", () => {
         title: "Renewlet",
         showPrices: false,
         currency: "USD",
+        asOf: "2026-06-07",
         generatedAt: "2026-06-07T00:00:00.000Z",
         truncated: false,
       },
@@ -120,6 +125,7 @@ describe("public status schemas", () => {
         title: "Renewlet",
         showPrices: false,
         exchangeRateBasis: { status: "live", month: "2026-06" },
+        asOf: "2026-06-07",
         generatedAt: "2026-06-07T00:00:00.000Z",
         truncated: false,
       },
@@ -133,6 +139,7 @@ describe("public status schemas", () => {
         title: "Renewlet",
         showPrices: true,
         currency: "USD",
+        asOf: "2026-06-07",
         generatedAt: "2026-06-07T00:00:00.000Z",
         truncated: false,
       },

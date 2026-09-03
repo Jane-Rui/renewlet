@@ -202,6 +202,24 @@ describe("SubscriptionDetailDialog", () => {
     expect(screen.getByText("团队年度订阅", { exact: false })).toBeInTheDocument();
   });
 
+  it("keeps buyout and fixed-term loading rows aligned with their daily-cost and date projections", () => {
+    const buyoutPreview = { ...baseSubscription, ...subscriptionCycleFixture({ billingCycle: "one-time" }) };
+    const buyout = renderDetailDialog({ subscription: null, loadingPreview: buyoutPreview, loading: true });
+    const buyoutFacts = screen.getByRole("dialog", { name: "Fastmail" })
+      .querySelector('[data-dialog-region="subscription-facts"]');
+    expect(buyoutFacts?.querySelectorAll(":scope > div")).toHaveLength(7);
+    buyout.unmount();
+
+    const fixedTermPreview = {
+      ...baseSubscription,
+      ...subscriptionCycleFixture({ billingCycle: "one-time", oneTimeTermCount: 6, oneTimeTermUnit: "month" }),
+    };
+    renderDetailDialog({ subscription: null, loadingPreview: fixedTermPreview, loading: true });
+    const fixedTermFacts = screen.getByRole("dialog", { name: "Fastmail" })
+      .querySelector('[data-dialog-region="subscription-facts"]');
+    expect(fixedTermFacts?.querySelectorAll(":scope > div")).toHaveLength(8);
+  });
+
   it("renders website, notes, payment method, tags, and inherited reminder in the read-only detail view", () => {
     renderDetailDialog();
 
@@ -286,11 +304,16 @@ describe("SubscriptionDetailDialog", () => {
     expect(within(dialog).getByText("$5.3")).toBeInTheDocument();
   });
 
-  it("hides buyout daily cost and amortizes one-time fixed terms", () => {
+  it("shows buyout ownership cost and amortizes one-time fixed terms", () => {
     const buyout = renderDetailDialog({
       subscription: { ...baseSubscription, ...subscriptionCycleFixture({ billingCycle: "one-time" }) },
     });
-    expect(within(screen.getByRole("dialog", { name: "Fastmail" })).queryByText("日均支出")).not.toBeInTheDocument();
+    const buyoutDialog = screen.getByRole("dialog", { name: "Fastmail" });
+    expect(within(buyoutDialog).getByText("持有日均")).toBeInTheDocument();
+    expect(within(buyoutDialog).getByText("$39.75")).toBeInTheDocument();
+    expect(within(buyoutDialog).getAllByText("长期有效").length).toBeGreaterThan(0);
+    expect(within(buyoutDialog).getByText("购买日期")).toBeInTheDocument();
+    expect(within(buyoutDialog).queryByText("开始日期")).not.toBeInTheDocument();
     buyout.unmount();
 
     renderDetailDialog({
@@ -303,6 +326,7 @@ describe("SubscriptionDetailDialog", () => {
     const fixedTermDialog = screen.getByRole("dialog", { name: "Fastmail" });
     expect(within(fixedTermDialog).getByText("日均支出")).toBeInTheDocument();
     expect(within(fixedTermDialog).getByText("$1")).toBeInTheDocument();
+    expect(within(fixedTermDialog).getAllByText("固定服务期").length).toBeGreaterThan(0);
   });
 
   it("closes the detail dialog before opening the edit flow", () => {

@@ -33,22 +33,22 @@ import { ApiError } from "@/lib/api-client";
 import { colorWithAlpha } from "@/lib/color";
 import { formatCompactCurrencyAmount } from "@/lib/currency";
 import { useTheme } from "@/lib/theme-provider";
-import { daysBetweenDateOnly, todayDateOnlyInTimeZone } from "@/lib/time/date-only";
+import { daysBetweenDateOnly } from "@/lib/time/date-only";
 import { usePublicStatus } from "@/hooks/use-public-status-page";
 import { useExchangeRates } from "@/hooks/use-exchange-rates";
 import { useI18n } from "@/i18n/I18nProvider";
-import { localizedLabel, type Locale } from "@/i18n/locales";
-import { translate, type MessageKey } from "@/i18n/messages";
+import type { Locale } from "@/i18n/locales";
+import type { MessageKey } from "@/i18n/messages";
 import {
-  customCycleUnitLabelKey,
+  formatBillingCycleLabel,
+  isOneTimeBuyout,
+  projectSubscriptionDailyCost,
   toDailyAmountFromMonthly,
   toMonthlyAmount,
 } from "@/lib/subscription-billing";
 import type { PublicStatusResponse } from "@/lib/api/schemas/public-status";
-import { CYCLE_LABELS } from "@/types/subscription";
 import type { ThemeMode } from "@/types/theme";
 import { moneyToNumber } from "@renewlet/shared/money";
-import { requireCustomBillingCycle } from "@renewlet/shared/subscription-renewal";
 
 type PublicStatusSubscription = PublicStatusResponse["subscriptions"][number];
 type PublicStatusExchangeRateBasis = NonNullable<PublicStatusResponse["page"]["exchangeRateBasis"]>;
@@ -206,20 +206,39 @@ function PublicStatusError({ notFound }: { notFound: boolean }) {
   );
 }
 
+function publicSubscriptionBillingProjection(subscription: PublicStatusSubscription) {
+  const billingCycle = subscription.billingCycle;
+  if (!billingCycle) return null;
+  return {
+    billingCycle,
+    customDays: subscription.customDays,
+    customCycleUnit: subscription.customCycleUnit,
+    oneTimeTermCount: subscription.oneTimeTermCount,
+    oneTimeTermUnit: subscription.oneTimeTermUnit,
+    startDate: subscription.startDate,
+  };
+}
+
 function publicStatusStats(data: PublicStatusResponse) {
-  const today = todayDateOnlyInTimeZone(new Date(data.page.generatedAt), "UTC");
   return data.subscriptions.reduce(
     (counts, subscription) => {
       const isActiveLike = subscription.status === "active" || subscription.status === "trial";
-      const daysUntilBilling = daysBetweenDateOnly(today, subscription.nextBillingDate);
+      const billing = publicSubscriptionBillingProjection(subscription);
+      const contributesMonthlyCost = isActiveLike
+        && billing !== null
+        && !isOneTimeBuyout(billing);
+      const daysUntilBilling = subscription.nextBillingDate === null
+        ? null
+        : daysBetweenDateOnly(data.page.asOf, subscription.nextBillingDate);
       return {
         visible: counts.visible + 1,
         active: counts.active + (isActiveLike ? 1 : 0),
-        upcoming: counts.upcoming + (isActiveLike && daysUntilBilling >= 0 && daysUntilBilling <= 7 ? 1 : 0),
+        monthlyCost: counts.monthlyCost + (contributesMonthlyCost ? 1 : 0),
+        upcoming: counts.upcoming + (isActiveLike && daysUntilBilling !== null && daysUntilBilling >= 0 && daysUntilBilling <= 7 ? 1 : 0),
         inactive: counts.inactive + (["expired", "paused", "cancelled"].includes(subscription.status) ? 1 : 0),
       };
     },
-    { visible: 0, active: 0, upcoming: 0, inactive: 0 },
+    { visible: 0, active: 0, monthlyCost: 0, upcoming: 0, inactive: 0 },
   );
 }
 
@@ -231,21 +250,19 @@ function publicStatusMonthlyTotal(
   if (!data.page.showPrices || !targetCurrency) return 0;
   return data.subscriptions.reduce((sum, subscription) => {
     if (subscription.status !== "active" && subscription.status !== "trial") return sum;
-    if (
-      subscription.price === undefined
-      || !subscription.currency
-      || !subscription.billingCycle
-    ) {
+    const billing = publicSubscriptionBillingProjection(subscription);
+    if (subscription.price === undefined || !subscription.currency || !billing) {
       return sum;
     }
+    if (isOneTimeBuyout(billing)) return sum;
     const amount = convert(subscription.price, subscription.currency, targetCurrency);
     const monthly = toMonthlyAmount(
       amount,
-      subscription.billingCycle,
-      subscription.customDays,
-      subscription.customCycleUnit,
-      subscription.oneTimeTermCount,
-      subscription.oneTimeTermUnit,
+      billing.billingCycle,
+      billing.customDays,
+      billing.customCycleUnit,
+      billing.oneTimeTermCount,
+      billing.oneTimeTermUnit,
     );
     return Number.isFinite(monthly) ? sum + monthly : sum;
   }, 0);
@@ -355,7 +372,7 @@ function PublicStatusMoneyCards({
       <StatCard
         title={t("publicStatus.visibleCount")}
         value={formatNumber(stats.visible)}
-        subtitle={t("publicStatus.visibleMoneySubtitle", { count: formatNumber(stats.active) })}
+        subtitle={t("publicStatus.visibleMoneySubtitle", { count: formatNumber(stats.monthlyCost) })}
         icon={<Eye className="h-6 w-6" />}
         className="animate-fade-in [animation-delay:200ms]"
       />
@@ -410,36 +427,24 @@ function PublicStatusCountSummary({ data }: { data: PublicStatusResponse }) {
 }
 
 function publicBillingCycleLabel(subscription: PublicStatusSubscription, locale: Locale) {
-  if (!subscription.billingCycle) return null;
-  if (subscription.billingCycle !== "custom") return localizedLabel(CYCLE_LABELS[subscription.billingCycle], locale);
-  const custom = requireCustomBillingCycle(subscription.customDays, subscription.customCycleUnit);
-  const unitLabel = translate(locale, customCycleUnitLabelKey(custom.unit));
-  return translate(locale, "subscription.customCycleLabel", { count: custom.count, unit: unitLabel });
+  const billing = publicSubscriptionBillingProjection(subscription);
+  return billing ? formatBillingCycleLabel(billing, locale) : null;
 }
 
-function publicSubscriptionDailyAmount(subscription: PublicStatusSubscription) {
+function publicSubscriptionDailyCost(subscription: PublicStatusSubscription, asOf: string) {
   // 单条日均只能从 showPrices 后的公开价格投影派生；字段缺失时不得补默认值或读取私有 Subscription。
-  if (subscription.price === undefined || !subscription.currency || !subscription.billingCycle) return null;
-  // 买断和零价周期订阅的月均都可能为零，必须按服务期字段区分，不能用金额正负决定是否展示。
-  if (subscription.billingCycle === "one-time" && !subscription.oneTimeTermCount) return null;
-  const monthlyAmount = toMonthlyAmount(
-    subscription.price,
-    subscription.billingCycle,
-    subscription.customDays,
-    subscription.customCycleUnit,
-    subscription.oneTimeTermCount,
-    subscription.oneTimeTermUnit,
-  );
-  return Number.isFinite(monthlyAmount)
-    ? toDailyAmountFromMonthly(monthlyAmount)
-    : null;
+  const billing = publicSubscriptionBillingProjection(subscription);
+  if (subscription.price === undefined || !subscription.currency || !billing) return null;
+  return projectSubscriptionDailyCost(subscription.price, billing, asOf);
 }
 
-function PublicSubscriptionCard({ subscription }: { subscription: PublicStatusSubscription }) {
+function PublicSubscriptionCard({ subscription, asOf }: { subscription: PublicStatusSubscription; asOf: string }) {
   const { t, locale, formatCurrency, formatDateOnly, formatDateTime } = useI18n();
   const categoryColor = subscription.category.color ?? "hsl(var(--primary))";
   const billingCycleLabel = publicBillingCycleLabel(subscription, locale);
-  const dailyAmount = publicSubscriptionDailyAmount(subscription);
+  const dailyCost = publicSubscriptionDailyCost(subscription, asOf);
+  // billingCycle 在 showPrices=false 时必须隐藏；nextBillingDate=null 是公开 allowlist 保留的买断日期语义。
+  const isProjectedBuyout = subscription.nextBillingDate === null;
   const categoryStyle = {
     backgroundColor: colorWithAlpha(categoryColor, 0.1) ?? undefined,
     borderColor: colorWithAlpha(categoryColor, 0.2) ?? undefined,
@@ -493,12 +498,14 @@ function PublicSubscriptionCard({ subscription }: { subscription: PublicStatusSu
           </div>
 
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-            {dailyAmount !== null && subscription.currency ? (
+            {dailyCost !== null && subscription.currency ? (
               <div className="flex items-center gap-1.5 tabular-nums text-muted-foreground">
                 <Gauge className="h-3.5 w-3.5" />
                 <span className="text-xs">
-                  {t("publicStatus.subscriptionDailyAverage", {
-                    amount: formatCompactCurrencyAmount(dailyAmount, subscription.currency, locale),
+                  {t(dailyCost.basis === "ownership-to-date"
+                    ? "publicStatus.subscriptionDailyCostToDate"
+                    : "publicStatus.subscriptionDailyAverage", {
+                    amount: formatCompactCurrencyAmount(dailyCost.amount, subscription.currency, locale),
                   })}
                 </span>
               </div>
@@ -507,16 +514,18 @@ function PublicSubscriptionCard({ subscription }: { subscription: PublicStatusSu
               <div className="flex items-center gap-1.5 text-muted-foreground">
                 <Clock3 className="h-3.5 w-3.5" />
                 <span className="text-xs">
-                  {t("publicStatus.startDate", { date: formatDateOnly(subscription.startDate) })}
+                  {t(isProjectedBuyout ? "publicStatus.purchaseDate" : "publicStatus.startDate", {
+                    date: formatDateOnly(subscription.startDate),
+                  })}
                 </span>
               </div>
             ) : null}
-            <div className="flex items-center gap-1.5 text-muted-foreground">
+            {subscription.nextBillingDate ? <div className="flex items-center gap-1.5 text-muted-foreground">
               <CalendarClock className="h-3.5 w-3.5" />
               <span className="text-xs">
                 {t("publicStatus.nextBillingDate", { date: formatDateOnly(subscription.nextBillingDate) })}
               </span>
-            </div>
+            </div> : null}
           </div>
         </div>
       </div>
@@ -565,11 +574,11 @@ export default function PublicStatusPage() {
           <section className="grid gap-4 grid-cols-[repeat(auto-fit,minmax(min(100%,18rem),1fr))]" aria-label={t("publicStatus.listLabel")}>
             {data.subscriptions.map((subscription, index) => (
               <div
-                key={`${subscription.name}-${subscription.startDate ?? "unknown"}-${subscription.nextBillingDate}-${index}`}
+                key={`${subscription.name}-${subscription.startDate ?? "unknown"}-${subscription.nextBillingDate ?? "buyout"}-${index}`}
                 className="h-full animate-fade-in"
                 style={{ animationDelay: `${index * 40}ms` }}
               >
-                <PublicSubscriptionCard subscription={subscription} />
+                <PublicSubscriptionCard subscription={subscription} asOf={data.page.asOf} />
               </div>
             ))}
           </section>

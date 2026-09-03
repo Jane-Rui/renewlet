@@ -32,6 +32,33 @@ describe("useSettingsFormController", () => {
     expect(mocks.refreshRates).not.toHaveBeenCalled();
   });
 
+  it("reports only successful manual exchange-rate refreshes", async () => {
+    const { result } = renderSettingsFormController();
+
+    await act(async () => {
+      await result.current.handleRefreshRates();
+    });
+
+    expect(mocks.refreshRates).toHaveBeenCalledWith(BASE_SETTINGS.exchangeRateProvider);
+    expect(mocks.toast.success).toHaveBeenCalledWith("最新汇率数据已获取");
+  });
+
+  it("does not report success when a manual exchange-rate refresh fails", async () => {
+    mocks.refreshRates.mockResolvedValue({
+      status: "failed",
+      error: "网络请求失败",
+      errorDetails: null,
+    });
+    const { result } = renderSettingsFormController();
+
+    await act(async () => {
+      await result.current.handleRefreshRates();
+    });
+
+    expect(mocks.toast.success).not.toHaveBeenCalled();
+    expect(mocks.toast.error).not.toHaveBeenCalled();
+  });
+
   it("does not expose the PocketBase admin entry in Cloudflare runtime", () => {
     mocks.isCloudflareRuntime = true;
 
@@ -273,6 +300,11 @@ describe("useSettingsFormController", () => {
   });
 
   it("saves draft settings and refreshes rates only after the provider is saved", async () => {
+    mocks.refreshRates.mockResolvedValue({
+      status: "failed",
+      error: "网络请求失败",
+      errorDetails: null,
+    });
     const { result } = renderSettingsFormController();
 
     act(() => {
@@ -289,6 +321,7 @@ describe("useSettingsFormController", () => {
     expect(result.current.settings.exchangeRateProvider).toBe("exchange-api");
     expect(result.current.hasUnsavedChanges).toBe(false);
     expect(mocks.toast.success).toHaveBeenCalledWith("设置已保存");
+    expect(mocks.toast.success).not.toHaveBeenCalledWith("最新汇率数据已获取");
   });
 
   it("saves settings appearance changes and clears the dedicated pending draft", async () => {

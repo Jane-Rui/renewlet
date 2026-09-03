@@ -5,6 +5,7 @@ package main
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -166,6 +167,13 @@ func TestPublicAPITokenLifecycleAndReadRoutes(t *testing.T) {
 	}
 	if strings.Contains(listPublicRes.Body.String(), `"user"`) {
 		t.Fatalf("public API subscription DTO must not expose owner relation: %#v", listBody.Subscriptions[0])
+	}
+	if _, err := parsePublicSubscriptionCursorPayload(*listBody.NextCursor); err != nil {
+		t.Fatalf("public API must keep the legacy created/id cursor: %v", err)
+	}
+	nextPublicRes := serveTestRequest(t, app, http.MethodGet, "/api/public/v1/subscriptions?limit=1&cursor="+url.QueryEscape(*listBody.NextCursor), "", publicToken)
+	if nextPublicRes.Code != http.StatusOK {
+		t.Fatalf("expected public API legacy cursor to remain readable, got %d: %s", nextPublicRes.Code, nextPublicRes.Body.String())
 	}
 
 	listAllRes := serveTestRequest(t, app, http.MethodGet, "/api/public/v1/subscriptions?limit=3", "", publicToken)

@@ -89,7 +89,7 @@ export function createUseReportExchangeRates(store: ExchangeRateStore) {
     }, [month]);
 
     useEffect(() => {
-      if (!snapshotLoaded || live.loading || !isSnapshotProvider(live.activeProvider) || !live.sourceDate) return;
+      if (!snapshotLoaded || live.loading || live.isRefreshing || !isSnapshotProvider(live.activeProvider) || !live.sourceDate) return;
       const snapshotBody = {
         base: "USD" as const,
         rates: live.rates,
@@ -116,7 +116,7 @@ export function createUseReportExchangeRates(store: ExchangeRateStore) {
           console.warn("Failed to capture report exchange-rate snapshot:", error);
         });
       return () => controller.abort();
-    }, [currentSnapshot, live.activeProvider, live.loading, live.rates, live.sourceDate, live.warning, month, preferredProvider, snapshotLoaded]);
+    }, [currentSnapshot, live.activeProvider, live.isRefreshing, live.loading, live.rates, live.sourceDate, live.warning, month, preferredProvider, snapshotLoaded]);
 
     const reportBasisStatus = useMemo<ReportExchangeRateBasisStatus>(() => ({
       month,
@@ -144,7 +144,9 @@ export function createUseReportExchangeRates(store: ExchangeRateStore) {
       activeProvider: currentSnapshot?.provider ?? live.activeProvider,
       sourceDate: currentSnapshot?.sourceDate ?? live.sourceDate,
       lastUpdated: snapshotCapturedDate(currentSnapshot) ?? live.lastUpdated,
+      // 锁定快照保证报表可继续读取；主动刷新进度必须单独透出，不能让旧口径掩盖按钮状态。
       loading: currentSnapshot ? false : live.loading,
+      isRefreshing: live.isRefreshing,
       convert,
       reportBasisStatus,
       reportBasisCaptureError: captureError,
