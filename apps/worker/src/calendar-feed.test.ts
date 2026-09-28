@@ -1,5 +1,6 @@
 // Worker 日历 Feed 测试保护 D1 token scope、公开 ICS 路由和撤销语义，必须与 Go 后端行为保持一致。
 import { describe, expect, it } from "vitest";
+import labelFixtures from "../../../packages/shared/src/contract-fixtures/config-label-locales.json";
 import { readSuccessData } from "./api-test-helpers";
 import {
   calendarFeedIcs,
@@ -323,6 +324,26 @@ describe("calendar feed worker handlers", () => {
 
     await expect(calendarFeedIcs(new Request("https://renewlet.example/calendar/renewals.ics?token=missing"), env)).rejects.toMatchObject({ status: 404 });
     expect(env.__state.calendarFeedsTableExists).toBe(false);
+  });
+
+  it.each(labelFixtures)("renders Russian ICS labels for $name", async ({ labels, expected }) => {
+    const customConfig = createCalendarFeedTestCustomConfig();
+    for (const item of [...customConfig.categories, ...customConfig.paymentMethods]) item.labels = labels;
+    const env = await createCalendarFeedTestEnv({
+      localePreference: "ru-RU",
+      customConfigJson: JSON.stringify(customConfig),
+      subscriptions: [subscriptionRow("sub_ru", "Plan", "active", "monthly", "2099-06-02", {
+        category: "developer_tools", payment_method: "credit_card",
+      })],
+    });
+    const response = await createCalendarFeed(authorizedRequest("https://renewlet.example/api/app/calendar-feed", {
+      body: "{}", method: "POST",
+    }), env);
+    const created = await readSuccessData<{ calendarFeed: { feedUrl: string } }>(response);
+    const ics = unfoldIcsText(await (await calendarFeedIcs(new Request(created.calendarFeed.feedUrl), env)).text());
+    expect(ics).toContain(`CATEGORIES:${expected["ru-RU"]}`);
+    expect(ics).toContain(`Способ оплаты: ${expected["ru-RU"]}`);
+    expect(env.__state.customConfigJson).toBe(JSON.stringify(customConfig));
   });
 
   it("falls back to built-in labels when custom config is missing", async () => {

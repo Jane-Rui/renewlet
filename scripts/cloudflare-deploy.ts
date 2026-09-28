@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { LOCALE_PREFERENCES } from "../packages/shared/src/i18n-config";
 import {
   captureBookmark,
   deploymentRecoveryCommand,
@@ -59,7 +60,7 @@ export interface DeploymentOperations {
   recordRecoveryHint(bookmark: string, versionId: string): void;
 }
 
-function exclusiveMigrationNames(): string[] {
+export function exclusiveMigrationNames(): string[] {
   return readdirSync(resolve(repoRoot, "apps/worker/migrations"))
     .filter((name) => /^\d{4}_exclusive_[a-z0-9_]+\.sql$/.test(name))
     .sort();
@@ -251,29 +252,49 @@ function normalizeD1TriggerSQL(value: string): string {
   return value.trim().replace(/;\s*$/, "").replace(/\s+/g, " ");
 }
 
-/** 不变量期望值直接来自不可变 migration，避免在部署器里复制第二份 trigger 契约。 */
+/** guard 以排他迁移的最终定义为准；替换必须在同一份迁移中先 DROP 再 CREATE，不能放宽线上漂移校验。 */
 export function exclusiveMigrationTriggerDefinitions(names: readonly string[]): Map<string, string> {
   const definitions = new Map<string, string>();
   const triggerPattern = new RegExp(
-    String.raw`(CREATE\s+TRIGGER\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z][A-Za-z0-9_]*)\b[\s\S]*?\bEND\s*;)`,
+    String.raw`DROP\s+TRIGGER\s+(?:IF\s+EXISTS\s+)?([A-Za-z][A-Za-z0-9_]*)\s*;|(CREATE\s+TRIGGER\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z][A-Za-z0-9_]*)\b[\s\S]*?\bEND\s*;)`,
     "gi",
   );
-  for (const name of names) {
+  for (const name of [...names].sort()) {
     if (!/^\d{4}_exclusive_[a-z0-9_]+\.sql$/.test(name)) {
       throw new Error(`Invalid exclusive migration name: ${name}`);
     }
     const migration = readFileSync(resolve(repoRoot, "apps/worker/migrations", name), "utf8");
+    const dropped = new Set<string>();
     for (const match of migration.matchAll(triggerPattern)) {
-      const triggerName = match[2];
-      const sql = match[1];
-      if (!triggerName || !sql || definitions.has(triggerName)) {
+      const droppedName = match[1];
+      if (droppedName) {
+        dropped.add(droppedName);
+        continue;
+      }
+      const triggerName = match[3];
+      const sql = match[2];
+      if (!triggerName || !sql || (definitions.has(triggerName) && !dropped.has(triggerName))) {
         throw new Error(`Exclusive migration trigger definition is ambiguous: ${triggerName ?? name}`);
       }
       definitions.set(triggerName, normalizeD1TriggerSQL(sql));
+      dropped.delete(triggerName);
+    }
+    if (dropped.size > 0) {
+      throw new Error(`Exclusive migration must recreate dropped triggers: ${[...dropped].join(", ")}`);
     }
   }
   return definitions;
 }
+
+// 数据校验与运行时共享语言集合；trigger 仍单独对照不可变迁移全文，新增语言不能悄悄绕过数据库升级。
+export const settingsLocaleInvariantQuery = `SELECT COUNT(*) AS count FROM settings WHERE CASE
+  WHEN json_valid(settings_json) = 0 THEN 1
+  WHEN json_type(settings_json) IS NOT 'object' THEN 1
+  WHEN EXISTS (SELECT 1 FROM json_each(settings_json) GROUP BY key HAVING COUNT(*) > 1) THEN 1
+  WHEN json_type(settings_json, '$.locale') IS NOT NULL THEN 1
+  WHEN json_type(settings_json, '$.localePreference') IS NOT 'text' THEN 1
+  WHEN json_extract(settings_json, '$.localePreference') NOT IN (${LOCALE_PREFERENCES.map((locale) => `'${locale.replaceAll("'", "''")}'`).join(", ")}) THEN 1
+  ELSE 0 END = 1`;
 
 /** 同名 trigger 也必须逐定义一致，marker 和对象数量都不能证明数据库 guard 未被弱化。 */
 export function assertD1TriggerDefinitions(
@@ -420,14 +441,7 @@ function createOperations(options: DeployOptions): DeploymentOperations {
       const applied = await readAppliedExclusiveMigrations(names);
       if (names.some((name) => !applied.has(name))) throw new Error("Cloudflare D1 exclusive migration marker is missing");
       const invalid = await d1.query(
-        `SELECT COUNT(*) AS count FROM settings WHERE CASE
-          WHEN json_valid(settings_json) = 0 THEN 1
-          WHEN json_type(settings_json) IS NOT 'object' THEN 1
-          WHEN EXISTS (SELECT 1 FROM json_each(settings_json) GROUP BY key HAVING COUNT(*) > 1) THEN 1
-          WHEN json_type(settings_json, '$.locale') IS NOT NULL THEN 1
-          WHEN json_type(settings_json, '$.localePreference') IS NOT 'text' THEN 1
-          WHEN json_extract(settings_json, '$.localePreference') NOT IN ('auto', 'zh-CN', 'en-US') THEN 1
-          ELSE 0 END = 1`,
+        settingsLocaleInvariantQuery,
         [],
         parseD1CountRow,
       );

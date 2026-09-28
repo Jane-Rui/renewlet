@@ -60,6 +60,7 @@ func TestCloudBackupExportSettingsMapsLocalePreferenceToV1(t *testing.T) {
 		{preference: string(autoLocalePreference)},
 		{preference: string(preferenceZhCN), wantLocale: string(preferenceZhCN)},
 		{preference: string(preferenceEnUS), wantLocale: string(preferenceEnUS)},
+		{preference: string(preferenceRuRU), wantLocale: string(preferenceRuRU)},
 	} {
 		t.Run(test.preference, func(t *testing.T) {
 			app := newSchemaTestApp(t)

@@ -10,7 +10,7 @@ import {
   publicStatusPageUpdateRequestSchema,
   publicStatusPayloadSchema,
 } from "@renewlet/shared/schemas/public-status";
-import { customConfigSchema, type ApiCustomConfig } from "@renewlet/shared/schemas/custom-config";
+import { customConfigSchema } from "@renewlet/shared/schemas/custom-config";
 import type { ApiSubscription } from "@renewlet/shared/schemas/subscriptions";
 import { isOneTimeBuyout, isOneTimeFixedTerm } from "@renewlet/shared/subscription-billing";
 import { getCustomConfig, getSettings, intToBool, newId, nowIso, toApiSubscription } from "./db";
@@ -18,6 +18,7 @@ import { randomToken } from "./crypto";
 import { requireAuth } from "./auth";
 import { HttpError, ok, readJson, requestLocale, successJson } from "./http";
 import { serverText, type AppLocale } from "./server-i18n";
+import { localizedConfigLabel } from "./custom-config-labels";
 import { calendarFeedBuiltInCategoryLabelKey } from "./calendar-feed-built-in-labels";
 import { getExchangeRatePublicBasis } from "./exchange-rate-snapshots";
 import { requestOrigin } from "./request-origin";
@@ -291,7 +292,7 @@ async function newPublicStatusCategoryResolver(env: Env, userId: string, locale:
       if (custom) {
         return {
           value,
-          label: localizedConfigLabel(custom.labels, locale, value),
+          label: localizedConfigLabel(custom.labels, locale) || value,
           ...(custom.color ? { color: custom.color } : {}),
         };
       }
@@ -299,11 +300,6 @@ async function newPublicStatusCategoryResolver(env: Env, userId: string, locale:
       return { value, label: key ? serverText(locale, key) : value };
     },
   };
-}
-
-function localizedConfigLabel(labels: ApiCustomConfig["categories"][number]["labels"], locale: AppLocale, fallback: string): string {
-  if (locale === "en-US") return labels["en-US"] || labels["zh-CN"] || fallback;
-  return labels["zh-CN"] || labels["en-US"] || fallback;
 }
 
 function publicStatusPageStatus(row: PublicStatusPageRow | null, request: Request) {

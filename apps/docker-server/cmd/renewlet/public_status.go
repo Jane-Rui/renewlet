@@ -468,7 +468,7 @@ func (r publicStatusCategoryResolver) Category(value string) publicStatusCategor
 	if ok {
 		return publicStatusCategoryView{
 			Value: value,
-			Label: publicStatusLocalizedConfigLabel(item.Labels, r.locale, value),
+			Label: firstNonBlank(localizedCustomConfigLabel(item.Labels, r.locale), value),
 			Color: item.Color,
 		}
 	}
@@ -476,25 +476,6 @@ func (r publicStatusCategoryResolver) Category(value string) publicStatusCategor
 		return publicStatusCategoryView{Value: value, Label: serverText(r.locale, key)}
 	}
 	return publicStatusCategoryView{Value: value, Label: value}
-}
-
-func publicStatusLocalizedConfigLabel(labels customConfigLabels, locale appLocale, fallback string) string {
-	if locale == localeEnUS {
-		if labels.EnUS != "" {
-			return labels.EnUS
-		}
-		if labels.ZhCN != "" {
-			return labels.ZhCN
-		}
-		return fallback
-	}
-	if labels.ZhCN != "" {
-		return labels.ZhCN
-	}
-	if labels.EnUS != "" {
-		return labels.EnUS
-	}
-	return fallback
 }
 
 func setPublicStatusHeaders(headers http.Header) {

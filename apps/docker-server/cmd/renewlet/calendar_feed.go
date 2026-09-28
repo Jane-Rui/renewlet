@@ -497,30 +497,11 @@ func calendarFeedLabelMap(items []customConfigItem, locale appLocale) map[string
 		if item.Value == "" {
 			continue
 		}
-		if label := calendarFeedLocalizedConfigLabel(item.Labels, locale); label != "" {
+		if label := localizedCustomConfigLabel(item.Labels, locale); label != "" {
 			labels[item.Value] = label
 		}
 	}
 	return labels
-}
-
-func calendarFeedLocalizedConfigLabel(labels customConfigLabels, locale appLocale) string {
-	if locale == localeEnUS {
-		if labels.EnUS != "" {
-			return labels.EnUS
-		}
-		if labels.ZhCN != "" {
-			return labels.ZhCN
-		}
-		return ""
-	}
-	if labels.ZhCN != "" {
-		return labels.ZhCN
-	}
-	if labels.EnUS != "" {
-		return labels.EnUS
-	}
-	return ""
 }
 
 func (resolver calendarFeedLabelResolver) categoryLabel(value string) string {

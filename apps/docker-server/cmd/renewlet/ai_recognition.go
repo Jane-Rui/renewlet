@@ -359,22 +359,12 @@ func aiRecognitionConfigOptions(items []customConfigItem, locale appLocale) []ai
 	for _, item := range items {
 		out = append(out, aiRecognitionConfigOption{
 			Value: item.Value,
-			Label: localizedAIRecognitionConfigLabel(item.Labels, locale),
+			Label: localizedCustomConfigLabel(item.Labels, locale),
 			ZhCN:  item.Labels.ZhCN,
 			EnUS:  item.Labels.EnUS,
 		})
 	}
 	return out
-}
-
-func localizedAIRecognitionConfigLabel(labels customConfigLabels, locale appLocale) string {
-	if locale == localeEnUS && labels.EnUS != "" {
-		return labels.EnUS
-	}
-	if labels.ZhCN != "" {
-		return labels.ZhCN
-	}
-	return labels.EnUS
 }
 
 func aiRecognitionJSONError(e *core.RequestEvent, status int, message string, code string, reason string, err error, _ *aiRecognitionDiagnostics) error {

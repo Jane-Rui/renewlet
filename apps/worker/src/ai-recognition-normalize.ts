@@ -31,6 +31,7 @@ import {
   isValidDateOnly,
 } from "@renewlet/shared/runtime";
 import { serverFormat, serverText, type AppLocale } from "./server-i18n";
+import { localizedConfigLabel } from "./custom-config-labels";
 
 const BILLING_CYCLE_SET = new Set<string>(BILLING_CYCLES);
 const CUSTOM_CYCLE_UNIT_SET = new Set<string>(CUSTOM_CYCLE_UNITS);
@@ -409,7 +410,7 @@ function aiRecognitionConfigOption(
 ): AIRecognitionPromptConfigOption {
   return {
     value: item.value,
-    label: locale === "en-US" ? item.labels["en-US"] : item.labels["zh-CN"],
+    label: localizedConfigLabel(item.labels, locale),
     zhCN: item.labels["zh-CN"],
     enUS: item.labels["en-US"],
   };

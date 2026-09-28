@@ -1,5 +1,6 @@
 // Worker 公开展示页测试保护 bearer token、字段 allowlist、隐藏过滤和 R2 私有资产代理边界。
 import { createDefaultAppSettings } from "@renewlet/shared/settings-defaults";
+import labelFixtures from "../../../packages/shared/src/contract-fixtures/config-label-locales.json";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readSuccessData } from "./api-test-helpers";
 import {
@@ -340,6 +341,20 @@ describe("public status worker handlers", () => {
     const deleteResponse = await deletePublicStatusPage(authorizedRequest("/api/app/public-status-page", { method: "DELETE" }), env);
     expect(deleteResponse.status).toBe(200);
     await expect(readPublicStatus(publicRequest(`/api/public/status/${TOKEN}`), env, TOKEN)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it.each(labelFixtures)("renders Russian public labels for $name", async ({ labels, expected }) => {
+    const env = createEnv({
+      pages: [publicPage()],
+      subscriptions: [subscriptionRow()],
+      customConfigJson: JSON.stringify({
+        categories: [{ id: "developer_tools", value: "developer_tools", labels }],
+        statuses: [], paymentMethods: [], currencies: [],
+      }),
+    });
+    const response = await readPublicStatus(publicRequest(`/api/public/status/${TOKEN}`, "ru-RU"), env, TOKEN);
+    const data = await readSuccessData<{ subscriptions: Array<{ category: { label: string } }> }>(response);
+    expect(data.subscriptions[0]?.category.label).toBe(expected["ru-RU"]);
   });
 
   it("returns a minimal public allowlist, filters hidden subscriptions, and only includes prices when enabled", async () => {

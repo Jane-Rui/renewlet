@@ -1,0 +1,32 @@
+[
+  {
+    "name": "unchanged built-in category",
+    "labels": { "zh-CN": "开发工具", "en-US": "Developer Tools" },
+    "expected": { "zh-CN": "开发工具", "en-US": "Developer Tools", "ru-RU": "Инструменты разработчика" }
+  },
+  {
+    "name": "unchanged built-in payment method",
+    "labels": { "zh-CN": "银行转账", "en-US": "Bank transfer" },
+    "expected": { "zh-CN": "银行转账", "en-US": "Bank transfer", "ru-RU": "Банковский перевод" }
+  },
+  {
+    "name": "user-defined labels",
+    "labels": { "zh-CN": "自定义分类", "en-US": "My category" },
+    "expected": { "zh-CN": "自定义分类", "en-US": "My category", "ru-RU": "My category" }
+  },
+  {
+    "name": "renamed English label",
+    "labels": { "zh-CN": "开发工具", "en-US": "My tools" },
+    "expected": { "zh-CN": "开发工具", "en-US": "My tools", "ru-RU": "My tools" }
+  },
+  {
+    "name": "renamed Chinese label",
+    "labels": { "zh-CN": "我的工具", "en-US": "Developer Tools" },
+    "expected": { "zh-CN": "我的工具", "en-US": "Developer Tools", "ru-RU": "Developer Tools" }
+  },
+  {
+    "name": "Russian user text stored in bilingual fields",
+    "labels": { "zh-CN": "Мои инструменты", "en-US": "Мои инструменты" },
+    "expected": { "zh-CN": "Мои инструменты", "en-US": "Мои инструменты", "ru-RU": "Мои инструменты" }
+  }
+]

@@ -119,6 +119,7 @@ describe("Cloudflare cloud backup export ZIP", () => {
     ["auto", undefined],
     ["zh-CN", "zh-CN"],
     ["en-US", "en-US"],
+    ["ru-RU", "ru-RU"],
   ] as const)("maps %s to the v1 locale field", async (localePreference, expectedLocale) => {
     dbMocks.getSettings.mockResolvedValue({ ...createDefaultAppSettings(), localePreference });
 

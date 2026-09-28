@@ -7,6 +7,13 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { runBackfill } from "./backfill-cloudflare-subscription-derived-state";
 import { subscriptionCollectionPageQueryPlan } from "../apps/worker/src/subscription-list-filters";
+import { LOCALE_PREFERENCES } from "../packages/shared/src/i18n-config";
+import {
+  assertD1TriggerDefinitions,
+  exclusiveMigrationNames,
+  exclusiveMigrationTriggerDefinitions,
+  settingsLocaleInvariantQuery,
+} from "./cloudflare-deploy";
 import {
   prepareCalendarFeedsFor0035,
   restoreCalendarFeedsAfter0035,
@@ -371,6 +378,31 @@ function assertSettingsMigrated(db: DatabaseSync, localePreference: string): voi
   });
 }
 
+function assertCurrentLocaleContract(db: DatabaseSync): void {
+  const expected = exclusiveMigrationTriggerDefinitions(exclusiveMigrationNames());
+  const triggers = db.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'trigger'")
+    .all() as Array<{ name: string; sql: string }>;
+  assertD1TriggerDefinitions(expected, triggers.filter((trigger) => expected.has(trigger.name)));
+  assert.equal(db.prepare(settingsLocaleInvariantQuery).get()?.["count"], 0);
+  const original = db.prepare("SELECT settings_json FROM settings WHERE user_id = ?").get(userId)?.["settings_json"];
+  if (original === undefined) return;
+  // 使用固定历史库的真实账号试写新语言；回滚试写，后续幂等与事实核对仍基于原数据。
+  db.exec("BEGIN");
+  try {
+    const update = db.prepare("UPDATE settings SET settings_json = json_set(settings_json, '$.localePreference', ?) WHERE user_id = ?");
+    for (const locale of LOCALE_PREFERENCES) {
+      update.run(locale, userId);
+      assert.equal(db.prepare(settingsLocaleInvariantQuery).get()?.["count"], 0);
+    }
+    assert.throws(() => update.run("fr-FR", userId), /SETTINGS_LOCALE_CONTRACT_INVALID/);
+    assert.throws(() => db.prepare("UPDATE settings SET settings_json = ? WHERE user_id = ?")
+      .run('{"locale":"ru-RU"}', userId), /SETTINGS_LOCALE_CONTRACT_INVALID/);
+  } finally {
+    db.exec("ROLLBACK");
+  }
+  assert.equal(db.prepare("SELECT settings_json FROM settings WHERE user_id = ?").get(userId)?.["settings_json"], original);
+}
+
 function assertUpgradeMarkersComplete(db: DatabaseSync): void {
   assert.deepEqual(
     db.prepare("SELECT name FROM d1_migrations ORDER BY name").all().map((row) => String(row["name"])),
@@ -417,6 +449,7 @@ test("a fresh database applies every current migration and converges on empty in
     assert.equal(client.db.prepare("SELECT COUNT(*) AS count FROM subscription_list_index").get()?.["count"], 0);
     assert.equal(client.db.prepare("SELECT COUNT(*) AS count FROM subscription_user_stats").get()?.["count"], 0);
     assert.deepEqual(client.db.prepare("PRAGMA foreign_key_check").all(), []);
+    assertCurrentLocaleContract(client.db);
   } finally {
     client.db.close();
   }
@@ -453,6 +486,7 @@ for (const fixture of pinnedFixtures) {
       assertRebuiltState(client.db);
       assertProductionPaymentTypeQueries(client.db);
       assertUpgradeMarkersComplete(client.db);
+      assertCurrentLocaleContract(client.db);
     } finally {
       client.db.close();
     }
