@@ -376,6 +376,7 @@ export const CURRENCY_OPTIONS = SUPPORTED_EXCHANGE_RATE_CURRENCIES.map((value) =
       getIntlCurrencyOptionLabel(value, 'zh-CN'),
       getIntlCurrencyOptionLabel(value, 'en-US'),
     ),
+    `currency.${value}`,
     (locale) => getIntlCurrencyOptionLabel(value, locale),
   ),
   region: 'global',

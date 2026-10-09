@@ -27,7 +27,7 @@ import type { SettingsAuthSecurityController } from "../application/use-auth-sec
 import type { SettingsTelegramBotCommandsController } from "../application/use-telegram-bot-commands-controller";
 import type { SettingsFormController } from "../application/settings-form-controller-types";
 import type { SettingsCalendarFeedController } from "../application/use-calendar-feed-settings-controller";
-import type { CloudBackupController } from "../application/use-cloud-backup-controller";
+import { createCloudBackupControllerState } from "./cloud-backup-controller-test-utils";
 import type { SettingsReadState } from "../application/settings-read-state";
 import { MFA_STATUS_QUERY_KEY, PASSKEYS_QUERY_KEY } from "./account-security-query-keys";
 const mocks = vi.hoisted(() => ({
@@ -353,74 +353,6 @@ export function createUploadedAssetsManagerState(
     deletingAssetId: null,
     deleteAsset: vi.fn<UploadedAssetsManagerController["deleteAsset"]>().mockResolvedValue(true),
     ...controllerOverrides,
-  };
-}
-
-export function createCloudBackupControllerState(): CloudBackupController {
-  const fn = vi.fn();
-  const defaultPolicy = {
-    scheduleEnabled: false,
-    scheduleFrequency: "daily" as const,
-    scheduleTime: "03:00",
-    scheduleWeekday: "monday" as const,
-    retention: 7,
-  };
-  const defaultStatus = {
-    lastBackupAt: null,
-    lastStatus: "idle" as const,
-    lastError: null,
-    updatedAt: null,
-  };
-  return {
-    config: createSettingsReadState({
-      provider: "webdav" as const,
-      credentialSet: false,
-      credentialSetByProvider: { webdav: false, s3: false },
-      policyByProvider: { webdav: defaultPolicy, s3: defaultPolicy },
-      statusByProvider: { webdav: defaultStatus, s3: defaultStatus },
-      updatedAt: null,
-    }),
-    snapshots: createSettingsReadState([]),
-    isInitialLayoutReady: true,
-    form: {
-      provider: "webdav" as const,
-      webdavUrl: "",
-      webdavUsername: "",
-      webdavPassword: "",
-      webdavPath: "renewlet",
-      s3Endpoint: "",
-      s3Region: "",
-      s3Bucket: "",
-      s3Prefix: "renewlet",
-      s3AccessKeyId: "",
-      s3SecretAccessKey: "",
-      scheduleEnabled: false,
-      scheduleFrequency: "daily" as const,
-      scheduleTime: "03:00",
-      scheduleWeekday: "monday" as const,
-      retention: "7",
-    },
-    credentialSet: false,
-    canCreateSnapshot: false,
-    isSaving: false,
-    isTesting: false,
-    isCreating: false,
-    isDownloading: false,
-    isDeleting: false,
-    restoringSnapshotKey: null,
-    deletingSnapshotKey: null,
-    hasUnsavedChanges: false,
-    snapshotsErrorMessage: null,
-    cloudBackupErrorDetails: null,
-    cloudBackupErrorDetailsOpen: false,
-    setCloudBackupErrorDetailsOpen: fn,
-    openSnapshotsErrorDetails: fn,
-    updateForm: fn,
-    saveConfig: fn,
-    testConfig: fn,
-    createSnapshot: fn,
-    restoreSnapshot: fn,
-    deleteSnapshot: fn,
   };
 }
 

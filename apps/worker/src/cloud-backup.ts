@@ -2,6 +2,7 @@ import {
   CLOUD_BACKUP_DEFAULT_RETENTION,
   CLOUD_BACKUP_DEFAULT_SCHEDULE_TIME,
   CLOUD_BACKUP_DEFAULT_SCHEDULE_WEEKDAY,
+  CLOUD_BACKUP_DIAGNOSTIC_MAX_CHARS,
   cloudBackupConfigPayloadSchema,
   cloudBackupConfigUpdateSchema,
   cloudBackupCreateSnapshotRequestSchema,
@@ -133,7 +134,7 @@ export async function testCloudBackupConfig(request: Request, env: Env): Promise
   const target = targetFromUpdate(auth.user.id, body, current);
   const client = remoteClientForTarget(target, locale);
   await client.test().catch((error: unknown) => {
-    throw cloudBackupOperationError(locale, "cloudBackup.testFailed", "CLOUD_BACKUP_TEST_FAILED", error);
+    throw cloudBackupOperationError(locale, "cloudBackup.testFailed", error);
   });
   return successJson(cloudBackupTestPayloadSchema.parse({
     checkedAt: nowIso(),
@@ -145,12 +146,12 @@ export async function listCloudBackups(request: Request, env: Env): Promise<Resp
   const locale = requestLocale(request);
   const providerQuery = cloudBackupProviderFromRequest(request, locale);
   if (!providerQuery.hasProvider) {
-    throw cloudBackupProviderParameterError(locale, "CLOUD_BACKUP_PROVIDER_REQUIRED", "provider_required", "Use provider=webdav or provider=s3.");
+    throw cloudBackupProviderParameterError(locale, "CLOUD_BACKUP_PROVIDER_REQUIRED", "Use provider=webdav or provider=s3.");
   }
   // 列表是 provider-scoped API；当前 tab 只访问当前目标，另一个目标的上游错误不能污染本响应。
   const target = await configuredCloudBackupTargetForProvider(env, auth.user.id, providerQuery.provider, locale);
   const manifests = await target.client.list().catch((error: unknown) => {
-    throw cloudBackupOperationError(locale, "cloudBackup.listFailed", "CLOUD_BACKUP_LIST_FAILED", error);
+    throw cloudBackupOperationError(locale, "cloudBackup.listFailed", error);
   });
   const snapshots: CloudBackupSnapshot[] = snapshotsFromManifests(target.provider, manifests);
   snapshots.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
@@ -166,7 +167,7 @@ export async function createCloudBackup(request: Request, env: Env): Promise<Res
     return successJson(cloudBackupCreateSnapshotPayloadSchema.parse({ snapshots }), { status: 201 });
   } catch (error) {
     await markCloudBackupStatus(env, auth.user.id, body.provider, "failed", persistedCloudBackupErrorMessage(error));
-    throw cloudBackupOperationError(locale, "cloudBackup.createFailed", "CLOUD_BACKUP_CREATE_FAILED", error);
+    throw cloudBackupOperationError(locale, "cloudBackup.createFailed", error);
   }
 }
 
@@ -175,7 +176,7 @@ async function readCloudBackupCreateRequest(request: Request, locale: AppLocale)
     return await readJson(request, cloudBackupCreateSnapshotRequestSchema, locale);
   } catch (error) {
     if (error instanceof HttpError && error.code === "INVALID_PAYLOAD") {
-      throw cloudBackupProviderParameterError(locale, "CLOUD_BACKUP_PROVIDER_INVALID", "provider_invalid", `Use JSON body {"provider":"webdav"} or {"provider":"s3"}.`);
+      throw cloudBackupProviderParameterError(locale, "CLOUD_BACKUP_PROVIDER_INVALID", `Use JSON body {"provider":"webdav"} or {"provider":"s3"}.`);
     }
     throw error;
   }
@@ -192,14 +193,14 @@ export async function downloadCloudBackup(request: Request, env: Env, id: string
   if (providerQuery.hasProvider) {
     const client = await configuredCloudBackupClientForProvider(env, auth.user.id, providerQuery.provider, locale);
     ({ content, manifest } = await client.download(snapshotId).catch((error: unknown) => {
-      throw cloudBackupOperationError(locale, "cloudBackup.downloadFailed", "CLOUD_BACKUP_DOWNLOAD_FAILED", error);
+      throw cloudBackupOperationError(locale, "cloudBackup.downloadFailed", error);
     }));
     if (!(await verifySnapshotBytes(content, manifest))) {
       throw new HttpError(400, serverText(locale, "cloudBackup.checksumFailed"), "CLOUD_BACKUP_CHECKSUM_FAILED");
     }
   } else {
     ({ content, manifest } = await downloadCloudBackupWithoutProvider(env, auth.user.id, locale, snapshotId).catch((error: unknown) => {
-      throw cloudBackupOperationError(locale, "cloudBackup.downloadFailed", "CLOUD_BACKUP_DOWNLOAD_FAILED", error);
+      throw cloudBackupOperationError(locale, "cloudBackup.downloadFailed", error);
     }));
   }
 
@@ -221,14 +222,14 @@ export async function deleteCloudBackup(request: Request, env: Env, id: string):
   if (providerQuery.hasProvider) {
     const client = await configuredCloudBackupClientForProvider(env, auth.user.id, providerQuery.provider, locale);
     await client.delete(snapshotId).catch((error: unknown) => {
-      throw cloudBackupOperationError(locale, "cloudBackup.deleteFailed", "CLOUD_BACKUP_DELETE_FAILED", error);
+      throw cloudBackupOperationError(locale, "cloudBackup.deleteFailed", error);
     });
   } else {
     await deleteCloudBackupWithoutProvider(env, auth.user.id, locale, snapshotId).catch((error: unknown) => {
       const messageKey = error instanceof CloudBackupRemoteError && error.code === "CLOUD_BACKUP_PROVIDER_REQUIRED"
         ? "cloudBackup.providerRequired"
         : "cloudBackup.deleteFailed";
-      throw cloudBackupOperationError(locale, messageKey, "CLOUD_BACKUP_DELETE_FAILED", error);
+      throw cloudBackupOperationError(locale, messageKey, error);
     });
   }
   return ok();
@@ -564,7 +565,8 @@ async function deleteCloudBackupWithoutProvider(env: Env, userId: string, locale
 }
 
 async function enforceRetention(client: CloudBackupRemoteClient, retention: number, keepId: string): Promise<void> {
-  const manifests = await client.list().catch(() => []);
+  // retention 使用与设置页相同的严格列表语义；列表或 manifest 损坏时必须保留阶段错误，不能把成功上传伪装成完整成功。
+  const manifests = await client.list();
   manifests.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   for (const [index, manifest] of manifests.entries()) {
     if (index < retention || manifest.id === keepId) continue;
@@ -627,28 +629,40 @@ function snapshotFromManifest(provider: CloudBackupProvider, manifest: CloudBack
   };
 }
 
-function cloudBackupOperationError(locale: AppLocale, messageKey: ServerTextKey, fallbackCode: string, error: unknown): HttpError {
+function cloudBackupOperationError(locale: AppLocale, messageKey: ServerTextKey, error: unknown): HttpError {
   if (error instanceof HttpError) return error;
   if (error instanceof CloudBackupRemoteError) {
-    // 操作层 code 保持稳定，provider 细节只放 details；否则测试连接/列表/下载的错误语义会被底层 SDK code 打散。
-    return new HttpError(400, serverText(locale, messageKey), fallbackCode, error.details);
+    // 远端阶段码直接穿过 API 边界；只有展示文案本地化，避免把真实失败阶段改写成动作错误。
+    return new HttpError(400, serverText(locale, messageKey), error.code, error.details);
   }
-  return new HttpError(400, serverText(locale, messageKey), fallbackCode, cloudBackupLocalErrorDetails(error));
+  const code = stableCloudBackupErrorCode(errorMessage(error)) ?? "CLOUD_BACKUP_LOCAL_OPERATION_FAILED";
+  return new HttpError(400, serverText(locale, messageKey), code, cloudBackupLocalErrorDetails(error));
 }
 
 function persistedCloudBackupErrorMessage(error: unknown): string {
   if (error instanceof CloudBackupRemoteError) {
     return error.code;
   }
+  const candidate = stableCloudBackupErrorCode(errorMessage(error));
+  if (candidate) return candidate;
   return "local_sdk_error";
 }
 
 function cloudBackupLocalErrorDetails(error: unknown): CloudBackupErrorDetails {
-  return { rawResponseText: errorMessage(error) };
+  return {
+    operation: "local",
+    target: "cloud backup",
+    clientMessage: errorMessage(error).slice(0, CLOUD_BACKUP_DIAGNOSTIC_MAX_CHARS),
+  };
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function stableCloudBackupErrorCode(value: string): string | null {
+  const candidate = value.trim();
+  return /^CLOUD_BACKUP_[A-Z0-9_]+$/.test(candidate) ? candidate : null;
 }
 
 function credentialSetForTarget(target: ResolvedCloudBackupTarget | undefined): boolean {

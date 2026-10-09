@@ -22,6 +22,7 @@ import {
   invalidateSubscriptionCollections,
   subscriptionQueryKeys,
 } from "@/hooks/subscription-query-cache";
+import { invalidateNotificationOverview } from "@/hooks/notification-query-cache";
 
 const SUBSCRIPTIONS_STALE_TIME_MS = 60_000;
 const INITIAL_SUBSCRIPTION_CURSOR: string | null = null;
@@ -146,11 +147,16 @@ function writeSubscriptionMutationResult(queryClient: QueryClient, subscription:
   void invalidateSubscriptionCollections(queryClient);
 }
 
+function writeNotificationAffectingSubscriptionMutationResult(queryClient: QueryClient, subscription: Subscription): void {
+  writeSubscriptionMutationResult(queryClient, subscription);
+  void invalidateNotificationOverview(queryClient);
+}
+
 export function useCreateSubscription() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (sub: SubscriptionDraft) => subscriptionService.create(sub),
-    onSuccess: (subscription) => writeSubscriptionMutationResult(queryClient, subscription),
+    onSuccess: (subscription) => writeNotificationAffectingSubscriptionMutationResult(queryClient, subscription),
   });
 }
 
@@ -159,7 +165,7 @@ export function useUpdateSubscription() {
   return useMutation({
     mutationFn: ({ id, changes }: UpdateSubscriptionCommand) =>
       subscriptionService.update(id, changes),
-    onSuccess: (subscription) => writeSubscriptionMutationResult(queryClient, subscription),
+    onSuccess: (subscription) => writeNotificationAffectingSubscriptionMutationResult(queryClient, subscription),
   });
 }
 
@@ -168,6 +174,7 @@ export function usePatchSubscription() {
   return useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: SubscriptionFieldPatch }) =>
       subscriptionService.patch(id, patch),
+    // pinned/publicHidden 只改变列表展示集合，不改变通知资格，避免无关的 Upcoming 请求。
     onSuccess: (subscription) => writeSubscriptionMutationResult(queryClient, subscription),
   });
 }
@@ -177,7 +184,7 @@ export function useRenewSubscription() {
   return useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: SubscriptionRenewBody }) =>
       subscriptionService.renew(id, payload),
-    onSuccess: (subscription) => writeSubscriptionMutationResult(queryClient, subscription),
+    onSuccess: (subscription) => writeNotificationAffectingSubscriptionMutationResult(queryClient, subscription),
   });
 }
 
@@ -188,6 +195,7 @@ export function useDeleteSubscription() {
     onSuccess: (_data, id) => {
       queryClient.removeQueries({ queryKey: subscriptionQueryKeys.detail(id), exact: true });
       void invalidateSubscriptionCollections(queryClient);
+      void invalidateNotificationOverview(queryClient);
     },
   });
 }

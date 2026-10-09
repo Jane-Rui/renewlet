@@ -74,25 +74,43 @@ export function isLabelLocale(locale: Locale): locale is LabelLocale {
   return (LABEL_LOCALES as readonly string[]).includes(locale);
 }
 
-function labelIdentity(source: LocalizedLabels): string {
-  return `${source["zh-CN"]}\u0000${source["en-US"]}`;
-}
+export type DerivedLabelKey = string;
 
-const derivedLabelResolvers = new Map<string, (locale: Locale) => string>();
+type DerivedLabelDefinition = {
+  expected: LocalizedLabels;
+  resolve: (locale: Locale) => string;
+};
+
+const derivedLabelDefinitions = new Map<DerivedLabelKey, DerivedLabelDefinition>();
+const derivedLabelKeys = new WeakMap<LocalizedLabels, DerivedLabelKey>();
 
 /**
- * 为可由运行时推导的 labels（内置 catalog 标签、Intl 货币名）登记其它界面语言的解析函数；
- * 持久化副本只要与登记值完全一致（用户未改名）就按当前界面语言显示，用户自定义文本回退英文原文。
+ * 为可由运行时推导的 labels 登记稳定来源 key；来源 key 不进入持久化 JSON，显示时还会核对
+ * 中英文是否仍等于登记时的官方原值，避免用户自定义文本通过显示文本碰撞命中内置翻译。
  */
-export function withDerivedLabels(source: LocalizedLabels, resolve: (locale: Locale) => string): LocalizedLabels {
-  derivedLabelResolvers.set(labelIdentity(source), resolve);
+export function withDerivedLabels(
+  source: LocalizedLabels,
+  key: DerivedLabelKey,
+  resolve: (locale: Locale) => string,
+): LocalizedLabels {
+  derivedLabelKeys.set(source, key);
+  derivedLabelDefinitions.set(key, { expected: { ...source }, resolve });
   return source;
 }
 
-export function localizedLabel(source: LocalizedLabels, locale: Locale): string {
-  const value = isLabelLocale(locale)
-    ? source[locale]
-    : derivedLabelResolvers.get(labelIdentity(source))?.(locale) || source["en-US"];
+export function localizedLabel(source: LocalizedLabels, locale: Locale, explicitKey?: DerivedLabelKey): string {
+  const key = explicitKey ?? derivedLabelKeys.get(source);
+  const definition = key ? derivedLabelDefinitions.get(key) : undefined;
+  let value: string;
+  if (isLabelLocale(locale)) {
+    value = source[locale];
+  } else if (definition
+    && source["zh-CN"] === definition.expected["zh-CN"]
+    && source["en-US"] === definition.expected["en-US"]) {
+    value = definition.resolve(locale);
+  } else {
+    value = source["en-US"];
+  }
   if (!value) {
     throw new Error(`Missing localized label for ${locale}`);
   }

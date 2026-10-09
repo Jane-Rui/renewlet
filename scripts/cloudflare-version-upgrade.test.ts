@@ -156,7 +156,7 @@ function openFixture(filename: string): SqliteUpgradeClient {
 }
 
 function seedUntrustedV2State(db: DatabaseSync): void {
-  // 旧 v2 marker 不能证明集合投影和调度状态可信；v3 必须从订阅事实重新收敛。
+  // 旧 v2/v3 marker 不能证明 cancelled 语义下的集合投影和调度状态可信；v4 必须从订阅事实重新收敛。
   db.prepare(`INSERT INTO subscription_derived_backfills (name, completed_at)
     VALUES ('subscription-derived-state-v2', ?)`).run(timestamp);
   db.prepare(`INSERT OR REPLACE INTO subscription_list_index (
@@ -366,7 +366,7 @@ function assertRebuiltState(db: DatabaseSync): void {
     repeat_reminder_count: 1,
   });
   assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM subscription_derived_backfills
-    WHERE name = 'subscription-derived-state-v3'`).get()?.["count"], 1);
+    WHERE name = 'subscription-derived-state-v4'`).get()?.["count"], 1);
   assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
 }
 
@@ -409,7 +409,7 @@ function assertUpgradeMarkersComplete(db: DatabaseSync): void {
     migrationNames(),
   );
   assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM subscription_derived_backfills
-    WHERE name = 'subscription-derived-state-v3'`).get()?.["count"], 1);
+    WHERE name = 'subscription-derived-state-v4'`).get()?.["count"], 1);
   assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
 }
 

@@ -292,7 +292,7 @@ async function newPublicStatusCategoryResolver(env: Env, userId: string, locale:
       if (custom) {
         return {
           value,
-          label: localizedConfigLabel(custom.labels, locale) || value,
+          label: localizedConfigLabel(custom.labels, locale, calendarFeedBuiltInCategoryLabelKey(custom.value)) || value,
           ...(custom.color ? { color: custom.color } : {}),
         };
       }

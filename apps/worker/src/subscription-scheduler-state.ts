@@ -9,6 +9,7 @@ import {
   getNextLocalScheduleOccurrence,
   getNextRepeatScheduleOccurrence,
   getRepeatScheduleDecision,
+  isCancelledSubscriptionStatus,
   scheduleOccurrence,
   toRfc3339Seconds,
 } from "./notification-schedule";
@@ -71,7 +72,7 @@ export async function buildSubscriptionSchedulerRefreshStatements(
   const counts = options.aggregateCounts ?? await env.DB.prepare(`
       SELECT
         COALESCE(SUM(CASE WHEN auto_renew = 1 THEN 1 ELSE 0 END), 0) AS autoRenewCount,
-        COALESCE(SUM(CASE WHEN repeat_reminder_enabled = 1 THEN 1 ELSE 0 END), 0) AS repeatReminderCount
+        COALESCE(SUM(CASE WHEN repeat_reminder_enabled = 1 AND status != 'cancelled' THEN 1 ELSE 0 END), 0) AS repeatReminderCount
       FROM subscriptions
       WHERE user_id = ?
     `).bind(userId).first<{ autoRenewCount: number; repeatReminderCount: number }>();
@@ -207,8 +208,15 @@ export function subscriptionSchedulerMutationStatement(
   const row = mutation.after ?? mutation.before;
   if (!row) throw new Error("subscription scheduler mutation requires a row");
   const autoDelta = Number(mutation.after?.auto_renew === 1) - Number(mutation.before?.auto_renew === 1);
-  const repeatDelta = Number(mutation.after?.repeat_reminder_enabled === 1) - Number(mutation.before?.repeat_reminder_enabled === 1);
+  const repeatDelta = subscriptionRepeatReminderContribution(mutation.after) - subscriptionRepeatReminderContribution(mutation.before);
   return subscriptionSchedulerDeltaStatement(env, row.user_id, autoDelta, repeatDelta, settings, now);
+}
+
+/** scheduler count 与 repeat schedule 必须把 cancelled 视为无资格，状态切换才能产生对称 delta。 */
+export function subscriptionRepeatReminderContribution(
+  row: Pick<SubscriptionRow, "status" | "repeat_reminder_enabled"> | null,
+): number {
+  return row?.repeat_reminder_enabled === 1 && !isCancelledSubscriptionStatus(row?.status ?? "") ? 1 : 0;
 }
 
 export function subscriptionSchedulerDeltaStatement(

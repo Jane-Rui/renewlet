@@ -1,5 +1,5 @@
 import react from "@vitejs/plugin-react";
-import { lingui } from "@lingui/vite-plugin";
+import { linguiCatalogs } from "./vite/lingui-catalogs.ts";
 import tailwindcss from "@tailwindcss/vite";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -96,7 +96,7 @@ export default defineConfig(async ({ command, mode }) => {
     customHeadHTMLPlugin(customHeadHTML, {
       updateStaticHeaders: command === "build" && renewletRuntime === "cloudflare",
     }),
-    lingui({ failOnCompileError: true }),
+    linguiCatalogs(),
     tailwindcss(),
     react(),
     bundleModuleGraphPlugin(repoRoot),
@@ -118,7 +118,7 @@ export default defineConfig(async ({ command, mode }) => {
       include: ["jszip", "sql.js"],
     },
     worker: {
-      plugins: () => [lingui({ failOnCompileError: true })],
+      plugins: () => [linguiCatalogs()],
     },
     resolve: {
       alias: {

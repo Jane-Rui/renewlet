@@ -11,10 +11,10 @@ beforeAll(async () => {
 });
 
 describe("config label locale contract", () => {
-  it.each(fixtures)("preserves $name across UI and server locales", ({ labels, expected }) => {
+  it.each(fixtures)("preserves $name across UI and server locales", ({ labels, expected, key }) => {
     const stored = JSON.stringify(labels);
     for (const locale of SUPPORTED_LOCALES) {
-      expect(localizedLabel(labels, locale)).toBe(expected[locale]);
+      expect(localizedLabel(labels, locale, key ?? undefined)).toBe(expected[locale]);
     }
     expect(JSON.stringify(labels)).toBe(stored);
   });

@@ -51,6 +51,11 @@ function deploymentFixture(database: DatabaseSync) {
     async ensureQueues() {},
     async readActiveDeployment() { return { versionId: active }; },
     async readAppliedExclusiveMigrations() { return appliedMigrations(database); },
+    async readPendingDerivedBackfill() {
+      const table = database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'subscription_derived_backfills'").get();
+      if (!table) return true;
+      return !database.prepare("SELECT name FROM subscription_derived_backfills WHERE name = 'subscription-derived-state-v4'").get();
+    },
     async captureBookmark() { events.push("checkpoint"); return "bookmark"; },
     recordCheckpoint() {},
     recordRecoveryHint() { events.push("recovery-hint"); },
@@ -62,6 +67,9 @@ function deploymentFixture(database: DatabaseSync) {
       for (const name of migrationNames) {
         if (!applied.has(name)) applyMigration(database, name);
       }
+      database.prepare(`INSERT INTO subscription_derived_backfills (name, completed_at)
+        VALUES ('subscription-derived-state-v4', '2026-08-25T00:00:00.000Z')
+        ON CONFLICT(name) DO UPDATE SET completed_at = excluded.completed_at`).run();
     },
     async verifyDatabase(expectedNames) { events.push("verify"); verifyDatabase(database, expectedNames); },
     async deployNormal() { events.push("normal"); active = "new-worker"; return { versionId: active }; },

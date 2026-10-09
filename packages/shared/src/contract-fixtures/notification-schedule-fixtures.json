@@ -173,5 +173,123 @@
         "window": "24h"
       }
     }
+  },
+  {
+    "name": "cancelled daily date match has no reminder item",
+    "nowUtc": "2026-05-17T08:00:00Z",
+    "settings": {
+      "timezone": "UTC",
+      "notificationTimeLocal": "08:00",
+      "notificationReminderDays": 1
+    },
+    "subscriptions": [
+      {
+        "id": "sub_cancelled_daily",
+        "name": "Cancelled SaaS",
+        "price": "10",
+        "currency": "USD",
+        "status": "cancelled",
+        "billingCycle": "monthly",
+        "nextBillingDate": "2026-05-18",
+        "reminderDays": -1,
+        "repeatReminderEnabled": false,
+        "repeatReminderInterval": "1h",
+        "repeatReminderWindow": "72h"
+      }
+    ],
+    "windowMinutes": 2,
+    "force": false,
+    "expected": {
+      "due": true,
+      "reason": "not_in_time_window(delta=0m)",
+      "scheduledLocalDate": "2026-05-17",
+      "scheduledLocalTime": "08:00",
+      "timeZone": "UTC",
+      "scheduledInstantUtc": "2026-05-17T08:00:00Z",
+      "itemTypes": []
+    }
+  },
+  {
+    "name": "cancelled repeat due has no schedule",
+    "nowUtc": "2026-05-17T14:00:00Z",
+    "settings": {
+      "timezone": "UTC",
+      "notificationTimeLocal": "08:00",
+      "notificationReminderDays": 1
+    },
+    "subscriptions": [
+      {
+        "id": "sub_cancelled_repeat",
+        "name": "Cancelled Repeat SaaS",
+        "price": "20",
+        "currency": "USD",
+        "status": "cancelled",
+        "billingCycle": "monthly",
+        "nextBillingDate": "2026-05-18",
+        "reminderDays": 1,
+        "repeatReminderEnabled": true,
+        "repeatReminderInterval": "3h",
+        "repeatReminderWindow": "24h"
+      }
+    ],
+    "windowMinutes": 2,
+    "force": false,
+    "expected": {
+      "due": false,
+      "reason": "not_in_time_window",
+      "itemTypes": []
+    }
+  },
+  {
+    "name": "active and cancelled reminders only include active",
+    "nowUtc": "2026-05-17T14:00:00Z",
+    "settings": {
+      "timezone": "UTC",
+      "notificationTimeLocal": "08:00",
+      "notificationReminderDays": 1
+    },
+    "subscriptions": [
+      {
+        "id": "sub_active_mixed",
+        "name": "Active Mixed SaaS",
+        "price": "20",
+        "currency": "USD",
+        "status": "active",
+        "billingCycle": "monthly",
+        "nextBillingDate": "2026-05-18",
+        "reminderDays": 1,
+        "repeatReminderEnabled": true,
+        "repeatReminderInterval": "3h",
+        "repeatReminderWindow": "24h"
+      },
+      {
+        "id": "sub_cancelled_mixed",
+        "name": "Cancelled Mixed SaaS",
+        "price": "20",
+        "currency": "USD",
+        "status": "cancelled",
+        "billingCycle": "monthly",
+        "nextBillingDate": "2026-05-18",
+        "reminderDays": 1,
+        "repeatReminderEnabled": true,
+        "repeatReminderInterval": "3h",
+        "repeatReminderWindow": "24h"
+      }
+    ],
+    "windowMinutes": 2,
+    "force": false,
+    "expected": {
+      "due": true,
+      "reason": "repeat_reminder_due",
+      "scheduledLocalDate": "2026-05-17",
+      "scheduledLocalTime": "14:00",
+      "timeZone": "UTC",
+      "scheduledInstantUtc": "2026-05-17T14:00:00Z",
+      "itemTypes": ["renewal"],
+      "repeatReminder": {
+        "interval": "3h",
+        "window": "24h"
+      }
+    }
   }
 ]

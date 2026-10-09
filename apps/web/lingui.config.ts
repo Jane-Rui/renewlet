@@ -24,7 +24,11 @@ export default defineConfig({
   catalogs: catalogDomains.map((domain) => ({
     path: `src/i18n/catalogs/{locale}/${domain}`,
     include: domain === "settings"
-      ? ["src/i18n/descriptors/settings.ts", "src/i18n/descriptors/settings-display.ts"]
+      ? [
+          "src/i18n/descriptors/settings.ts",
+          "src/i18n/descriptors/settings-cloud-backup.ts",
+          "src/i18n/descriptors/settings-display.ts",
+        ]
       : [`src/i18n/descriptors/${domain}.ts`],
   })),
 });

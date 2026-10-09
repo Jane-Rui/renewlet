@@ -20,6 +20,7 @@ import {
   writeWranglerConfig,
   type WranglerConfig,
 } from "./cloudflare-wrangler-config";
+import { SUBSCRIPTION_DERIVED_BACKFILL_NAME } from "./cloudflare-derived-backfill-state";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const drainWindowMs = 15 * 60 * 1000;
@@ -48,6 +49,7 @@ export interface DeploymentOperations {
   ensureQueues(): Promise<void>;
   readActiveDeployment(): Promise<ActiveDeployment | undefined>;
   readAppliedExclusiveMigrations(names: readonly string[]): Promise<Set<string>>;
+  readPendingDerivedBackfill(): Promise<boolean>;
   captureBookmark(): Promise<string>;
   deployMaintenance(): Promise<ActiveDeployment>;
   waitForBackgroundDrain(): Promise<void>;
@@ -100,7 +102,7 @@ async function containAfterDatabaseWrite(
   throw failure;
 }
 
-/** 排他 migration 只有在旧后台执行完全排空后才能首次写 D1；写入后任何失败都保持 fail-closed。 */
+/** 排他 migration 或 v4 派生回填都必须在旧后台完全排空后首次写 D1；写入后任何失败都保持 fail-closed。 */
 export async function runCloudflareDeployment(operations: DeploymentOperations, names: readonly string[]): Promise<void> {
   await operations.prepare();
   await operations.ensureQueues();
@@ -108,11 +110,13 @@ export async function runCloudflareDeployment(operations: DeploymentOperations, 
   const previous = await operations.readActiveDeployment();
   const applied = await operations.readAppliedExclusiveMigrations(names);
   const pending = names.filter((name) => !applied.has(name));
+  // v4 marker 是 cancelled 派生语义的发布边界；即使没有新的排他 SQL migration，回填期间也必须停写。
+  const derivedBackfillPending = pending.length === 0 && await operations.readPendingDerivedBackfill();
   const bookmark = await operations.captureBookmark();
   operations.recordCheckpoint(bookmark, previous?.versionId);
 
   let maintenanceVersion: string | undefined;
-  if (pending.length > 0 && previous !== undefined) {
+  if ((pending.length > 0 || derivedBackfillPending) && previous !== undefined) {
     try {
       maintenanceVersion = (await operations.deployMaintenance()).versionId;
       if (maintenanceVersion === previous.versionId) {
@@ -406,6 +410,22 @@ function createOperations(options: DeployOptions): DeploymentOperations {
     return new Set(rows);
   };
 
+  const readPendingDerivedBackfill = async (): Promise<boolean> => {
+    // 这里只做 marker 快速门禁决定是否停写；列签名、派生不变量和外键仍由回填脚本完整校验，避免部署前重复全量扫描。
+    const table = await d1.query(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'subscription_derived_backfills' LIMIT 1",
+      [],
+      parseD1NameRow,
+    );
+    if (table.length === 0) return true;
+    const marker = await d1.query(
+      "SELECT name FROM subscription_derived_backfills WHERE name = ? LIMIT 1",
+      [SUBSCRIPTION_DERIVED_BACKFILL_NAME],
+      parseD1NameRow,
+    );
+    return marker.length === 0;
+  };
+
   const deploy = async (configPath: string, message: string): Promise<ActiveDeployment> => {
     await requirePnpm(["exec", "wrangler", "deploy", "--message", message, "--config", configPath]);
     const active = await readActiveDeployment();
@@ -424,6 +444,7 @@ function createOperations(options: DeployOptions): DeploymentOperations {
     },
     readActiveDeployment,
     readAppliedExclusiveMigrations,
+    readPendingDerivedBackfill,
     async captureBookmark() {
       return await captureBookmark(options.configPath);
     },

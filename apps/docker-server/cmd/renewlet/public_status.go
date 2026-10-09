@@ -466,9 +466,10 @@ func newPublicStatusCategoryResolver(app core.App, userID string, locale appLoca
 func (r publicStatusCategoryResolver) Category(value string) publicStatusCategoryView {
 	item, ok := r.byValue[value]
 	if ok {
+		key, _ := calendarFeedBuiltInCategoryLabelKey(item.Value)
 		return publicStatusCategoryView{
 			Value: value,
-			Label: firstNonBlank(localizedCustomConfigLabel(item.Labels, r.locale), value),
+			Label: firstNonBlank(localizedCustomConfigLabel(item.Labels, r.locale, key), value),
 			Color: item.Color,
 		}
 	}

@@ -135,6 +135,52 @@ describe("Worker subscription derived-state transactions", () => {
     }
   });
 
+  it("removes and restores cancelled repeat schedule contributions on status changes", async () => {
+    const { db, env } = openDerivedStateDatabase();
+    try {
+      const settings = createDefaultAppSettings();
+      const active = subscriptionRow("sub_cancelled_transition", {
+        next_billing_date: "2099-02-01",
+        repeat_reminder_enabled: 1,
+      });
+      await env.DB.batch(mutationBatch(
+        env,
+        insertSubscriptionStatement(env, active),
+        { before: null, after: active, kind: "create" },
+        settings,
+      ));
+      const assertRepeatContribution = (count: number, scheduleRows: number) => {
+        expect(db.prepare("SELECT repeat_reminder_count FROM subscription_scheduler_state WHERE user_id = ?").get(USER_ID)?.["repeat_reminder_count"]).toBe(count);
+        expect(db.prepare(
+          "SELECT COUNT(*) AS count FROM subscription_repeat_schedule WHERE user_id = ? AND subscription_id = ?",
+        ).get(USER_ID, active.id)?.["count"]).toBe(scheduleRows);
+      };
+
+      assertRepeatContribution(1, 1);
+      const cancelled = { ...active, status: "cancelled", updated_at: "2026-08-17T00:01:00.000Z" } satisfies SubscriptionRow;
+      await env.DB.batch(mutationBatch(
+        env,
+        env.DB.prepare("UPDATE subscriptions SET status = ?, updated_at = ? WHERE user_id = ? AND id = ?")
+          .bind(cancelled.status, cancelled.updated_at, USER_ID, cancelled.id),
+        { before: active, after: cancelled, kind: "update" },
+        settings,
+      ));
+      assertRepeatContribution(0, 0);
+
+      const restored = { ...cancelled, status: "active", updated_at: "2026-08-17T00:02:00.000Z" } satisfies SubscriptionRow;
+      await env.DB.batch(mutationBatch(
+        env,
+        env.DB.prepare("UPDATE subscriptions SET status = ?, updated_at = ? WHERE user_id = ? AND id = ?")
+          .bind(restored.status, restored.updated_at, USER_ID, restored.id),
+        { before: cancelled, after: restored, kind: "update" },
+        settings,
+      ));
+      assertRepeatContribution(1, 1);
+    } finally {
+      db.close();
+    }
+  });
+
   it("applies 200 create mutations with a fixed statement count and matches the oracle", async () => {
     const { db, env } = openDerivedStateDatabase();
     try {
@@ -156,6 +202,7 @@ describe("Worker subscription derived-state transactions", () => {
       expect(readCount(db, "subscriptions")).toBe(200);
 
       const incremental = readDerivedSnapshot(db);
+      expect(db.prepare("SELECT repeat_reminder_count FROM subscription_scheduler_state WHERE user_id = ?").get(USER_ID)?.["repeat_reminder_count"]).toBe(40);
       await rebuildSubscriptionDerivedStateForUser(env, USER_ID, NOW);
       expect(readDerivedSnapshot(db)).toEqual(incremental);
     } finally {

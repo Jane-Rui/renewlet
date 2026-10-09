@@ -343,12 +343,12 @@ describe("public status worker handlers", () => {
     await expect(readPublicStatus(publicRequest(`/api/public/status/${TOKEN}`), env, TOKEN)).rejects.toMatchObject({ status: 404 });
   });
 
-  it.each(labelFixtures)("renders Russian public labels for $name", async ({ labels, expected }) => {
+  it.each(labelFixtures.filter(({ key }) => key?.startsWith("category.") || key === null))("renders Russian public labels for $name", async ({ labels, expected, value }) => {
     const env = createEnv({
       pages: [publicPage()],
-      subscriptions: [subscriptionRow()],
+      subscriptions: [subscriptionRow({ category: value })],
       customConfigJson: JSON.stringify({
-        categories: [{ id: "developer_tools", value: "developer_tools", labels }],
+        categories: [{ id: value, value, labels }],
         statuses: [], paymentMethods: [], currencies: [],
       }),
     });

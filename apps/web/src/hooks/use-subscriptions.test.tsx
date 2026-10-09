@@ -23,11 +23,13 @@ import {
   useCreateSubscription,
   useDeleteSubscription,
   usePatchSubscription,
+  useRenewSubscription,
   useSubscriptionCalendar,
   useSubscriptionIndex,
   useUpdateSubscription,
 } from "./use-subscriptions";
 import { subscriptionQueryKeys } from "./subscription-query-cache";
+import { notificationQueryKeys } from "./notification-query-cache";
 
 type RecurringSubscriptionDraft = Extract<
   SubscriptionDraft,
@@ -53,14 +55,14 @@ vi.mock("@/lib/pocketbase", () => ({
   getCurrentUserId: mocks.getCurrentUserId,
 }));
 
-function createWrapper() {
-  const queryClient = new QueryClient({
+function createWrapper(
+  queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
       mutations: { retry: false },
     },
-  });
-
+  }),
+) {
   return function Wrapper({ children }: { children: ReactNode }) {
     return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
   };
@@ -187,7 +189,11 @@ describe("use-subscriptions mutations", () => {
   });
 
   it("keeps tags as an empty array when creating a subscription through the product API", async () => {
-    const { result } = renderHook(() => useCreateSubscription(), { wrapper: createWrapper() });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useCreateSubscription(), { wrapper: createWrapper(queryClient) });
     const draft = subscriptionDraft({ tags: [] });
 
     await act(async () => {
@@ -207,6 +213,7 @@ describe("use-subscriptions mutations", () => {
     });
     expect(payload).not.toHaveProperty("user");
     expect(payload).not.toHaveProperty("trialEndDate");
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: notificationQueryKeys.overview });
   });
 
   it("sends nullable start dates for manual recurring creates", async () => {
@@ -252,6 +259,33 @@ describe("use-subscriptions mutations", () => {
     expect(payload).not.toHaveProperty("trialEndDate");
   });
 
+  it("invalidates notification overview after renewal", async () => {
+    mocks.apiFetch.mockResolvedValueOnce({
+      subscription: apiSubscriptionFromDraft("sub-1", subscriptionDraft({ nextBillingDate: assertDateOnly("2026-07-14") })),
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useRenewSubscription(), { wrapper: createWrapper(queryClient) });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        id: "sub-1",
+        payload: {
+          mode: "continue",
+          price: "15",
+          currency: "USD",
+          startDate: null,
+          nextBillingDate: assertDateOnly("2026-07-14"),
+          autoCalculateNextBillingDate: true,
+        },
+      });
+    });
+
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: notificationQueryKeys.overview });
+  });
+
   it("sends only quick-action fields through the patch mutation", async () => {
     mocks.apiFetch.mockResolvedValueOnce({
       subscription: apiSubscriptionFromDraft("sub-1", subscriptionDraft({ pinned: true })),
@@ -271,8 +305,8 @@ describe("use-subscriptions mutations", () => {
     expect(payload).not.toHaveProperty("nextBillingDate");
   });
 
-  it("writes mutation results to detail cache and invalidates only collection derivations", async () => {
-    const updated = apiSubscriptionFromDraft("sub-1", subscriptionDraft({ name: "Updated" }));
+  it("writes mutation results and invalidates notification overview for full edits", async () => {
+    const updated = apiSubscriptionFromDraft("sub-1", subscriptionDraft({ name: "Updated", status: "cancelled" }));
     mocks.apiFetch.mockResolvedValueOnce({ subscription: updated });
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -282,7 +316,7 @@ describe("use-subscriptions mutations", () => {
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     );
     const { result } = renderHook(() => useUpdateSubscription(), { wrapper });
-    const updatedDraft = subscriptionDraft({ name: "Updated" });
+    const updatedDraft = subscriptionDraft({ name: "Updated", status: "cancelled" });
     const updatedSubscription = subscriptionFromDraft("sub-1", updatedDraft);
 
     await act(async () => {
@@ -294,7 +328,29 @@ describe("use-subscriptions mutations", () => {
 
     expect(queryClient.getQueryData<Subscription>(subscriptionQueryKeys.detail("sub-1"))?.name).toBe("Updated");
     expect(invalidate).toHaveBeenCalledWith({ queryKey: subscriptionQueryKeys.collections });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: notificationQueryKeys.overview });
     expect(invalidate).not.toHaveBeenCalledWith({ queryKey: subscriptionQueryKeys.details });
+  });
+
+  it("does not invalidate notification overview for display-only patches", async () => {
+    mocks.apiFetch.mockResolvedValueOnce({
+      subscription: apiSubscriptionFromDraft("sub-1", subscriptionDraft({ pinned: true })),
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(() => usePatchSubscription(), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync({ id: "sub-1", patch: { pinned: true } });
+    });
+
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: subscriptionQueryKeys.collections });
+    expect(invalidate).not.toHaveBeenCalledWith({ queryKey: notificationQueryKeys.overview });
   });
 
   it("removes a deleted detail cache entry before invalidating collections", async () => {
@@ -302,6 +358,7 @@ describe("use-subscriptions mutations", () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
     queryClient.setQueryData(
       subscriptionQueryKeys.detail("sub-1"),
       subscriptionFromDraft("sub-1", subscriptionDraft()),
@@ -316,6 +373,8 @@ describe("use-subscriptions mutations", () => {
     });
 
     expect(queryClient.getQueryData(subscriptionQueryKeys.detail("sub-1"))).toBeUndefined();
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: subscriptionQueryKeys.collections });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: notificationQueryKeys.overview });
   });
 });
 

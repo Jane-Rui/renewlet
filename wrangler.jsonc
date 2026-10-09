@@ -6,6 +6,9 @@
   "compatibility_flags": [
     "nodejs_compat"
   ],
+  "alias": {
+    "@aws-sdk/xml-builder": "@aws-sdk/xml-builder/dist-cjs/index.js"
+  },
   "observability": {
     "enabled": true,
     "logs": {

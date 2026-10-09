@@ -2,7 +2,7 @@
   "name": "@renewlet/shared",
   "private": true,
   "license": "MIT",
-  "version": "0.3.28",
+  "version": "0.3.29",
   "type": "module",
   "exports": {
     "./schemas/api": "./src/schemas/api.ts",
@@ -64,6 +64,6 @@
   },
   "devDependencies": {
     "typescript": "6.0.3",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   }
 }

@@ -11,7 +11,7 @@ import { translate } from "@/i18n/messages";
 export function labelsFromCatalog(key: BuiltInLabelKey): LocalizedLabels {
   const entry = BUILT_IN_LABELS[key];
   const stored = Object.fromEntries(LABEL_LOCALES.map((locale) => [locale, entry[locale]])) as LocalizedLabels;
-  return withDerivedLabels(stored, (locale) => {
+  return withDerivedLabels(stored, key, (locale) => {
     const translated = translate(locale, key);
     return translated === key ? stored["en-US"] : translated;
   });

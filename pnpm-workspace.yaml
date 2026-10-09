@@ -7,9 +7,12 @@ allowBuilds:
   esbuild: true
   sharp: true
   workerd: true
-# pnpm 11.20 无法定向更新未直接声明的传递依赖；只将 Browserslist 漏洞范围重定向到官方修复线，不能用 audit ignore 绕过。
+# 安全约束只覆盖漏洞版本范围，其余传递依赖通过 pnpm update 正常更新锁文件。
 overrides:
   "browserslist@<=4.28.6": "^4.28.7"
+  # Miniflare 仍精确固定旧版 undici/sharp；使用同一版本线的官方修复，上游解除漏洞版本固定后移除。
+  "undici@>=7.0.0 <7.29.1": "^7.29.1"
+  "sharp@>=0.35.0 <0.35.5": "^0.35.5"
 # pnpm 11 默认拦截发布不足 24 小时的包；本轮明确升级到 same-day latest 时只放行精确版本，避免用 minimumReleaseAge: 0 关闭整个供应链冷却期。
 minimumReleaseAgeExclude:
   - '@ai-sdk/anthropic@4.0.33'
@@ -20,7 +23,6 @@ minimumReleaseAgeExclude:
   - '@ai-sdk/provider-utils@5.0.23'
   - '@ai-sdk/provider@4.0.6'
   - '@aws-sdk/client-s3@3.1104.0'
-  - '@aws-sdk/s3-request-presigner@3.1104.0'
   - '@redocly/cli@2.45.0'
   - ai@7.0.55
   - lucide-react@1.29.0

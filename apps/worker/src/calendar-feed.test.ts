@@ -326,14 +326,27 @@ describe("calendar feed worker handlers", () => {
     expect(env.__state.calendarFeedsTableExists).toBe(false);
   });
 
-  it.each(labelFixtures)("renders Russian ICS labels for $name", async ({ labels, expected }) => {
+  it.each(labelFixtures)("renders Russian ICS labels for $name", async ({ labels, expected, key, value }) => {
     const customConfig = createCalendarFeedTestCustomConfig();
-    for (const item of [...customConfig.categories, ...customConfig.paymentMethods]) item.labels = labels;
+    // 测试内置支付方式时使用事实源的官方英文值，才能验证“未改名才翻译”的约束。
+    customConfig.paymentMethods[0] = {
+      ...customConfig.paymentMethods[0],
+      id: "credit_card",
+      value: "credit_card",
+      labels: { "zh-CN": "信用卡", "en-US": "Credit card" },
+    };
+    const isPayment = key?.startsWith("payment.");
+    if (isPayment) {
+      customConfig.paymentMethods[0] = { ...customConfig.paymentMethods[0], value, id: value, labels };
+    } else {
+      customConfig.categories[0] = { ...customConfig.categories[0], value, id: value, labels, color: "hsl(265 68% 58%)" };
+    }
     const env = await createCalendarFeedTestEnv({
       localePreference: "ru-RU",
       customConfigJson: JSON.stringify(customConfig),
       subscriptions: [subscriptionRow("sub_ru", "Plan", "active", "monthly", "2099-06-02", {
-        category: "developer_tools", payment_method: "credit_card",
+        category: isPayment ? "developer_tools" : value,
+        payment_method: isPayment ? value : "credit_card",
       })],
     });
     const response = await createCalendarFeed(authorizedRequest("https://renewlet.example/api/app/calendar-feed", {
@@ -341,8 +354,8 @@ describe("calendar feed worker handlers", () => {
     }), env);
     const created = await readSuccessData<{ calendarFeed: { feedUrl: string } }>(response);
     const ics = unfoldIcsText(await (await calendarFeedIcs(new Request(created.calendarFeed.feedUrl), env)).text());
-    expect(ics).toContain(`CATEGORIES:${expected["ru-RU"]}`);
-    expect(ics).toContain(`Способ оплаты: ${expected["ru-RU"]}`);
+    expect(ics).toContain(`CATEGORIES:${isPayment ? "Инструменты разработчика" : expected["ru-RU"]}`);
+    expect(ics).toContain(`Способ оплаты: ${isPayment ? expected["ru-RU"] : "Кредитная карта"}`);
     expect(env.__state.customConfigJson).toBe(JSON.stringify(customConfig));
   });
 

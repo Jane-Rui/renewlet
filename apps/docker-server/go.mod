@@ -11,8 +11,8 @@ require (
 	github.com/pocketbase/dbx v1.12.0
 	github.com/pocketbase/pocketbase v0.39.7
 	github.com/pquerna/otp v1.5.0
-	github.com/studio-b12/gowebdav v0.12.0
-	github.com/zendev-sh/goai v0.7.11
+	github.com/studio-b12/gowebdav v0.13.0
+	github.com/zendev-sh/goai v0.10.5
 	golang.org/x/net v0.57.0
 	golang.org/x/sync v0.22.0
 	golang.org/x/sys v0.47.0

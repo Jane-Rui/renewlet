@@ -1,12 +1,9 @@
 // ru-RU 测试保护第三种界面语言：catalog 完整、复数与日期格式、持久化 labels 契约和切换/缓存链路。
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeAll, describe, expect, it } from "vitest";
-import { getConfig } from "@lingui/conf";
-import { getCatalogs } from "@lingui/cli/api";
+import { getI18nConfig, readCatalogLocales, resolveCatalogTranslations } from "../../vite/lingui-catalogs.ts";
 import { I18nProvider, useI18n } from "@/i18n/I18nProvider";
 import { getApiLocale } from "@/i18n/api-locale";
 import { MESSAGE_KEYS } from "@/i18n/catalog-keys";
@@ -22,8 +19,6 @@ import { loadLocaleCatalog, translate } from "@/i18n/messages";
 import { formatDateOnlyChinese, formatDateOnlyForDisplay, formatDateOnlyMonthDay } from "@/lib/time/date-only";
 import { writeProductSession } from "@/services/product-session";
 import { CURRENCY_OPTIONS } from "@/types/subscription";
-
-const clientDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
 function createWrapper() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -75,21 +70,12 @@ describe("ru-RU catalog", () => {
   });
 
   it("falls back to English when a Russian translation is missing", async () => {
-    const config = getConfig({ cwd: clientDir, configPath: path.join(clientDir, "lingui.config.ts") });
-    const catalog = (await getCatalogs(config)).find((item) => item.path.endsWith("/common"));
+    const config = getI18nConfig();
+    const catalog = config.catalogs.find((item) => item.path.endsWith("/common"));
     expect(catalog).toBeDefined();
-    const readAll = catalog!.readAll.bind(catalog);
-    catalog!.readAll = async (locales) => {
-      const catalogs = await readAll(locales);
-      const russian = catalogs["ru-RU"];
-      if (russian?.["nav.subscriptions"]) russian["nav.subscriptions"].translation = "";
-      return catalogs;
-    };
-
-    const { messages } = await catalog!.getTranslations("ru-RU", {
-      fallbackLocales: config.fallbackLocales,
-      sourceLocale: config.sourceLocale,
-    });
+    const catalogs = await readCatalogLocales(config, catalog!, "ru-RU");
+    catalogs["ru-RU"]!["nav.subscriptions"]!.translation = "";
+    const messages = resolveCatalogTranslations(config, catalogs, "ru-RU");
 
     expect(messages["nav.subscriptions"]).toBe("Subscriptions");
     expect(messages["nav.settings"]).toBe("Настройки");
@@ -128,6 +114,11 @@ describe("ru-RU labels", () => {
   it("shows user-entered labels as-is with the English label as fallback", () => {
     const userLabels: LocalizedLabels = { "zh-CN": "自定义", "en-US": "My card" };
     expect(localizedLabel(userLabels, "ru-RU")).toBe("My card");
+  });
+
+  it("does not translate a custom label that collides with an inner built-in text pair", () => {
+    const userLabels: LocalizedLabels = { "zh-CN": "其他", "en-US": "Other" };
+    expect(localizedLabel(userLabels, "ru-RU")).toBe("Other");
   });
 
   it("derives Russian currency names from Intl", () => {

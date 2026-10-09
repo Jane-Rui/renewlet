@@ -33,6 +33,15 @@ export interface RepeatReminderSnapshot {
   window: RepeatReminderWindow;
 }
 
+// cancelled 只停用普通续费、固定期限到期、过期与 repeat 提醒；家庭共享收款提醒不调用此资格判断，保持独立责任流。
+export function isCancelledSubscriptionStatus(status: string): boolean {
+  return status === "cancelled";
+}
+
+export function isSubscriptionReminderEligible(sub: Pick<ApiSubscription, "status">): boolean {
+  return !isCancelledSubscriptionStatus(sub.status);
+}
+
 const DEFAULT_REPEAT_REMINDER_INTERVAL: RepeatReminderInterval = "1h";
 const DEFAULT_REPEAT_REMINDER_WINDOW: RepeatReminderWindow = "72h";
 
@@ -102,7 +111,7 @@ export function getNextRepeatScheduleOccurrence(
   let nextInstant = Number.POSITIVE_INFINITY;
   for (const sub of subscriptions) {
     // repeat preview 与实际 due 共用静默哨兵；-2 订阅不能绕过日常提醒入口进入重复提醒。
-    if (!sub.repeatReminderEnabled || isDisabledReminderDays(sub.reminderDays)) continue;
+    if (!isSubscriptionReminderEligible(sub) || !sub.repeatReminderEnabled || isDisabledReminderDays(sub.reminderDays)) continue;
     const reminderDays = effectiveReminderDays(sub.reminderDays, settings.notificationReminderDays);
     if (reminderDays === undefined) continue;
     const repeat = repeatReminderSnapshot(sub);
@@ -127,7 +136,7 @@ export function getRepeatScheduleDecision(
   windowMinutes: number,
 ): ScheduleDecision {
   for (const sub of subscriptions) {
-    if (isDisabledReminderDays(sub.reminderDays) || !sub.repeatReminderEnabled) continue;
+    if (!isSubscriptionReminderEligible(sub) || isDisabledReminderDays(sub.reminderDays) || !sub.repeatReminderEnabled) continue;
     const reminderDays = effectiveReminderDays(sub.reminderDays, settings.notificationReminderDays);
     if (reminderDays === undefined) continue;
     const repeat = repeatReminderSnapshot(sub);

@@ -372,8 +372,8 @@ async function newCalendarFeedLabelResolver(
   if (!result.success) return empty;
   // 公开 ICS route 没有登录态上下文；用户配置只做优先查找，缺失的内置项回 server i18n，未知自定义 value 保留原文。
   return calendarFeedLabelResolver(
-    calendarFeedLabelMap(result.data.categories, locale),
-    calendarFeedLabelMap(result.data.paymentMethods, locale),
+    calendarFeedLabelMap(result.data.categories, locale, calendarFeedBuiltInCategoryLabelKey),
+    calendarFeedLabelMap(result.data.paymentMethods, locale, calendarFeedBuiltInPaymentMethodLabelKey),
     locale,
   );
 }
@@ -401,10 +401,14 @@ function calendarFeedResolvedLabel(
   return key ? serverText(locale, key) : value;
 }
 
-function calendarFeedLabelMap(items: ApiCustomConfig["categories"], locale: AppLocale): Map<string, string> {
+function calendarFeedLabelMap(
+  items: ApiCustomConfig["categories"],
+  locale: AppLocale,
+  builtInLabelKey: CalendarFeedBuiltInLabelKeyResolver,
+): Map<string, string> {
   const labels = new Map<string, string>();
   for (const item of items) {
-    const label = localizedConfigLabel(item.labels, locale);
+    const label = localizedConfigLabel(item.labels, locale, builtInLabelKey(item.value));
     if (label) labels.set(item.value, label);
   }
   return labels;

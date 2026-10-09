@@ -71,6 +71,7 @@ import {
   repeatReminderSnapshot,
   scheduleOccurrence,
   toRfc3339Seconds,
+  isSubscriptionReminderEligible,
   type RepeatReminderSnapshot,
   type ScheduleOccurrence,
 } from "./notification-schedule";
@@ -545,7 +546,7 @@ function collectItems(localDate: string, settings: ApiAppSettings, subscriptions
     const daysUntilNext = daysBetween(localDate, sub.nextBillingDate);
     const buyout = isOneTimeBuyout(sub);
     const reminderDays = effectiveReminderDays(sub.reminderDays, settings.notificationReminderDays);
-    if (!isDisabledReminderDays(sub.reminderDays) && reminderDays !== undefined && !buyout) {
+    if (isSubscriptionReminderEligible(sub) && !isDisabledReminderDays(sub.reminderDays) && reminderDays !== undefined && !buyout) {
       if (sub.billingCycle === "one-time") {
         if (daysUntilNext === reminderDays) items.push(item("expiry", sub, sub.nextBillingDate, daysUntilNext, reminderDays));
         if (daysUntilNext < 0 && settings.showExpired && options.includeExpired) items.push(item("expired", sub, sub.nextBillingDate, daysUntilNext, reminderDays));
@@ -622,7 +623,7 @@ function collectRepeatItems(schedule: ScheduleOccurrence, settings: ApiAppSettin
   const items: NotificationEmailItem[] = [];
   for (const sub of subscriptions) {
     // one-time 固定服务期只发首轮到期提醒；repeat 留给周期订阅和 trial，避免买断项反复打扰。
-    if (isDisabledReminderDays(sub.reminderDays) || sub.billingCycle === "one-time" || !sub.repeatReminderEnabled) continue;
+    if (!isSubscriptionReminderEligible(sub) || isDisabledReminderDays(sub.reminderDays) || sub.billingCycle === "one-time" || !sub.repeatReminderEnabled) continue;
     const reminderDays = effectiveReminderDays(sub.reminderDays, settings.notificationReminderDays);
     if (reminderDays === undefined) continue;
     const repeat = repeatReminderSnapshot(sub);
@@ -640,7 +641,7 @@ function collectUpcomingRepeatBatches(now: Date, settings: ApiAppSettings, subsc
   const end = now.getTime() + Math.max(1, days) * 86_400_000;
   const batchesByKey = new Map<string, ScheduleOccurrence & { items: NotificationEmailItem[] }>();
   for (const sub of subscriptions) {
-    if (isDisabledReminderDays(sub.reminderDays) || sub.billingCycle === "one-time" || !sub.repeatReminderEnabled) continue;
+    if (!isSubscriptionReminderEligible(sub) || isDisabledReminderDays(sub.reminderDays) || sub.billingCycle === "one-time" || !sub.repeatReminderEnabled) continue;
     const reminderDays = effectiveReminderDays(sub.reminderDays, settings.notificationReminderDays);
     if (reminderDays === undefined) continue;
     const repeat = repeatReminderSnapshot(sub);
