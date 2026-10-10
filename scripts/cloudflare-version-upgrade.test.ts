@@ -7,7 +7,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { runBackfill } from "./backfill-cloudflare-subscription-derived-state";
 import { subscriptionCollectionPageQueryPlan } from "../apps/worker/src/subscription-list-filters";
-import { LOCALE_PREFERENCES } from "../packages/shared/src/i18n-config";
+import { LOCALE_PREFERENCES } from "@renewlet/shared/i18n-config";
 import {
   assertD1TriggerDefinitions,
   exclusiveMigrationNames,

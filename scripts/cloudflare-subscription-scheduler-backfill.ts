@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { isValidDateOnly } from "../packages/shared/src/runtime";
+import { isValidDateOnly } from "@renewlet/shared/runtime";
 import { settingsFromRowJson } from "../apps/worker/src/db";
 import {
   addDays,

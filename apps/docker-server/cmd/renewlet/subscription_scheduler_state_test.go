@@ -166,9 +166,9 @@ func TestCancelledStatusTransitionUpdatesRepeatDerivedState(t *testing.T) {
 	registerRecordHooks(app)
 	user, _ := createRouteTestUser(t, app, "scheduler-cancelled-transition")
 	subscription := createRouteTestSubscription(t, app, user.Id, map[string]interface{}{
-		"autoRenew":             false,
-		"nextBillingDate":       "2099-02-01",
-		"repeatReminderEnabled": true,
+		"autoRenew":              false,
+		"nextBillingDate":        "2099-02-01",
+		"repeatReminderEnabled":  true,
 		"repeatReminderInterval": "1h",
 		"repeatReminderWindow":   "72h",
 	})
@@ -317,20 +317,19 @@ func TestNotificationDueUserIDsCanPagePastRetainedDueUsers(t *testing.T) {
 	createDueSchedulerState(t, app, secondUser.Id, "2026-01-01T00:00:00Z")
 
 	now := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
-	firstPage, err := listNotificationDueUserIDsExcluding(app, now, 1, nil)
+	firstPage, err := listNotificationDueUserIDs(app, now, 1, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(firstPage) != 1 {
 		t.Fatalf("expected first page to contain one due user, got %#v", firstPage)
 	}
-	seen := map[string]struct{}{firstPage[0]: {}}
-	secondPage, err := listNotificationDueUserIDsExcluding(app, now, 1, seen)
+	secondPage, err := listNotificationDueUserIDs(app, now, 1, firstPage[0])
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(secondPage) != 1 || secondPage[0] == firstPage[0] {
-		t.Fatalf("expected query-level exclude to page past retained due user, first=%#v second=%#v", firstPage, secondPage)
+		t.Fatalf("expected stable cursor to page past retained due user, first=%#v second=%#v", firstPage, secondPage)
 	}
 }
 

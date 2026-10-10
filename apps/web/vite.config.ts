@@ -1,4 +1,5 @@
-import react from "@vitejs/plugin-react";
+import react, { reactCompilerPreset } from "@vitejs/plugin-react";
+import babel from "@rolldown/plugin-babel";
 import { linguiCatalogs } from "./vite/lingui-catalogs.ts";
 import tailwindcss from "@tailwindcss/vite";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -99,6 +100,8 @@ export default defineConfig(async ({ command, mode }) => {
     linguiCatalogs(),
     tailwindcss(),
     react(),
+    // 全量编译已越过完整路由预算；按已测组件渐进接入，未覆盖的 memo 继续由组件维护。
+    babel({ presets: [reactCompilerPreset({ compilationMode: "annotation" })] }),
     bundleModuleGraphPlugin(repoRoot),
   ];
   if (process.env["ANALYZE"] === "1") {

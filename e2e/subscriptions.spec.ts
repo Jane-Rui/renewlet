@@ -1,7 +1,7 @@
-import { subscriptionResponseSchema, subscriptionsIndexResponseSchema } from "../packages/shared/src/schemas/subscriptions";
+import { subscriptionResponseSchema, subscriptionsIndexResponseSchema } from "@renewlet/shared/schemas/subscriptions";
 // 桌面订阅 E2E 覆盖创建、筛选、编辑、Logo sheet 和持久化回读，是订阅主流程的跨组件回归基线。
 import type { ElementHandle, Locator } from "@playwright/test";
-import subscriptionCollectionContractFixtures from "../packages/shared/src/contract-fixtures/subscription-collection-contract-fixtures.json";
+import { subscriptionCollectionContractFixture as subscriptionCollectionContractFixtures } from "@renewlet/shared/contract-fixtures";
 import { expect, test } from "./support/test";
 import {
   createSubscription,
@@ -40,6 +40,29 @@ async function expectSameDOMNode(
   const after = await getRequiredElement(current, `${label} after resolve`);
   expect(await before.evaluate((node, currentNode) => node === currentNode, after), label).toBe(true);
 }
+
+test("tag cursor layout uses the content box and rejects unnecessary wrapping", async ({ page }) => {
+  await page.goto("about:blank");
+  await page.setContent(`
+    <div role="dialog">
+      <div data-slot="subscription-tag-field" style="display:flex;flex-wrap:wrap;gap:8px;width:200px;box-sizing:border-box;padding:12px;border:1px solid">
+        <span id="chip" style="flex:none;width:169px;height:24px"><button aria-label="移除标签 fixture">fixture</button></span>
+        <span data-slot="subscription-tag-input-sizer" style="flex:none;width:1px;height:28px"><input aria-label="标签" style="width:1px;padding:0;border:0" /></span>
+      </div>
+      <div role="listbox">fixture</div>
+    </div>`);
+  const dialog = page.getByRole("dialog");
+  // 外框剩 18px，但右 padding/border 占 13px；真实内容区的 5px 放不下 1px 光标和 8px gap。
+  await expectEmptyTagCursorStaysInline(page, dialog);
+  await page.locator("#chip").evaluate((chip) => { chip.style.width = "160px"; });
+  await expectEmptyTagCursorStaysInline(page, dialog);
+  await page.locator("#chip").evaluate((chip) => {
+    const lineBreak = document.createElement("span");
+    lineBreak.style.flexBasis = "100%";
+    chip.after(lineBreak);
+  });
+  await expect(expectEmptyTagCursorStaysInline(page, dialog)).rejects.toThrow("empty tag cursor wrapped");
+});
 
 test("desktop advanced filters complete the right-side exit lifecycle", async ({ page }) => {
   await page.goto("/subscriptions");

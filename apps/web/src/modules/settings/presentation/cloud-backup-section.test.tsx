@@ -41,6 +41,7 @@ vi.mock("@/i18n/I18nProvider", () => ({
         "settings.cloudBackupLastStatus": "上次状态",
         "settings.cloudBackupLastBackupAt": "上次备份",
         "settings.cloudBackupLastError": "最近一次备份失败。",
+        "settings.cloudBackupRequestLimitPaused": "WebDAV 请求超限，定时备份已暂停。修正配置后重新开启并保存。",
         "settings.cloudBackupTestFailed": "连接测试失败",
         "settings.cloudBackupCreateFailed": "云端快照创建失败",
         "settings.cloudBackupRestoreFailed": "云端快照恢复失败",
@@ -123,6 +124,22 @@ vi.mock("@/i18n/I18nProvider", () => ({
 describe("CloudBackupSection", () => {
   beforeEach(() => {
     installPointerCaptureMocks();
+  });
+
+  it("explains a paused request limit using saved provider state, without confusing an unsaved toggle or S3", () => {
+    const controller = createController();
+    const config = controller.config.data;
+    if (!config) throw new Error("Missing fixture config");
+    config.statusByProvider.webdav = { ...config.statusByProvider.webdav, lastStatus: "failed", lastError: "CLOUD_BACKUP_WEBDAV_REQUEST_LIMIT" };
+    controller.form = { ...controller.form, scheduleEnabled: true };
+    const { rerender } = render(<CloudBackupSection controller={controller} />);
+    expect(screen.getByText("WebDAV 请求超限，定时备份已暂停。修正配置后重新开启并保存。")).toBeInTheDocument();
+    rerender(<CloudBackupSection controller={{ ...controller, form: { ...controller.form, provider: "s3" } }} />);
+    expect(screen.queryByText(/WebDAV 请求超限/)).not.toBeInTheDocument();
+    config.policyByProvider.webdav = { ...config.policyByProvider.webdav, scheduleEnabled: true };
+    rerender(<CloudBackupSection controller={controller} />);
+    expect(screen.queryByText(/WebDAV 请求超限/)).not.toBeInTheDocument();
+    expect(screen.getByText("最近一次备份失败。")).toBeInTheDocument();
   });
 
   it("does not render empty default configuration when the first config read fails", async () => {

@@ -1,3 +1,5 @@
+import { CloudBackupRemoteError, localRemoteError, withCleanup, cleanupError, requiredCapability, isNotFound, truncate, stableCloudBackupErrorCode, sanitizeCloudBackupTarget, type CleanupError } from "./cloud-backup-errors";
+export { CloudBackupRemoteError } from "./cloud-backup-errors";
 import {
   DeleteObjectCommand,
   GetObjectCommand,
@@ -9,6 +11,8 @@ import {
 } from "@aws-sdk/client-s3";
 import { RequestChecksumCalculation, ResponseChecksumValidation } from "@aws-sdk/middleware-flexible-checksums";
 import { FetchHttpHandler } from "@smithy/fetch-http-handler";
+import { CronS3HttpHandler } from "./cloud-backup-s3-http";
+import { CronBudgetExceeded, type CronBudget } from "./cron-budget";
 import {
   CLOUD_BACKUP_DIAGNOSTIC_MAX_CHARS,
   CLOUD_BACKUP_MAX_SNAPSHOT_BYTES,
@@ -35,17 +39,6 @@ const CLOUD_BACKUP_S3_LIST_RESPONSE_MAX_KEYS = 1000;
 const CLOUD_BACKUP_S3_LIST_RESPONSE_MAX_BYTES = 1024 * 1024;
 
 type CloudBackupProviderResponse = UpstreamProviderResponse;
-
-type CleanupError = NonNullable<CloudBackupErrorDetails["cleanup"]>[number];
-
-/** 云备份 remote error 直接保留失败阶段；details 只在当前请求返回，不进入 D1、备份包或缓存。 */
-export class CloudBackupRemoteError extends Error {
-  constructor(readonly code: string, readonly details?: CloudBackupErrorDetails) {
-    super(code);
-    this.name = "CloudBackupRemoteError";
-  }
-}
-
 export type CloudBackupRemoteClient = {
   test(): Promise<void>;
   list(): Promise<CloudBackupSnapshotManifest[]>;
@@ -54,15 +47,28 @@ export type CloudBackupRemoteClient = {
   delete(id: string): Promise<void>;
 };
 
+export interface CloudBackupPagedRemoteClient extends CloudBackupRemoteClient {
+  prepareDirectory(cursor: string | null, limit: number): Promise<string | null>;
+  writeSnapshot(filename: string, content: Uint8Array): Promise<void>;
+  verifySnapshot(manifest: Pick<CloudBackupSnapshotManifest, "filename" | "sizeBytes">): Promise<void>;
+  writeManifest(manifest: CloudBackupSnapshotManifest): Promise<void>;
+  listManifestPage(cursor: string | null, limit: number): Promise<{ keys: string[]; cursor: string | null }>;
+  readManifest(key: string): Promise<CloudBackupSnapshotManifest>;
+  deleteSnapshotFile(id: string, part: "zip" | "manifest"): Promise<void>;
+  upload(filename: string, content: Uint8Array, manifest: CloudBackupSnapshotManifest, directoryPrepared?: boolean): Promise<void>;
+  listPage(cursor: string | null, limit: number): Promise<{ manifests: CloudBackupSnapshotManifest[]; cursor: string | null }>;
+}
+
 /** WebDAV 协议库负责认证、XML 和请求；这一层只把业务对象名映射为远端路径并维护快照状态。 */
-export class WebDAVCloudBackupClient implements CloudBackupRemoteClient {
+export class WebDAVCloudBackupClient implements CloudBackupPagedRemoteClient {
   private readonly client: WorkerWebDAVClient;
   private readonly diagnosticSecrets: readonly string[];
 
-  constructor(private readonly settings: CloudBackupWebDavConfig, private readonly password: string) {
+  constructor(private readonly settings: CloudBackupWebDavConfig, private readonly password: string, budget?: CronBudget) {
     this.diagnosticSecrets = [settings.username ?? "", password];
     this.client = new WorkerWebDAVClient({
       baseURL: settings.url,
+      budget,
       username: settings.username ?? "",
       password,
       timeoutMs: CLOUD_BACKUP_UPSTREAM_TIMEOUT_MS,
@@ -113,24 +119,63 @@ export class WebDAVCloudBackupClient implements CloudBackupRemoteClient {
     return manifests;
   }
 
-  async upload(filename: string, content: Uint8Array, manifest: CloudBackupSnapshotManifest): Promise<void> {
-    await this.ensureDirectory();
-    await this.put(filename, content, "application/zip");
+  async listPage(cursor: string | null, limit: number): Promise<{ manifests: CloudBackupSnapshotManifest[]; cursor: string | null }> {
+    const page = await this.listManifestPage(cursor, limit);
+    const manifests: CloudBackupSnapshotManifest[] = [];
+    for (const name of page.keys) manifests.push(await this.readManifest(name));
+    return { manifests, cursor: page.cursor };
+  }
+
+  async listManifestPage(cursor: string | null, limit: number): Promise<{ keys: string[]; cursor: string | null }> {
+    // WebDAV没有目录续传令牌；按不变文件名切片，正文由Cron在独立工作片读取。
+    const directory = this.remotePath("");
+    const files = (await this.withError("CLOUD_BACKUP_WEBDAV_PROPFIND_FAILED", "PROPFIND", directory, () => this.client.list(directory)))
+      .filter((name) => name.endsWith(".manifest.json") && (cursor === null || name > cursor)).sort();
+    const keys = files.slice(0, limit);
+    return { keys, cursor: files.length > limit ? keys.at(-1) ?? null : null };
+  }
+
+  async prepareDirectory(cursor: string | null, limit: number): Promise<string | null> {
+    const segments = this.remotePath("").split("/").filter(Boolean);
+    const start = cursor ? cursor.split("/").filter(Boolean).length : 0;
+    if (cursor && segments.slice(0, start).join("/") !== cursor) throw new Error("CLOUD_BACKUP_CURSOR_INVALID");
+    const end = Math.min(segments.length, start + limit);
+    for (let index = start; index < end; index++) {
+      const path = segments.slice(0, index + 1).join("/");
+      await this.withError("CLOUD_BACKUP_WEBDAV_MKCOL_FAILED", "MKCOL", path, () => this.client.ensureDirectory(path, false));
+    }
+    return end < segments.length ? segments.slice(0, end).join("/") : null;
+  }
+
+  async upload(filename: string, content: Uint8Array, manifest: CloudBackupSnapshotManifest, directoryPrepared = false): Promise<void> {
+    if (!directoryPrepared) await this.ensureDirectory();
+    await this.writeSnapshot(filename, content);
     try {
-      const size = await this.withError("CLOUD_BACKUP_WEBDAV_PROPFIND_FAILED", "PROPFIND", this.remotePath(filename), () => this.client.stat(this.remotePath(filename)));
-      if (size !== content.byteLength) {
-        throw localRemoteError("CLOUD_BACKUP_WEBDAV_STAT_MISMATCH", "webdav", "PROPFIND", this.remotePath(filename), `Remote size ${size} bytes does not match uploaded size ${content.byteLength} bytes.`);
-      }
+      await this.verifySnapshot({ filename, sizeBytes: content.length });
     } catch (error) {
       throw withCleanup(error, await this.cleanupFiles([filename]));
     }
     const manifestFilename = manifestName(manifest.id);
     try {
-      await this.put(manifestFilename, textEncoder.encode(JSON.stringify(manifest, null, 2)), "application/json");
+      await this.writeManifest(manifest);
     } catch (error) {
       throw withCleanup(error, await this.cleanupFiles([filename, manifestFilename]));
     }
   }
+
+  async writeSnapshot(filename: string, content: Uint8Array): Promise<void> { await this.put(filename, content, "application/zip"); }
+
+  async verifySnapshot(manifest: Pick<CloudBackupSnapshotManifest, "filename" | "sizeBytes">): Promise<void> {
+    const path = this.remotePath(manifest.filename);
+    const size = await this.withError("CLOUD_BACKUP_WEBDAV_PROPFIND_FAILED", "PROPFIND", path, () => this.client.stat(path));
+    if (size !== manifest.sizeBytes) throw localRemoteError("CLOUD_BACKUP_WEBDAV_STAT_MISMATCH", "webdav", "PROPFIND", path, `Remote size ${size} bytes does not match uploaded size ${manifest.sizeBytes} bytes.`);
+  }
+
+  async writeManifest(manifest: CloudBackupSnapshotManifest): Promise<void> {
+    await this.put(manifestName(manifest.id), textEncoder.encode(JSON.stringify(manifest, null, 2)), "application/json");
+  }
+
+  async deleteSnapshotFile(id: string, part: "zip" | "manifest"): Promise<void> { await this.deleteFile(part === "zip" ? `${id}.zip` : manifestName(id)); }
 
   async download(id: string): Promise<{ content: Uint8Array; manifest: CloudBackupSnapshotManifest }> {
     const manifest = await this.readManifest(manifestName(id));
@@ -138,15 +183,15 @@ export class WebDAVCloudBackupClient implements CloudBackupRemoteClient {
   }
 
   async delete(id: string): Promise<void> {
-    await this.deleteFile(`${id}.zip`);
-    await this.deleteFile(manifestName(id));
+    await this.deleteSnapshotFile(id, "zip");
+    await this.deleteSnapshotFile(id, "manifest");
   }
 
-  private async readManifest(filename: string): Promise<CloudBackupSnapshotManifest> {
+  async readManifest(filename: string): Promise<CloudBackupSnapshotManifest> {
     try {
       return cloudBackupSnapshotManifestSchema.parse(JSON.parse(textDecoder(await this.get(filename))));
     } catch (error) {
-      if (error instanceof CloudBackupRemoteError) throw error;
+      if (error instanceof CloudBackupRemoteError || error instanceof CronBudgetExceeded) throw error;
       throw localRemoteError("CLOUD_BACKUP_MANIFEST_INVALID", "webdav", "manifest", this.remoteTarget(this.remotePath(filename)), error instanceof Error ? error.message : String(error));
     }
   }
@@ -192,6 +237,7 @@ export class WebDAVCloudBackupClient implements CloudBackupRemoteClient {
     try {
       return await action();
     } catch (error) {
+      if (error instanceof CronBudgetExceeded) throw error;
       throw await webDavRemoteError(code, operation, this.remoteTarget(path), error, this.diagnosticSecrets);
     }
   }
@@ -212,7 +258,7 @@ class S3ObjectStore {
   readonly client: S3Client;
   private readonly diagnosticSecrets: readonly string[];
 
-  constructor(readonly settings: CloudBackupS3Config, private readonly secret: string) {
+  constructor(readonly settings: CloudBackupS3Config, private readonly secret: string, budget?: CronBudget) {
     this.diagnosticSecrets = [settings.accessKeyId ?? "", secret];
     this.client = new S3Client({
       endpoint: settings.endpoint,
@@ -220,7 +266,8 @@ class S3ObjectStore {
       credentials: { accessKeyId: settings.accessKeyId ?? "", secretAccessKey: secret },
       forcePathStyle: settings.addressingStyle === "pathStyle",
       // 私有对象必须直达源站；Cloudflare 缓存可能把 ZIP 的 HEAD 改为 GET，破坏包含方法的 SigV4 签名。
-      requestHandler: new FetchHttpHandler({ cache: "no-store", requestTimeout: CLOUD_BACKUP_UPSTREAM_TIMEOUT_MS }),
+      requestHandler: budget ? new CronS3HttpHandler(budget, CLOUD_BACKUP_UPSTREAM_TIMEOUT_MS)
+        : new FetchHttpHandler({ cache: "no-store", requestTimeout: CLOUD_BACKUP_UPSTREAM_TIMEOUT_MS }),
       maxAttempts: 1,
       requestChecksumCalculation: RequestChecksumCalculation.WHEN_REQUIRED,
       responseChecksumValidation: ResponseChecksumValidation.WHEN_REQUIRED,
@@ -314,11 +361,22 @@ class S3ObjectStore {
     }
   }
 
+  async listObjectPage(prefix: string, cursor: string | null, limit: number): Promise<{ keys: string[]; cursor: string | null }> {
+    const output = await this.send("CLOUD_BACKUP_S3_LIST_FAILED", "ListObjectsV2", prefix, () => this.client.send(new ListObjectsV2Command({
+      Bucket: this.settings.bucket, MaxKeys: limit, EncodingType: "url",
+      ...(prefix ? { Prefix: prefix } : {}), ...(cursor ? { ContinuationToken: cursor } : {}),
+    })));
+    if (output.NextContinuationToken && output.NextContinuationToken === cursor) {
+      throw localRemoteError("CLOUD_BACKUP_S3_LIST_FAILED", "s3", "ListObjectsV2", this.target(prefix), "Repeated continuation token");
+    }
+    return { keys: (output.Contents ?? []).flatMap((item) => item.Key ? [item.Key] : []), cursor: output.NextContinuationToken ?? null };
+  }
+
   private async send<T>(code: string, operation: string, key: string, action: () => Promise<T>): Promise<T> {
     try {
       return await action();
     } catch (error) {
-      if (error instanceof CloudBackupRemoteError) throw error;
+      if (error instanceof CloudBackupRemoteError || error instanceof CronBudgetExceeded) throw error;
       throw await s3RemoteError(code, operation, this.target(key), error, this.diagnosticSecrets);
     }
   }
@@ -328,12 +386,14 @@ class S3ObjectStore {
   }
 }
 
-export class S3CloudBackupClient implements CloudBackupRemoteClient {
+export class S3CloudBackupClient implements CloudBackupPagedRemoteClient {
   private readonly store: S3ObjectStore;
 
-  constructor(private readonly settings: CloudBackupS3Config, secret: string) {
-    this.store = new S3ObjectStore(settings, secret);
+  constructor(private readonly settings: CloudBackupS3Config, secret: string, budget?: CronBudget) {
+    this.store = new S3ObjectStore(settings, secret, budget);
   }
+
+  async prepareDirectory(_cursor: string | null, _limit: number): Promise<null> { return null; }
 
   async test(): Promise<void> {
     const key = this.key(`.renewlet-probe-${randomHex(4)}.txt`);
@@ -369,49 +429,66 @@ export class S3CloudBackupClient implements CloudBackupRemoteClient {
     const manifests: CloudBackupSnapshotManifest[] = [];
     for (const key of await this.store.listObjects(this.key(""))) {
       if (!key.endsWith(".manifest.json")) continue;
-      let manifest: CloudBackupSnapshotManifest;
-      try {
-        manifest = cloudBackupSnapshotManifestSchema.parse(JSON.parse(textDecoder(await this.store.getObject(key))));
-      } catch (error) {
-        if (error instanceof CloudBackupRemoteError) throw error;
-        throw localRemoteError("CLOUD_BACKUP_MANIFEST_INVALID", "s3", "manifest", this.target(key), error instanceof Error ? error.message : String(error));
-      }
-      if (!manifest.id) throw localRemoteError("CLOUD_BACKUP_MANIFEST_INVALID", "s3", "manifest", this.target(key), "manifest id is empty");
-      manifests.push(manifest);
+      manifests.push(await this.readManifest(key));
     }
     return manifests;
   }
 
+  async listPage(cursor: string | null, limit: number): Promise<{ manifests: CloudBackupSnapshotManifest[]; cursor: string | null }> {
+    const page = await this.listManifestPage(cursor, limit);
+    const manifests: CloudBackupSnapshotManifest[] = [];
+    for (const key of page.keys) manifests.push(await this.readManifest(key));
+    return { manifests, cursor: page.cursor };
+  }
+
+  async listManifestPage(cursor: string | null, limit: number): Promise<{ keys: string[]; cursor: string | null }> {
+    const page = await this.store.listObjectPage(this.key(""), cursor, limit);
+    return { ...page, keys: page.keys.filter((key) => key.endsWith(".manifest.json")) };
+  }
+
   async upload(filename: string, content: Uint8Array, manifest: CloudBackupSnapshotManifest): Promise<void> {
     const zipKey = this.key(filename);
-    await this.store.putObject(zipKey, content);
+    await this.writeSnapshot(filename, content);
     const cleanupKeys = [zipKey];
     try {
-      const head = await this.store.headObject(zipKey);
-      if (head.contentLength !== null && head.contentLength !== content.length) throw localRemoteError("CLOUD_BACKUP_S3_HEAD_MISMATCH", "s3", "HeadObject", this.target(zipKey), `Remote size ${head.contentLength} bytes does not match uploaded size ${content.length} bytes.`);
+      await this.verifySnapshot({ filename, sizeBytes: content.length });
       const manifestKey = this.key(manifestName(manifest.id));
       cleanupKeys.push(manifestKey);
-      await this.store.putObject(manifestKey, textEncoder.encode(JSON.stringify(manifest, null, 2)));
+      await this.writeManifest(manifest);
     } catch (error) {
       throw withCleanup(error, await this.cleanup(cleanupKeys));
     }
   }
 
+  async writeSnapshot(filename: string, content: Uint8Array): Promise<void> { await this.store.putObject(this.key(filename), content); }
+
+  async verifySnapshot(manifest: Pick<CloudBackupSnapshotManifest, "filename" | "sizeBytes">): Promise<void> {
+    const key = this.key(manifest.filename);
+    const head = await this.store.headObject(key);
+    if (head.contentLength !== null && head.contentLength !== manifest.sizeBytes) throw localRemoteError("CLOUD_BACKUP_S3_HEAD_MISMATCH", "s3", "HeadObject", this.target(key), `Remote size ${head.contentLength} bytes does not match uploaded size ${manifest.sizeBytes} bytes.`);
+  }
+
+  async writeManifest(manifest: CloudBackupSnapshotManifest): Promise<void> { await this.store.putObject(this.key(manifestName(manifest.id)), textEncoder.encode(JSON.stringify(manifest, null, 2))); }
+
+  async deleteSnapshotFile(id: string, part: "zip" | "manifest"): Promise<void> { await this.store.deleteObject(this.key(part === "zip" ? `${id}.zip` : manifestName(id))); }
+
   async download(id: string): Promise<{ content: Uint8Array; manifest: CloudBackupSnapshotManifest }> {
-    const manifestKey = this.key(manifestName(id));
-    let manifest: CloudBackupSnapshotManifest;
-    try {
-      manifest = cloudBackupSnapshotManifestSchema.parse(JSON.parse(textDecoder(await this.store.getObject(manifestKey))));
-    } catch (error) {
-      if (error instanceof CloudBackupRemoteError) throw error;
-      throw localRemoteError("CLOUD_BACKUP_MANIFEST_INVALID", "s3", "manifest", this.target(manifestKey), error instanceof Error ? error.message : String(error));
-    }
+    const manifest = await this.readManifest(this.key(manifestName(id)));
     return { content: await this.store.getObject(this.key(manifest.filename)), manifest };
   }
 
   async delete(id: string): Promise<void> {
-    await this.store.deleteObject(this.key(`${id}.zip`));
-    await this.store.deleteObject(this.key(manifestName(id)));
+    await this.deleteSnapshotFile(id, "zip");
+    await this.deleteSnapshotFile(id, "manifest");
+  }
+
+  async readManifest(key: string): Promise<CloudBackupSnapshotManifest> {
+    try {
+      return cloudBackupSnapshotManifestSchema.parse(JSON.parse(textDecoder(await this.store.getObject(key))));
+    } catch (error) {
+      if (error instanceof CloudBackupRemoteError || error instanceof CronBudgetExceeded) throw error;
+      throw localRemoteError("CLOUD_BACKUP_MANIFEST_INVALID", "s3", "manifest", this.target(key), error instanceof Error ? error.message : String(error));
+    }
   }
 
   private async cleanup(keys: readonly string[]): Promise<CleanupError[]> {
@@ -540,43 +617,10 @@ async function webDavProviderResponse(response: Response | null, secrets: readon
   }
 }
 
-function localRemoteError(code: string, provider: "s3" | "webdav" | "local", operation: string, target: string, message: string): CloudBackupRemoteError {
-  const details = { operation, target: sanitizeCloudBackupTarget(target), clientMessage: truncate(message) } satisfies CloudBackupErrorDetails;
-  return new CloudBackupRemoteError(code, provider === "local" ? details : { ...details, provider });
-}
 
-function withCleanup(error: unknown, cleanup: CleanupError[]): CloudBackupRemoteError | Error {
-  if (cleanup.length === 0) return error instanceof Error ? error : new Error(String(error));
-  if (error instanceof CloudBackupRemoteError) {
-    const details = error.details ?? { operation: "upload", target: "cloud backup" };
-    return new CloudBackupRemoteError(error.code, { ...details, cleanup: [...(details.cleanup ?? []), ...cleanup].slice(0, 4) });
-  }
-  return new CloudBackupRemoteError(stableCloudBackupErrorCode(error instanceof Error ? error.message : String(error)) ?? "CLOUD_BACKUP_UPLOAD_FAILED", { operation: "upload", target: "cloud backup", clientMessage: truncate(error instanceof Error ? error.message : String(error)), cleanup });
-}
 
-function cleanupError(operation: string, target: string, error: unknown): CleanupError {
-  const remote = error instanceof CloudBackupRemoteError ? error : null;
-  return {
-    operation,
-    target: sanitizeCloudBackupTarget(target),
-    code: remote ? remote.code : "CLOUD_BACKUP_CLEANUP_FAILED",
-    message: truncate(remote?.details?.clientMessage ?? remote?.details?.providerMessage ?? (error instanceof Error ? error.message : String(error))),
-  };
-}
 
-function requiredCapability(operation: string, status: number): string | undefined {
-  if (status !== 401 && status !== 403) return undefined;
-  if (["PutObject", "PUT", "MKCOL"].includes(operation)) return "object write permission";
-  if (["HeadObject", "GetObject", "GET"].includes(operation)) return "object read permission";
-  if (["ListObjectsV2", "LIST", "PROPFIND"].includes(operation)) return "bucket listing permission";
-  if (["DeleteObject", "DELETE"].includes(operation)) return "object delete permission";
-  return undefined;
-}
 
-function isNotFound(error: unknown): boolean {
-  if (error instanceof CloudBackupRemoteError) return error.details?.httpStatus === 404 || error.details?.providerCode === "NotFound" || error.details?.providerCode === "NoSuchKey";
-  return false;
-}
 
 function joinRemotePath(...parts: string[]): string {
   const segments = parts.flatMap((part) => part.split("/").map((segment) => segment.trim()).filter(Boolean));
@@ -671,9 +715,6 @@ async function boundedStream(stream: ReadableStream<Uint8Array>, limit: number):
   return result;
 }
 
-function truncate(value: string): string {
-  return value.length > CLOUD_BACKUP_DIAGNOSTIC_MAX_CHARS ? value.slice(0, CLOUD_BACKUP_DIAGNOSTIC_MAX_CHARS) : value;
-}
 
 function boundedDiagnosticText(value: string): { text: string; truncated: boolean } {
   // provider 错误正文只作为当前请求的诊断现场，先在统一响应层限长，再交给 schema，避免异常响应造成无界内存或泄漏。
@@ -719,10 +760,6 @@ function statusText(status: number): string {
   } as Record<number, string>)[status] ?? "";
 }
 
-function stableCloudBackupErrorCode(value: string): string | null {
-  const candidate = value.trim();
-  return /^CLOUD_BACKUP_[A-Z0-9_]+$/.test(candidate) ? candidate : null;
-}
 
 function endpointHost(endpoint: string): string {
   try {
@@ -730,9 +767,4 @@ function endpointHost(endpoint: string): string {
   } catch {
     return "configured endpoint";
   }
-}
-
-function sanitizeCloudBackupTarget(value: string): string {
-  const sanitized = value.trim().replace(/[\u0000-\u001f\u007f]/g, " ");
-  return sanitized.length > 1024 ? `${sanitized.slice(0, 1024)}…` : sanitized;
 }

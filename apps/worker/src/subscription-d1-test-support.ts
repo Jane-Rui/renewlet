@@ -205,7 +205,7 @@ export function readCount(db: DatabaseSync, table: string): number {
   return Number(row?.["count"] ?? 0);
 }
 
-class TransactionalD1Database {
+export class TransactionalD1Database {
   constructor(private readonly db: DatabaseSync) {}
 
   prepare(sql: string): TransactionalD1PreparedStatement {

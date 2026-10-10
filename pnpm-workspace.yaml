@@ -10,9 +10,6 @@ allowBuilds:
 # 安全约束只覆盖漏洞版本范围，其余传递依赖通过 pnpm update 正常更新锁文件。
 overrides:
   "browserslist@<=4.28.6": "^4.28.7"
-  # Miniflare 仍精确固定旧版 undici/sharp；使用同一版本线的官方修复，上游解除漏洞版本固定后移除。
-  "undici@>=7.0.0 <7.29.1": "^7.29.1"
-  "sharp@>=0.35.0 <0.35.5": "^0.35.5"
 # pnpm 11 默认拦截发布不足 24 小时的包；本轮明确升级到 same-day latest 时只放行精确版本，避免用 minimumReleaseAge: 0 关闭整个供应链冷却期。
 minimumReleaseAgeExclude:
   - '@ai-sdk/anthropic@4.0.33'
@@ -28,5 +25,7 @@ minimumReleaseAgeExclude:
   - lucide-react@1.29.0
   - tsx@4.23.9
   # 仅目标 Wrangler 和其官方 Miniflare 依赖未满 24 小时；workerd/类型仍走默认冷却期，不放行整个命名空间。
-  - wrangler@4.142.0
-  - miniflare@5.20260926.0-alpha
+  - wrangler@4.149.0
+  - miniflare@5.20261006.1-alpha
+  # 工程优化已审计并指定Vite版本；仅放行该版本的发布冷却期，不扩大后续升级范围。
+  - vite@8.3.4

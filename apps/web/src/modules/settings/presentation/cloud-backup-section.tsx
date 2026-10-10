@@ -93,6 +93,8 @@ export function CloudBackupSection({
     && cloudBackupErrorDetails !== null
     ? cloudBackupErrorDetailsContext
     : null;
+  const requestLimitPaused = providerStatus?.lastError === "CLOUD_BACKUP_WEBDAV_REQUEST_LIMIT"
+    && !config.data?.policyByProvider[form.provider].scheduleEnabled;
   const errorMessage = actionErrorContext
     ? {
       test: t("settings.cloudBackupTestFailed"),
@@ -100,7 +102,8 @@ export function CloudBackupSection({
       restore: t("settings.cloudBackupRestoreFailed"),
       delete: t("settings.cloudBackupDeleteFailed"),
     }[actionErrorContext.action]
-    : providerStatus?.lastError ? t("settings.cloudBackupLastError") : null;
+    : requestLimitPaused ? t("settings.cloudBackupRequestLimitPaused")
+      : providerStatus?.lastError ? t("settings.cloudBackupLastError") : null;
   const deleteDialogBusy = deleteTarget ? deletingSnapshotKey === cloudBackupSnapshotKey(deleteTarget) : false;
   const sectionSummary = config.isInitialLoading
     ? t("common.loading")

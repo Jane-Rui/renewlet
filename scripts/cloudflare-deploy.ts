@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { LOCALE_PREFERENCES } from "../packages/shared/src/i18n-config";
+import { LOCALE_PREFERENCES } from "@renewlet/shared/i18n-config";
 import {
   captureBookmark,
   deploymentRecoveryCommand,
@@ -21,13 +21,10 @@ import {
   type WranglerConfig,
 } from "./cloudflare-wrangler-config";
 import { SUBSCRIPTION_DERIVED_BACKFILL_NAME } from "./cloudflare-derived-backfill-state";
+import { readActiveWorkerDeployment, type ActiveDeployment } from "./cloudflare-worker-deployment";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const drainWindowMs = 15 * 60 * 1000;
-
-interface ActiveDeployment {
-  versionId: string;
-}
 
 interface D1TriggerDefinition {
   name: string;
@@ -215,22 +212,6 @@ function parseJson(text: string, context: string): unknown {
   }
 }
 
-function parseActiveDeployment(value: unknown): ActiveDeployment {
-  if (!isJsonObject(value) || !Array.isArray(value["versions"])) {
-    throw new Error("Wrangler deployment status returned an invalid object");
-  }
-  const versions = value["versions"];
-  if (versions.length !== 1 || !isJsonObject(versions[0])) {
-    throw new Error("Renewlet deployment requires one active Worker version at 100% traffic");
-  }
-  const versionId = versions[0]["version_id"];
-  const percentage = versions[0]["percentage"];
-  if (typeof versionId !== "string" || versionId.length === 0 || percentage !== 100) {
-    throw new Error("Renewlet deployment requires one active Worker version at 100% traffic");
-  }
-  return { versionId: safeWorkerVersion(versionId) };
-}
-
 function parseD1NameRow(value: unknown): string {
   if (!isJsonObject(value) || typeof value["name"] !== "string") {
     throw new Error("Cloudflare D1 migration query returned an invalid row");
@@ -381,17 +362,16 @@ function deploymentSummary(bookmark: string, versionId?: string): string {
 }
 
 function createOperations(options: DeployOptions): DeploymentOperations {
-  const environment = { ...process.env, CI_WRANGLER_CONFIG: options.configPath };
+  const environment: NodeJS.ProcessEnv = { ...process.env, CI_WRANGLER_CONFIG: options.configPath };
   const d1 = createD1OperationsClient({ target: "remote", configPath: options.configPath });
 
   const readActiveDeployment = async (): Promise<ActiveDeployment | undefined> => {
-    const result = await runPnpm(["exec", "wrangler", "deployments", "status", "--json", "--config", options.configPath]);
-    if (result.status !== 0) {
-      const output = `${result.stderr}\n${result.stdout}`;
-      if (/has no deployments|script[_ -]?not[_ -]?found|worker.+not found/i.test(output)) return undefined;
-      throw commandFailure("wrangler deployments status", result);
-    }
-    return parseActiveDeployment(parseJson(result.stdout, "Wrangler deployment status"));
+    const config = readWranglerConfig(options.configPath);
+    return readActiveWorkerDeployment({
+      accountId: environment["CLOUDFLARE_ACCOUNT_ID"]?.trim() ?? "",
+      apiToken: environment["CLOUDFLARE_API_TOKEN"]?.trim() ?? "",
+      workerName: requiredString(config, "name", "Wrangler config"),
+    });
   };
 
   const readAppliedExclusiveMigrations = async (names: readonly string[]): Promise<Set<string>> => {

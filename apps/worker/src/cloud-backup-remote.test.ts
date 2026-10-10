@@ -1,19 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { S3Client } from "@aws-sdk/client-s3";
-import { getPatcher } from "webdav/web";
 import { CLOUD_BACKUP_DIAGNOSTIC_MAX_CHARS } from "@renewlet/shared/schemas/cloud-backup";
 import { CloudBackupRemoteError, S3CloudBackupClient, WebDAVCloudBackupClient, sha256Hex } from "./cloud-backup-remote";
 
 type CloudBackupRemoteErrorMatch = Omit<Partial<CloudBackupRemoteError>, "details"> & {
   details?: Partial<NonNullable<CloudBackupRemoteError["details"]>>;
 };
-
-// webdav/web 在模块初始化时绑定 fetch；测试通过官方 patcher 把调用转发到当前 fetch stub，仍覆盖真实协议库路径。
-getPatcher().patch("fetch", (...args: unknown[]) => {
-  const [url, options] = args;
-  if (!(typeof url === "string" || url instanceof URL)) throw new TypeError("webdav test patch received an invalid URL");
-  return globalThis.fetch(url, options as RequestInit | undefined);
-});
 
 // Worker 远端测试锁定 S3 签名输入和 raw response 契约，避免靠供应商域名表逐个打补丁。
 function fetchCallFromArgs(input: RequestInfo | URL, init?: RequestInit) {

@@ -1,11 +1,33 @@
-import { AuthType, createClient } from "webdav/web";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { AuthType, createClient, getPatcher } from "webdav/web";
 import type { WebDAVClient } from "webdav";
 import { CLOUD_BACKUP_MAX_SNAPSHOT_BYTES } from "@renewlet/shared/schemas/cloud-backup";
 
+import { CronBudgetExceeded, type CronBudget } from "./cron-budget";
+import { fetchUpstream } from "./upstream-http";
+
+// SDK只有模块级传输扩展点；固定注册一次，异步上下文隔离每次操作，禁止按请求替换patcher。
+const operationBudget = new AsyncLocalStorage<CronBudget | undefined>();
+getPatcher().patch("fetch", (input: unknown, init: unknown) => {
+  if (typeof input !== "string") throw new TypeError("WebDAV SDK fetch requires a URL string");
+  const options = init as RequestInit;
+  const budget = operationBudget.getStore();
+  return fetchUpstream(input, options, budget);
+});
+
 const CLOUD_BACKUP_UPSTREAM_TIMEOUT_MS = 45_000;
+
+export class WebDAVOperationLimitExceeded extends CronBudgetExceeded {
+  constructor() {
+    super("external");
+    this.name = "WebDAVOperationLimitExceeded";
+    this.message = "CLOUD_BACKUP_WEBDAV_REQUEST_LIMIT";
+  }
+}
 
 type WorkerWebDAVOptions = {
   baseURL: string;
+  budget?: CronBudget | undefined;
   password: string;
   timeoutMs?: number;
   username: string;
@@ -29,10 +51,12 @@ export class WorkerWebDAVRequestError extends Error {
 
 export class WorkerWebDAVClient {
   readonly #baseURL: string;
+  readonly #budget: CronBudget | undefined;
   readonly #client: WebDAVClient;
   readonly #timeoutMs: number;
 
   constructor(options: WorkerWebDAVOptions) {
+    this.#budget = options.budget;
     this.#baseURL = options.baseURL.replace(/\/+$/, "");
     this.#timeoutMs = options.timeoutMs ?? CLOUD_BACKUP_UPSTREAM_TIMEOUT_MS;
     const hasCredentials = Boolean(options.username && options.password);
@@ -42,8 +66,8 @@ export class WorkerWebDAVClient {
     });
   }
 
-  async ensureDirectory(path: string): Promise<void> {
-    await this.#run("MKCOL", path, (signal) => this.#client.createDirectory(path, { recursive: true, signal }));
+  async ensureDirectory(path: string, recursive = true): Promise<void> {
+    await this.#run("MKCOL", path, (signal) => this.#client.createDirectory(path, { recursive, signal }));
   }
 
   async list(path: string): Promise<string[]> {
@@ -97,6 +121,8 @@ export class WorkerWebDAVClient {
   }
 
   async #run<T>(operation: string, path: string, action: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    const budgetWasUnused = this.#budget !== undefined
+      && this.#budget.used.externalRequests + this.#budget.used.externalReserved === 0;
     const controller = new AbortController();
     let timedOut = false;
     const timeout = setTimeout(() => {
@@ -104,8 +130,11 @@ export class WorkerWebDAVClient {
       controller.abort();
     }, this.#timeoutMs);
     try {
-      return await action(controller.signal);
+      return await operationBudget.run(this.#budget, () => action(controller.signal));
     } catch (error) {
+      // 用满独占预算仍无法完成的操作不能靠下个tick重试；已有其它操作占额时仅让出本片。
+      if (error instanceof CronBudgetExceeded && error.resource === "external" && budgetWasUnused) throw new WebDAVOperationLimitExceeded();
+      if (error instanceof CronBudgetExceeded) throw error;
       throw new WorkerWebDAVRequestError(webDAVResponseFromError(error), operation, this.#target(path), timedOut, error);
     } finally {
       clearTimeout(timeout);

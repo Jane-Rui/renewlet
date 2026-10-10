@@ -1,16 +1,4 @@
-import { getPatcher } from "webdav/web";
 import { vi } from "vitest";
-
-// webdav/web 在导入时绑定运行面的 fetch；测试通过官方 patcher 转发到每个用例的 fetch stub。
-export function installWebDAVFetchPatcher() {
-  getPatcher().patch("fetch", (...args: unknown[]) => {
-    const [url, options] = args;
-    if (!(typeof url === "string" || url instanceof URL)) {
-      throw new TypeError("webdav test patch received an invalid URL");
-    }
-    return globalThis.fetch(url, options as RequestInit | undefined);
-  });
-}
 
 export function fetchCallFromArgs(input: RequestInfo | URL, init?: RequestInit) {
   const request = input instanceof Request ? input : null;

@@ -129,4 +129,5 @@ export const messages = [
   msg({ id: "settings.cloudBackupDeleted", message: "云端快照已删除" }),
   msg({ id: "settings.cloudBackupDeleteFailed", message: "云端快照删除失败" }),
   msg({ id: "settings.cloudBackupDeleteFailedDescription", message: "无法删除远端快照，请稍后重试。" }),
+  msg({ id: "settings.cloudBackupRequestLimitPaused", message: "WebDAV 单次操作超出 Cloudflare 免费版请求上限，定时备份已暂停。请检查地址和服务端跳转配置，修正后重新开启定时备份并保存。" }),
 ] as const;

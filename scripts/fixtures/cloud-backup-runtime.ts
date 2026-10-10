@@ -1,10 +1,20 @@
-import type { CloudBackupSnapshotManifest } from "../../packages/shared/src/schemas/cloud-backup";
+import type { CloudBackupSnapshotManifest } from "@renewlet/shared/schemas/cloud-backup";
 import { CloudBackupRemoteError, S3CloudBackupClient } from "../../apps/worker/src/cloud-backup-remote";
+import { createStoredZipFromSources } from "../../apps/worker/src/zip-store";
 
 // 由 Wrangler 打包后在独立 workerd 中执行；只替换远端响应，SDK 入口、签名和 XML 解析仍走实际构建路径。
 export default {
   async fetch(request: Request): Promise<Response> {
     const scenario = new URL(request.url).searchParams.get("scenario");
+    if (scenario === "zip") {
+      const date = new Date("2026-10-09T00:00:00.000Z");
+      const payload = new Uint8Array(2 * 1024 * 1024);
+      for (let index = 0; index < payload.length; index++) payload[index] = (index * 31 + 17) & 255;
+      const archive = await createStoredZipFromSources([
+        { name: "assets/fixture-0.bin", size: payload.length, load: async () => payload },
+      ], date, 16 * 1024 * 1024);
+      return new Response(archive, { headers: { "content-type": "application/zip" } });
+    }
     const prefix = scenario === "pages" ? "backups/" : "";
     const uploadScenario = scenario === "upload" || scenario === "head-forbidden" || scenario === "manifest-forbidden";
     const content = new TextEncoder().encode("backup-content");

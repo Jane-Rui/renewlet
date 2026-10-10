@@ -577,8 +577,8 @@ func TestRepeatReminderCronCreatesOneIdempotentJob(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Skipped != 1 || second.Skipped != 1 || second.Results[0].Reason != "already_skipped" {
-		t.Fatalf("expected first skipped job then idempotent skip, got first=%#v second=%#v", first, second)
+	if first.Skipped != 1 || second.Processed != 0 {
+		t.Fatalf("expected one skipped job and no re-enumeration of its completed window, got first=%#v second=%#v", first, second)
 	}
 	jobs, err := app.FindAllRecords("notification_jobs")
 	if err != nil {

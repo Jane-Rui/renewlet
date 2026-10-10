@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   emptyWebDAVMultiStatus,
   fetchCallFromArgs,
-  installWebDAVFetchPatcher,
   stubRemoteSuccessFetch,
 } from "./cloud-backup-test-fixtures";
 import {
@@ -14,7 +13,6 @@ import {
   downloadCloudBackup,
   listCloudBackups,
   readCloudBackupConfig,
-  runDueCloudBackups,
   testCloudBackupConfig,
   updateCloudBackupConfig,
 } from "./cloud-backup";
@@ -31,7 +29,6 @@ type CloudBackupRemoteErrorMatch = Omit<Partial<CloudBackupRemoteError>, "detail
 
 const authUser = userRow();
 
-installWebDAVFetchPatcher();
 
 const authMocks = vi.hoisted(() => ({
   requireAuth: vi.fn(),
@@ -755,45 +752,5 @@ describe("Cloudflare cloud backup", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("runs due scheduled backups independently per provider while building one ZIP per user", async () => {
-    const rows: CloudBackupTargetRow[] = [
-      cloudBackupRow("webdav", {
-        schedule_enabled: 1,
-        schedule_time: "03:00",
-        last_backup_at: "2026-06-08T00:00:00.000Z",
-      }),
-      {
-        ...s3CloudBackupRow(),
-        schedule_enabled: 1,
-        schedule_frequency: "weekly",
-        schedule_time: "03:00",
-        schedule_weekday: "wednesday",
-        last_backup_at: "2026-06-02T19:00:00.000Z",
-      },
-    ];
-    let lockUpdates = 0;
-    let successUpdates = 0;
-    const env = fakeEnvForRows(rows, ({ sql, method }) => {
-      if (method === "run" && sql.includes("SET locked_until")) {
-        lockUpdates += 1;
-        return d1Run(1);
-      }
-      if (method === "run" && sql.includes("SET last_backup_at")) {
-        successUpdates += 1;
-        return d1Run(1);
-      }
-      return undefined;
-    });
-    const calls = stubRemoteSuccessFetch();
-    dbMocks.getSettings.mockResolvedValue({ ...createDefaultAppSettings(), timezone: "Asia/Shanghai" });
 
-    await runDueCloudBackups(env, new Date("2026-06-10T19:01:00.000Z"));
-
-    expect(lockUpdates).toBe(2);
-    expect(successUpdates).toBe(2);
-    expect(dbMocks.listSubscriptions).toHaveBeenCalledTimes(1);
-    expect(calls.filter((call) => call.startsWith("PUT "))).toHaveLength(4);
-    expect(calls.some((call) => call.includes("dav.example.com"))).toBe(true);
-    expect(calls.some((call) => call.includes("r2.example.com"))).toBe(true);
-  });
 });

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { LOCALE_PREFERENCES } from "../packages/shared/src/i18n-config";
+import { LOCALE_PREFERENCES } from "@renewlet/shared/i18n-config";
 import {
   assertD1TriggerDefinitions,
   exclusiveMigrationNames,

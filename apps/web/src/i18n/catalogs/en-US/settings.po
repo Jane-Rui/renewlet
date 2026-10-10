@@ -778,6 +778,11 @@ msgid "settings.cloudBackupProviderWebdav"
 msgstr "WebDAV"
 
 #. js-lingui-explicit-id
+#: src/i18n/descriptors/settings-cloud-backup.ts:132
+msgid "settings.cloudBackupRequestLimitPaused"
+msgstr "A WebDAV operation exceeded the Cloudflare Free request limit, so scheduled backups are paused. Check the URL and server redirects, then re-enable scheduled backups and save the configuration."
+
+#. js-lingui-explicit-id
 #: src/i18n/descriptors/settings-cloud-backup.ts:23
 msgid "settings.cloudBackupWebdavUrl"
 msgstr "WebDAV URL"
@@ -893,13 +898,13 @@ msgid "settings.showExpiredHelp"
 msgstr "Turn this off to keep notifications shorter."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:28
-msgid "settings.sectionNav.cloudBackup"
+#: src/i18n/descriptors/settings-cloud-backup.ts:5
+msgid "settings.cloudBackup"
 msgstr "Cloud sync & backup"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-cloud-backup.ts:5
-msgid "settings.cloudBackup"
+#: src/i18n/descriptors/settings.ts:28
+msgid "settings.sectionNav.cloudBackup"
 msgstr "Cloud sync & backup"
 
 #. js-lingui-explicit-id
@@ -1402,13 +1407,13 @@ msgid "settings.cloudBackupError.operation.mkcol"
 msgstr "Create directory"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:461
-msgid "settings.publicApiDelete"
+#: src/i18n/descriptors/settings-cloud-backup.ts:108
+msgid "settings.cloudBackupError.operation.delete"
 msgstr "Delete"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-cloud-backup.ts:108
-msgid "settings.cloudBackupError.operation.delete"
+#: src/i18n/descriptors/settings.ts:461
+msgid "settings.publicApiDelete"
 msgstr "Delete"
 
 #. js-lingui-explicit-id
@@ -1452,6 +1457,11 @@ msgid "settings.uploadedIconsDeleteTitle"
 msgstr "Delete uploaded icon?"
 
 #. js-lingui-explicit-id
+#: src/i18n/descriptors/settings-cloud-backup.ts:77
+msgid "settings.cloudBackupDeleting"
+msgstr "Deleting..."
+
+#. js-lingui-explicit-id
 #: src/i18n/descriptors/settings.ts:216
 msgid "settings.uploadedIconsDeleting"
 msgstr "Deleting..."
@@ -1459,11 +1469,6 @@ msgstr "Deleting..."
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/settings.ts:619
 msgid "settings.telegramBotCommandsDeleting"
-msgstr "Deleting..."
-
-#. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-cloud-backup.ts:77
-msgid "settings.cloudBackupDeleting"
 msgstr "Deleting..."
 
 #. js-lingui-explicit-id
@@ -1502,13 +1507,13 @@ msgid "settings.passkeyDeleteFailed"
 msgstr "Could not delete passkey"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:198
-msgid "settings.uploadedIconsRefreshKind"
+#: src/i18n/descriptors/settings-cloud-backup.ts:68
+msgid "settings.cloudBackupRefresh"
 msgstr "Refresh"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-cloud-backup.ts:68
-msgid "settings.cloudBackupRefresh"
+#: src/i18n/descriptors/settings.ts:198
+msgid "settings.uploadedIconsRefreshKind"
 msgstr "Refresh"
 
 #. js-lingui-explicit-id
@@ -3262,6 +3267,11 @@ msgid "settings.testChannel.email"
 msgstr "Test {channel} notification"
 
 #. js-lingui-explicit-id
+#: src/i18n/descriptors/settings-cloud-backup.ts:62
+msgid "settings.cloudBackupTesting"
+msgstr "Testing..."
+
+#. js-lingui-explicit-id
 #: src/i18n/descriptors/settings.ts:302
 msgid "aiRecognition.testing"
 msgstr "Testing..."
@@ -3272,18 +3282,13 @@ msgid "settings.testing"
 msgstr "Testing..."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-cloud-backup.ts:62
-msgid "settings.cloudBackupTesting"
-msgstr "Testing..."
+#: src/i18n/descriptors/settings-cloud-backup.ts:61
+msgid "settings.cloudBackupTest"
+msgstr "Test connection"
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/settings.ts:301
 msgid "aiRecognition.testConnection"
-msgstr "Test connection"
-
-#. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-cloud-backup.ts:61
-msgid "settings.cloudBackupTest"
 msgstr "Test connection"
 
 #. js-lingui-explicit-id
@@ -3392,13 +3397,13 @@ msgid "settings.addPasskeyPasswordHelp"
 msgstr "Confirms the current administrator's identity; it is never stored or shown again."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:30
-msgid "settings.username"
+#: src/i18n/descriptors/settings-cloud-backup.ts:24
+msgid "settings.cloudBackupWebdavUsername"
 msgstr "Username"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-cloud-backup.ts:24
-msgid "settings.cloudBackupWebdavUsername"
+#: src/i18n/descriptors/settings.ts:30
+msgid "settings.username"
 msgstr "Username"
 
 #. js-lingui-explicit-id

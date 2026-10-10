@@ -392,7 +392,7 @@ export async function buildCostSharingCollectionReminderMirrorStatements(
   const rows = await env.DB.prepare(`SELECT ${SUBSCRIPTION_COLUMNS} FROM subscriptions WHERE user_id = ?`)
     .bind(userId)
     .all<SubscriptionRow>();
-  const statements: D1PreparedStatement[] = [];
+  const changes: Array<[string, number, string | null]> = [];
   for (const row of rows.results) {
     const costSharingJson = parseJsonObject(row.cost_sharing_json ?? "{}");
     const costSharing = Object.keys(costSharingJson).length > 0 ? costSharingJson as SubscriptionBody["costSharing"] : null;
@@ -401,14 +401,17 @@ export async function buildCostSharingCollectionReminderMirrorStatements(
     if (row.cost_sharing_collection_reminder_enabled === enabled && row.cost_sharing_next_collection_reminder_date === mirror.nextReminderDate) {
       continue;
     }
-    // settings 的全局提醒天数/时区会影响 inherited 收款提醒；刷新只动内部索引镜像，不反写 cost_sharing_json。
-    statements.push(env.DB.prepare(`
-      UPDATE subscriptions
-      SET cost_sharing_collection_reminder_enabled = ?, cost_sharing_next_collection_reminder_date = ?
-      WHERE user_id = ? AND id = ?
-    `).bind(enabled, mirror.nextReminderDate, userId, row.id));
+    changes.push([row.id, enabled, mirror.nextReminderDate]);
   }
-  return statements;
+  if (changes.length === 0) return [];
+  // 收款镜像不反写用户配置；JSON1只更新当前owner的变化行，避免Cron逐条写放大D1查询数。
+  return [env.DB.prepare(`
+    UPDATE subscriptions AS subscription
+    SET cost_sharing_collection_reminder_enabled = json_extract(change.value, '$[1]'),
+        cost_sharing_next_collection_reminder_date = json_extract(change.value, '$[2]')
+    FROM json_each(?) AS change
+    WHERE subscription.user_id = ? AND subscription.id = json_extract(change.value, '$[0]')
+  `).bind(JSON.stringify(changes), userId)];
 }
 
 function collectionReminderMirror(

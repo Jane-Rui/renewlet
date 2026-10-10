@@ -543,6 +543,18 @@ export async function getAsset(env: Env, userId: string, id: string): Promise<As
   return await env.DB.prepare(`SELECT ${ASSET_COLUMNS} FROM assets WHERE user_id = ? AND id = ? LIMIT 1`).bind(userId, id).first<AssetRow>();
 }
 
+export type OwnedAssetMetadata = Pick<AssetRow, "id" | "r2_key" | "original_name" | "mime_type" | "size_bytes">;
+
+/** JSON1 集合参数避免资产数量突破 D1 绑定上限；owner 条件必须先于任何 R2 读取。 */
+export async function getOwnedAssetsByIds(env: Env, userId: string, ids: readonly string[]): Promise<OwnedAssetMetadata[]> {
+  const uniqueIds = [...new Set(ids)];
+  if (uniqueIds.length === 0) return [];
+  const result = await env.DB.prepare(`SELECT id, r2_key, original_name, mime_type, size_bytes FROM assets
+    WHERE user_id = ? AND id IN (SELECT value FROM json_each(?)) LIMIT ?`)
+    .bind(userId, JSON.stringify(uniqueIds), uniqueIds.length).all<OwnedAssetMetadata>();
+  return result.results;
+}
+
 /** listAssets 是 Logo/Icon 选择器的数据源；kind 和 userId 共同限制可见资产集合。 */
 export async function listAssets(env: Env, userId: string, kind: string, page: number, perPage: number): Promise<{ items: AssetRow[]; total: number }> {
   const offset = (page - 1) * perPage;

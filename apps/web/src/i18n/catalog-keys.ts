@@ -1224,6 +1224,7 @@ export const MESSAGE_KEYS = [
   "settings.cloudBackupProviderS3",
   "settings.cloudBackupProviderWebdav",
   "settings.cloudBackupRefresh",
+  "settings.cloudBackupRequestLimitPaused",
   "settings.cloudBackupRestore",
   "settings.cloudBackupRestoreFailed",
   "settings.cloudBackupRestoreFailedDescription",

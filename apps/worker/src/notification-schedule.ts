@@ -1,3 +1,4 @@
+import { scheduleInstantUtc } from "@renewlet/shared/schedule-time";
 import {
   REPEAT_REMINDER_INTERVALS,
   REPEAT_REMINDER_WINDOWS,
@@ -93,12 +94,12 @@ export function getLocalScheduleDecision(now: Date, timezone: string, localTime:
   return todayDecision;
 }
 
-export function getNextLocalScheduleOccurrence(now: Date, timezone: string, localTime: string): ScheduleOccurrence {
+export function getNextLocalScheduleOccurrence(now: Date, timezone: string, localTime: string, includeCurrent = true): ScheduleOccurrence {
   const timeZone = safeTimeZone(timezone);
   const scheduleTime = isValidLocalTime(localTime) ? localTime : "08:00";
   const today = dateOnlyInZone(now, timeZone);
   const todayInstant = Date.parse(scheduleOccurrence(today, scheduleTime, timeZone).scheduledInstantUtc);
-  const date = todayInstant < now.getTime() ? addDays(today, 1) : today;
+  const date = todayInstant < now.getTime() || (!includeCurrent && todayInstant === now.getTime()) ? addDays(today, 1) : today;
   return scheduleOccurrence(date, scheduleTime, timeZone);
 }
 
@@ -251,7 +252,7 @@ export function scheduleOccurrence(date: string, time: string, timezone: string)
     scheduledLocalDate: date,
     scheduledLocalTime: time,
     timeZone,
-    scheduledInstantUtc: zonedWallTimeToUtc(date, time, timeZone),
+    scheduledInstantUtc: scheduleInstantUtc(date, time, timeZone),
   };
 }
 
@@ -267,21 +268,6 @@ function localScheduleOccurrenceFromInstant(instant: Date, timezone: string): Sc
 
 export function displayTime(date: Date, settings: Pick<ApiAppSettings, "timezone">): string {
   return `${dateOnlyInZone(date, settings.timezone)} ${localTimeInZone(date, settings.timezone)} ${safeTimeZone(settings.timezone)}`;
-}
-
-function zonedWallTimeToUtc(date: string, time: string, timezone: string): string {
-  const [year, month, day] = date.split("-").map(Number) as [number, number, number];
-  const [hour, minute] = time.split(":").map(Number) as [number, number];
-  let utc = Date.UTC(year, month - 1, day, hour, minute);
-  // Intl 只能从 UTC 推本地时间；两轮校正把“本地墙钟时间”反推成 UTC instant。
-  for (let i = 0; i < 2; i += 1) {
-    const shownDate = dateOnlyInZone(new Date(utc), timezone);
-    const shownTime = localTimeInZone(new Date(utc), timezone);
-    const [sy, sm, sd] = shownDate.split("-").map(Number) as [number, number, number];
-    const [sh, smin] = shownTime.split(":").map(Number) as [number, number];
-    utc += Date.UTC(year, month - 1, day, hour, minute) - Date.UTC(sy, sm - 1, sd, sh, smin);
-  }
-  return toRfc3339Seconds(new Date(utc));
 }
 
 function isValidLocalTime(value: string): boolean {

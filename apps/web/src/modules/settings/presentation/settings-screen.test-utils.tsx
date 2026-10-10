@@ -222,9 +222,25 @@ vi.mock("@/contexts/CustomConfigContext", async () => {
 });
 
 vi.mock("./settings-advanced-sections-loader", async () => {
-  const module = await import("./settings-advanced-sections");
+  const [resourcesAi, budgetData, cloudCalendar, publicNotifications] = await Promise.all([
+    import("./settings-advanced-group-resources-ai"),
+    import("./settings-advanced-group-budget-data"),
+    import("./settings-advanced-group-cloud-calendar"),
+    import("./settings-advanced-group-public-notifications"),
+  ]);
+  const ResourcesAiGroup = resourcesAi.SettingsAdvancedResourcesAiGroup;
+  const BudgetDataGroup = budgetData.SettingsAdvancedBudgetDataGroup;
+  const CloudCalendarGroup = cloudCalendar.SettingsAdvancedCloudCalendarGroup;
+  const PublicNotificationsGroup = publicNotifications.SettingsAdvancedPublicNotificationsGroup;
   return {
-    DeferredSettingsAdvancedSections: module.SettingsAdvancedSections,
+    DeferredSettingsAdvancedSections: ({ controller, onReady }: { controller: Parameters<typeof ResourcesAiGroup>[0]["controller"]; onReady: () => void }) => (
+      <>
+        <ResourcesAiGroup controller={controller} onReady={onReady} />
+        <BudgetDataGroup controller={controller} onReady={onReady} />
+        <CloudCalendarGroup controller={controller} onReady={onReady} />
+        <PublicNotificationsGroup controller={controller} onReady={onReady} />
+      </>
+    ),
     preloadSettingsAdvancedSections: vi.fn(),
   };
 });
@@ -694,7 +710,12 @@ export function createCalendarFeedControllerState(
 
 function RouteProbe() {
   const location = useLocation();
-  return <div data-testid="route-path">{location.pathname}</div>;
+  return (
+    <>
+      <div data-testid="route-path">{location.pathname}</div>
+      <div data-testid="route-hash">{location.hash}</div>
+    </>
+  );
 }
 
 export function renderSettingsScreen(initialEntries = ["/settings"]) {

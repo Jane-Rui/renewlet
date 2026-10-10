@@ -40,19 +40,16 @@ type ApiFetchMock = (url: string, schema: unknown, init?: RequestInit) => Promis
 
 const mocks = vi.hoisted(() => ({
   apiFetch: vi.fn<ApiFetchMock>(),
-  getCurrentUserId: vi.fn<() => string | null>(),
+  getProductCurrentUserId: vi.fn<() => string | null>(),
 }));
 
 vi.mock("@/lib/api-client", () => ({
   apiFetch: mocks.apiFetch,
 }));
 
-vi.mock("@/lib/pocketbase", () => ({
-  pb: {
-    lang: "zh-CN",
-    beforeSend: undefined,
-  },
-  getCurrentUserId: mocks.getCurrentUserId,
+vi.mock("@/services/product-session", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/services/product-session")>(),
+  getProductCurrentUserId: mocks.getProductCurrentUserId,
 }));
 
 function createWrapper(
@@ -176,8 +173,8 @@ function requestBody(callIndex: number): unknown {
 describe("use-subscriptions mutations", () => {
   beforeEach(() => {
     mocks.apiFetch.mockReset();
-    mocks.getCurrentUserId.mockReset();
-    mocks.getCurrentUserId.mockReturnValue("user-1");
+    mocks.getProductCurrentUserId.mockReset();
+    mocks.getProductCurrentUserId.mockReturnValue("user-1");
     mocks.apiFetch.mockImplementation(async (url: string, _schema: unknown, init?: RequestInit) => {
       const id = url.includes("/sub-1") ? "sub-1" : "sub-1";
       if (!init?.body) {
@@ -381,8 +378,8 @@ describe("use-subscriptions mutations", () => {
 describe("use-subscriptions collection queries", () => {
   beforeEach(() => {
     mocks.apiFetch.mockReset();
-    mocks.getCurrentUserId.mockReset();
-    mocks.getCurrentUserId.mockReturnValue("user-1");
+    mocks.getProductCurrentUserId.mockReset();
+    mocks.getProductCurrentUserId.mockReturnValue("user-1");
   });
 
   it("loads a 1000-row search index with one request and no pagination waterfall", async () => {

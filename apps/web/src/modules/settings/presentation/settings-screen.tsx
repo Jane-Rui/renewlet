@@ -101,7 +101,7 @@ export function SettingsScreen() {
     previewLocalePreference(value);
   };
   const handleSectionIntent = (id: Parameters<typeof handleSectionClick>[0]) => {
-    if (isAdvancedSettingsSection(id)) preloadSettingsAdvancedSections();
+    if (isAdvancedSettingsSection(id)) preloadSettingsAdvancedSections(id);
   };
 
   return (

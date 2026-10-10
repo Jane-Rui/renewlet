@@ -778,6 +778,11 @@ msgid "settings.cloudBackupProviderWebdav"
 msgstr "WebDAV"
 
 #. js-lingui-explicit-id
+#: src/i18n/descriptors/settings-cloud-backup.ts:132
+msgid "settings.cloudBackupRequestLimitPaused"
+msgstr "WebDAV 单次操作超出 Cloudflare 免费版请求上限，定时备份已暂停。请检查地址和服务端跳转配置，修正后重新开启定时备份并保存。"
+
+#. js-lingui-explicit-id
 #: src/i18n/descriptors/settings-cloud-backup.ts:23
 msgid "settings.cloudBackupWebdavUrl"
 msgstr "WebDAV 地址"
@@ -893,13 +898,13 @@ msgid "settings.showExpiredHelp"
 msgstr "为避免过于冗长的通知可以关闭这项"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:28
-msgid "settings.sectionNav.cloudBackup"
+#: src/i18n/descriptors/settings-cloud-backup.ts:5
+msgid "settings.cloudBackup"
 msgstr "云同步与备份"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-cloud-backup.ts:5
-msgid "settings.cloudBackup"
+#: src/i18n/descriptors/settings.ts:28
+msgid "settings.sectionNav.cloudBackup"
 msgstr "云同步与备份"
 
 #. js-lingui-explicit-id
@@ -1402,13 +1407,13 @@ msgid "settings.cloudBackupError.operation.mkcol"
 msgstr "创建目录"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:461
-msgid "settings.publicApiDelete"
+#: src/i18n/descriptors/settings-cloud-backup.ts:108
+msgid "settings.cloudBackupError.operation.delete"
 msgstr "删除"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-cloud-backup.ts:108
-msgid "settings.cloudBackupError.operation.delete"
+#: src/i18n/descriptors/settings.ts:461
+msgid "settings.publicApiDelete"
 msgstr "删除"
 
 #. js-lingui-explicit-id
@@ -1452,6 +1457,11 @@ msgid "settings.uploadedIconsDeleteTitle"
 msgstr "删除上传图标？"
 
 #. js-lingui-explicit-id
+#: src/i18n/descriptors/settings-cloud-backup.ts:77
+msgid "settings.cloudBackupDeleting"
+msgstr "删除中..."
+
+#. js-lingui-explicit-id
 #: src/i18n/descriptors/settings.ts:216
 msgid "settings.uploadedIconsDeleting"
 msgstr "删除中..."
@@ -1459,11 +1469,6 @@ msgstr "删除中..."
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/settings.ts:619
 msgid "settings.telegramBotCommandsDeleting"
-msgstr "删除中..."
-
-#. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-cloud-backup.ts:77
-msgid "settings.cloudBackupDeleting"
 msgstr "删除中..."
 
 #. js-lingui-explicit-id
@@ -1502,13 +1507,13 @@ msgid "settings.passkeyDeleteFailed"
 msgstr "删除通行密钥失败"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:198
-msgid "settings.uploadedIconsRefreshKind"
+#: src/i18n/descriptors/settings-cloud-backup.ts:68
+msgid "settings.cloudBackupRefresh"
 msgstr "刷新"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-cloud-backup.ts:68
-msgid "settings.cloudBackupRefresh"
+#: src/i18n/descriptors/settings.ts:198
+msgid "settings.uploadedIconsRefreshKind"
 msgstr "刷新"
 
 #. js-lingui-explicit-id
@@ -3262,6 +3267,11 @@ msgid "settings.testChannel.email"
 msgstr "测试{channel}"
 
 #. js-lingui-explicit-id
+#: src/i18n/descriptors/settings-cloud-backup.ts:62
+msgid "settings.cloudBackupTesting"
+msgstr "测试中..."
+
+#. js-lingui-explicit-id
 #: src/i18n/descriptors/settings.ts:302
 msgid "aiRecognition.testing"
 msgstr "测试中..."
@@ -3272,18 +3282,13 @@ msgid "settings.testing"
 msgstr "测试中..."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-cloud-backup.ts:62
-msgid "settings.cloudBackupTesting"
-msgstr "测试中..."
+#: src/i18n/descriptors/settings-cloud-backup.ts:61
+msgid "settings.cloudBackupTest"
+msgstr "测试连接"
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/settings.ts:301
 msgid "aiRecognition.testConnection"
-msgstr "测试连接"
-
-#. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-cloud-backup.ts:61
-msgid "settings.cloudBackupTest"
 msgstr "测试连接"
 
 #. js-lingui-explicit-id
@@ -3392,13 +3397,13 @@ msgid "settings.addPasskeyPasswordHelp"
 msgstr "用于确认当前管理员身份，不会保存或回显。"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:30
-msgid "settings.username"
+#: src/i18n/descriptors/settings-cloud-backup.ts:24
+msgid "settings.cloudBackupWebdavUsername"
 msgstr "用户名"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-cloud-backup.ts:24
-msgid "settings.cloudBackupWebdavUsername"
+#: src/i18n/descriptors/settings.ts:30
+msgid "settings.username"
 msgstr "用户名"
 
 #. js-lingui-explicit-id

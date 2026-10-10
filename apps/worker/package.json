@@ -2,10 +2,10 @@
   "name": "@renewlet/cloudflare",
   "private": true,
   "license": "MIT",
-  "version": "0.3.29",
+  "version": "0.3.30",
   "type": "module",
   "scripts": {
-    "build": "wrangler deploy --dry-run --config ../../wrangler.jsonc --outdir dist",
+    "build": "pnpm typecheck && wrangler deploy --dry-run --config ../../wrangler.jsonc --outdir dist",
     "test:perf": "vitest run src/subscription-derived-state.performance.test.ts",
     "test:run": "vitest run --exclude '**/*.performance.test.ts'",
     "typecheck": "tsc --noEmit --project tsconfig.json"
@@ -20,6 +20,7 @@
     "@noble/hashes": "2.2.0",
     "@renewlet/shared": "workspace:*",
     "@simplewebauthn/server": "^13.3.2",
+    "@smithy/core": "3.31.1",
     "@smithy/fetch-http-handler": "5.6.13",
     "ai": "7.0.55",
     "fast-xml-parser": "5.10.1",
@@ -29,9 +30,9 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "5.20260926.1",
+    "@cloudflare/workers-types": "5.20261006.1",
     "typescript": "6.0.3",
     "vitest": "^4.1.11",
-    "wrangler": "4.142.0"
+    "wrangler": "4.149.0"
   }
 }

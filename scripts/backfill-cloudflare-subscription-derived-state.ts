@@ -2,7 +2,7 @@
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { effectiveReminderDays } from "../packages/shared/src/runtime";
+import { effectiveReminderDays } from "@renewlet/shared/runtime";
 import { settingsFromRowJson, toApiSubscription } from "../apps/worker/src/db";
 import {
   normalizeSubscriptionTags,

@@ -2,7 +2,7 @@ import { expect, type Page } from "@playwright/test";
 import {
   publicStatusPageCreateResponseSchema,
   publicStatusPageResponseSchema,
-} from "../../packages/shared/src/schemas/public-status";
+} from "@renewlet/shared/schemas/public-status";
 
 type JsonObject = Record<string, unknown>;
 

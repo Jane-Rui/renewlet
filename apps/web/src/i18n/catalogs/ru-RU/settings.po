@@ -778,6 +778,11 @@ msgid "settings.cloudBackupProviderWebdav"
 msgstr "WebDAV"
 
 #. js-lingui-explicit-id
+#: src/i18n/descriptors/settings-cloud-backup.ts:132
+msgid "settings.cloudBackupRequestLimitPaused"
+msgstr "Операция WebDAV превысила лимит запросов бесплатного тарифа Cloudflare, поэтому резервное копирование по расписанию приостановлено. Проверьте URL и перенаправления сервера, затем снова включите резервное копирование по расписанию и сохраните настройки."
+
+#. js-lingui-explicit-id
 #: src/i18n/descriptors/settings-cloud-backup.ts:23
 msgid "settings.cloudBackupWebdavUrl"
 msgstr "WebDAV URL"
@@ -893,13 +898,13 @@ msgid "settings.showExpiredHelp"
 msgstr "Отключите, чтобы уведомления были короче."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:28
-msgid "settings.sectionNav.cloudBackup"
+#: src/i18n/descriptors/settings-cloud-backup.ts:5
+msgid "settings.cloudBackup"
 msgstr "Облачная синхронизация и резервное копирование"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-cloud-backup.ts:5
-msgid "settings.cloudBackup"
+#: src/i18n/descriptors/settings.ts:28
+msgid "settings.sectionNav.cloudBackup"
 msgstr "Облачная синхронизация и резервное копирование"
 
 #. js-lingui-explicit-id
@@ -1402,14 +1407,14 @@ msgid "settings.cloudBackupError.operation.mkcol"
 msgstr "Создание каталога"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:461
-msgid "settings.publicApiDelete"
-msgstr "Удалить"
-
-#. js-lingui-explicit-id
 #: src/i18n/descriptors/settings-cloud-backup.ts:108
 msgid "settings.cloudBackupError.operation.delete"
 msgstr "Удаление"
+
+#. js-lingui-explicit-id
+#: src/i18n/descriptors/settings.ts:461
+msgid "settings.publicApiDelete"
+msgstr "Удалить"
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/settings.ts:212
@@ -1452,6 +1457,11 @@ msgid "settings.uploadedIconsDeleteTitle"
 msgstr "Удалить загруженный значок?"
 
 #. js-lingui-explicit-id
+#: src/i18n/descriptors/settings-cloud-backup.ts:77
+msgid "settings.cloudBackupDeleting"
+msgstr "Удаление..."
+
+#. js-lingui-explicit-id
 #: src/i18n/descriptors/settings.ts:216
 msgid "settings.uploadedIconsDeleting"
 msgstr "Удаление..."
@@ -1459,11 +1469,6 @@ msgstr "Удаление..."
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/settings.ts:619
 msgid "settings.telegramBotCommandsDeleting"
-msgstr "Удаление..."
-
-#. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-cloud-backup.ts:77
-msgid "settings.cloudBackupDeleting"
 msgstr "Удаление..."
 
 #. js-lingui-explicit-id
@@ -1502,13 +1507,13 @@ msgid "settings.passkeyDeleteFailed"
 msgstr "Не удалось удалить ключ доступа"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:198
-msgid "settings.uploadedIconsRefreshKind"
+#: src/i18n/descriptors/settings-cloud-backup.ts:68
+msgid "settings.cloudBackupRefresh"
 msgstr "Обновить"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-cloud-backup.ts:68
-msgid "settings.cloudBackupRefresh"
+#: src/i18n/descriptors/settings.ts:198
+msgid "settings.uploadedIconsRefreshKind"
 msgstr "Обновить"
 
 #. js-lingui-explicit-id
@@ -3262,6 +3267,11 @@ msgid "settings.testChannel.email"
 msgstr "Тестовое уведомление {channel}"
 
 #. js-lingui-explicit-id
+#: src/i18n/descriptors/settings-cloud-backup.ts:62
+msgid "settings.cloudBackupTesting"
+msgstr "Проверка..."
+
+#. js-lingui-explicit-id
 #: src/i18n/descriptors/settings.ts:302
 msgid "aiRecognition.testing"
 msgstr "Проверка..."
@@ -3272,18 +3282,13 @@ msgid "settings.testing"
 msgstr "Проверка..."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-cloud-backup.ts:62
-msgid "settings.cloudBackupTesting"
-msgstr "Проверка..."
+#: src/i18n/descriptors/settings-cloud-backup.ts:61
+msgid "settings.cloudBackupTest"
+msgstr "Проверить подключение"
 
 #. js-lingui-explicit-id
 #: src/i18n/descriptors/settings.ts:301
 msgid "aiRecognition.testConnection"
-msgstr "Проверить подключение"
-
-#. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-cloud-backup.ts:61
-msgid "settings.cloudBackupTest"
 msgstr "Проверить подключение"
 
 #. js-lingui-explicit-id
@@ -3392,13 +3397,13 @@ msgid "settings.addPasskeyPasswordHelp"
 msgstr "Подтверждает личность текущего администратора; пароль не сохраняется и больше не отображается."
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings.ts:30
-msgid "settings.username"
+#: src/i18n/descriptors/settings-cloud-backup.ts:24
+msgid "settings.cloudBackupWebdavUsername"
 msgstr "Имя пользователя"
 
 #. js-lingui-explicit-id
-#: src/i18n/descriptors/settings-cloud-backup.ts:24
-msgid "settings.cloudBackupWebdavUsername"
+#: src/i18n/descriptors/settings.ts:30
+msgid "settings.username"
 msgstr "Имя пользователя"
 
 #. js-lingui-explicit-id

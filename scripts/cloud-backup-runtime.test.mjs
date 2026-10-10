@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createRequire } from "node:module";
@@ -7,7 +8,7 @@ import test from "node:test";
 import { parse } from "jsonc-parser";
 import { unstable_dev } from "wrangler";
 
-test("S3 transport uses the deployed Wrangler runtime entry", { timeout: 60_000 }, async (t) => {
+test("cloud backup uses the deployed Wrangler runtime entry", { timeout: 60_000 }, async (t) => {
   const root = fileURLToPath(new URL("..", import.meta.url));
   const config = parse(await readFile(join(root, "wrangler.jsonc"), "utf8"));
   const rootRequire = createRequire(join(root, "package.json"));
@@ -38,6 +39,13 @@ test("S3 transport uses the deployed Wrangler runtime entry", { timeout: 60_000 
       envFiles: [],
       logLevel: "error",
       experimental: { disableExperimentalWarning: true, disableDevRegistry: true, watch: false },
+    });
+    await t.test("keeps the existing ZIP bytes with the deployed CRC32 runtime", async () => {
+      const response = await worker.fetch("http://localhost/?scenario=zip");
+      assert.equal(response.status, 200);
+      const archive = Buffer.from(await response.arrayBuffer());
+      // 基线来自旧写入器并经独立ZIP读取器校验；整包hash同时保护CRC、记录偏移和确定性格式。
+      assert.equal(createHash("sha256").update(archive).digest("hex"), "057a8e1eda5f2d50ec8f6af9da33431e1049cab7e9d22cadb925aa540f08f2b3");
     });
     for (const scenario of ["root", "pages"]) {
       await t.test(`parses ${scenario} listing and reads only its manifest`, async () => {
