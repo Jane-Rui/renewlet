@@ -2,6 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "renewlet",
   "main": "apps/worker/src/index.ts",
+  "upload_source_maps": true,
   "compatibility_date": "2026-06-24",
   "compatibility_flags": [
     "nodejs_compat"
